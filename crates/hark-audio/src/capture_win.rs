@@ -31,11 +31,11 @@ pub enum CaptureError {
     ThreadDied,
 }
 
-/// A running capture: the ring consumer plus the live device rate. Dropping
-/// the handle stops the stream (its owning thread exits and the stream drops
-/// with it).
+/// A running capture. The ring `Consumer` is handed out by value at start
+/// (it moves to the pipeline worker); this handle keeps the stream alive.
+/// Dropping it stops the stream (its owning thread exits and the stream
+/// drops with it).
 pub struct CaptureHandle {
-    consumer: Consumer,
     sample_rate: u32,
     stream_error: Arc<AtomicBool>,
     shutdown: Arc<AtomicBool>,
@@ -43,10 +43,6 @@ pub struct CaptureHandle {
 }
 
 impl CaptureHandle {
-    pub fn consumer(&self) -> &Consumer {
-        &self.consumer
-    }
-
     /// The device rate samples arrive at (the ring's rate). Downstream
     /// resamples to 16 kHz per clip.
     pub fn sample_rate(&self) -> u32 {
@@ -70,9 +66,12 @@ impl Drop for CaptureHandle {
     }
 }
 
-/// Start continuous capture into a ring of `ring_capacity` samples.
-/// Blocks until the stream is live (or failed to build).
-pub fn start(ring_capacity: usize) -> Result<CaptureHandle, CaptureError> {
+/// Start continuous capture into a ring sized `ring_seconds * live device
+/// rate` (the rate is only known once the stream config resolves, so sizing
+/// is by duration, not sample count). Blocks until the stream is live (or
+/// failed to build). Returns the handle plus the ring `Consumer`, which
+/// moves to the pipeline worker.
+pub fn start(ring_seconds: u32) -> Result<(CaptureHandle, Consumer), CaptureError> {
     let shutdown = Arc::new(AtomicBool::new(false));
     let stream_error = Arc::new(AtomicBool::new(false));
     let (result_tx, result_rx) = mpsc::sync_channel::<Result<(Consumer, u32), CaptureError>>(1);
@@ -82,18 +81,20 @@ pub fn start(ring_capacity: usize) -> Result<CaptureHandle, CaptureError> {
     let thread = std::thread::Builder::new()
         .name("hark-audio-capture".to_string())
         .spawn(move || {
-            capture_thread(ring_capacity, thread_error, thread_shutdown, result_tx);
+            capture_thread(ring_seconds, thread_error, thread_shutdown, result_tx);
         })
         .expect("spawning the capture thread cannot fail");
 
     match result_rx.recv() {
-        Ok(Ok((consumer, sample_rate))) => Ok(CaptureHandle {
+        Ok(Ok((consumer, sample_rate))) => Ok((
+            CaptureHandle {
+                sample_rate,
+                stream_error,
+                shutdown,
+                thread: Some(thread),
+            },
             consumer,
-            sample_rate,
-            stream_error,
-            shutdown,
-            thread: Some(thread),
-        }),
+        )),
         Ok(Err(e)) => {
             let _ = thread.join();
             Err(e)
@@ -105,12 +106,12 @@ pub fn start(ring_capacity: usize) -> Result<CaptureHandle, CaptureError> {
 /// Body of the dedicated capture thread: build the stream, report the result,
 /// then keep the stream alive until shutdown.
 fn capture_thread(
-    ring_capacity: usize,
+    ring_seconds: u32,
     stream_error: Arc<AtomicBool>,
     shutdown: Arc<AtomicBool>,
     result_tx: mpsc::SyncSender<Result<(Consumer, u32), CaptureError>>,
 ) {
-    let built = build_stream(ring_capacity, stream_error);
+    let built = build_stream(ring_seconds, stream_error);
     match built {
         Ok((stream, consumer, rate)) => {
             if let Err(e) = stream.play() {
@@ -136,7 +137,7 @@ fn capture_thread(
 /// not trust default heuristics, and Phase 1 does not add integer-format
 /// conversion paths.
 fn build_stream(
-    ring_capacity: usize,
+    ring_seconds: u32,
     stream_error: Arc<AtomicBool>,
 ) -> Result<(cpal::Stream, Consumer, u32), CaptureError> {
     let host = cpal::default_host();
@@ -169,7 +170,8 @@ fn build_stream(
     let channels = supported.channels() as usize;
     let config: cpal::StreamConfig = supported.into();
 
-    let (producer, consumer): (Producer, Consumer) = ring(ring_capacity);
+    let (producer, consumer): (Producer, Consumer) =
+        ring(ring_seconds as usize * sample_rate as usize);
 
     let error_flag = stream_error.clone();
     let stream = device

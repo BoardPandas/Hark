@@ -4,6 +4,14 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.6.0] - 2026-07-16
+
+### Added
+- **Pipeline orchestration (`hark-pipeline`, checkpoint 5).** The pure state machine (`Idle -> Recording -> Transcribing -> Injecting -> Idle`) is total: every state/event pair is defined, stray releases and duplicate presses are inert, presses arriving mid-dictation are ignored rather than queued, and any failure aborts cleanly back to `Idle` (never a panic). The retry predicate honors the spike verdict exactly: one retry, only for `Timeout` and connect-class `Http`; `Auth`, `RateLimited`, `Provider`, `BadAudio`, and non-connect transport failures (which may already have reached the provider) never retry. A localhost contract test pins the connect-class detection against the frozen `hark-stt` transport mapping so drift is caught at test time. The worker loop stamps chord edges against the audio clock at processing time (pre-roll absorbs hook-to-worker latency), assembles/gates/encodes/transcribes/injects, treats empty transcripts as inject-nothing, and pre-warms the shared HTTP client on the worker thread at startup (the spike measured 0.4-0.9 s cold cost). `run(settings, api_key)` maps settings onto the frozen `hark-stt` contract (Groq/OpenAI/custom all ride the OpenAI-compatible adapter), spawns capture + hook + worker threads, and returns a handle whose drop tears everything down in dependency order. Integration tests drive the full pre-STT path (ring -> window -> gate -> WAV) with the committed spike fixture, asserting sample counts end to end.
+
+### Changed
+- **`hark-audio` capture sizing and handoff.** `start()` now takes ring seconds instead of a sample count (the device rate is only known once the stream config resolves; capacity is computed against the live rate) and returns the ring `Consumer` by value so it can move into the pipeline worker. New `window::ring_seconds` helper with a test proving it always covers `ring_capacity` at any rate.
+
 ## [0.5.0] - 2026-07-16
 
 ### Added

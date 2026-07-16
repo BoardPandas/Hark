@@ -66,6 +66,14 @@ pub fn ring_capacity(rate: u32, params: &WindowParams) -> usize {
     (window + rate as u64) as usize
 }
 
+/// `ring_capacity` expressed in whole seconds, for callers that must size
+/// the ring BEFORE the device rate is known (capture computes
+/// `seconds * live_rate` once the stream config is resolved). Always covers
+/// `ring_capacity` at any rate.
+pub fn ring_seconds(params: &WindowParams) -> u32 {
+    params.max_hold_s + (params.preroll_ms + params.tail_ms).div_ceil(1000) + 1
+}
+
 /// Root-mean-square amplitude of a clip. Empty clips are 0.0 (silent).
 pub fn rms(samples: &[f32]) -> f32 {
     if samples.is_empty() {
@@ -171,6 +179,22 @@ mod tests {
         let max_hold_samples = p.max_hold_s as u64 * RATE as u64;
         let window = max_hold_samples + 14_400 + 7_200;
         assert!(cap >= window + RATE as u64, "one second of copy slack");
+    }
+
+    #[test]
+    fn ring_seconds_covers_ring_capacity_at_any_rate() {
+        let p = params();
+        for rate in [16_000_u32, 44_100, 48_000, 96_000] {
+            let by_seconds = window_seconds_to_capacity(rate, ring_seconds(&p));
+            assert!(
+                by_seconds >= ring_capacity(rate, &p),
+                "ring_seconds under-sizes the ring at {rate} Hz"
+            );
+        }
+    }
+
+    fn window_seconds_to_capacity(rate: u32, seconds: u32) -> usize {
+        seconds as usize * rate as usize
     }
 
     #[test]
