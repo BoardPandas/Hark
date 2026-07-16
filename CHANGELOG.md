@@ -4,6 +4,11 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.1.3] - 2026-07-16
+
+### Added
+- **Phase 1 pipeline spec** (`tasks/2026-07-16-phase1-pipeline.md`): the plan for the full dictation loop now that the STT spike passed. Crate layout follows the master plan's decomposition (`hark-audio`, `hark-hotkey`, `hark-inject`, `hark-keychain`, `hark-config`, `hark-pipeline` library + thin `hark-cli` dev binary; tray/egui UI stays a later phase). Eight commit-sized checkpoints from workspace scaffolding through a Windows end-to-end run, with macOS parity (CGEventTap) explicitly marked as needing real Mac hardware. Load-bearing gotchas are baked in up front: WASAPI won't deliver 16 kHz (resample in-process), `WH_KEYBOARD_LL` needs its own message pump thread, our injected Ctrl+V must be filtered via `LLKHF_INJECTED` so the hook doesn't re-capture it, and arboard clipboard restore only round-trips text formats.
+
 ## [0.1.2] - 2026-07-16
 
 ### Changed
