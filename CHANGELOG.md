@@ -4,6 +4,11 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.7.1] - 2026-07-16
+
+### Changed
+- **Phase 1 (Windows) definition of done is met: the CP6 interactive gate passed user validation.** Hold Left Ctrl + Left Win, speak, release injects the transcript at the cursor with no issues: pre-roll captured early words, the clipboard was restored after paste, and the synthesized paste did not re-trigger recording. Recorded in the spec's Lessons Learned along with the Doppler dev-run note (secrets are provider-named, so `HARK_STT_KEY` must be mapped explicitly rather than relying on `doppler run`). macOS parity (checkpoint 7) is deferred until Mac hardware is available.
+
 ## [0.7.0] - 2026-07-16
 
 ### Added
