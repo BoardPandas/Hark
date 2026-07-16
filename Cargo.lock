@@ -1104,6 +1104,7 @@ version = "0.1.0"
 dependencies = [
  "hark-audio",
  "hark-config",
+ "hark-dictionary",
  "hark-hotkey",
  "hark-inject",
  "hark-stt",
@@ -1117,6 +1118,7 @@ name = "hark-stt"
 version = "0.1.0"
 dependencies = [
  "hound",
+ "log",
  "reqwest",
  "serde",
  "serde_json",

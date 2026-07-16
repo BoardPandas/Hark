@@ -25,13 +25,21 @@ pub struct OpenAiCompatible {
 
 impl OpenAiCompatible {
     pub fn new(config: &ProviderConfig, client: Client) -> Self {
+        let (prompt, included) = prompt_from_bias_terms(&config.bias_terms);
+        if !config.bias_terms.is_empty() {
+            // Counts only: terms are user content and never appear in logs.
+            log::info!(
+                "prompt bias: included {included} of {} terms",
+                config.bias_terms.len()
+            );
+        }
         Self {
             client,
             label: config.label.clone(),
             url: transcriptions_url(&config.base_url),
             model: config.model.clone(),
             api_key: config.api_key.clone(),
-            prompt: prompt_from_bias_terms(&config.bias_terms),
+            prompt,
         }
     }
 }
@@ -41,15 +49,34 @@ pub fn transcriptions_url(base_url: &str) -> String {
     format!("{}/audio/transcriptions", base_url.trim_end_matches('/'))
 }
 
-/// Whisper-family biasing: bias terms ride the `prompt` field as a short,
-/// comma-separated glossary. None when there are no terms so the field is
-/// omitted entirely.
-pub fn prompt_from_bias_terms(bias_terms: &[String]) -> Option<String> {
-    if bias_terms.is_empty() {
-        None
-    } else {
-        Some(bias_terms.join(", "))
+/// Whisper-family models truncate prompts at 224 tokens; keep the bias
+/// glossary safely under that with the ~4-chars-per-token heuristic.
+const PROMPT_TOKEN_BUDGET: usize = 200;
+
+/// Whisper-family biasing: bias terms ride the `prompt` field as a
+/// comma-separated glossary, included in order until the approximate token
+/// budget is spent; the rest are dropped (a term that would cross the
+/// budget is dropped even if a later, shorter one might fit — order is the
+/// user's priority signal). Returns the prompt (`None` when no term made
+/// it, so the field is omitted entirely) and how many terms were included.
+pub fn prompt_from_bias_terms(bias_terms: &[String]) -> (Option<String>, usize) {
+    let budget_chars = PROMPT_TOKEN_BUDGET * 4;
+    let mut prompt = String::new();
+    let mut chars = 0;
+    let mut included = 0;
+    for term in bias_terms {
+        let added = term.chars().count() + if included > 0 { 2 } else { 0 };
+        if chars + added > budget_chars {
+            break;
+        }
+        if included > 0 {
+            prompt.push_str(", ");
+        }
+        prompt.push_str(term);
+        chars += added;
+        included += 1;
     }
+    ((included > 0).then_some(prompt), included)
 }
 
 /// The text fields of the multipart form, as (name, value) pairs.

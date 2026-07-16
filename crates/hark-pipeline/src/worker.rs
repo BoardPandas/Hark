@@ -6,6 +6,7 @@ use crate::retry::should_retry;
 use crate::state::{advance, Action, Event, PipelineState};
 use hark_audio::ring::Consumer;
 use hark_audio::WindowParams;
+use hark_dictionary::Corrector;
 use hark_hotkey::PttEvent;
 use hark_inject::InjectSettings;
 use hark_stt::{SttError, SttProvider, Transcript};
@@ -18,6 +19,8 @@ pub(crate) struct Worker {
     pub window: WindowParams,
     pub inject: InjectSettings,
     pub provider: Box<dyn SttProvider>,
+    /// Dictionary post-correction, built once from the configured terms.
+    pub corrector: Corrector,
     /// Base URL to pre-warm (DNS + TCP + TLS) before the first dictation.
     pub prewarm_url: String,
     /// The shared HTTP client (same instance the provider adapter holds),
@@ -113,11 +116,12 @@ fn dictate(worker: &Worker, down_abs: u64, up_abs: u64, state: PipelineState) ->
         return advance(state, Event::Aborted).0;
     }
 
-    match hark_inject::inject(&transcript.text, &worker.inject) {
+    let text = corrected_text(&worker.corrector, &transcript.text);
+    match hark_inject::inject(&text, &worker.inject) {
         Ok(()) => {
             log::info!(
                 "dictation injected: {} chars, request {} ms, release-to-inject {} ms",
-                transcript.text.chars().count(),
+                text.chars().count(),
                 transcript.request_ms,
                 released.elapsed().as_millis()
             );
@@ -128,6 +132,18 @@ fn dictate(worker: &Worker, down_abs: u64, up_abs: u64, state: PipelineState) ->
             advance(state, Event::Aborted).0
         }
     }
+}
+
+/// The dictionary pass between transcript and injection. Pure (the testable
+/// seam); logs counts and millis only, never transcript text or terms.
+fn corrected_text(corrector: &Corrector, transcript_text: &str) -> String {
+    let started = Instant::now();
+    let (text, replacements) = corrector.correct(transcript_text);
+    log::info!(
+        "dictionary: {replacements} replacements in {} ms",
+        started.elapsed().as_millis()
+    );
+    text
 }
 
 /// At most one retry, and only when `should_retry` says the failure class
@@ -235,5 +251,27 @@ mod tests {
         let err = expect_err(transcribe_with_retry(&p, b"wav"));
         assert!(matches!(err, SttError::Auth { .. }));
         assert_eq!(p.calls.get(), 1, "4xx must never retry");
+    }
+
+    // The worker path from a provider transcript to the text handed to
+    // hark_inject::inject: transcribe (with retry) then the dictionary
+    // pass. Injection itself is I/O, validated on real hardware at CP6.
+
+    #[test]
+    fn misspelled_transcript_is_corrected_before_injection() {
+        let p = MockProvider::new(vec![MockProvider::ok(
+            "tell vosburg the madero build is green",
+        )]);
+        let corrector = Corrector::new(&["Vossburg".to_string(), "Modero".to_string()]);
+
+        let transcript = transcribe_with_retry(&p, b"wav").unwrap();
+        let text = corrected_text(&corrector, &transcript.text);
+        assert_eq!(text, "tell Vossburg the Modero build is green");
+    }
+
+    #[test]
+    fn empty_dictionary_leaves_the_transcript_untouched() {
+        let corrector = Corrector::new(&[]);
+        assert_eq!(corrected_text(&corrector, "as it was"), "as it was");
     }
 }

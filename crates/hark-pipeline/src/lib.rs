@@ -131,6 +131,7 @@ pub fn run(settings: &Settings, api_key: String) -> Result<PipelineHandle, Pipel
         window,
         inject: inject_settings(&settings.inject),
         provider,
+        corrector: hark_dictionary::Corrector::new(&settings.dictionary.terms),
         prewarm_url,
         client,
     };

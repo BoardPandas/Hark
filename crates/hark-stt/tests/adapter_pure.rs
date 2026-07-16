@@ -23,15 +23,56 @@ fn form_fields_include_model_format_language() {
 
 #[test]
 fn form_fields_carry_prompt_when_bias_terms_exist() {
-    let prompt = openai_compatible::prompt_from_bias_terms(&s(&["Hark", "Levenshtein"]));
+    let (prompt, included) =
+        openai_compatible::prompt_from_bias_terms(&s(&["Hark", "Levenshtein"]));
     assert_eq!(prompt.as_deref(), Some("Hark, Levenshtein"));
+    assert_eq!(included, 2);
     let fields = openai_compatible::form_text_fields("whisper-1", prompt.as_deref());
     assert!(fields.contains(&("prompt", "Hark, Levenshtein".to_string())));
 }
 
 #[test]
 fn no_bias_terms_means_no_prompt() {
-    assert_eq!(openai_compatible::prompt_from_bias_terms(&[]), None);
+    assert_eq!(openai_compatible::prompt_from_bias_terms(&[]), (None, 0));
+}
+
+// --- prompt token budget (Whisper-family models truncate at 224 tokens;
+// the cap is 200 tokens at ~4 chars per token = 800 chars) ---
+
+#[test]
+fn prompt_under_budget_includes_every_term() {
+    let terms = s(&["Modero", "Vossburg", "hark-stt", "nova-3"]);
+    let (prompt, included) = openai_compatible::prompt_from_bias_terms(&terms);
+    assert_eq!(
+        prompt.as_deref(),
+        Some("Modero, Vossburg, hark-stt, nova-3")
+    );
+    assert_eq!(included, 4);
+}
+
+#[test]
+fn prompt_exactly_at_budget_includes_every_term() {
+    // 398 + 2 (separator) + 400 = 800 chars = exactly 200 approx tokens.
+    let terms = vec!["a".repeat(398), "b".repeat(400)];
+    let (prompt, included) = openai_compatible::prompt_from_bias_terms(&terms);
+    assert_eq!(included, 2);
+    assert_eq!(prompt.expect("both fit").chars().count(), 800);
+}
+
+#[test]
+fn prompt_over_budget_drops_terms_beyond_the_cap() {
+    // The second term would push the total to 801 chars: dropped, along
+    // with everything after it (order is the user's priority signal).
+    let terms = vec!["a".repeat(398), "b".repeat(401), "short".to_string()];
+    let (prompt, included) = openai_compatible::prompt_from_bias_terms(&terms);
+    assert_eq!(included, 1);
+    assert_eq!(prompt.expect("first term fits").chars().count(), 398);
+}
+
+#[test]
+fn prompt_is_omitted_when_even_the_first_term_exceeds_budget() {
+    let terms = vec!["x".repeat(900)];
+    assert_eq!(openai_compatible::prompt_from_bias_terms(&terms), (None, 0));
 }
 
 #[test]

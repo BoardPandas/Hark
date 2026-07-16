@@ -9,6 +9,7 @@ description = "Hark dictation pipeline: worker-thread state machine gluing audio
 [dependencies]
 hark-audio = { path = "../hark-audio" }
 hark-config = { path = "../hark-config" }
+hark-dictionary = { path = "../hark-dictionary" }
 hark-hotkey = { path = "../hark-hotkey" }
 hark-inject = { path = "../hark-inject" }
 hark-stt = { path = "../hark-stt" }

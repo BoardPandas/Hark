@@ -4,6 +4,14 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.8.0] - 2026-07-16
+
+### Added
+- **Dictionary correction is live in the dictation loop (Phase 2 checkpoint 5).** Every dictation now runs the phonetic post-correction pass between the provider's transcript and injection: spans that sound like a configured `[dictionary] terms` entry but are spelled wrong arrive at the cursor with the canonical spelling. The corrector is built once at pipeline startup (per-term phonetic codes precomputed off the hot path) and the pass logs counts and millis only ("dictionary: N replacements in X ms"), never transcript text or term content, preserving the Phase 1 logging discipline. Worker-level tests drive a fake provider's misspelled transcript through the retry-and-correct path and assert the exact text handed to injection; the injection I/O itself remains a real-hardware concern for the CP6 gate.
+
+### Changed
+- **Whisper-family prompt biasing now respects the 224-token truncation limit.** `prompt_from_bias_terms` includes terms in configured order until a ~200-token budget (4 chars per token heuristic) is spent and drops the rest, instead of joining an unbounded list into a prompt the model would silently truncate. Adapter construction logs "prompt bias: included M of N terms" (counts only). Deepgram's `keyterm` path is unchanged.
+
 ## [0.7.6] - 2026-07-16
 
 ### Added
