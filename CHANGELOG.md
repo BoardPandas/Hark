@@ -4,6 +4,16 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.1.0] - 2026-07-15
+
+### Added
+- **Both Phase 1 cloud STT adapters** (spike checkpoints 1-4). `openai_compatible` posts hand-assembled multipart to `{base_url}/audio/transcriptions` with Bearer auth (one code path for OpenAI and Groq; bias terms ride the `prompt` field), and `deepgram` posts raw `audio/wav` to `/v1/listen` with `Token` auth, `smart_format`, and repeated `keyterm` params for dictionary biasing. Both sit behind `hark_stt::build()` and share one long-lived rustls HTTP client (3 s connect / 15 s total timeouts).
+- **The spike harness** (`cargo run --example transcribe_spike`): per configured provider it prints the fixture transcript with edit-distance divergence, a cold-vs-warm latency table (N warm runs, p50/p95/min/max, separate WAV-encode timing), the Deepgram keyterm A/B, live failure drills (bad key, dead DNS, non-routable IP), and a default-provider + retry-policy verdict. Providers without keys are skipped with an explicit message; a print-time self-check guarantees no API key can appear in any report line.
+- **Pure-logic test suite** (`tests/adapter_pure.rs`, 20 tests): multipart body assembly and boundary-collision avoidance, Deepgram keyterm URL encoding, HTTP-status to error-taxonomy mapping (401/403/429/500 with Retry-After and snippet truncation), latency percentile math, and WAV encode/parse round-trips validated against `hound`.
+
+### Fixed
+- **Connect/timeout errors no longer masquerade as body errors.** reqwest's own multipart streams the body through a channel, so connect failures surfaced as opaque "send failed because receiver is gone" with `is_connect()`/`is_timeout()` false, wrecking the retry taxonomy. The adapter now buffers a hand-built multipart body; DNS failure classifies as a connect-class `Http` error in ~4 ms and a non-routable host as `Timeout` at the 3 s connect bound.
+
 ## [0.0.3] - 2026-07-15
 
 ### Changed

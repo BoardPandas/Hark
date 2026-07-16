@@ -23,7 +23,10 @@ pub enum SttError {
 
     /// The configured total request timeout elapsed.
     #[error("request to {provider} timed out after {configured_ms} ms")]
-    Timeout { provider: String, configured_ms: u64 },
+    Timeout {
+        provider: String,
+        configured_ms: u64,
+    },
 
     /// The audio handed to an adapter (or the fixture) is not usable.
     #[error("bad audio: {0}")]
@@ -75,12 +78,15 @@ pub fn error_for_status(
 /// because they are the pipeline's only retry-once candidate. `reqwest` error
 /// Display strings contain the URL but never request headers or bodies, so
 /// they are safe to keep as detail.
-pub fn error_for_transport(
-    provider: &str,
-    configured_ms: u64,
-    err: &reqwest::Error,
-) -> SttError {
+pub fn error_for_transport(provider: &str, configured_ms: u64, err: &reqwest::Error) -> SttError {
     if err.is_timeout() {
+        // A timeout during connect hit the (shorter) connect bound, not the
+        // total request bound the caller passes in.
+        let configured_ms = if err.is_connect() {
+            crate::CONNECT_TIMEOUT_MS
+        } else {
+            configured_ms
+        };
         SttError::Timeout {
             provider: provider.to_string(),
             configured_ms,

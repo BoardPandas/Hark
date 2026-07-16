@@ -7,8 +7,10 @@
 //! this crate. Implementations must never log API keys or raw audio.
 
 mod config;
+pub mod deepgram;
 mod error;
 pub mod metrics;
+pub mod openai_compatible;
 pub mod wav;
 
 pub use config::{ProviderConfig, ProviderKind};
@@ -35,6 +37,19 @@ pub trait SttProvider: Send {
 
     /// Short label for reports and errors ("groq", "openai", "deepgram").
     fn label(&self) -> &str;
+}
+
+/// Build the adapter for a config, sharing the process-wide HTTP client.
+pub fn build(
+    config: &ProviderConfig,
+    client: reqwest::blocking::Client,
+) -> Result<Box<dyn SttProvider>, SttError> {
+    match config.kind {
+        ProviderKind::OpenAiCompatible => Ok(Box::new(openai_compatible::OpenAiCompatible::new(
+            config, client,
+        ))),
+        ProviderKind::Deepgram => Ok(Box::new(deepgram::Deepgram::new(config, client)?)),
+    }
 }
 
 /// The one long-lived HTTP client per process: keep-alive + TLS session

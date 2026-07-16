@@ -37,6 +37,7 @@ pub fn encode_wav_16k_mono(samples: &[f32]) -> Vec<u8> {
 }
 
 /// Parsed header facts + decoded samples for a PCM16 WAV.
+#[derive(Debug)]
 pub struct WavInfo {
     pub sample_rate: u32,
     pub channels: u16,
