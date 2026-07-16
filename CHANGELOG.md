@@ -4,6 +4,11 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.9.1] - 2026-07-16
+
+### Changed
+- **Phase 3 spec updated with CP0-CP4 implementation lessons and final status.** Checkpoint commits recorded; the parallel voice-enum decision, the HARK_CLEANUP_KEY testing seam for the explicit-provider path, the no-Debug/expect_err note, and the base-URL pre-warm comparison are captured in the spec's Lessons Learned section. The CP0 live spike and CP5 interactive gate remain queued for Phase 4 behind the BYOK UI paste field.
+
 ## [0.9.0] - 2026-07-16
 
 ### Added

@@ -1,6 +1,6 @@
 # Phase 3: Voice layer + cleanup BYOK
 
-**Date:** 2026-07-16. **Status:** IN PROGRESS (CP0 code complete @ `0ce463c`; live spike deferred, see below). **Prereq:** Phase 2 complete (main @ `6919af6`, 170 tests green, CP6 user-validated on real Windows hardware).
+**Date:** 2026-07-16. **Status:** CP0-CP4 CODE COMPLETE (CP0 `0ce463c`, CP1 `c8de8c4`, CP2 `3cf697b`, CP3 `b42a305`, CP4 `5e94d47` = v0.9.0; 236 workspace tests green). The CP0 live spike and CP5 interactive gate are deferred to Phase 4 per the BYOK-UI decision below. **Prereq:** Phase 2 complete (main @ `6919af6`, CP6 user-validated on real Windows hardware).
 **Master plan:** `tasks/plan-repo.md` §8 Phase 3 (lines 143-146) and §9 (config/secrets table).
 
 ## 1. Goal
@@ -189,6 +189,10 @@ Pre-implementation, seeded from research (2026-07-16); confirm or amend during i
 - No LL-G entries exist yet for `keyring` or TOML/serde migration pitfalls; Phase 3 is the first likely generator of them (e.g. Windows Credential Manager vs macOS Keychain behavior differences). Route findings back via `/add-lesson`.
 - Cleanup is fail-open by design at every layer (unresolvable provider, missing key, request failure, empty response): the uncleaned dictionary-corrected transcript always injects. A dictation must never be lost to the optional feature.
 
-Filled in during implementation:
+Filled in during implementation (2026-07-16, CP0-CP4):
 
-- _(add as found)_
+- **Parallel voice enums, like the provider kinds.** hark-config has `VoiceName` (serde) and hark-voice has `Voice` (FromStr for the CLI); the pipeline and CLI map between them with five-line matches, mirroring how `hark_config::ProviderKind` / `hark_stt::ProviderKind` already coexist. Keeps hark-config free of a reqwest-bearing dependency. The plan's "config and CLI share it" is satisfied by sharing the *parse* (CLI uses hark-voice's FromStr), not the type.
+- **The Account key path is testable without the real OS keychain.** `HARK_CLEANUP_KEY` short-circuits `resolve_key_for` before any keyring read, so pipeline tests can exercise the explicit-provider path (and the differing-host second pre-warm) deterministically. Never write a test that reaches the keyring: on a dev machine it could read a real stored key into the test.
+- **No-Debug types poison `expect_err`.** `Result<OpenAiCompatibleChat, _>::expect_err` needs Debug on the Ok type; the adapter deliberately has none (key hygiene), so tests unwrap errors with a match, same as Phase 2's `Transcript` note.
+- **Second pre-warm keys off base-URL inequality, not host parsing.** A same-host false positive costs one harmless extra GET; not worth a URL parse.
+- **The rest went to plan**: reqwest 0.13 feature stanza copied verbatim built first try; `RequestBuilder::timeout` exists on the blocking client in 0.13; serde-default additive config needed no migration machinery.
