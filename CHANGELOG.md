@@ -4,9 +4,9 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## [0.7.1] - 2026-07-15
+## [0.0.1] - 2026-07-15
 
-This repository is now the home of **Hark** — an offline, single-user, push-to-talk voice dictation desktop app for Windows and macOS (Rust). This release repurposes the Claude Code starter template into Hark's project scaffolding and plans the first build phase.
+This repository is now the home of **Hark** — an offline, single-user, push-to-talk voice dictation desktop app for Windows and macOS (Rust). This release repurposes the Claude Code starter template into Hark's project scaffolding and plans the first build phase. Versioning **resets to `0.0.1`** for Hark as a new product; the `0.7.0` and earlier entries below are the starter template's history, retained for record.
 
 ### Added
 - **Hark project plan** (`tasks/plan-repo.md`) and a rewritten `README.md`. plan-repo was adapted rather than run literally: the web-app infrastructure and stack-research machinery don't apply to an offline desktop app, so the already-decided stack (Rust, `cpal`, sherpa-onnx/Parakeet TDT, `egui`, `rusqlite`, `keyring`) is captured with current-as-of-2026-07-15 research corrections.
