@@ -4,6 +4,11 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.4.0] - 2026-07-16
+
+### Added
+- **Push-to-talk source (`hark-hotkey`, checkpoint 3).** A pure chord state machine (`edges.rs`) turns raw per-key events into clean `Down`/`Up` edges for the configured chord: engage when the last member goes down, release when the first lets go, auto-repeat suppressed, keys outside the chord ignored, and injected events (our own future synthesized Ctrl+V, `LLKHF_INJECTED`) dropped so dictation can never re-trigger itself. Chord strings like `"LCtrl+LWin"` parse case-insensitively with helpful errors (modifiers, CapsLock, F1..F24; up to 4 keys). The Windows listener installs `WH_KEYBOARD_LL` on a dedicated thread whose entire body is the message pump (the hook's delivery lifeline), always calls `CallNextHookEx` (observe, never swallow), and shuts down cleanly via `WM_QUIT`. The `spawn_listener` boundary is the platform seam the macOS CGEventTap implementation will slot behind in checkpoint 7. 14 new tests (edge semantics + VK mapping); hook install itself remains run-on-real-HW.
+
 ## [0.3.0] - 2026-07-16
 
 ### Added

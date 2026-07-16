@@ -1032,6 +1032,7 @@ dependencies = [
 name = "hark-hotkey"
 version = "0.1.0"
 dependencies = [
+ "log",
  "thiserror 2.0.18",
  "windows 0.62.2",
 ]
