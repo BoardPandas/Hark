@@ -1,0 +1,22 @@
+# cargo-audit configuration (https://github.com/rustsec/rustsec/blob/main/cargo-audit/audit.toml.example)
+#
+# Ignored advisories below are all in the Linux/Wayland-only dependency graph
+# under eframe -> winit -> sctk-adwaita. Hark ships Windows + macOS binaries
+# only; these crates never compile for our targets (they appear in `cargo tree`
+# only with `--target all`). Re-evaluate if a Linux target is ever added, or
+# when wayland-scanner releases with quick-xml >= 0.41 (blocked upstream as of
+# 2026-07-16: latest wayland-scanner 0.31.10 still requires quick-xml ^0.39).
+
+[advisories]
+ignore = [
+    # quick-xml 0.39.4: quadratic run time checking start tags for duplicate
+    # attributes (DoS). Build-time codegen path (wayland-scanner proc-macro),
+    # Linux-only, fix blocked upstream.
+    "RUSTSEC-2026-0194",
+    # quick-xml 0.39.4: unbounded namespace-declaration allocation in NsReader
+    # (memory-exhaustion DoS). Same Linux-only build-time path as above.
+    "RUSTSEC-2026-0195",
+    # ttf-parser 0.25.1 unmaintained (informational). Reached only via
+    # sctk-adwaita's ab_glyph on the same Linux-only path.
+    "RUSTSEC-2026-0192",
+]

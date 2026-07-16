@@ -4,6 +4,11 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.10.2] - 2026-07-16
+
+### Added
+- **Dependency audits now run clean and mean it.** A full-workspace audit (2026-07-16) found zero vulnerabilities in Hark's direct dependencies and a current toolchain. The three RustSec advisories cargo-audit reports (two quick-xml DoS issues and the ttf-parser unmaintained notice) live only in the Linux/Wayland build path under eframe/winit, which is never compiled into the shipped Windows or macOS binaries, and the quick-xml fix is blocked upstream until wayland-scanner adopts 0.41. A new `.cargo/audit.toml` records each ignore with that justification and its re-evaluation trigger, so `cargo audit` exits clean and any future finding is a real signal. Also noted for the record: reqwest stays on 0.13.1 deliberately; 0.13.4 dropped the `webpki-roots` feature the static-trust-roots design depends on (lesson contributed to the shared LL-G knowledge base).
+
 ## [0.10.1] - 2026-07-16
 
 ### Added
