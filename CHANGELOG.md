@@ -4,6 +4,11 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.9.2] - 2026-07-16
+
+### Added
+- **Phase 4 planning handoff (`tasks/2026-07-16-handoff-phase4-planning.md`).** Sole starting context for the next session: repo state (v0.9.1 @ `febcb5c`, 236 tests), what Phase 3 deferred into Phase 4 (the BYOK key paste field writing the existing keychain slots, the still-unrun cleanup model spike, the CP5 interactive voice gate), the master plan's Phase 4 scope (rusqlite history/stats, egui settings window, first-run onboarding, tray), load-bearing constraints (UI on main thread, pipeline restart semantics, logging hygiene, the read-only gap in hark-keychain that key entry must close), and the open questions to put to the user.
+
 ## [0.9.1] - 2026-07-16
 
 ### Changed
