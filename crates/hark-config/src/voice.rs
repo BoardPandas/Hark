@@ -7,11 +7,11 @@
 //! error here would break `Settings::load` on a missing file.
 
 use crate::{ConfigError, Provider, ProviderKind};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 /// Which voice rewrites the transcript before injection. `Verbatim` never
 /// makes a cleanup call at all.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum VoiceName {
     Verbatim,
@@ -22,7 +22,7 @@ pub enum VoiceName {
 }
 
 /// The `[voice]` section.
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Voice {
     /// The default voice for every dictation; `hark-cli --voice` overrides
@@ -36,6 +36,7 @@ pub struct Voice {
     pub skip_below_words: u32,
     /// Explicit cleanup provider; omit to inherit from an openai/groq STT
     /// provider (see `resolve_cleanup_provider`).
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub provider: Option<VoiceProvider>,
 }
 
@@ -52,24 +53,29 @@ impl Default for Voice {
 
 /// The optional `[voice.provider]` table. `kind` is required when the table
 /// is present; everything else defaults per kind.
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct VoiceProvider {
     /// openai | groq | openai-compatible. Deepgram has no chat product and
     /// is rejected at validation.
     pub kind: ProviderKind,
     /// Defaults per kind; required (validated) for `openai-compatible`.
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub base_url: Option<String>,
     /// Defaults per kind (provisional research pins; live re-verification
     /// deferred to Phase 4 with the BYOK UI).
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub model: Option<String>,
     /// Serialized into the request only when present; the openai preset
     /// leaves it unset because the GPT-5 family rejects any non-default
     /// temperature. Groq preset: 0.2.
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub temperature: Option<f32>,
     /// OpenAI GPT-5 family only; openai preset "minimal", others unset.
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub reasoning_effort: Option<String>,
     /// Keychain account override for the edge where two distinct
     /// openai-compatible endpoints would otherwise share one slot.
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub key_account: Option<String>,
 }
 

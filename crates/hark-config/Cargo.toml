@@ -4,9 +4,12 @@ version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
-description = "Hark settings: TOML load with defaults (provider, model, base URL, PTT chord, timing knobs). API keys never live here."
+description = "Hark settings: TOML load/save with defaults (provider, model, base URL, PTT chord, timing knobs, history retention). API keys never live here."
 
 [dependencies]
 serde = { version = "1", features = ["derive"] }
 toml = "1"
 thiserror = "2"
+
+[dev-dependencies]
+tempfile = "3"

@@ -4,6 +4,13 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.9.4] - 2026-07-16
+
+### Added
+- **The keychain can now be written, not just read (Phase 4 checkpoint 1).** `hark-keychain` gains `store_key` (rejects empty or whitespace-only keys before the OS backend is ever touched, and trims pasted whitespace), `delete_key` (removing an absent key is success, so the UI Remove button is idempotent), and `key_status` (Stored / Missing / Backend detail; the stored value is read and immediately dropped, never crossing the function boundary). These are the exact slots the settings UI paste field will drive. The no-key-material-in-errors guarantee and the no-test-touches-the-real-keyring rule both hold: backend outcomes are mapped by pure, separately-tested functions.
+- **Config gains its schema version stamp and the `[history]` section.** `version = 1` is now written to every saved file so a future breaking change can ship backup-then-migrate cleanly; files predating the stamp load as current-generation. `[history]` carries `capture` (false stores no dictation content while numeric counters still tick), `max_entries` (default 1,000) and `max_age_days` (default 90), both validated >= 1.
+- **Settings can be saved, not just loaded.** `Settings::save` validates first, then writes via temp-file-and-rename so a crash mid-save can never leave a truncated config. Serialization omits unset optional fields, stamps the version, and quietly upgrades the legacy `bias_terms` key to `terms` on the next save. A `default_data_dir()` helper resolves the OS data directory for the history database (on Windows it coincides with the config directory).
+
 ## [0.9.3] - 2026-07-16
 
 ### Added

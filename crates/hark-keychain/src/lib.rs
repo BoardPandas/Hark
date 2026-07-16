@@ -1,13 +1,17 @@
-//! Hark BYOK key resolution: role env override (`HARK_STT_KEY` /
+//! Hark BYOK key resolution and storage: role env override (`HARK_STT_KEY` /
 //! `HARK_CLEANUP_KEY`) first, then the OS keychain via `keyring`. No type in
 //! this crate carries key material, so nothing here can Debug/Display a key.
 //!
 //! The env override is the dev/CI path (keys injected at run time, e.g. by
-//! Doppler); the keychain is the end-user path (the Phase 4 UI paste field
-//! writes the same slots). Keys never live in TOML. The account is the
-//! provider label, shared between the STT and cleanup roles by design (one
-//! key per provider); `voice.provider.key_account` covers the
+//! Doppler); the keychain is the end-user path (the settings UI paste field
+//! writes the same slots via [`store_key`]). Keys never live in TOML. The
+//! account is the provider label, shared between the STT and cleanup roles
+//! by design (one key per provider); `voice.provider.key_account` covers the
 //! two-distinct-openai-compatible-endpoints edge.
+//!
+//! No test in this crate may touch the real OS keyring (Phase 3 lesson):
+//! backend interactions stay behind pure, separately-tested mapping
+//! functions, and the empty-key guard returns before any backend call.
 
 use thiserror::Error;
 
@@ -32,6 +36,84 @@ pub enum KeyError {
 
     #[error("OS keychain error for \"{account}\": {detail}")]
     Backend { account: String, detail: String },
+
+    #[error("refusing to store an empty API key for \"{account}\"")]
+    EmptyKey { account: String },
+}
+
+/// Non-destructive presence check result for a stored key. Carries backend
+/// diagnostics only, never key material, so it is safe to log or display.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum KeyStatus {
+    Stored,
+    Missing,
+    /// The backend failed; the UI shows the detail instead of guessing.
+    Backend(String),
+}
+
+/// Store `key` (trimmed) in the OS keychain under `account`. Empty or
+/// whitespace-only keys are rejected before the backend is touched, so a
+/// stray paste can never blank out a working slot.
+pub fn store_key(account: &str, key: &str) -> Result<(), KeyError> {
+    let key = key.trim();
+    if key.is_empty() {
+        return Err(KeyError::EmptyKey {
+            account: account.to_string(),
+        });
+    }
+    let entry = open_entry(account)?;
+    entry.set_password(key).map_err(|e| KeyError::Backend {
+        account: account.to_string(),
+        detail: e.to_string(),
+    })
+}
+
+/// Remove the stored key for `account`. Deleting a key that is not there is
+/// success (the desired state holds), so the UI Remove button is idempotent.
+pub fn delete_key(account: &str) -> Result<(), KeyError> {
+    let entry = open_entry(account)?;
+    map_delete_outcome(entry.delete_credential(), account)
+}
+
+/// Whether a key is stored for `account`. The stored value is read and
+/// immediately dropped; it never crosses this function's boundary.
+pub fn key_status(account: &str) -> KeyStatus {
+    let entry = match open_entry(account) {
+        Ok(entry) => entry,
+        Err(KeyError::Backend { detail, .. }) => return KeyStatus::Backend(detail),
+        // open_entry only produces Backend; keep the match total anyway.
+        Err(e) => return KeyStatus::Backend(e.to_string()),
+    };
+    status_from_read(entry.get_password().map(|_key| ()))
+}
+
+fn open_entry(account: &str) -> Result<keyring::Entry, KeyError> {
+    keyring::Entry::new(KEYRING_SERVICE, account).map_err(|e| KeyError::Backend {
+        account: account.to_string(),
+        detail: e.to_string(),
+    })
+}
+
+/// Pure delete-outcome mapping: `NoEntry` is success, everything else is a
+/// backend error. Unit-testable without a real keyring.
+fn map_delete_outcome(outcome: Result<(), keyring::Error>, account: &str) -> Result<(), KeyError> {
+    match outcome {
+        Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
+        Err(e) => Err(KeyError::Backend {
+            account: account.to_string(),
+            detail: e.to_string(),
+        }),
+    }
+}
+
+/// Pure status mapping over an already-value-stripped read result.
+/// Unit-testable without a real keyring.
+fn status_from_read(read: Result<(), keyring::Error>) -> KeyStatus {
+    match read {
+        Ok(()) => KeyStatus::Stored,
+        Err(keyring::Error::NoEntry) => KeyStatus::Missing,
+        Err(e) => KeyStatus::Backend(e.to_string()),
+    }
 }
 
 /// Resolve the STT API key for a provider label. Kept as a thin wrapper so
@@ -174,6 +256,69 @@ mod tests {
         .expect_err("must be Backend");
         assert!(matches!(err, KeyError::Backend { .. }));
         assert!(err.to_string().contains("credential store locked"));
+    }
+
+    #[test]
+    fn empty_and_whitespace_keys_are_rejected_before_the_backend() {
+        // These calls return before Entry::new, so this test never touches
+        // the real OS keyring even though it goes through the public API.
+        for bad in ["", "   ", "\t\n"] {
+            let err = store_key("deepgram", bad).expect_err("must reject");
+            assert!(matches!(err, KeyError::EmptyKey { .. }));
+            let msg = err.to_string();
+            assert!(msg.contains("deepgram"), "error names the account: {msg}");
+        }
+    }
+
+    #[test]
+    fn delete_treats_no_entry_as_success() {
+        assert!(map_delete_outcome(Ok(()), "deepgram").is_ok());
+        assert!(
+            map_delete_outcome(Err(keyring::Error::NoEntry), "deepgram").is_ok(),
+            "removing an absent key is the desired state, not an error"
+        );
+    }
+
+    #[test]
+    fn delete_backend_failure_surfaces_detail() {
+        let err = map_delete_outcome(
+            Err(keyring::Error::PlatformFailure(Box::new(
+                std::io::Error::other("credential store locked"),
+            ))),
+            "groq",
+        )
+        .expect_err("must be Backend");
+        assert!(matches!(err, KeyError::Backend { .. }));
+        assert!(err.to_string().contains("credential store locked"));
+        assert!(err.to_string().contains("groq"));
+    }
+
+    #[test]
+    fn key_status_maps_all_three_shapes() {
+        assert_eq!(status_from_read(Ok(())), KeyStatus::Stored);
+        assert_eq!(
+            status_from_read(Err(keyring::Error::NoEntry)),
+            KeyStatus::Missing
+        );
+        match status_from_read(Err(keyring::Error::PlatformFailure(Box::new(
+            std::io::Error::other("store unavailable"),
+        )))) {
+            KeyStatus::Backend(detail) => assert!(detail.contains("store unavailable")),
+            other => panic!("expected Backend, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn write_path_errors_never_format_key_material() {
+        // The EmptyKey path is the only write failure reachable without a
+        // backend; feed it a sentinel-adjacent account and confirm neither
+        // Debug nor Display can ever carry a key (the variant has no key
+        // field, but guard against a refactor that adds one).
+        let err = store_key("deepgram", "   ").unwrap_err();
+        let debug = format!("{err:?}");
+        let display = format!("{err}");
+        assert!(!debug.contains(SENTINEL), "Debug leaked: {debug}");
+        assert!(!display.contains(SENTINEL), "Display leaked: {display}");
     }
 
     #[test]
