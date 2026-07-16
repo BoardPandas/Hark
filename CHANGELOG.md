@@ -4,6 +4,11 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.8.4] - 2026-07-16
+
+### Added
+- **`hark-voice` crate: pure chat-completions layer + CP0 cleanup model spike (Phase 3 checkpoint 0).** The new crate mirrors hark-stt's discipline: pure, unit-tested request/response functions (trailing-slash-tolerant URL building; a buffered JSON request body that omits `temperature` and `reasoning_effort` entirely when unset, since the GPT-5 family rejects any non-default temperature with a 400; an output-token cap derived from input length with generous reasoning headroom, clamped to [512, 4096]; response parsing that treats empty or null content as a provider error and names the `finish_reason`, because "length" there means reasoning tokens ate the budget), plus a `CleanupError` taxonomy that can never carry key material and the `CleanupProvider` trait the pipeline will mock at CP4. `cargo run --example cleanup_spike -p hark-voice` (keys from env: `OPENAI_API_KEY`, `GROQ_API_KEY`) rewrites filler-laden fixture transcripts across the four candidate models per voice prompt, measures warm p50/p95, checks protected dictionary terms survive, and drills the plan's open verifications: GPT-5 temperature rejection, `reasoning_effort` acceptance on gpt-5-nano, the error envelope on forced 400/401, transport-error classification on buffered JSON bodies, and reasoning-token headroom. Running the spike with real keys and pinning the plan's default models is the CP0 exit gate.
+
 ## [0.8.3] - 2026-07-16
 
 ### Added
