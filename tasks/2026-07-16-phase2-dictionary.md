@@ -1,6 +1,6 @@
 # Phase 2: Dictionary (phonetic post-correction + provider biasing)
 
-**Date:** 2026-07-16. **Status:** planned, not started. **Prereq:** Phase 1 complete (main @ `4f19ba2`, 118 tests green).
+**Date:** 2026-07-16. **Status:** CP0-CP5 implemented and committed (2026-07-16, `0d40ee7`..`a58180f`, 170 tests green); CP6 interactive gate pending. **Prereq:** Phase 1 complete (main @ `4f19ba2`, 118 tests green).
 **Master plan:** `tasks/plan-repo.md` §Phase 2 (lines 138-141) and crate layout (line 92).
 
 ## 1. Goal
@@ -134,4 +134,14 @@ Pre-implementation, seeded from research (2026-07-16); confirm or amend during i
 - Hot-path logging stays counts/millis only; transcript text and dictionary terms are user content and must never appear in logs (same discipline as the Phase 1 api_key redaction).
 - Provider biasing spike verdict (context for why post-correction is primary): Deepgram `keyterm` showed no lift on clean audio; Groq `prompt` failed to enforce spelling. Do not spend further effort strengthening biasing without new evidence.
 
-*(Filled in during implementation: ...)*
+Filled in during implementation (2026-07-16, CP0-CP5; threshold findings await CP6):
+
+- **rphonetic 3.0.6 behaved exactly as researched.** `encode`/`encode_alternate` (the former via the `Encoder` trait, which must be imported) return plain `String`s, codes stay <= 4 chars at the default max length, and empty / non-ASCII / digit / hyphen inputs all encode without panicking. Proof tests pin all of this.
+- **The phonetic-collision risk is concrete, not hypothetical: "matter" shares "modero"'s Double Metaphone code (both MTR).** Without the Jaro-Winkler confirm guard, the dictionary would rewrite the common English word "matter" to "Modero". JW("modero","matter") = 0.70, comfortably under the 0.85 threshold. Kept as a permanent regression test; this is the single strongest argument that phonetic-code equality alone must never trigger a replacement.
+- **Accent bridging works for free:** "müller" and "muller" produce equal codes, so a non-ASCII canonical term corrects its ASCII misrecognition through the normal phonetic path.
+- **Span-based tokenization made "punctuation reattachment" a non-step.** Tokens carry byte spans of their punctuation-free cores; replacement splices canonical text over core spans, so surrounding punctuation survives without ever being tracked. Interior punctuation inside a matched multi-word window is absorbed with the misrecognition (deliberate: both words matched, so the STT-inserted comma belongs to the error).
+- **Splitting transcript cores on interior hyphens in the tokenizer** is what lets one window size serve both transcript forms of a hyphen-split term ("hark stt" and "hark-stt" both present as two tokens). The already-canonical hyphenated form falls out as an uncounted no-op because the window's combined span text equals the canonical term.
+- **Reusing `tokenize()` on the term text itself** (in `build_entries`) guarantees term-side and transcript-side segmentation can never drift; terms that tokenize to nothing are dropped.
+- **clippy `op_ref` gotcha:** `&text[range] != entry.canonical` (comparing `&str` to `String`) trips "needlessly taken reference of left operand" under `-D warnings`; write `text[range] != entry.canonical` (str != String comparison exists).
+- **`prompt_from_bias_terms` signature change** (returns `(Option<String>, usize)` for the construction-time count log) required touching only the two adapter_pure tests; nothing else consumed it.
+- Route the "matter"/"modero" collision lesson (phonetic match needs an edit-distance confirm guard) to LL-G via `/add-lesson` after CP6 empirically validates the 0.85 threshold.

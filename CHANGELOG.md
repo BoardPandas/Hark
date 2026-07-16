@@ -4,6 +4,11 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.8.1] - 2026-07-16
+
+### Changed
+- **Phase 2 spec updated with CP0-CP5 implementation lessons.** The concrete "matter"/"modero" Double Metaphone collision that makes the Jaro-Winkler guard load-bearing, confirmed rphonetic 3.0.6 behavior, the span-based punctuation approach, and the hyphen tokenization decision are recorded in the spec's Lessons Learned section; status moves to CP6-pending (interactive gate on real hardware).
+
 ## [0.8.0] - 2026-07-16
 
 ### Added
