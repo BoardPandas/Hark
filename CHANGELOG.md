@@ -4,6 +4,11 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.1.1] - 2026-07-15
+
+### Changed
+- **Spike spec §12 (Lessons Learned) filled in** with the implementation findings: the reqwest 0.13 TLS feature rename, the multipart-streaming error-masking gotcha (both routed to LL-G `kb/rust/`), measured failure-drill bounds (bad key ~65-130 ms, dead DNS <20 ms, non-routable host at the 3 s connect bound), negligible WAV-encode cost (~3.7 ms for a 10 s clip), and the Windows TTS fixture-generation recipe. Live p50/p95 latency, cold-vs-warm delta, and the Deepgram keyterm A/B remain open: the `OPENAI_API_KEY` in the dev environment is rejected by OpenAI (401 on a bare `/v1/models` probe too) and no Groq/Deepgram keys are set; re-run the harness once valid keys exist. `.claude/agent-memory/patterns.md` gains the buffered-multipart and pure-error-mapping patterns.
+
 ## [0.1.0] - 2026-07-15
 
 ### Added

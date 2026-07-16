@@ -185,10 +185,13 @@ Pre-seeded (verified 2026-07-15; full cites in `.claude/agent-memory/explorer/ha
 - `ureq` multipart is unstable as of 3.3.0; reqwest blocking is the safe choice.
 - reqwest-blocking on a dedicated worker thread means no tokio executor exists to starve (LL-G blocking-io rule is moot until a streaming adapter appears).
 
-Fill in during/after implementation:
-- [ ] Measured p50/p95 per provider/model on real clips + connection → `.claude/agent-memory/patterns.md` and LL-G if surprising.
-- [ ] Real 401/429/error body shapes per provider → encode in tests, note in LL-G.
-- [ ] Cold-vs-warm client delta (is connection reuse worth pre-warming at app launch?) → patterns.md.
-- [ ] Whether Deepgram keyterm shows real lift on dictionary-ish terms → informs Phase 2 design.
-- [ ] Any Windows-specific TLS/proxy gotchas with rustls → LL-G (`kb/rust`).
-- [ ] Failed approaches and dead ends → `.claude/agent-memory/debugging.md`.
+Filled in during implementation (2026-07-15):
+- [x] **reqwest 0.13 renamed the TLS features.** The 0.12-era `rustls-tls-webpki-roots` umbrella feature no longer exists; it is now `rustls` + `webpki-roots` (§2's Cargo.toml snippet was stale). Routed to LL-G.
+- [x] **reqwest's `multipart` feature masks transport errors — do not use it.** Multipart bodies are streamed through a channel to reqwest's internal runtime, so a connect/timeout failure during send surfaces as an opaque body error ("send failed because receiver is gone") with `is_connect()` and `is_timeout()` both `false`, which wrecks the retry taxonomy. Fix: hand-assemble the multipart body into a buffered `Vec<u8>` and set the `Content-Type: multipart/form-data; boundary=…` header manually (~30 lines, and it makes form assembly unit-testable). With a buffered body: dead DNS → connect-class `Http` in ~4 ms; non-routable IP → `Timeout` at the 3 s connect bound. Routed to LL-G.
+- [x] **Failure drills behave** (measured on the Windows dev box): bad key → `Auth` in 65-131 ms with a message that never echoes the key (verified by grepping captured harness output for the real key: 0 hits, plus a print-time assert in the harness); dead DNS → bounded `Http` in 4-18 ms; non-routable IP → `Timeout` at ~3.0 s. 429 → `RateLimited` with `Retry-After` parsing is unit-tested (no real 429 was provoked).
+- [x] **WAV-encode cost is negligible:** ~3.7 ms to encode the 10.3 s fixture (165 k samples → 322 KiB) from f32 samples, unoptimized dev build. The latency budget is effectively 100% network + provider.
+- [x] **Windows TTS makes committable fixtures:** `System.Speech.Synthesis` (Windows PowerShell 5.1, not pwsh) with `SpeechAudioFormatInfo(16000, Sixteen, Mono)` emits exactly the 16 kHz mono PCM16 WAV contract; the clip's transcript is known by construction.
+- [ ] **Measured p50/p95 per provider/model — BLOCKED on valid keys.** The `OPENAI_API_KEY` present in the dev environment is rejected by OpenAI (401 on both `/audio/transcriptions` and a bare `/v1/models` probe; the key is well-formed, so it is expired/revoked). `GROQ_API_KEY` and `DEEPGRAM_API_KEY` are not set. The harness, tables, A/B, and verdict all work; re-run `cargo run --example transcribe_spike` once valid keys are in the env to fill this in.
+- [ ] **Cold-vs-warm client delta** — same blocker as above.
+- [ ] **Deepgram keyterm A/B lift** — same blocker (needs `DEEPGRAM_API_KEY`).
+- [ ] **Real 401/429 body shapes per provider** — the OpenAI 401 body was observed live (mapped correctly); Groq/Deepgram bodies and any real 429 still need capturing once keys exist.
