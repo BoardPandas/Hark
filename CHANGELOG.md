@@ -4,6 +4,11 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.7.4] - 2026-07-16
+
+### Added
+- **Dictionary tokenizer (Phase 2 checkpoint 2).** Transcripts split into word cores with byte spans: leading/trailing punctuation is never part of a span (so replacement splicing preserves it with no reattachment step), interior hyphens split a chunk into separate tokens (so hyphen-split terms like "hark-stt" will match both spellings with one window size), interior apostrophes stay in the core ("don't"), original casing is preserved in the spans with lowercase copies for comparison, and unicode words carry correct multi-byte offsets. 11 tests covering punctuation adjacency, unicode, empty/all-punctuation input, whitespace runs, and hyphenated chunks.
+
 ## [0.7.3] - 2026-07-16
 
 ### Changed

@@ -10,6 +10,8 @@
 //! Jaro-Winkler score, with exact-only fallbacks for words the phonetic
 //! algorithm cannot encode usefully (digits, very short words).
 
+mod tokenize;
+
 /// Corrects transcripts against a fixed set of canonical terms.
 ///
 /// Construction precomputes per-term data once; `correct` is called per
