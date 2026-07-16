@@ -3,14 +3,12 @@ description: Enforce BP best practices check before starting new work
 paths:
   - "CLAUDE.md"
   - ".claude/**"
-  - "Dockerfile*"
-  - "docker-compose*"
-  - "biome.*"
-  - "turbo.json"
-  - "pnpm-workspace.yaml"
-  - "vitest.config.*"
-  - "playwright.config.*"
-  - "jest.config.*"
+  - "**/Cargo.toml"
+  - "rustfmt.toml"
+  - "clippy.toml"
+  - "deny.toml"
+  - "dist-workspace.toml"
+  - "wix/**"
   - ".github/**"
 ---
 

@@ -1,13 +1,12 @@
 ---
 description: Enforce LL-G knowledge base check before writing code
 paths:
+  - "crates/**"
   - "src/**"
-  - "lib/**"
-  - "app/**"
-  - "worker/**"
-  - "api/**"
+  - "**/*.rs"
+  - "build.rs"
+  - ".claude/scripts/**"
   - "scripts/**"
-  - "middleware.*"
 ---
 
 # RULE 1 Enforcement: Check LL-G Before Writing Code
@@ -21,7 +20,7 @@ Before writing or editing any file matching the paths above, you MUST consult th
    WebFetch https://raw.githubusercontent.com/BoardPandas/LL-G/main/llms.txt
    ```
 
-2. **Identify relevant technologies** from the file you're about to write (e.g., Next.js, TypeScript, Better Auth, Tailwind, etc.).
+2. **Identify relevant technologies** from the file you're about to write (e.g., Rust, SQLite, Bash, Windows, WiX/MSI, etc.).
 
 3. **Fetch each relevant tech index:**
    ```

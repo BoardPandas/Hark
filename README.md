@@ -1,91 +1,126 @@
-# Claude Code Starter Template
+# Hark
 
-A ready-to-use `.claude/` configuration folder for any repository. Ships with skills, agents, and settings aligned to Claude Code best practices (March 2026).
+A lean, system-wide, push-to-talk voice dictation tool for **Windows** and **macOS**. Hold a key, speak, release — polished English text is injected at your cursor in any app. Transcription runs entirely on-device; history never leaves your machine; cleanup is optional and uses your own LLM key.
 
-## Quick Start
+> Wispr Flow-style dictation, scoped to one user, English-only, and local-first.
 
-### New Project
+## Design principles
+
+- **Speed is the product.** All perceived latency lives in the release-to-inject window; everything is structured to keep it small.
+- **Local-first.** Transcription is on-device. History is local-only. The sole network dependency is your optional LLM key.
+- **Lean.** No webview, no browser tab, no JS toolchain. A single Rust process: an always-on tray daemon plus a native window opened on demand.
+- **English done well.** Accuracy over language breadth.
+- **Data, not code, for anything you tune.** The dictionary and voice presets are config, so editing them never touches the pipeline.
+
+## Tech stack
+
+Desktop app — **no web infrastructure** (no server, database service, auth, or hosting platform).
+
+| Layer | Choice |
+|---|---|
+| Language | Rust (UI on main thread, pipeline on worker threads) |
+| Audio | `cpal` (16 kHz mono ring buffer) |
+| Push-to-talk | Native low-level key hooks: CGEventTap (macOS), `WH_KEYBOARD_LL` (Windows) |
+| STT runtime | sherpa-onnx via the official `sherpa-onnx` crate (v1.13.4+) |
+| STT model | Parakeet TDT 0.6B v2 (English) ONNX |
+| Dictionary | Phonetic post-correction (primary) + sherpa-onnx hotword biasing (experimental) |
+| Cleanup / voices | Bring-your-own-key, OpenAI-compatible chat endpoint (optional) |
+| Injection | Clipboard paste, `enigo` keystroke fallback |
+| Tray + UI | `tray-icon` + `eframe`/`egui` (native, no webview) |
+| Storage | `rusqlite` (history + stats), TOML (settings + dictionary) |
+| Key storage | `keyring` → macOS Keychain / Windows Credential Manager |
+
+See [`tasks/plan-repo.md`](tasks/plan-repo.md) for the full rationale and the current-as-of-2026-07-15 research corrections.
+
+## Architecture
+
+```
+key down ─▶ cpal ring buffer (with ~200–300 ms pre-roll)
+              │
+key up  ─────▶ append ~150 ms tail
+              │
+              ▼  trim leading/trailing silence
+       Parakeet TDT 0.6B batch decode  ◀── hotword bias list (experimental)
+       (model kept warm in memory)
+              │
+              ▼  phonetic post-correction against dictionary
+        voice == Verbatim? ── yes ─▶ inject raw transcript (offline, instant)
+              │ no
+              ▼
+     single BYOK LLM call (low temp): voice template + dictionary terms + transcript
+              │
+              ▼  inject via clipboard paste (stash → set → paste → restore)
+              │
+              ▼  write history (if capture enabled) + increment lifetime stats
+```
+
+The tray daemon owns the hot path (hotkey, audio, STT, injection). The settings/history window opens on demand. On macOS the main thread owns the event loop (tray + window); the pipeline runs on worker threads.
+
+## Prerequisites
+
+- **Rust** (stable) via [rustup](https://rustup.rs) — `cargo`, `rustfmt`, `clippy`.
+- **ONNX Runtime** — bundled by the `sherpa-onnx` crate, or system-provided per its build config (verify CoreML/DirectML feature flags in the crate source before enabling GPU inference).
+- **Parakeet TDT 0.6B v2 (English) ONNX model** — placed in `models/` (bundled at package time or downloaded on first run).
+- Platform build tools: Xcode command-line tools (macOS); MSVC build tools (Windows).
+
+## Getting started
 
 ```bash
-git clone https://github.com/your-org/claude-code-bootstrap.git my-project
-cd my-project
-rm -rf .git && git init
+git clone <this-repo> Hark
+cd Hark
+
+# Fetch the STT model into models/ (script TBD in Phase 1)
+# ./scripts/fetch-model.sh
+
+cargo build
+cargo run
 ```
 
-Then open Claude Code and say: **"plan repo"** to plan your stack, then **"initialize repo"** to configure.
+> **Note:** this machine is a coding-only environment. Build, test, lint, and typecheck here; run and validate the running app (mic, hotkey, injection, notarization) on real macOS and Windows.
 
-### Existing Project
+## Project structure (planned)
 
-```bash
-# Copy the .claude/ folder into your repo
-cp -r path/to/claude-code-bootstrap/.claude/ your-repo/.claude/
-cp path/to/claude-code-bootstrap/CLAUDE.md your-repo/CLAUDE.md
-cp path/to/claude-code-bootstrap/agents.md your-repo/agents.md
-```
-
-Then open Claude Code in your repo and say: **"initialize repo"** to merge the template with your existing setup.
-
-## Workflow
+Cargo workspace; single binary. See [`tasks/plan-repo.md`](tasks/plan-repo.md) §5.
 
 ```
-plan repo  →  initialize repo  →  (build features)  →  update practices
-    ↑                                    |
-    |              spec developer  ←─────┘
-    |              (plan in one session, execute in another)
-    └──────────────────────────────────────────────────────┘
+crates/
+  hark-app/          # main-thread event loop, worker orchestration, single-instance guard
+  hark-hotkey/       # native push-to-talk key hooks
+  hark-audio/        # cpal ring buffer, pre-roll + tail
+  hark-stt/          # sherpa-onnx wrapper, warm model, batch decode
+  hark-dictionary/   # hotword list + phonetic post-correction
+  hark-voice/        # voice presets + BYOK adapter
+  hark-inject/       # clipboard paste + enigo fallback
+  hark-store/        # rusqlite (history + stats), TOML settings
+  hark-keychain/     # keyring wrapper
+  hark-ui/           # egui settings/history/stats window
+models/              # ONNX model (gitignored)
+config/              # default config.toml + dictionary
 ```
 
-1. **Plan first:** `plan repo` researches current options and recommends the best stack for your project, then generates README, design guardrails, and tools reference.
-2. **Initialize:** `init-repo` reads the plan and configures `.claude/` with skills, agents, settings, and hierarchical CLAUDE.md files.
-3. **Build features:** Use `spec developer` for big features -- it interviews you, explores the codebase, and generates a detailed plan saved to `/tasks`. Execute in a fresh session.
-4. **Stay current:** `update practices` fetches latest best practices and updates your config. Safe to run anytime.
+## Configuration
 
-## What's Included
+No web env vars. Settings and secrets live in OS-standard locations:
 
-### Skills
+| Item | Location |
+|---|---|
+| `config.toml` (hotkey, default voice, BYOK provider/model, dictionary, capture toggle, retention cap) | OS config dir (`~/Library/Application Support/Hark/`, `%APPDATA%\Hark\`) |
+| `hark.db` (history + stats) | OS data dir |
+| BYOK API key | OS keychain — never written to `config.toml` |
 
-| Skill | Trigger | Description |
-|-------|---------|-------------|
-| plan-repo | "plan repo" | Research and recommend best tech stack, generate README, design guardrails, tools reference |
-| init-repo | "initialize repo" | Build or rebuild the .claude/ folder with best practices |
-| update-practices | "update practices" | Fetch latest best practices and update config |
-| spec-developer | "spec developer" | Interview-driven feature spec saved to /tasks |
-| security-scan | "security scan" | OWASP Top 10, secrets detection, dependency audit |
-| performance-review | "performance review" | Bottleneck analysis with impact-ranked fixes |
-| dependency-audit | "dependency audit" | Outdated, vulnerable, and unused dependency detection |
-| test-scaffold | "scaffold tests" | Generate test files for untested modules |
-| doc-sync | "sync docs" | Align documentation with current code |
-| mermaid-diagram | "mermaid diagram" | Generate data flow / architecture diagrams |
+## Development phases
 
-### Agents
+- **Phase 1 — Foundation:** core loop, Verbatim only. Native hotkey, ring buffer, warm Parakeet decode, clipboard injection. Prove latency + hotkey reliability on both OSes. Spike the sherpa-onnx crate ↔ Parakeet ↔ hotwords alignment first.
+- **Phase 2 — Dictionary:** phonetic post-correction (primary) + experimental hotword biasing (gated on sherpa-onnx issue #3267).
+- **Phase 3 — Voice layer + BYOK:** OpenAI-compatible adapter, keychain key storage, voice presets, tray selector (Clean default).
+- **Phase 4 — Settings/history UI + storage:** SQLite, retention pruning, lifetime stats, egui window.
+- **Phase 5 — Ship:** processing indicator, packaging + notarization/signing, first-run permissions, launch-at-login, single-instance guard.
 
-See [agents.md](agents.md) for the full agent registry.
+## Privacy
 
-| Agent | Purpose |
-|-------|---------|
-| architect | Phase-based planning, tech stack decisions, file structure |
-| reviewer | Code review for correctness and maintainability |
-| security | Vulnerability detection and security analysis |
-| performance | Bottleneck identification and optimization |
-| explorer | Codebase exploration, research, and context gathering |
-
-### Key Concepts
-
-- **Phase-based planning:** Foundation → Core → Polish → Ship. No timelines.
-- **Hierarchical CLAUDE.md:** Root → subfolder, loaded top-down. Only relevant files load.
-- **Subagent-first:** Always offload research, exploration, and log analysis to subagents. Include a "why" in every subagent prompt.
-- **Plan/execute separation:** Plan in one session, execute in another. Save plans to `/tasks`.
-- **Date-aware practices:** Always checks the current date when fetching best practices.
-- **Tools reference:** `.claude/references/tools.md` lists all CLI tools so Claude can detect and install missing ones.
-- **Design guardrails:** `.claude/references/design-guardrails.md` enforces UI/design SLA for frontend projects.
-
-## Keeping Up to Date
-
-Say **"update practices"** in Claude Code. The skill fetches the latest best practices from official and community sources, then updates your config. Safe to run anytime.
-
-## Full Documentation
-
-See [instructions.md](instructions.md) for complete documentation on every skill, agent, and configuration option.
+- Transcription and history are **local-only** and never transmitted.
+- Any non-Verbatim voice sends your dictated text to **your chosen** LLM provider — surfaced honestly in the UI, with the selected model always visible.
+- The SQLite file is plaintext on disk (normal for a local single-user tool); delete-one, clear-all, disable-capture, and a retention cap are provided. Lifetime stats survive history clears and have a separate reset control.
 
 ## License
 

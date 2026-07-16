@@ -9,9 +9,11 @@ Claude Code reads this file to know which CLI tools are available and how to use
 - Claude Code should check `<tool> --version` before assuming a tool is available.
 - If a tool is missing and needed, ask the user before installing.
 
-## Important: No Local Infrastructure
+## Important: This Is a Native Desktop App
 
-All databases, caches, and backend services run on **Northflank** and **Cloudflare** -- never locally. There is no Docker, no local Postgres, no local Redis. Development connects to remote services via environment variables or Northflank CLI port-forwarding.
+Hark is an offline, single-user **Rust desktop application** for Windows + macOS. There is **no web infrastructure** — no Northflank, no Cloudflare, no Postgres/Redis, no Docker, no local server. The only storage is a local SQLite file; the only network call is the user's optional BYOK LLM endpoint. Do **not** add web/hosting tooling (wrangler, northflank CLI, npm/pnpm bundlers, ORMs) to this project.
+
+Note: this machine is coding-only. Build/test/lint/typecheck here; run and validate the running app (mic, hotkey, injection, notarization) on real macOS and Windows.
 
 ## Universal Tools
 
@@ -19,72 +21,38 @@ All databases, caches, and backend services run on **Northflank** and **Cloudfla
 - **Check:** `git --version`
 - **Usage:** Version control. Always available.
 
-### Node.js / npm (if JS/TS project)
-- **Check:** `node --version && npm --version`
-- **Install:** https://nodejs.org or `nvm install --lts`
-- **Usage:** `npm install`, `npm run <script>`, `npx <command>`
+### Rust toolchain (rustup)
+- **Check:** `rustup --version && rustc --version`
+- **Install:** https://rustup.rs
+- **Usage:** `rustup update stable`, `rustup target add <triple>` for cross-compilation.
 
-### Bun (alternative JS runtime)
-- **Check:** `bun --version`
-- **Install:** `curl -fsSL https://bun.sh/install | bash`
-- **Usage:** `bun install`, `bun run <script>`, `bunx <command>`
+## Rust Desktop Tools
 
-### Python / pip (if Python project)
-- **Check:** `python3 --version && pip3 --version`
-- **Install:** https://python.org or system package manager
-- **Usage:** `pip install -r requirements.txt`, `python3 -m <module>`
+### Build, run, format, lint
+| Tool | Check | Install | Usage |
+|------|-------|---------|-------|
+| cargo | `cargo --version` | via rustup | `cargo build`, `cargo run`, `cargo build --release` |
+| rustfmt | `cargo fmt --version` | `rustup component add rustfmt` | `cargo fmt` (format), `cargo fmt --check` (CI) |
+| clippy | `cargo clippy --version` | `rustup component add clippy` | `cargo clippy --all-targets -- -D warnings` |
+| cargo-nextest | `cargo nextest --version` | `cargo install cargo-nextest` | `cargo nextest run` (faster test runner; `cargo test` also fine) |
 
-## Stack-Specific Tools
+### Cross-compilation & CI
+| Tool | Check | Install | Usage |
+|------|-------|---------|-------|
+| rustup targets | `rustup target list --installed` | `rustup target add x86_64-pc-windows-msvc aarch64-apple-darwin x86_64-apple-darwin` | Build for both OSes/arches |
+| cargo-audit | `cargo audit --version` | `cargo install cargo-audit` | `cargo audit` — dependency vulnerability scan |
 
-This section is populated by plan-repo or init-repo based on the project's stack. Below are common examples.
+### Packaging & signing (Phase 5)
+| Tool | Check | Install | Usage |
+|------|-------|---------|-------|
+| cargo-dist | `cargo dist --version` | `cargo install cargo-dist` | Cross-platform installer/artifact generation |
+| cargo-bundle | `cargo bundle --version` | `cargo install cargo-bundle` | Build `.app` / platform bundles (alternative to cargo-dist) |
+| codesign / notarytool | `xcrun notarytool --help` | Xcode command-line tools (macOS) | Sign + notarize the macOS build |
+| WiX / signtool | `signtool` (VS tools) | Windows SDK / WiX Toolset | MSI packaging + Authenticode signing |
 
-### Package Managers
-| Tool | Check | Install | Use When |
-|------|-------|---------|----------|
-| pnpm | `pnpm --version` | `npm i -g pnpm` | Monorepos, disk-efficient deps |
-| yarn | `yarn --version` | `npm i -g yarn` | Projects using yarn.lock |
-| uv | `uv --version` | `pip install uv` | Fast Python package management |
-| cargo | `cargo --version` | https://rustup.rs | Rust projects |
-| go | `go version` | https://go.dev/dl | Go projects |
-
-### Linters & Formatters
-| Tool | Check | Install | Use When |
-|------|-------|---------|----------|
-| biome | `npx biome --version` | `npm i -D @biomejs/biome` | Recommended default for new JS/TS projects (BP): single Rust-based lint + format tool replacing ESLint+Prettier |
-| eslint | `npx eslint --version` | `npm i -D eslint` | Mature codebases needing its plugin ecosystem (React Hooks, a11y, security); consider biome or oxlint for greenfield/speed-sensitive projects |
-| oxlint | `npx oxlint --version` | `npm i -D oxlint` | Fast drop-in ESLint rule coverage; pair with eslint for plugin-only rules |
-| prettier | `npx prettier --version` | `npm i -D prettier` | JS/TS/CSS/MD formatting (increasingly folded into biome) |
-| ruff | `ruff --version` | `pip install ruff` | Fast Python lint + format |
-| rustfmt | `rustfmt --version` | Included with rustup | Rust formatting |
-
-### Test Runners
-| Tool | Check | Install | Use When |
-|------|-------|---------|----------|
-| vitest | `npx vitest --version` | `npm i -D vitest` | Vite-based JS/TS projects |
-| jest | `npx jest --version` | `npm i -D jest` | JS/TS testing |
-| pytest | `pytest --version` | `pip install pytest` | Python testing |
-| playwright | `npx playwright --version` | `npm i -D @playwright/test` | E2E browser testing |
-
-### Build Tools
-| Tool | Check | Install | Use When |
-|------|-------|---------|----------|
-| vite | `npx vite --version` | `npm i -D vite` | Frontend builds (Vite 8+ bundles via Rolldown internally) |
-| turbo | `npx turbo --version` | `npm i -D turbo` | Monorepo builds |
-| rolldown | `npx rolldown --version` | `npm i -D rolldown` | Rust bundler; default inside Vite 8+ (no separate install for Vite users), standalone for library bundling |
-| esbuild | `npx esbuild --version` | `npm i -D esbuild` | Fast JS bundling (standalone or via tsup; superseded inside Vite by Rolldown) |
-| tsc | `npx tsc --version` | `npm i -D typescript` | TypeScript compilation |
-
-### Database Tools (Remote Only)
-| Tool | Check | Install | Use When |
-|------|-------|---------|----------|
-| prisma | `npx prisma --version` | `npm i -D prisma` | Prisma ORM v7+ (pure TS/WASM client, native edge-runtime support; connects to Northflank Postgres) |
-| drizzle-kit | `npx drizzle-kit --version` | `npm i -D drizzle-kit` | Drizzle ORM (connects to Northflank Postgres) |
-
-### Deployment Tools
-| Tool | Check | Install | Use When |
-|------|-------|---------|----------|
-| wrangler | `npx wrangler --version` | `npm i -D wrangler` | Cloudflare R2 & DNS/CDN (not Pages -- frontend is on Northflank) |
-| northflank | `northflank --version` | `npm i -g @northflank/cli` | Northflank frontend, backend, Postgres, Redis |
+### Key native dependencies (not CLI tools — crates + assets)
+- **sherpa-onnx** crate (v1.13.4+) bundles/links **ONNX Runtime**. Verify CoreML (macOS) / DirectML (Windows) cargo feature flags in the crate source before enabling GPU inference.
+- **Parakeet TDT 0.6B v2 (English) ONNX** model files — place in `models/` (bundled at package time or fetched on first run). Keep out of git.
 
 ## Available MCP Servers
 

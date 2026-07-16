@@ -4,6 +4,22 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.7.1] - 2026-07-15
+
+This repository is now the home of **Hark** — an offline, single-user, push-to-talk voice dictation desktop app for Windows and macOS (Rust). This release repurposes the Claude Code starter template into Hark's project scaffolding and plans the first build phase.
+
+### Added
+- **Hark project plan** (`tasks/plan-repo.md`) and a rewritten `README.md`. plan-repo was adapted rather than run literally: the web-app infrastructure and stack-research machinery don't apply to an offline desktop app, so the already-decided stack (Rust, `cpal`, sherpa-onnx/Parakeet TDT, `egui`, `rusqlite`, `keyring`) is captured with current-as-of-2026-07-15 research corrections.
+- **Phase 1 STT spike spec** (`tasks/2026-07-15-phase1-stt-spike.md`): a runnable spec to prove the `sherpa-onnx` crate loads Parakeet TDT 0.6B v2, decode latency, execution-provider availability on macOS/Windows, and an A/B measurement of the known hotword-biasing bug (sherpa-onnx #3267), ending in a go/no-go verdict for Phase 2.
+- **Desktop design guardrails** (`.claude/references/design-guardrails.md`) for native egui UI: the main-thread rule, latency SLA, desktop accessibility, and a local-first privacy section in place of web auth-UI patterns.
+- **New path-scoped rules** `rust.md` (Rust/desktop conventions + verified stack gotchas) and `tests.md` (Rust test conventions); a `.claude/bp-audit.md` audit trail.
+- **Stack-risk research** captured in agent memory (`.claude/agent-memory/explorer/hark_stt_stack_risk.md`, `sherpa_onnx_rust_api.md`): `sherpa-rs` is deprecated (use the official `sherpa-onnx` crate v1.13.4+), and push-to-talk needs native key hooks (CGEventTap / `WH_KEYBOARD_LL`) rather than the `global-hotkey` crate.
+
+### Changed
+- **`.claude/` config retargeted from the web-app template to a Rust desktop app.** Root `CLAUDE.md` rewritten for Hark's stack and the UI-on-main-thread / pipeline-on-workers rule, dropping the Northflank/Cloudflare/Better Auth infrastructure rules (which do not apply). `llg-check.md` and `bp-check.md` path globs retargeted to Rust (`crates/**`, `**/*.rs`, `**/Cargo.toml`, `rustfmt.toml`, …), and `tools.md`'s stack section swapped web tooling for the Rust chain (cargo, clippy, nextest, cross-compile, notarization) while preserving the MCP servers section.
+- **`package.json`** name/description updated from the bootstrap template to Hark.
+- **`.claude/agent-memory/debugging.md`** seeded with the HIGH-severity LL-G Rust/SQLite gotchas relevant to Hark plus the sherpa-onnx #3267 finding.
+
 ## [0.7.0] - 2026-07-08
 
 ### Changed
