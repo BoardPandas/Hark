@@ -4,6 +4,11 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.10.1] - 2026-07-16
+
+### Added
+- **Phase 4 CP3 session handoff (`tasks/2026-07-16-handoff-phase4-cp3.md`)** and CP2 implementation lessons recorded in the Phase 4 spec §6 (eframe 0.35 trait and panel changes as found in practice, the vendored Phosphor icon decision, per-theme Context setters, font zip layouts, the worker-to-UI repaint pump, honest dictation-record labeling, and the build machine's Application Control policy blocking release builds). The three durable Rust lessons (libsqlite3-sys hidden MSRV, eframe 0.34/0.35 App trait split, egui companion-crate lag) were contributed to the shared LL-G knowledge base.
+
 ## [0.10.0] - 2026-07-16
 
 ### Added
