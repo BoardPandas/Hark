@@ -4,6 +4,11 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.7.0] - 2026-07-16
+
+### Added
+- **`hark-cli` dev binary (checkpoint 6): the Windows dictation loop is wired end to end.** `cargo run -p hark-cli` loads settings from the OS config dir (defaults when absent), resolves the BYOK key (env override first, then keychain; a missing key exits with the actionable fix, code 3, never a panic), starts the pipeline, and parks on Ctrl+C with a clean staged shutdown (hook -> worker -> capture). Startup was smoke-tested live on this box: capture came up at 48 kHz F32 on the dedicated COM thread, the `WH_KEYBOARD_LL` hook installed, and the Deepgram pre-warm completed in 218 ms. Log output is structurally free of key material, raw audio, and transcript text (lengths/counts/millis only, grep-verified). The interactive hold-speak-release gate awaits a human at the keyboard; the spec's Lessons Learned section now records this session's discoveries (rubato 4.0 API restructure, cpal 0.18 deltas, the chord decision and Start-menu behavior, the connect-class string contract).
+
 ## [0.6.0] - 2026-07-16
 
 ### Added
