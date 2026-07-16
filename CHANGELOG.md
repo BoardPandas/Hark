@@ -4,6 +4,12 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.2.0] - 2026-07-16
+
+### Added
+- **Settings loader (`hark-config`, checkpoint 1).** TOML settings with sane defaults for every key: provider presets (deepgram / openai / groq / openai-compatible, with per-kind default base URLs and models; Deepgram nova-3 is the app default per the spike verdict), the push-to-talk chord (`LCtrl+LWin`), audio timing knobs (300 ms pre-roll, 150 ms tail, 120 s max hold, silence-gate thresholds), injection strategy and clipboard timing, and the Phase 2 `bias_terms` placeholder. Unknown keys are tolerated for forward compatibility; a missing config file yields defaults; `openai-compatible` without an explicit `base_url` and blank PTT chords are rejected at load. The committed `config/default-config.toml` documents every default and where user config lives per OS.
+- **BYOK key resolution (`hark-keychain`, checkpoint 1).** `resolve_key(provider)` checks the `HARK_STT_KEY` env override first (dev/CI path; blank values are treated as unset) and only then the OS keychain (service `hark`, account = provider label). Both-absent produces a clear actionable error, never a panic. No type in the crate carries key material, and a regression test formats every failure path with a sentinel key in the environment to prove nothing leaks into Debug/Display output. 14 new unit tests across both crates.
+
 ## [0.1.4] - 2026-07-16
 
 ### Added

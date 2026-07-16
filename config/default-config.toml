@@ -1,0 +1,43 @@
+# Hark default settings.
+#
+# Hark reads its config from the OS config dir:
+#   Windows: %APPDATA%\hark\config.toml
+#   macOS:   ~/Library/Application Support/hark/config.toml
+# Every key is optional; a missing file or missing key uses the defaults
+# shown here.
+#
+# API keys NEVER live in this file. Set the HARK_STT_KEY environment
+# variable (dev), or store a key in the OS keychain under service "hark"
+# with the provider label as the account name (e.g. "deepgram").
+
+[provider]
+kind = "deepgram"    # deepgram | openai | groq | openai-compatible
+# base_url and model default per kind:
+#   deepgram -> https://api.deepgram.com, nova-3
+#   openai   -> https://api.openai.com/v1, gpt-4o-mini-transcribe
+#   groq     -> https://api.groq.com/openai/v1, whisper-large-v3-turbo
+# "openai-compatible" is the escape hatch for any other server speaking the
+# multipart /audio/transcriptions contract; it requires an explicit base_url.
+# base_url = "https://api.deepgram.com"
+# model = "nova-3"
+
+[hotkey]
+# Push-to-talk chord: hold ALL listed keys to record, release any to stop.
+# "+"-separated key names, e.g. "LCtrl+LWin", "RCtrl", "F13".
+ptt_key = "LCtrl+LWin"
+
+[audio]
+preroll_ms = 300      # audio kept from before the chord registers
+tail_ms = 150         # audio kept after release (trailing word endings)
+max_hold_s = 120      # cap; on exceed, transcribe what we have
+min_speech_ms = 250   # shorter holds are dropped (no network request)
+silence_rms = 0.01    # clips quieter than this RMS are dropped
+
+[inject]
+strategy = "clipboard"        # clipboard | type
+set_paste_delay_ms = 50       # clipboard set -> synthesized Ctrl+V
+paste_restore_delay_ms = 50   # Ctrl+V -> restore the old clipboard
+clipboard_retries = 8         # bounded retries while the clipboard is busy
+
+[dictionary]
+bias_terms = []   # Phase 2 placeholder; passed to provider biasing untouched

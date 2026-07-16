@@ -13,7 +13,7 @@ cpal = "0.18.1"
 # rubato 4.0 (2026-07-09) consolidated the old FftFixedIn/SincFixedIn family
 # into `Fft` + `FixedSync`. `process_all()` is the whole-clip path: it trims
 # the FFT startup delay and yields exact output frame counts, which our unit
-# tests assert on. Do NOT call process() once with chunk_size == clip length —
+# tests assert on. Do NOT call process() once with chunk_size == clip length;
 # that leaves the delay in and truncates the tail.
 rubato = "4.0"
 thiserror = "2"
