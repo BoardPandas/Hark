@@ -1,16 +1,19 @@
 //! Hark dictation pipeline: the worker-thread state machine that glues
 //! audio capture, push-to-talk edges, cloud STT, and injection.
 //!
-//! `run(settings, api_key)` spawns the three worker threads (audio capture,
-//! keyboard hook, pipeline worker) and returns a handle; the calling thread
-//! stays free. In `hark-cli` the caller just parks on Ctrl+C; the future
-//! tray/egui binary will call the same `run` from its main-thread event
-//! loop, preserving the UI-on-main-thread invariant unchanged.
+//! `run(settings, api_key, events)` spawns the three worker threads (audio
+//! capture, keyboard hook, pipeline worker) and returns a handle; the
+//! calling thread stays free. The `events` sender carries advisory
+//! [`PipelineEvent`]s toward the UI: sends are non-blocking and a
+//! disconnected receiver is ignored, so callers that do not care (hark-cli)
+//! may drop the receiver immediately.
 
+mod events;
 mod retry;
 mod state;
 mod worker;
 
+pub use events::{DictationRecord, FailStage, PipelineEvent};
 pub use retry::should_retry;
 pub use state::{advance, Action, Event, PipelineState};
 
@@ -198,7 +201,11 @@ fn inject_settings(inject: &hark_config::Inject) -> InjectSettings {
 /// continuous audio capture, the keyboard hook, and the worker thread.
 /// Blocks only until the pieces are up (the pre-warm request runs on the
 /// worker thread so startup stays fast).
-pub fn run(settings: &Settings, api_key: String) -> Result<PipelineHandle, PipelineError> {
+pub fn run(
+    settings: &Settings,
+    api_key: String,
+    events: mpsc::Sender<PipelineEvent>,
+) -> Result<PipelineHandle, PipelineError> {
     let chord = hark_hotkey::PttChord::parse(&settings.hotkey.ptt_key)
         .map_err(hark_hotkey::HotkeyError::from)?;
     let client = hark_stt::shared_client()?;
@@ -230,6 +237,8 @@ pub fn run(settings: &Settings, api_key: String) -> Result<PipelineHandle, Pipel
         cleanup,
         prewarm_url,
         client,
+        stt_model: provider_cfg.model.clone(),
+        events,
     };
     let worker = std::thread::Builder::new()
         .name("hark-pipeline-worker".to_string())

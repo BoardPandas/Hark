@@ -1,6 +1,7 @@
 [workspace]
 resolver = "2"
 members = [
+    "crates/hark-app",
     "crates/hark-audio",
     "crates/hark-cli",
     "crates/hark-config",

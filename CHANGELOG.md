@@ -4,6 +4,16 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.10.0] - 2026-07-16
+
+### Added
+- **Hark is now a windowed desktop app (`hark-app`, Phase 4 checkpoint 2).** A new binary opens a real settings window: fixed sidebar (History / Dictionary / Stats navigation, Settings pinned at the bottom, version caption), a persistent status footer that always tells the truth about the pipeline (Listening for the configured chord / Recording / Processing / an error with its cause, plus an "Open Settings" jump when the problem is key-related), and honest placeholder pages with designed empty states where the CP3/CP4 editors and lists will land. At startup the app resolves the BYOK key from the OS keychain and starts the dictation pipeline; with no key it opens on Settings with the footer saying why, never a silent dead state. Closing the window quits (the tray arrives at CP5). Debug builds keep a console for logs; release builds are windowless.
+- **A real visual identity, not an egui demo.** Embedded Inter (Regular/Medium/SemiBold) and JetBrains Mono fonts (SIL OFL 1.1, official releases), a hand-rolled light and dark theme following the OS preference, an indigo accent, soft shadows, hairline strokes, a 4 px spacing grid, and a fixed type scale, all defined in one `theme.rs` token module. Icons are vendored Phosphor glyphs (the egui-phosphor crate still targets egui 0.34, so the font plus its matching codepoints are embedded directly). Unit tests pin the palette hexes and verify WCAG AA contrast (4.5:1 body text, 3:1 indicators) in both themes.
+- **The pipeline now reports what it is doing.** `hark_pipeline::run` takes an event channel and emits advisory events (Recording, Processing, Injected with the full dictation record, Failed with the stage and cause). Sends are non-blocking and best-effort: dictation never waits on, and can never be broken by, the UI. The dictation record carries the raw and final transcripts, voice/provider/model labels, and per-stage timings, and deliberately has no Debug formatting so transcript content cannot leak into logs. When a cleanup call is skipped, gated, or fails, the record labels the entry verbatim rather than blaming a model that never ran.
+
+### Changed
+- **`hark-cli` passes the new event channel** (and drops the receiver; the CLI has no UI). Behavior is otherwise unchanged; the crate retires at CP7.
+
 ## [0.9.5] - 2026-07-16
 
 ### Added

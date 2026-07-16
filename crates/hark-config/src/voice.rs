@@ -21,6 +21,19 @@ pub enum VoiceName {
     Custom,
 }
 
+impl VoiceName {
+    /// The kebab-case config/display label (matches the serde encoding).
+    pub fn label(self) -> &'static str {
+        match self {
+            VoiceName::Verbatim => "verbatim",
+            VoiceName::Clean => "clean",
+            VoiceName::Professional => "professional",
+            VoiceName::Casual => "casual",
+            VoiceName::Custom => "custom",
+        }
+    }
+}
+
 /// The `[voice]` section.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]

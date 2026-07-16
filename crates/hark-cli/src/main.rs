@@ -102,8 +102,11 @@ fn main() -> ExitCode {
         }
     };
 
-    // 3. The pipeline: capture + hook + worker threads.
-    let handle = match hark_pipeline::run(&settings, api_key) {
+    // 3. The pipeline: capture + hook + worker threads. The CLI has no UI,
+    //    so the advisory event receiver is dropped on the spot; the worker's
+    //    best-effort sends tolerate that by contract.
+    let (events_tx, _) = mpsc::channel();
+    let handle = match hark_pipeline::run(&settings, api_key, events_tx) {
         Ok(h) => h,
         Err(e) => {
             eprintln!("hark: cannot start: {e}");

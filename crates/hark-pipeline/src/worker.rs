@@ -2,6 +2,7 @@
 //! encode, transcribe (one retry max), inject. Runs on its own thread; all
 //! logging is lengths/counts/millis, never key material, audio, or text.
 
+use crate::events::{DictationRecord, FailStage, PipelineEvent};
 use crate::retry::should_retry;
 use crate::state::{advance, Action, Event, PipelineState};
 use hark_audio::ring::Consumer;
@@ -11,7 +12,7 @@ use hark_hotkey::PttEvent;
 use hark_inject::InjectSettings;
 use hark_stt::{SttError, SttProvider, Transcript};
 use hark_voice::{skips_cleanup, CleanupProvider, Voice};
-use std::sync::mpsc::Receiver;
+use std::sync::mpsc::{Receiver, Sender};
 use std::time::Instant;
 
 /// The resolved cleanup step: adapter, effective voice, and gate threshold.
@@ -45,6 +46,11 @@ pub(crate) struct Worker {
     /// The shared HTTP client (same instance the provider adapter holds),
     /// used only for the pre-warm requests.
     pub client: reqwest::blocking::Client,
+    /// STT model label, for the dictation record (the provider label comes
+    /// from the adapter itself).
+    pub stt_model: String,
+    /// Advisory events toward the UI; every send is `let _ =` best-effort.
+    pub events: Sender<PipelineEvent>,
 }
 
 /// The one long-lived worker loop. Exits when the hotkey listener drops its
@@ -71,8 +77,14 @@ pub(crate) fn run(worker: Worker, rx: Receiver<PttEvent>) {
             PttEvent::Up => Event::PttUp { at_abs },
         };
         let (next, action) = advance(state, ev);
+        // Surface the two UI-visible edges: capture started, request in
+        // flight. Everything after that is reported from dictate itself.
+        if matches!(state, PipelineState::Idle) && matches!(next, PipelineState::Recording { .. }) {
+            let _ = worker.events.send(PipelineEvent::Recording);
+        }
         state = next;
         if let Action::Dictate { down_abs, up_abs } = action {
+            let _ = worker.events.send(PipelineEvent::Processing);
             state = dictate(&worker, down_abs, up_abs, state);
         }
     }
@@ -98,8 +110,12 @@ fn prewarm(client: &reqwest::blocking::Client, url: &str) {
 
 /// One full dictation: assemble -> gate -> encode -> transcribe -> inject.
 /// Always returns the post-dictation state (Idle via Injected or Aborted).
+/// Every exit reports its outcome on the events channel (best-effort).
 fn dictate(worker: &Worker, down_abs: u64, up_abs: u64, state: PipelineState) -> PipelineState {
     let released = Instant::now();
+    let fail = |stage: FailStage, detail: String| {
+        let _ = worker.events.send(PipelineEvent::Failed { stage, detail });
+    };
 
     let clip = match hark_audio::assemble_window(
         &worker.consumer,
@@ -111,13 +127,16 @@ fn dictate(worker: &Worker, down_abs: u64, up_abs: u64, state: PipelineState) ->
         Ok(Some(clip)) => clip,
         Ok(None) => {
             log::info!("dictation gated (too short or silent); no request sent");
+            fail(FailStage::Gated, "too short or silent".to_string());
             return advance(state, Event::Aborted).0;
         }
         Err(e) => {
             log::error!("window assembly failed: {e}");
+            fail(FailStage::Audio, e.to_string());
             return advance(state, Event::Aborted).0;
         }
     };
+    let audio_ms = (clip.samples_16k.len() as u64) * 1_000 / 16_000;
 
     let encode_started = Instant::now();
     let wav = hark_stt::wav::encode_wav_16k_mono(&clip.samples_16k);
@@ -132,6 +151,7 @@ fn dictate(worker: &Worker, down_abs: u64, up_abs: u64, state: PipelineState) ->
         Ok(t) => t,
         Err(e) => {
             log::error!("transcription failed: {e}");
+            fail(FailStage::Transcribe, e.to_string());
             return advance(state, Event::Aborted).0;
         }
     };
@@ -139,26 +159,59 @@ fn dictate(worker: &Worker, down_abs: u64, up_abs: u64, state: PipelineState) ->
 
     if transcript.text.trim().is_empty() {
         log::info!("provider returned an empty transcript; nothing to inject");
+        fail(
+            FailStage::EmptyTranscript,
+            "the provider returned an empty transcript".to_string(),
+        );
         return advance(state, Event::Aborted).0;
     }
 
     let text = corrected_text(&worker.corrector, &transcript.text);
-    let text = cleaned_text(worker.cleanup.as_ref(), &worker.corrector, text);
-    match hark_inject::inject(&text, &worker.inject) {
+    let cleaned = cleaned_text(worker.cleanup.as_ref(), &worker.corrector, text);
+    match hark_inject::inject(&cleaned.text, &worker.inject) {
         Ok(()) => {
+            let total_ms = released.elapsed().as_millis() as u64;
             log::info!(
-                "dictation injected: {} chars, request {} ms, release-to-inject {} ms",
-                text.chars().count(),
+                "dictation injected: {} chars, request {} ms, release-to-inject {total_ms} ms",
+                cleaned.text.chars().count(),
                 transcript.request_ms,
-                released.elapsed().as_millis()
             );
+            // The labels state what actually shaped the text: a skipped,
+            // gated, or failed cleanup call means the entry is verbatim, so
+            // a disappointing result never blames the wrong model.
+            let cleanup_ran = cleaned.request_ms.is_some();
+            let (voice, cleanup_model) = match worker.cleanup.as_ref().filter(|_| cleanup_ran) {
+                Some(plan) => (plan.voice.name().to_string(), Some(plan.model.clone())),
+                None => (Voice::Verbatim.name().to_string(), None),
+            };
+            let _ = worker.events.send(PipelineEvent::Injected(DictationRecord {
+                raw_text: transcript.text,
+                final_text: cleaned.text,
+                voice,
+                stt_provider: worker.provider.label().to_string(),
+                stt_model: worker.stt_model.clone(),
+                cleanup_model,
+                audio_ms,
+                stt_ms: transcript.request_ms as u64,
+                cleanup_ms: cleaned.request_ms,
+                total_ms,
+            }));
             advance(state, Event::Injected).0
         }
         Err(e) => {
             log::error!("injection failed: {e}");
+            fail(FailStage::Inject, e.to_string());
             advance(state, Event::Aborted).0
         }
     }
+}
+
+/// Outcome of the cleanup pass. `request_ms` is present only when a cleanup
+/// response actually shaped `text`; every degraded path (no plan, gate,
+/// provider error) leaves it `None` so the dictation record stays honest.
+pub(crate) struct CleanupOutcome {
+    pub text: String,
+    pub request_ms: Option<u64>,
 }
 
 /// The optional voice-cleanup pass between dictionary pass 1 and injection.
@@ -167,16 +220,20 @@ fn dictate(worker: &Worker, down_abs: u64, up_abs: u64, state: PipelineState) ->
 /// dictation is never lost to the optional feature. Dictionary pass 2 runs
 /// only when cleanup actually rewrote the text, repairing any term the model
 /// re-mangled. Logs counts, millis, and config labels only.
-fn cleaned_text(plan: Option<&CleanupPlan>, corrector: &Corrector, text: String) -> String {
+fn cleaned_text(plan: Option<&CleanupPlan>, corrector: &Corrector, text: String) -> CleanupOutcome {
+    let passthrough = |text: String| CleanupOutcome {
+        text,
+        request_ms: None,
+    };
     let Some(plan) = plan else {
-        return text;
+        return passthrough(text);
     };
     if skips_cleanup(&text, plan.skip_below_words) {
         log::info!(
             "cleanup skipped (short utterance: {} words)",
             text.split_whitespace().count()
         );
-        return text;
+        return passthrough(text);
     }
     match plan.cleaner.clean(&text) {
         Ok(cleaned) => {
@@ -188,11 +245,14 @@ fn cleaned_text(plan: Option<&CleanupPlan>, corrector: &Corrector, text: String)
                 cleaned.text.chars().count(),
                 cleaned.request_ms
             );
-            corrected_text(corrector, &cleaned.text)
+            CleanupOutcome {
+                text: corrected_text(corrector, &cleaned.text),
+                request_ms: Some(cleaned.request_ms as u64),
+            }
         }
         Err(e) => {
             log::warn!("cleanup failed ({e}); injecting uncleaned transcript");
-            text
+            passthrough(text)
         }
     }
 }
@@ -394,7 +454,9 @@ mod tests {
             &corrector,
             "so um cleaned and uh polished".to_string(),
         );
-        assert_eq!(out, "Cleaned and polished.");
+        assert_eq!(out.text, "Cleaned and polished.");
+        // A successful cleanup reports its wall time for the record.
+        assert!(out.request_ms.is_some());
     }
 
     #[test]
@@ -406,14 +468,17 @@ mod tests {
             &corrector,
             "the original transcript stands".to_string(),
         );
-        assert_eq!(out, "the original transcript stands");
+        assert_eq!(out.text, "the original transcript stands");
+        // Degraded: the record must not claim a cleanup model shaped this.
+        assert_eq!(out.request_ms, None);
     }
 
     #[test]
     fn no_plan_means_verbatim_and_no_calls() {
         let corrector = Corrector::new(&[]);
         let out = cleaned_text(None, &corrector, "exactly as spoken".to_string());
-        assert_eq!(out, "exactly as spoken");
+        assert_eq!(out.text, "exactly as spoken");
+        assert_eq!(out.request_ms, None);
     }
 
     #[test]
@@ -423,7 +488,8 @@ mod tests {
         // assertion that the gate short-circuited before the cleaner.
         let plan = MockCleaner::plan(vec![], 5);
         let out = cleaned_text(Some(&plan), &corrector, "um send it".to_string());
-        assert_eq!(out, "um send it");
+        assert_eq!(out.text, "um send it");
+        assert_eq!(out.request_ms, None);
     }
 
     #[test]
@@ -432,7 +498,7 @@ mod tests {
         let plan = MockCleaner::plan(vec![MockCleaner::ok("Hi.")], 0);
         // One word, but the gate is disabled: the (scripted) cleaner runs.
         assert_eq!(
-            cleaned_text(Some(&plan), &corrector, "hi".to_string()),
+            cleaned_text(Some(&plan), &corrector, "hi".to_string()).text,
             "Hi."
         );
     }
@@ -450,6 +516,6 @@ mod tests {
             &corrector,
             "tell Vossburg the Modero build is green".to_string(),
         );
-        assert_eq!(out, "Tell Vossburg the Modero build is green.");
+        assert_eq!(out.text, "Tell Vossburg the Modero build is green.");
     }
 }

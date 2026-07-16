@@ -1,0 +1,17 @@
+[package]
+name = "hark-app"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Hark desktop app: eframe window (and later tray) on the main thread, dictation pipeline on worker threads."
+
+[dependencies]
+# `persistence` remembers window geometry across launches (spec §3.9).
+eframe = { version = "0.35.0", features = ["persistence"] }
+egui = "0.35.0"
+env_logger = "0.11"
+hark-config = { path = "../hark-config" }
+hark-keychain = { path = "../hark-keychain" }
+hark-pipeline = { path = "../hark-pipeline" }
+log = "0.4"
