@@ -4,6 +4,11 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.8.2] - 2026-07-16
+
+### Changed
+- **Phase 2 (Windows) definition of done is met: the CP6 interactive gate passed user validation.** Dictating with a real dictionary loaded, spoken terms arrived at the cursor with their canonical spellings, decoy sentences of ordinary speech were left untouched, and no latency change was perceptible. The 0.85 Jaro-Winkler threshold held as shipped with no tuning. The collision lesson behind the guard was contributed to LL-G (`kb/rust/phonetic-code-equality-needs-confirm-guard.md`, HIGH). macOS validation remains deferred until Mac hardware; nothing in Phase 2 is platform-specific.
+
 ## [0.8.1] - 2026-07-16
 
 ### Changed

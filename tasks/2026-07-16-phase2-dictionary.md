@@ -1,6 +1,6 @@
 # Phase 2: Dictionary (phonetic post-correction + provider biasing)
 
-**Date:** 2026-07-16. **Status:** CP0-CP5 implemented and committed (2026-07-16, `0d40ee7`..`a58180f`, 170 tests green); CP6 interactive gate pending. **Prereq:** Phase 1 complete (main @ `4f19ba2`, 118 tests green).
+**Date:** 2026-07-16. **Status:** COMPLETE on Windows (2026-07-16): CP0-CP5 at `0d40ee7`..`a58180f` (170 tests green), CP6 interactive gate user-validated on real hardware. macOS validation deferred until Mac hardware, per the Phase 1 rule; nothing in this phase is platform-specific. **Prereq:** Phase 1 complete (main @ `4f19ba2`, 118 tests green).
 **Master plan:** `tasks/plan-repo.md` §Phase 2 (lines 138-141) and crate layout (line 92).
 
 ## 1. Goal
@@ -144,4 +144,5 @@ Filled in during implementation (2026-07-16, CP0-CP5; threshold findings await C
 - **Reusing `tokenize()` on the term text itself** (in `build_entries`) guarantees term-side and transcript-side segmentation can never drift; terms that tokenize to nothing are dropped.
 - **clippy `op_ref` gotcha:** `&text[range] != entry.canonical` (comparing `&str` to `String`) trips "needlessly taken reference of left operand" under `-D warnings`; write `text[range] != entry.canonical` (str != String comparison exists).
 - **`prompt_from_bias_terms` signature change** (returns `(Option<String>, usize)` for the construction-time count log) required touching only the two adapter_pure tests; nothing else consumed it.
-- Route the "matter"/"modero" collision lesson (phonetic match needs an edit-distance confirm guard) to LL-G via `/add-lesson` after CP6 empirically validates the 0.85 threshold.
+- Routed to LL-G (2026-07-16): the "matter"/"modero" collision lesson lives at `kb/rust/phonetic-code-equality-needs-confirm-guard.md` (HIGH).
+- **CP6 gate passed on real Windows hardware (2026-07-16).** User validated with a real dictionary: corrections applied, no false positives on decoy sentences, no perceptible latency change. The `JW_CONFIRM_THRESHOLD` of 0.85 held as shipped; no tuning was needed.
