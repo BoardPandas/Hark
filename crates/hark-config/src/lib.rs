@@ -633,6 +633,24 @@ mod tests {
     }
 
     #[test]
+    fn saving_over_an_existing_file_replaces_it() {
+        // The UI saves repeatedly over the same path; the rename step must
+        // replace the existing config on Windows as well as Unix.
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("config.toml");
+
+        let mut s = Settings::default();
+        s.hotkey.ptt_key = "RCtrl".to_string();
+        s.save(&path).expect("first save");
+
+        s.hotkey.ptt_key = "LAlt".to_string();
+        s.save(&path).expect("second save over the existing file");
+
+        let loaded = Settings::load(&path).expect("loads");
+        assert_eq!(loaded.hotkey.ptt_key, "LAlt");
+    }
+
+    #[test]
     fn save_validates_before_writing() {
         let dir = tempfile::tempdir().expect("tempdir");
         let path = dir.path().join("config.toml");

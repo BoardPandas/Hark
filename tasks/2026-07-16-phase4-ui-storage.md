@@ -231,4 +231,8 @@ Pre-seeded (2026-07-16, planning research); confirm or amend during implementati
 
 Filled in during implementation:
 
-- _(add as found)_
+- **(CP0, 2026-07-16) libsqlite3-sys 0.38.1 requires a Rust toolchain newer than 1.94 and does not say so.** Its build script uses `cfg_select!` (unstable pre-1.95-ish, fine on 1.97.1) and the crate declares no `rust-version`, so an older toolchain fails with an opaque E0658 in the build script instead of an MSRV warning. rusqlite 0.40.1 pins `libsqlite3-sys ^0.38.1` exactly, so there is no downgrade escape hatch: the toolchain must move. Fixed by `rustup update` (1.94.0 to 1.97.1) and workspace `rust-version = "1.97"`. Candidate LL-G entry (rust or sqlite).
+- **(CP0) An in-memory SQLite DB reports `journal_mode = memory`, not `wal`.** The open path must accept whatever `PRAGMA journal_mode = WAL` returns instead of asserting on "wal", or every in-memory test breaks.
+- **(CP1) Unset `Option` config fields are omitted from saved TOML via explicit `#[serde(skip_serializing_if = "Option::is_none")]` on every Option field**; we deliberately did not rely on the toml 1.x serializer's own None handling.
+- **(CP1) `keyring::Error` variants are constructible in tests** (`NoEntry`, `PlatformFailure(Box::new(io::Error::other(..)))`), which lets the delete/status outcome mapping be pure functions fully tested with zero real-keyring contact.
+- **(CP1) `std::fs::rename` replaces an existing file on Windows** (verified by a save-twice test), so temp-write + rename is a safe repeated-save path with no truncation window.

@@ -4,6 +4,12 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.9.5] - 2026-07-16
+
+### Added
+- **Config saves are proven safe to repeat:** a new test verifies that saving over an existing `config.toml` replaces it cleanly on Windows (the temp-file + rename path), which is exactly what the settings UI will do on every Save.
+- **Phase 4 session handoff (`tasks/2026-07-16-handoff-phase4-cp2.md`)** and CP0/CP1 implementation lessons recorded in the Phase 4 spec (toolchain MSRV gotcha behind rusqlite's bundled SQLite, in-memory WAL behavior, TOML Option serialization, keyring test seams, Windows rename semantics).
+
 ## [0.9.4] - 2026-07-16
 
 ### Added
