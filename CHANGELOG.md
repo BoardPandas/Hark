@@ -4,6 +4,14 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.0.3] - 2026-07-15
+
+### Changed
+- **`hark-stt` crate rebuilt for BYOK cloud (spike checkpoint 0).** The sherpa-onnx dependency and its native-lib auto-download are gone; the crate now compiles with pure-Rust dependencies only (`reqwest` 0.13 blocking + rustls, `serde`, `thiserror`). The public surface is the new cloud `SttProvider` trait, `ProviderConfig` (with a redacting `Debug` so API keys can never leak into logs), the `SttError` taxonomy (`Http`/`Auth`/`RateLimited`/`Timeout`/`BadAudio`/`Provider`), a WAV encode/parse helper for the 16 kHz mono PCM16 contract, and latency-percentile metrics. Note: reqwest 0.13 renamed the 0.12 TLS feature `rustls-tls-webpki-roots` to `rustls` + `webpki-roots`.
+
+### Added
+- **Committed spike fixture** (`crates/hark-stt/fixtures/spike_clip.wav` + `expected.txt`): a ~10 s 16 kHz mono English clip with known transcript, containing the dictionary-ish terms "Hark" and "Levenshtein" for the upcoming Deepgram keyterm A/B.
+
 ## [0.0.2] - 2026-07-15
 
 ### Changed

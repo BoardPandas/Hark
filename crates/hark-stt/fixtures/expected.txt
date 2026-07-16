@@ -1,0 +1,1 @@
+Hark uses the Levenshtein distance to verify this spike clip. Hold the key, speak, and release, and polished text appears at the cursor.

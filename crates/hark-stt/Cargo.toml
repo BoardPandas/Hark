@@ -4,11 +4,21 @@ version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
-description = "Hark on-device speech-to-text engine: sherpa-onnx + Parakeet TDT 0.6B v2 (English)."
+description = "Hark BYOK cloud speech-to-text: SttProvider trait with OpenAI-compatible and Deepgram adapters."
 
 [dependencies]
-# Official k2-fsa Rust bindings (module path `sherpa_onnx`); NOT the deprecated `sherpa-rs`.
-# Default feature `static` links a prebuilt native lib that build.rs auto-downloads
-# (no manual ONNX Runtime install). Set SHERPA_ONNX_LIB_DIR to override.
-sherpa-onnx = "1.13.4"
+# reqwest 0.13 renamed the 0.12 TLS umbrella features: "rustls-tls-webpki-roots"
+# is now "rustls" + "webpki-roots" (no OS cert store, fully static trust roots).
+reqwest = { version = "0.13", default-features = false, features = [
+    "blocking",
+    "multipart",
+    "rustls",
+    "webpki-roots",
+    "json",
+] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
 thiserror = "2"
+
+[dev-dependencies]
+hound = "3.5"

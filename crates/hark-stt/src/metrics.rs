@@ -1,6 +1,6 @@
-//! Pure text-comparison helpers used by the spike harness to quantify sherpa-onnx
-//! issue #3267 (empty/hallucinated `modified_beam_search` output). Kept model- and
-//! hardware-free so the classification logic is unit-testable on any box.
+//! Pure measurement helpers for the spike harness: latency percentiles and
+//! transcript-vs-reference edit distance. Model- and network-free so all of it
+//! is unit-testable on any box.
 
 /// Lowercase, drop punctuation, collapse runs of whitespace. Makes transcript
 /// comparison robust to casing/spacing noise that isn't a real divergence.
@@ -58,83 +58,52 @@ pub fn divergence_ratio(output: &str, expected: &str) -> f64 {
     levenshtein(&o, &e) as f64 / max_len as f64
 }
 
-/// Classification of one decode output relative to a known-good transcript.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Outcome {
-    /// Nothing (or whitespace/punctuation only) came back.
-    Empty,
-    /// Output diverged from the reference beyond `threshold`.
-    Hallucination,
-    /// Output matched the reference within tolerance.
-    Clean,
+/// Whether `term` appears in `text` after normalization (multi-word safe).
+pub fn contains_term(text: &str, term: &str) -> bool {
+    let hay = format!(" {} ", normalize_text(text));
+    let needle = format!(" {} ", normalize_text(term));
+    hay.contains(&needle)
 }
 
-/// Classify one output. `threshold` is the max tolerated divergence ratio (e.g. 0.5).
-pub fn classify(output: &str, expected: &str, threshold: f64) -> Outcome {
-    if normalize_text(output).is_empty() {
-        return Outcome::Empty;
-    }
-    if divergence_ratio(output, expected) > threshold {
-        Outcome::Hallucination
-    } else {
-        Outcome::Clean
-    }
-}
-
-/// Aggregate outcome + latency stats for one A/B arm.
+/// Latency samples for one measurement arm (e.g. warm-client runs of one provider).
 #[derive(Debug, Clone, Default)]
-pub struct AbTally {
-    pub n: usize,
-    pub empty: usize,
-    pub halluc: usize,
-    pub clean: usize,
-    pub panics: usize,
-    pub decode_ms: Vec<u128>,
+pub struct LatencyTally {
+    samples_ms: Vec<u128>,
 }
 
-impl AbTally {
-    pub fn record_outcome(&mut self, outcome: Outcome) {
-        self.n += 1;
-        match outcome {
-            Outcome::Empty => self.empty += 1,
-            Outcome::Hallucination => self.halluc += 1,
-            Outcome::Clean => self.clean += 1,
-        }
+impl LatencyTally {
+    pub fn record(&mut self, ms: u128) {
+        self.samples_ms.push(ms);
     }
 
-    pub fn record_panic(&mut self) {
-        self.n += 1;
-        self.panics += 1;
+    pub fn n(&self) -> usize {
+        self.samples_ms.len()
     }
 
-    pub fn empty_rate(&self) -> f64 {
-        self.rate(self.empty)
-    }
-
-    pub fn halluc_rate(&self) -> f64 {
-        self.rate(self.halluc)
-    }
-
-    /// Empty + hallucinated + panicked, over N: the #3267 failure rate.
-    pub fn failure_rate(&self) -> f64 {
-        self.rate(self.empty + self.halluc + self.panics)
-    }
-
-    fn rate(&self, count: usize) -> f64 {
-        if self.n == 0 {
-            0.0
-        } else {
-            count as f64 / self.n as f64
-        }
-    }
-
-    pub fn latency_percentile(&self, pct: f64) -> Option<u128> {
-        if self.decode_ms.is_empty() {
+    /// Nearest-rank percentile; `pct` in [0, 1]. None when no samples recorded.
+    pub fn percentile(&self, pct: f64) -> Option<u128> {
+        if self.samples_ms.is_empty() {
             return None;
         }
-        let mut sorted = self.decode_ms.clone();
+        let mut sorted = self.samples_ms.clone();
         sorted.sort_unstable();
         let idx = (((sorted.len() - 1) as f64) * pct).round() as usize;
         Some(sorted[idx])
+    }
+
+    pub fn p50(&self) -> Option<u128> {
+        self.percentile(0.50)
+    }
+
+    pub fn p95(&self) -> Option<u128> {
+        self.percentile(0.95)
+    }
+
+    pub fn min(&self) -> Option<u128> {
+        self.samples_ms.iter().min().copied()
+    }
+
+    pub fn max(&self) -> Option<u128> {
+        self.samples_ms.iter().max().copied()
     }
 }

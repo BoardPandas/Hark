@@ -1,102 +1,43 @@
-use crate::error::SttError;
-use std::path::PathBuf;
-
-/// Decoding strategy. `Greedy` is reliable and hotword-free; `ModifiedBeamSearch`
-/// is the only mode that supports decode-time hotword biasing on Parakeet TDT but
-/// carries sherpa-onnx issue #3267 (~20% empty/hallucinated output).
-#[derive(Debug, Clone)]
-pub enum DecodingMethod {
-    Greedy,
-    ModifiedBeamSearch { max_active_paths: i32 },
+/// Which HTTP contract an adapter speaks.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ProviderKind {
+    /// Multipart `POST {base_url}/audio/transcriptions`, Bearer auth.
+    /// One code path, multiple providers (OpenAI, Groq).
+    OpenAiCompatible,
+    /// `POST {base_url}/v1/listen`, `Token` auth, raw `audio/wav` body.
+    Deepgram,
 }
 
-impl DecodingMethod {
-    /// The string sherpa-onnx expects in `OfflineRecognizerConfig::decoding_method`.
-    pub fn as_sherpa_str(&self) -> &'static str {
-        match self {
-            DecodingMethod::Greedy => "greedy_search",
-            DecodingMethod::ModifiedBeamSearch { .. } => "modified_beam_search",
-        }
-    }
+/// Everything needed to build one provider adapter. The spike fills this from
+/// env vars; the app will fill it from settings + the OS keychain.
+#[derive(Clone)]
+pub struct ProviderConfig {
+    pub kind: ProviderKind,
+    /// A short human label for reports and errors ("groq", "openai", "deepgram").
+    /// Error messages carry this, never the key.
+    pub label: String,
+    /// e.g. "https://api.groq.com/openai/v1" or "https://api.deepgram.com".
+    pub base_url: String,
+    /// e.g. "whisper-large-v3-turbo", "gpt-4o-mini-transcribe", "nova-3".
+    pub model: String,
+    /// Spike: from env. App: from keyring. Never logged.
+    pub api_key: String,
+    /// Dictionary-ish bias terms, mapped per adapter: `prompt` (openai-compatible)
+    /// or repeated `keyterm` query params (deepgram).
+    pub bias_terms: Vec<String>,
 }
 
-/// Decode-time hotword biasing config. `modeling_unit`/`bpe_vocab` are required by
-/// sherpa-onnx when biasing a BPE-tokenized model; whether the Parakeet release
-/// ships a usable `bpe.vocab` is the Checkpoint 3 gate.
-#[derive(Debug, Clone)]
-pub struct HotwordConfig {
-    pub file: PathBuf,
-    pub score: f32,
-    pub modeling_unit: Option<String>,
-    pub bpe_vocab: Option<PathBuf>,
-}
-
-/// Everything needed to build a warm recognizer. Kept free of runtime I/O so the
-/// eventual pipeline can construct it once and reuse `SttEngine` across decodes.
-#[derive(Debug, Clone)]
-pub struct SttConfig {
-    pub encoder: PathBuf,
-    pub decoder: PathBuf,
-    pub joiner: PathBuf,
-    pub tokens: PathBuf,
-    /// "cpu" | "coreml" | "directml" | "cuda" — a runtime string, not a Cargo feature.
-    pub provider: String,
-    pub decoding: DecodingMethod,
-    pub hotwords: Option<HotwordConfig>,
-    pub num_threads: i32,
-}
-
-/// Reject audio the recognizer cannot consume before we ever touch the native lib.
-/// Pure so it is unit-testable without a model or hardware.
-pub fn check_audio_format(got_sr: u32, got_channels: u16) -> Result<(), SttError> {
-    if got_sr != 16_000 || got_channels != 1 {
-        return Err(SttError::BadAudioFormat {
-            got_sr,
-            got_channels,
-        });
-    }
-    Ok(())
-}
-
-/// One parsed line of a hotwords file: a phrase with an optional trailing boost
-/// score (`PHRASE :SCORE`). Score, when present, is the last whitespace-delimited
-/// token and begins with ':'.
-#[derive(Debug, Clone, PartialEq)]
-pub struct HotwordEntry {
-    pub phrase: String,
-    pub score: Option<f32>,
-}
-
-/// Parse a single hotwords-file line. Blank/whitespace-only lines return `None`.
-pub fn parse_hotword_line(line: &str) -> Option<HotwordEntry> {
-    let trimmed = line.trim();
-    if trimmed.is_empty() {
-        return None;
-    }
-    let mut tokens: Vec<&str> = trimmed.split_whitespace().collect();
-    let mut score = None;
-    if let Some(last) = tokens.last() {
-        if let Some(rest) = last.strip_prefix(':') {
-            if let Ok(parsed) = rest.parse::<f32>() {
-                score = Some(parsed);
-                tokens.pop();
-            }
-        }
-    }
-    if tokens.is_empty() {
-        return None;
-    }
-    Some(HotwordEntry {
-        phrase: tokens.join(" "),
-        score,
-    })
-}
-
-/// Serialize an entry back to its canonical line form. `parse_hotword_line` of the
-/// result reproduces the same structured entry (round-trip stable).
-pub fn serialize_hotword_entry(entry: &HotwordEntry) -> String {
-    match entry.score {
-        Some(s) => format!("{} :{}", entry.phrase, s),
-        None => entry.phrase.clone(),
+// Deliberately no Debug derive: a reflexive `{config:?}` in some future log line
+// must not be able to leak `api_key`.
+impl std::fmt::Debug for ProviderConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ProviderConfig")
+            .field("kind", &self.kind)
+            .field("label", &self.label)
+            .field("base_url", &self.base_url)
+            .field("model", &self.model)
+            .field("api_key", &"<redacted>")
+            .field("bias_terms", &self.bias_terms)
+            .finish()
     }
 }
