@@ -4,6 +4,20 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.0.2] - 2026-07-15
+
+### Changed
+- **STT pivoted from on-device to BYOK cloud (multi-provider).** The v1 plan's local sherpa-onnx + Parakeet TDT 0.6B stack (~1.1 GB of model assets) is replaced by cloud transcription using the user's own API keys: an `SttProvider` trait with an OpenAI-compatible adapter (OpenAI `gpt-4o-transcribe`/`whisper-1`, Groq `whisper-large-v3-turbo`; one shared multipart contract) and a Deepgram adapter (nova-3, `keyterm` dictionary biasing). Transport is `reqwest` blocking on pipeline worker threads; audio uploads as 16 kHz mono WAV. History, stats, dictionary, and settings remain strictly local; a small opt-in local fallback model (~75 MB) is recorded as a later-phase option. `tasks/plan-repo.md` rewritten as v2.
+- **Phase 1 STT spike spec rewritten** (`tasks/2026-07-15-phase1-stt-spike.md`): now proves the cloud path (both adapters, real p50/p95 latency on 2-15 s clips, a Deepgram `keyterm` A/B, and an error taxonomy with a retry-policy verdict) instead of ONNX decode + hotwords. Runnable entirely on the Windows dev box; no per-OS inference runtime remains.
+- **Project rules updated for the pivot:** root `CLAUDE.md`, `.claude/rules/rust.md`, and `.claude/references/design-guardrails.md` now encode the cloud latency SLA (one long-lived HTTP client with keep-alive/TLS resumption, at most one retry on timeout), first-class offline/key-rejected/provider-error UI states, and the honest disclosure that every dictation sends audio to the user's chosen STT provider.
+
+### Added
+- **Cloud STT research** in agent memory (`.claude/agent-memory/explorer/hark_cloud_stt_providers.md`, `hark_cloud_stt_rust_stack.md`): provider comparison with pricing and gotchas (Groq's 10 s billing minimum, Deepgram's `keyterm` vs legacy `keywords` split, pre-1.0 `deepgram` crate) and the verified Rust dependency set (`reqwest` 0.13 blocking, `hound`, `flacenc` as upgrade path, `whisper-rs` + `tiny.en` as the future fallback candidate).
+- **Workspace scaffolding from the v1 spike** committed as the base the v2 spike rewrites: root `Cargo.toml`, `rustfmt.toml`, and the `crates/hark-stt` skeleton. Note: the skeleton still declares the `sherpa-onnx` dependency, which auto-downloads a large native lib; spike checkpoint 0 removes it, so do not build the workspace before that lands.
+
+### Removed
+- **Local model assets and fetch script:** the ~1.1 GB Parakeet ONNX download and `scripts/fetch-model.sh` are gone, along with the now-stale `/models/` `.gitignore` entry. The eventual installer shrinks from ~1.5 GB to tens of MB.
+
 ## [0.0.1] - 2026-07-15
 
 This repository is now the home of **Hark** — an offline, single-user, push-to-talk voice dictation desktop app for Windows and macOS (Rust). This release repurposes the Claude Code starter template into Hark's project scaffolding and plans the first build phase. Versioning **resets to `0.0.1`** for Hark as a new product; the `0.7.0` and earlier entries below are the starter template's history, retained for record.

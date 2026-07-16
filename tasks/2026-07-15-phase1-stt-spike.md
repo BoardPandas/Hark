@@ -1,220 +1,194 @@
-# Spec: Phase 1 STT Spike — sherpa-onnx + Parakeet TDT 0.6B v2 (with hotwords A/B)
+# Spec: Phase 1 STT Spike, BYOK Cloud Adapters (v2, replaces the sherpa-onnx spike)
 
 **Date:** 2026-07-15
-**Phase:** Foundation (Phase 1, blocking prerequisite — must pass before any pipeline code)
+**Phase:** Foundation (Phase 1, blocking prerequisite; must pass before any pipeline code)
 **Feature slug:** `phase1-stt-spike`
-**Depends on:** nothing (greenfield). **Blocks:** all of Phase 1 pipeline work and the Phase 2 dictionary design.
+**Depends on:** nothing. **Blocks:** all Phase 1 pipeline work and the Phase 2 dictionary design.
+**Supersedes:** the v1 version of this file (sherpa-onnx + Parakeet + hotwords A/B). The local model was rejected 2026-07-15 for footprint; local model assets and `scripts/fetch-model.sh` are already deleted.
 
 ## 1. Overview
 
-A minimal, runnable Rust program that proves Hark's core speech-to-text assumption end-to-end: the official **`sherpa-onnx` crate (v1.13.4)** loads **Parakeet TDT 0.6B v2 (English)**, batch-decodes a 16 kHz mono wav to text with the model kept warm, and — the load-bearing risk — that **hotword/contextual biasing is reachable from Rust** and how badly it is affected by the known sherpa-onnx **issue #3267** (`modified_beam_search` hallucinates/returns empty ~20% of the time on Parakeet TDT).
+A minimal, runnable Rust harness that proves Hark's new core assumption end-to-end: a 16 kHz mono WAV can be transcribed by BYOK cloud providers from Rust with acceptable release-to-inject latency, through two adapters behind one trait:
 
-Per the decisions taken while speccing:
-- **Run target: macOS + Windows only.** The decode/hotwords proof is validated on the real target OSes (CoreML on macOS, DirectML/CPU on Windows). Execution-provider availability is therefore *in scope for this spike*, not deferred. The code is authored on the Fedora dev box (`cargo build` may work there via the Linux prebuilt lib, but Linux is **not** a validation target).
-- **Code fate: seeds `crates/hark-stt`.** Working spike code becomes the first real module of the STT crate plus an example harness — not a throwaway.
-- **#3267: prove *and* measure.** The harness runs an A/B (greedy vs modified_beam_search) N times and records the empty/hallucination rate, turning the biggest Phase 2 risk into data.
-- **Assets: fetch script + gitignored model**; a short English wav fixture ships for the hotword test.
+1. **`openai-compatible`**: multipart `POST {base_url}/audio/transcriptions` with Bearer auth. One code path, two providers: Groq (`https://api.groq.com/openai/v1`, model `whisper-large-v3-turbo`) and OpenAI (`https://api.openai.com/v1`, models `gpt-4o-mini-transcribe` / `gpt-4o-transcribe` / `whisper-1`).
+2. **`deepgram`**: `POST https://api.deepgram.com/v1/listen?model=nova-3` with raw `audio/wav` body and `Token` auth, including a **`keyterm` biasing smoke test** (this is why Deepgram earns an adapter: it maps onto Hark's dictionary feature).
 
-**Definition of done:** a `cargo run --example decode_spike` (on macOS and Windows) that prints a transcript for a known clip, reports warm vs cold decode latency, reports which execution providers work, and prints an A/B table quantifying #3267 — ending in a printed **go / no-go recommendation for decode-time hotword biasing in Phase 2**.
+The spike also decides the harness-level questions the plan left open: real p50/p95 latency per provider for 2-15 s clips (marketing numbers are not comparable), the value of a warm reused HTTP client vs a cold one, and a first error taxonomy (bad key, timeout, 429, network down).
+
+**Definition of done:** `cargo run --example transcribe_spike` prints, for each configured provider: transcript, latency table (N=20, p50/p95, cold vs warm client), the Deepgram keyterm A/B result, and a final **default-provider recommendation + retry-policy proposal** for the Phase 1 pipeline.
 
 ## 2. Architecture
 
-### Files to create
+### Files to create / change
 
 ```
-Cargo.toml                          # workspace root: members = ["crates/hark-stt"]
-.gitignore                          # ignore /models, /target
-rustfmt.toml                        # edition + import settings
-clippy.toml                         # (optional) lint config
-scripts/fetch-model.sh              # download + extract Parakeet TDT v2 int8 into models/
 crates/hark-stt/
-  Cargo.toml                        # sherpa-onnx dep + example wiring
-  src/lib.rs                        # SttEngine: load (warm), decode, config — the reusable seed
-  src/config.rs                     # SttConfig, DecodingMethod, HotwordConfig
-  src/error.rs                      # SttError (thiserror)
-  examples/decode_spike.rs          # the spike harness: decode + EP probe + #3267 A/B + verdict
-  tests/decode_pure.rs              # unit tests for the pure logic that needs no model/hardware
-  fixtures/hark_hotword_test.wav    # short English clip w/ known transcript + dictionary terms
-  fixtures/hotwords.txt             # a few bias phrases, one per line (+ optional :score)
-  fixtures/expected.txt             # known-good transcript for hark_hotword_test.wav
-models/                             # (gitignored) fetched Parakeet TDT v2 int8 archive contents
+  Cargo.toml                        # DROP sherpa-onnx; add reqwest (blocking) etc.
+  src/lib.rs                        # SttProvider trait + shared request plumbing
+  src/config.rs                     # ProviderConfig (kind, base_url, model, key source)
+  src/error.rs                      # SttError (thiserror): Http, Auth, RateLimited, Timeout, BadAudio, Provider
+  src/openai_compatible.rs          # multipart /audio/transcriptions adapter (OpenAI + Groq)
+  src/deepgram.rs                   # /v1/listen adapter incl. keyterm query params
+  src/metrics.rs                    # keep: latency tally (p50/p95) logic is reusable
+  examples/transcribe_spike.rs      # the harness: run adapters, time, A/B keyterm, verdict
+  tests/adapter_pure.rs             # pure-logic unit tests (no network)
+  fixtures/spike_clip.wav           # short English clip, 16 kHz mono, known transcript, contains 1-2 dictionary-ish terms
+  fixtures/expected.txt             # known-good transcript for the clip
 ```
+
+### The API this seeds (`crates/hark-stt/src/lib.rs`)
+
+```rust
+pub enum ProviderKind { OpenAiCompatible, Deepgram }
+
+pub struct ProviderConfig {
+    pub kind: ProviderKind,
+    pub base_url: String,        // e.g. "https://api.groq.com/openai/v1"
+    pub model: String,           // e.g. "whisper-large-v3-turbo"
+    pub api_key: String,         // spike: from env; app: from keyring
+    pub bias_terms: Vec<String>, // mapped per adapter: prompt (openai) / keyterm (deepgram)
+}
+
+pub struct Transcript { pub text: String, pub request_ms: u128 }
+
+pub trait SttProvider: Send {
+    /// Blocking; called from the pipeline worker thread. `wav_bytes` is a complete
+    /// 16 kHz mono WAV. Implementations must never log api_key or raw audio.
+    fn transcribe(&self, wav_bytes: &[u8]) -> Result<Transcript, SttError>;
+}
+
+pub fn build(config: &ProviderConfig) -> Result<Box<dyn SttProvider>, SttError>;
+```
+
+Constructors take a shared `reqwest::blocking::Client` (one long-lived client per process for keep-alive + TLS resumption). The harness owns WAV loading, timing loops, and reporting so the adapters stay reusable by the eventual pipeline.
 
 ### Data flow (spike)
 
 ```mermaid
 flowchart TD
-    A[scripts/fetch-model.sh] -->|encoder/decoder/joiner.int8.onnx + tokens.txt + bpe.vocab?| M[(models/)]
-    F[fixtures/*.wav] --> H[decode_spike example]
-    M --> E[SttEngine::load — warm model + warmup inference]
-    E --> H
-    H --> D1[decode greedy_search]
-    H --> D2[decode modified_beam_search + hotwords_file]
-    D1 --> R[A/B report: text, empty%, halluc%, latency, EPs]
-    D2 --> R
-    R --> V{go / no-go for Phase 2 decode-time biasing}
+    F[fixtures/spike_clip.wav] --> H[transcribe_spike harness]
+    K[env: GROQ_API_KEY / OPENAI_API_KEY / DEEPGRAM_API_KEY] --> H
+    H --> A1[openai_compatible -> Groq]
+    H --> A2[openai_compatible -> OpenAI]
+    H --> A3[deepgram nova-3, with and without keyterm]
+    A1 --> R[report: transcripts, p50/p95, cold vs warm, error taxonomy]
+    A2 --> R
+    A3 --> R
+    R --> V{default provider + retry policy verdict}
 ```
-
-### The reusable API this seeds (`crates/hark-stt/src/lib.rs`)
-
-```rust
-pub struct SttConfig {
-    pub encoder: PathBuf, pub decoder: PathBuf, pub joiner: PathBuf, pub tokens: PathBuf,
-    pub provider: String,            // "cpu" | "coreml" | "directml" | "cuda"
-    pub decoding: DecodingMethod,    // Greedy | ModifiedBeamSearch { max_active_paths }
-    pub hotwords: Option<HotwordConfig>, // file + score + bpe_vocab + modeling_unit
-    pub num_threads: i32,
-}
-pub struct Transcript { pub text: String, pub decode_ms: u128 }
-
-impl SttEngine {
-    pub fn load(cfg: SttConfig) -> Result<Self, SttError>;   // builds recognizer, runs 1 warmup decode
-    pub fn decode(&self, samples: &[f32], sample_rate: u32) -> Result<Transcript, SttError>;
-}
-```
-
-Keep `SttEngine` free of I/O beyond the model; the harness owns wav loading, timing, and reporting so the engine stays reusable by the eventual pipeline.
 
 ## 3. Implementation Steps (checkpoints)
 
-Each checkpoint is a commit-sized chunk. Commit + `/compact` between them. **Checkpoints 0–1 can be built on Fedora; Checkpoints 2–4 must be run on macOS and Windows.**
+Each checkpoint is a commit-sized chunk. This spike is **buildable and runnable on the Windows dev box** (network code is cross-platform; there is no per-OS inference runtime anymore). macOS validation folds into the Phase 1 pipeline work.
 
-### Checkpoint 0 — Workspace, assets, and a green build
-1. `Cargo.toml` (workspace, `resolver = "2"` or `"3"`, member `crates/hark-stt`). `.gitignore` for `/models` and `/target`. `rustfmt.toml`.
-2. `crates/hark-stt/Cargo.toml`:
+### Checkpoint 0: de-sherpa and a green build
+1. Rewrite `crates/hark-stt/Cargo.toml`: remove `sherpa-onnx`; add:
    ```toml
    [dependencies]
-   sherpa-onnx = "1.13.4"     # module path is `sherpa_onnx`; default feature = "static" auto-downloads the prebuilt native lib
+   reqwest = { version = "0.13", default-features = false, features = ["blocking", "multipart", "rustls-tls-webpki-roots", "json"] }
+   serde = { version = "1", features = ["derive"] }
+   serde_json = "1"
    thiserror = "2"
    [dev-dependencies]
-   # (wav loading uses sherpa_onnx::Wave::read — no hound needed)
+   hound = "3.5"   # harness-side wav sanity checks
    ```
-3. `scripts/fetch-model.sh` — download + extract:
-   ```sh
-   #!/usr/bin/env bash
-   set -euo pipefail
-   mkdir -p models && cd models
-   url="https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-nemo-parakeet-tdt-0.6b-v2-int8.tar.bz2"
-   curl -L -O "$url"
-   tar xjf "$(basename "$url")"
-   ls sherpa-onnx-nemo-parakeet-tdt-0.6b-v2-int8/   # expect encoder.int8.onnx, decoder.int8.onnx, joiner.int8.onnx, tokens.txt, test_wavs/
-   ```
-   Archive ≈ 1.3 GB (encoder.int8.onnx ~622 M, decoder ~6.9 M, joiner ~1.7 M, tokens.txt, `test_wavs/0.wav`).
-4. `src/error.rs`, `src/config.rs` skeletons; `src/lib.rs` compiles with a stub `load`/`decode`.
-5. **Gate:** `cargo build` succeeds and the sherpa-onnx prebuilt native lib auto-downloads (no manual ONNX Runtime install). Confirm on **both macOS and Windows** (this is the first cross-platform link check). Record whether `cc`/`cmake` are needed transitively.
-   - *Gotcha:* if auto-download fails, set `SHERPA_ONNX_LIB_DIR` to a manually fetched lib archive (`sherpa-onnx-v1.13.4-<platform>-static-lib.tar.bz2`).
+2. Replace `src/lib.rs` / `src/config.rs` / `src/error.rs` contents with the trait + config + error skeletons above; keep `src/metrics.rs` (p50/p95 tally logic carries over). Update the crate `description`.
+3. Record a `fixtures/spike_clip.wav` (a few seconds, 16 kHz mono, English, containing at least one uncommon term for the keyterm test) and its `fixtures/expected.txt`. Keep it small enough to commit (a 5 s clip is ~160 KB).
+4. **Gate:** `cargo build` and `cargo clippy --all-targets -- -D warnings` pass with no native-lib downloads of any kind.
 
-### Checkpoint 1 — Warm decode with greedy_search
-6. Implement `SttEngine::load`: build `OfflineRecognizerConfig`, set `model_config.transducer = OfflineTransducerModelConfig { encoder, decoder, joiner }`, `model_config.tokens`, `model_config.provider`, `model_config.num_threads`; `OfflineRecognizer::create(&cfg)`. Run **one warmup decode** on a silence or the test wav inside `load` so the first real decode is not cold.
-7. Implement `decode`: `let stream = recognizer.create_stream(); stream.accept_waveform(sr, samples); recognizer.decode(&stream); stream.get_result().text`. Time it with `std::time::Instant` (allowed here — this is app timing, not test assertion).
-8. Load the wav via `sherpa_onnx::Wave::read(path)` → `.sample_rate()`, `.samples()` (`&[f32]`). Assert 16 kHz mono; if not, error clearly.
-9. `examples/decode_spike.rs`: load engine (provider="cpu"), decode `models/.../test_wavs/0.wav` and `fixtures/hark_hotword_test.wav`, print transcript + `decode_ms`, and print **cold-vs-warm** timing (first decode before warmup vs after).
-10. **Gate:** transcript for the shipped `test_wavs/0.wav` is non-empty and sane; warm decode of a few-second clip is well under 1 s on the target hardware. Record the numbers.
+### Checkpoint 1: openai-compatible adapter
+5. Implement `openai_compatible.rs`: multipart form (`file` = wav bytes as `spike_clip.wav`, `model`, optional `prompt` from `bias_terms`, `response_format=json`, `language=en`), Bearer auth, explicit timeout (connect ~3 s, total ~15 s), parse `{ "text": ... }`.
+6. Harness: read key + base URL from env (`GROQ_API_KEY`, `OPENAI_API_KEY`; skip a provider cleanly if its key is absent); transcribe the fixture once; print transcript.
+7. **Gate:** non-empty, sane transcript from at least Groq (edit distance to `expected.txt` small); keys never appear in any log/error output (verify by grepping harness output).
 
-### Checkpoint 2 — Execution-provider probe (macOS/Windows)
-11. Parameterize `provider` and loop over candidates per OS: macOS `["cpu", "coreml"]`; Windows `["cpu", "directml", "cuda"]`. For each, attempt `load` + one decode; catch failures.
-12. **Gate:** print a table of which providers actually initialize and decode on the prebuilt lib. CPU must work everywhere. **Record which GPU EPs are available** — this resolves the open "CoreML/DirectML availability in the auto-downloaded lib" question that the plan flagged. If a desired EP is missing, note whether a `shared`-feature build or a custom lib is needed (follow-up, not a blocker for the spike verdict).
+### Checkpoint 2: latency measurement
+8. For each configured openai-compatible provider: N=20 warm-client runs plus a fresh-client cold run; record per-run wall time; print p50/p95/min/max and cold-vs-warm delta. Include WAV-encode time separately (from raw f32 samples via a small helper, since the pipeline will encode from the ring buffer).
+9. **Gate:** a table exists with real numbers; note whether warm-client reuse materially beats cold (expect yes: TLS handshake). If p95 for Groq on a ~5 s clip exceeds ~2 s on a normal connection, flag it in the verdict rather than hiding it.
 
-### Checkpoint 3 — Hotwords reachability + the `bpe_vocab` gate
-13. **First, resolve the `bpe_vocab` question.** Hotwords on NeMo TDT (PR #3077) require `model_config.modeling_unit` + `model_config.bpe_vocab`. Check the extracted archive for a `bpe.vocab` (or similar). If absent, attempt to proceed without it and observe the error; document whether it must be generated NeMo-side. **This gate decides whether decode-time biasing is even constructible today.**
-14. Build a hotword config: `config.decoding_method = "modified_beam_search"`, `config.hotwords_file = fixtures/hotwords.txt`, `config.hotwords_score = 2.0` (tunable), `model_config.modeling_unit = "bpe"`, `model_config.bpe_vocab = <path>` if required. `fixtures/hotwords.txt`: a few phrases, one per line, optional `:score` (e.g. `PARAKEET :3.0`).
-15. **Gate:** the modified_beam_search + hotwords config **constructs and decodes without panicking**, returning text (possibly wrong/empty — that's Checkpoint 4's job to quantify). If it cannot be constructed (e.g. missing bpe_vocab with no workaround), record that as the finding and skip to the verdict — the answer is "decode-time biasing not viable now; phonetic-only for Phase 2."
+### Checkpoint 3: deepgram adapter + keyterm A/B
+10. Implement `deepgram.rs`: `POST /v1/listen?model=nova-3&smart_format=true` (+ repeated `keyterm=` query params from `bias_terms`), header `Authorization: Token <key>`, body raw `audio/wav`, parse `results.channels[0].alternatives[0].transcript`.
+11. A/B on the fixture: transcribe 5x without `keyterm`, 5x with the uncommon term(s) passed as `keyterm`; report whether the term is recognized correctly in each arm.
+12. **Gate:** Deepgram returns sane text; the A/B table prints. (If keyterm shows no lift on this clip, that is a finding, not a failure; phonetic post-correction remains the primary dictionary path either way.)
 
-### Checkpoint 4 — #3267 A/B measurement + verdict
-16. Across the fixture wavs (shipped `test_wavs/0.wav` + `fixtures/hark_hotword_test.wav`, ideally one with a boosted term genuinely present in audio and one without), run **N = 20** decodes per method:
-    - **A:** `greedy_search`, no hotwords.
-    - **B:** `modified_beam_search` + hotwords.
-17. For each method/wav, tally: **empty-output rate**, **hallucination rate** (heuristic: output for a known-clean clip diverging from `fixtures/expected.txt` beyond a small edit-distance threshold, or grossly wrong length), whether the **boosted term appeared** (B only), and decode latency distribution.
-18. Print an A/B table and a one-line **verdict**:
-    - If B's empty+halluc rate is low (say < ~5%) and hotwords land → *decode-time biasing viable; keep as experimental-but-usable in Phase 2.*
-    - If B reproduces the ~20% #3267 failure → *ship Phase 2 on greedy_search + phonetic post-correction; gate decode biasing behind an experimental flag; re-check #3267 upstream before revisiting.*
-19. **Gate:** the verdict prints, and the observed rates are written into the Lessons Learned section of this file and routed to LL-G / agent-memory.
+### Checkpoint 4: error taxonomy + verdict
+13. Deliberately exercise failure modes against one provider: wrong key (expect 401 mapped to `SttError::Auth`), unreachable host / airplane-mode (expect `SttError::Http`/`Timeout` quickly, not a hang), and confirm timeouts fire at the configured bound. Map 429 to `RateLimited` (code path + unit test; don't force a real 429).
+14. Print the final verdict block: recommended default provider (+model) for lowest p95, recommended retry policy (proposal: one retry on timeout/connect error only, never on 4xx), and any cost caveats (Groq 10 s billing minimum).
+15. **Gate:** verdict prints; observed numbers and any surprises are written into §12 below and routed to LL-G / agent-memory.
 
 ## 4. Data Model
 
-None. The spike touches no database (SQLite arrives in Phase 4). The only persistent artifacts are the gitignored model files under `models/` and the committed fixtures.
+None. No database (SQLite arrives in Phase 4). Persistent artifacts: the committed fixture WAV + expected transcript. API keys live only in env vars for the spike.
 
 ## 5. API Contract
 
-No network/HTTP API (BYOK cleanup is Phase 3, out of scope). The "contract" is the internal Rust API in §2 (`SttConfig` / `SttEngine::load` / `decode` / `Transcript`), which the Phase 1 pipeline will consume. Keep signatures stable; the pipeline will call `decode(&[f32], u32)` from a worker thread.
+External: the two provider HTTP contracts pinned above (multipart `/audio/transcriptions`; Deepgram `/v1/listen`). Internal: `SttProvider::transcribe(&[u8]) -> Result<Transcript, SttError>` (§2), which the Phase 1 pipeline will call from a worker thread. Keep the trait signature stable.
 
 ## 6. Acceptance Criteria
 
-The tester/implementer can check each:
-1. `scripts/fetch-model.sh` populates `models/` with the four model files + `tokens.txt`; `models/` is gitignored (not committed).
-2. `cargo build` (workspace) succeeds on **macOS and Windows** and auto-fetches the sherpa-onnx native lib without a manual ONNX Runtime install.
-3. `cargo run --example decode_spike` prints a **non-empty, sane transcript** for the shipped `test_wavs/0.wav`.
-4. Warm decode of a few-second clip is **< 1 s** on the target hardware; the report shows warm materially faster than cold (warmup works).
-5. The EP probe prints which providers initialize/decode; **CPU works on both OSes**, and CoreML (macOS) / DirectML (Windows) availability is explicitly recorded (available or not).
-6. The `bpe_vocab` question is answered in writing (present in archive / must be generated / not needed).
-7. The modified_beam_search + hotwords path either decodes without panic, **or** its inability to construct is recorded as the finding.
-8. An **A/B table quantifying #3267** (empty% + halluc% for greedy vs modified_beam_search over N=20) and a printed **go/no-go verdict** for Phase 2 decode-time biasing.
-9. `cargo clippy --all-targets -- -D warnings` and `cargo fmt --check` are clean; `cargo nextest run` (pure-logic tests) passes.
+1. `cargo build` succeeds with **zero native-lib or model downloads**; `sherpa-onnx` is gone from the workspace.
+2. `cargo run --example transcribe_spike` prints a non-empty, sane transcript for the fixture from every provider whose key is configured, and skips unconfigured providers with a clear message.
+3. A latency table: N=20 warm runs per provider, p50/p95/min/max, cold-vs-warm delta, WAV-encode time shown separately.
+4. Deepgram keyterm A/B table (with/without bias terms) prints a recognized-term comparison.
+5. Failure modes behave: bad key = clear auth error; no network = fast, bounded failure (no hang past the configured timeout); 429 mapping unit-tested.
+6. No API key or raw audio bytes appear in logs, errors, or panics.
+7. A printed verdict: default provider + model, retry policy, cost caveats.
+8. `cargo clippy --all-targets -- -D warnings` and `cargo fmt --check` clean; `cargo nextest run` passes (pure-logic tests: multipart field assembly, keyterm query encoding, error mapping, p50/p95 tally).
 
 ## 7. Out of Scope
 
 - Live microphone capture / `cpal` ring buffer (Phase 1 pipeline proper).
-- Global push-to-talk hooks (CGEventTap / `WH_KEYBOARD_LL`) — separate Phase 1 spike.
+- Global push-to-talk hooks (separate Phase 1 work).
 - Clipboard/`enigo` injection.
-- BYOK cleanup, voices, and the LLM adapter (Phase 3).
-- SQLite history/stats and the egui UI (Phases 4).
-- Full dictionary system (Phase 2) — this spike only *measures whether decode-time biasing is viable*; it does not build the dictionary.
-- Linux as a validation target (build-only there).
-- fp16 / full-precision model variants (int8 only for the spike). *Follow-up implied: if int8 accuracy disappoints, evaluate fp16.*
+- Keychain integration (`keyring` arrives with the pipeline; spike uses env vars).
+- BYOK cleanup/voices (Phase 3). Dictionary system proper (Phase 2; this spike only smoke-tests keyterm).
+- Streaming/WebSocket adapters (deferred; batch-per-utterance is the Phase 1 architecture).
+- ElevenLabs / Mistral / AssemblyAI adapters (deferred).
+- The opt-in local fallback model (later phase).
 
 ## 8. Assumptions / Open Questions
 
-Defaults chosen for questions not separately confirmed; implementer should verify the ⚠ items during the spike (they are why this is a spike):
-- ⚠ **EP selection is a runtime `provider` string, not a Cargo feature** (crate exposes `static`/`shared`/`mic`, no CUDA/DirectML/CoreML feature strings were found). Verify CoreML/DirectML are compiled into the auto-downloaded prebuilt lib. *If not*, a `shared` build against a platform ONNX Runtime with the EP may be required.
-- ⚠ **`bpe.vocab` availability** in the release archive is unconfirmed and gates the hotword path (Checkpoint 3).
-- ⚠ Full-precision/fp16 archive internal filenames unconfirmed (irrelevant unless we switch off int8).
-- Assumed `hotwords_score = 2.0` and `max_active_paths = 4` as starting points (tunable; over-boosting causes false insertions).
-- Assumed N = 20 A/B runs is enough to observe #3267's non-determinism; increase if variance is high but counts are borderline.
-- Assumed the shipped `test_wavs/0.wav` is acceptable as the "known clean" clip; `fixtures/expected.txt` will hold its transcript (capture it on first successful decode).
-- `model_type` is auto-detected by sherpa-onnx for Parakeet; set `"nemo_transducer"` explicitly only if auto-detection fails.
+- ⚠ Exact JSON error shapes per provider (401/429 bodies) are unconfirmed; capture real samples during Checkpoint 4 and encode them in the error mapping tests.
+- ⚠ Groq free-tier rate limits may throttle the N=20 loop; if so, add a small inter-run delay and note it (the pipeline never bursts anyway).
+- ⚠ `gpt-4o-transcribe` vs `gpt-4o-mini-transcribe` vs `whisper-1` quality/latency trade-off is measured, not assumed; the harness takes the model name as a parameter.
+- Timeouts assumed: 3 s connect, 15 s total (tunable constants).
+- The fixture clip is assumed clean enough that edit-distance to `expected.txt` is a fair sanity check (reuse the v1 spike's edit-distance helper if it survived in `metrics.rs`).
 
 ## 9. Test Plan
 
-Hardware/model-dependent behavior is validated by the harness on macOS/Windows (see Acceptance Criteria); only pure logic is unit-tested on the dev box.
-
-- **Unit (dev-box, no model/hardware) — `tests/decode_pure.rs`:**
-  - wav-format guard: a helper that rejects non-16 kHz or non-mono input returns a clear error.
-  - hotwords-file writer/parser round-trip: `phrase :score` lines parse to (phrase, score) and re-serialize identically.
-  - A/B tally logic: given synthetic result lists (some empty, some divergent), the empty%/halluc% computation is correct.
-  - edit-distance/hallucination threshold helper behaves at boundaries (equal, 1-edit, gross-divergence).
-- **Harness-driven (macOS/Windows), not `cargo test`:** decode correctness, latency, EP probe, hotword construction, #3267 A/B — these are the spike's printed report and map to Acceptance Criteria 3–8.
-- **Test data:** shipped `test_wavs/0.wav`; `fixtures/hark_hotword_test.wav` (short English, known transcript, contains at least one term also placed in `hotwords.txt`); `fixtures/hotwords.txt`; `fixtures/expected.txt`.
+- **Unit (no network), `tests/adapter_pure.rs`:** multipart form field assembly (model/prompt/language present, file part named correctly); Deepgram URL building (keyterm repetition, URL encoding of multi-word terms); HTTP-status to `SttError` mapping (200/401/429/500/timeout); p50/p95 tally math; WAV-encode helper produces a valid header for known input (validated with `hound`).
+- **Harness-driven (network, real keys):** transcripts, latency table, keyterm A/B, failure drills; these map to Acceptance Criteria 2-7 and are the spike's printed report, not `cargo test`.
+- **Test data:** `fixtures/spike_clip.wav` + `fixtures/expected.txt` (committed; small).
 
 ## 10. Error Handling
 
 | Failure mode | Handling |
 |---|---|
-| Model files missing under `models/` | `SttEngine::load` returns `SttError::ModelNotFound(path)` with the fetch-script hint; harness prints "run scripts/fetch-model.sh". |
-| Native lib auto-download fails (offline/mirror) | Document `SHERPA_ONNX_LIB_DIR` fallback; surface the underlying link error, don't swallow. |
-| Requested provider unavailable (e.g. CoreML absent) | Catch at `load`, log "provider X unavailable, falling back to cpu", continue the probe — never hard-crash the whole run. |
-| wav not 16 kHz mono | `SttError::BadAudioFormat { got_sr, got_channels }` before decode. |
-| `bpe_vocab` required but absent | Record finding; construct without it and report the exact error; do not fake success. |
-| modified_beam_search returns empty/garbage | Expected under #3267 — counted, not treated as a crash. |
-| decode panics inside the native lib | Isolate each A/B iteration so one panic doesn't abort the whole measurement (catch/report per-iteration where feasible; otherwise note the crashing input). |
-
-User-facing (harness stdout) messages are plain and actionable ("CoreML not available in prebuilt lib; used CPU. See §8."). No end-user UI exists yet.
+| Provider key env var missing | Harness skips that provider with an explicit "skipped: no key" line; never a panic. |
+| 401 / 403 | `SttError::Auth(provider)`; message says "check your API key", never echoes the key. |
+| 429 | `SttError::RateLimited { retry_after }` (parse header if present). Harness reports it; pipeline policy: surface to user, no auto-retry storm. |
+| Connect failure / DNS / offline | `SttError::Http` within the 3 s connect timeout; message distinguishes "no network" from "provider down" where reqwest allows. |
+| Total timeout exceeded | `SttError::Timeout(configured_ms)`; the future pipeline's retry-once candidate. |
+| Non-JSON / unexpected body | `SttError::Provider(raw_snippet_truncated)`; truncate so logs stay clean. |
+| Fixture not 16 kHz mono | Harness-side validation error before any request (keeps provider results comparable). |
 
 ## 11. Rollback Plan
 
-Self-contained and trivially reversible: the spike lives entirely in new files (`crates/hark-stt/`, `scripts/`, workspace `Cargo.toml`, fixtures) and touches nothing else. To undo: delete `crates/hark-stt/`, `scripts/fetch-model.sh`, `models/`, and the workspace root `Cargo.toml`. No migrations, no shared state, no other work affected. If the verdict is "STT stack not viable," the plan's Lessons Learned records why and Phase 1 re-scopes (e.g. evaluate an alternative ASR) before any pipeline code is written — which is exactly the point of doing this first.
+Self-contained: all changes live in `crates/hark-stt` and this spec. To undo, `git revert` the spike commits; nothing else depends on the crate yet. If the verdict is "cloud latency unacceptable" (e.g. p95 well above ~2 s on a good connection for short clips), the plan re-opens the local-model question with the small-footprint candidate (`whisper-rs` + `tiny.en`, ~75 MB) before any pipeline code is written; that decision goes back to the user first.
 
 ## 12. Lessons Learned / Gotchas
 
-Pre-seeded (verified 2026-07-15; see `.claude/agent-memory/explorer/sherpa_onnx_rust_api.md` and `hark_stt_stack_risk.md`):
-- Use `sherpa-onnx = "1.13.4"` (module `sherpa_onnx`); **not** the deprecated `sherpa-rs`.
-- Load wavs with `sherpa_onnx::Wave::read` — no `hound` dependency needed.
-- Hotword config fields confirmed present on the Rust structs (`decoding_method`, `hotwords_file`, `hotwords_score`, `modeling_unit`, `bpe_vocab`) but **no Rust hotwords example exists upstream** — treat as a spike, not a given.
-- `modified_beam_search` + Parakeet TDT carries open bug **sherpa-onnx #3267** (~20% empty/hallucinated, non-deterministic) — the whole reason for the Checkpoint 4 A/B.
+Pre-seeded (verified 2026-07-15; full cites in `.claude/agent-memory/explorer/hark_cloud_stt_providers.md` and `hark_cloud_stt_rust_stack.md`):
+- OpenAI + Groq share the multipart `/audio/transcriptions` shape; one adapter, two providers.
+- Groq bills a 10 s minimum per request; short utterances cost as 10 s.
+- Deepgram `keyterm` requires nova-3+; weighted `keywords` is nova-2 legacy; mutually exclusive.
+- `deepgram` crate 0.10 is pre-1.0 "Community" and drags full tokio; call REST directly with reqwest instead.
+- `ureq` multipart is unstable as of 3.3.0; reqwest blocking is the safe choice.
+- reqwest-blocking on a dedicated worker thread means no tokio executor exists to starve (LL-G blocking-io rule is moot until a streaming adapter appears).
 
 Fill in during/after implementation:
-- [ ] Observed empty% / hallucination% for greedy vs modified_beam_search (the #3267 data) → route to LL-G via `/add-lesson`.
-- [ ] Whether `bpe.vocab` ships in the release archive (yes/no/how-to-generate) → LL-G.
-- [ ] Which execution providers the prebuilt lib supports on macOS/Windows → LL-G + `.claude/agent-memory/patterns.md`.
-- [ ] Warm decode latency numbers on real target hardware → `.claude/agent-memory/patterns.md`.
-- [ ] Any Fedora/macOS/Windows build-link gotchas (cc/cmake, SHERPA_ONNX_LIB_DIR) → LL-G (`kb/rust`).
-- [ ] Failed approaches (what didn't build/decode and why) → `.claude/agent-memory/debugging.md`.
+- [ ] Measured p50/p95 per provider/model on real clips + connection → `.claude/agent-memory/patterns.md` and LL-G if surprising.
+- [ ] Real 401/429/error body shapes per provider → encode in tests, note in LL-G.
+- [ ] Cold-vs-warm client delta (is connection reuse worth pre-warming at app launch?) → patterns.md.
+- [ ] Whether Deepgram keyterm shows real lift on dictionary-ish terms → informs Phase 2 design.
+- [ ] Any Windows-specific TLS/proxy gotchas with rustls → LL-G (`kb/rust`).
+- [ ] Failed approaches and dead ends → `.claude/agent-memory/debugging.md`.

@@ -11,10 +11,11 @@ Rules for Hark's UI and interaction. This is a **native desktop app** (`eframe`/
 
 ## 2. Latency SLA (the product)
 
-- Model is loaded once at startup and kept warm; run one throwaway warmup inference at launch.
-- **Verbatim** and any skip-eligible short utterance must never touch the network.
-- History/stats writes happen **after** injection, off the hot path — a DB insert must never delay text appearing.
-- Show a lightweight processing indicator (tray state or small overlay) only for the non-Verbatim LLM round-trip; never a modal that blocks input.
+- Release-to-inject = WAV encode (keep under ~10 ms) + one HTTPS POST to the STT provider + phonetic post-correction + inject.
+- One long-lived HTTP client for the whole process (keep-alive + TLS session resumption); consider pre-warming a connection at launch. Never build a client per press.
+- At most one retry, on timeout/connect errors only; never retry 4xx; never stack retries on the hot path.
+- **Every dictation now touches the network** (STT is cloud). Show the lightweight processing indicator (tray state or small overlay) for every in-flight dictation; never a modal that blocks input. Skip-eligible short utterances may still skip the *cleanup* call, never the STT call.
+- History/stats writes happen **after** injection, off the hot path; a DB insert must never delay text appearing.
 - The history list must virtualize via egui `ScrollArea` so long histories never stall rendering.
 
 ## 3. Accessibility (desktop)
@@ -29,15 +30,16 @@ Rules for Hark's UI and interaction. This is a **native desktop app** (`eframe`/
 - One consistent spacing scale and type scale across all panels (egui `Style`/`Spacing`, set once).
 - Destructive actions (**clear all history**, **reset stats**) require an explicit confirm step.
 - Per-entry history actions: **copy to clipboard** and **delete**, always visible on the row.
-- Surface the **selected BYOK model** wherever cleanup output is shown, so a disappointing result has an obvious cause.
+- Surface the **selected STT provider/model** and the **cleanup model** wherever output is shown, so a disappointing result has an obvious cause.
 - Tray menu stays trivial: voice selection + open window. No heavy logic behind tray items.
 
 ## 5. Privacy UI patterns (replaces web "auth UI" section)
 
-Hark has no accounts, sign-in, or auth flows. The equivalent trust surface is **local-first privacy**:
+Hark has no accounts, sign-in, or auth flows. The equivalent trust surface is **honest BYOK privacy**:
 
-- Honestly disclose in-UI that **non-Verbatim voices send dictated text to the user's chosen provider**; Verbatim/transcription stay local.
-- The BYOK key is entered once and stored in the **OS keychain** — never shown back in full, never written to `config.toml`.
+- Honestly disclose in-UI that **every dictation sends audio to the user's chosen STT provider**, and that non-Verbatim voices additionally send the transcribed text to the cleanup provider. History, stats, and the dictionary never leave the machine.
+- Provider API keys are entered once and stored in the **OS keychain**; never shown back in full, never written to `config.toml`.
+- Offline and provider-error states are first-class UI: distinguishable tray states for "no network", "key rejected", and "provider error/timeout". Dictation fails fast and visibly, never silently.
 - Expose **disable-capture**, **delete entry**, **clear all**, and the **retention cap** prominently; make clear that lifetime stats survive a history clear (separate reset control).
 
 ## 6. First-run & permissions (macOS especially)
@@ -47,6 +49,6 @@ Hark has no accounts, sign-in, or auth flows. The equivalent trust surface is **
 
 ## Performance budget
 
-- Cold first decode is a bug: warm + warmup at launch (see §2).
+- A cold TLS handshake on the first dictation is a bug: reuse one client and consider a launch-time connection pre-warm (see §2).
 - Keep idle CPU near zero — the ring buffer runs continuously but nothing UI-related runs while idle.
 - Windows tray binary has no console; any console child process must set `CREATE_NO_WINDOW` to avoid a flashing window that steals focus (LL-G: `kb/rust/gui-subsystem-console-child-window.md`).
