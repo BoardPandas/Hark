@@ -1,6 +1,6 @@
 # Phase 3: Voice layer + cleanup BYOK
 
-**Date:** 2026-07-16. **Status:** PLANNED (execution in a later session). **Prereq:** Phase 2 complete (main @ `6919af6`, 170 tests green, CP6 user-validated on real Windows hardware).
+**Date:** 2026-07-16. **Status:** IN PROGRESS (CP0 code complete @ `0ce463c`; live spike deferred, see below). **Prereq:** Phase 2 complete (main @ `6919af6`, 170 tests green, CP6 user-validated on real Windows hardware).
 **Master plan:** `tasks/plan-repo.md` §8 Phase 3 (lines 143-146) and §9 (config/secrets table).
 
 ## 1. Goal
@@ -11,6 +11,7 @@ Decided with the user (2026-07-16):
 
 - **No tray in Phase 3.** Voice selection is a `[voice]` config key plus a `hark-cli --voice` override; all tray/egui work stays in Phase 4.
 - **Length gate is word-count based, default 5**: corrected transcripts with fewer than 5 words skip the cleanup call (STT always runs). Configurable; 0 disables the gate.
+- **BYOK key entry waits for the Phase 4 UI (decided 2026-07-16, after CP0 code landed).** No manual key handling in terminals or env vars; keys are pasted into a UI field in Phase 4, which writes the same keychain slots CP1's resolver reads. Consequences: the CP0 live spike and the CP5 interactive gate defer to Phase 4; the §2.4 per-kind defaults are pinned **provisionally from research** (gpt-5-nano at minimal effort, llama-3.1-8b-instant) and get their live re-verification post-UI; CP1-CP4 proceed now on pure functions and mocked tests, which they were designed around anyway. Risk is bounded by the fail-open design: a wrong assumption about a provider quirk costs a logged warning and an uncleaned inject, never a lost dictation. If the configured STT provider is openai/groq, live validation can happen even before the UI field via the key-inherit path.
 
 Out of scope: tray/UI (Phase 4), streaming cleanup, multiple simultaneous voices, per-app voice rules, history/stats of cleanup results (Phase 4 storage).
 
@@ -140,6 +141,7 @@ One commit per checkpoint. `cargo fmt`, `cargo clippy --all-targets -- -D warnin
 - Pure layer with tests: `chat_completions_url` (trailing-slash tolerant), request-body builder (temperature/effort omission when None), `max_completion_tokens` derivation (floor/cap/headroom), `parse_response` (happy, missing-choices, empty-content, junk), `CleanupError` taxonomy + `error_for_status`/`error_for_transport` analogs.
 - Spike example (`cargo run --example cleanup_spike -p hark-voice`, keys from env, precedent: Phase 1 `transcribe_spike`): run fixture transcripts (short/medium/long, fillers, dictionary terms) against `gpt-5-nano` (minimal effort), `gpt-4.1-mini`, `llama-3.1-8b-instant`, `openai/gpt-oss-20b`. Measure p50/p95 warm request time (N=10+), eyeball rewrite quality per voice prompt, and empirically verify: GPT-5 temperature rejection (expected 400), `reasoning_effort` acceptance on nano (community reports are inconsistent), the `{"error": {...}}` envelope on a forced 400/401/429 (research did not confirm live), JSON-path transport errors classify via `is_timeout()`/`is_connect()` (the multipart masking bug, LL-G HIGH, should not reproduce on JSON bodies: verify, do not assume), and reasoning-token headroom in `max_completion_tokens`.
 - **Exit: default models and preset params pinned in §2.4's table from measurements; spike verdict recorded in this file.**
+- **CP0 status (2026-07-16): code complete and committed (`0ce463c`, v0.8.4); fmt/clippy/tests green (20 new pure tests).** The spike run itself is deferred to Phase 4 per the BYOK-UI decision above; §2.4 candidates stand as provisional defaults until then. The spike harness is ready to run unchanged once a key source exists.
 
 ### CP1: config schema + keychain
 - `[voice]` + `[voice.provider]` tables, validation rules, per-kind chat defaults, provider resolution + inheritance as a pure function.
@@ -158,7 +160,8 @@ One commit per checkpoint. `cargo fmt`, `cargo clippy --all-targets -- -D warnin
 - Worker chain per §2.6 (gate, fail-open, dictionary pass 2), `CleanupPlan` wiring in `hark_pipeline::run` (provider resolution, key reuse on inherit, warn-and-Verbatim degradation), second pre-warm, `hark-cli --voice`.
 - Tests with a scripted `MockCleaner` (pattern: worker.rs `MockProvider`): cleaned text is injected; cleanup error injects pass-1 text; short utterance never calls the cleaner; Verbatim never constructs a cleaner; terms re-mangled by the mock are repaired by pass 2; gate threshold 0 always calls.
 
-### CP5: interactive gate (real hardware, Windows)
+### CP5: interactive gate (real hardware, Windows), deferred to Phase 4 alongside the spike
+Runs once a cleanup key is resolvable without terminal key handling: either the Phase 4 UI paste field exists, or the configured STT provider is openai/groq (the inherit path reuses the STT key already in the keychain, no new entry). Content unchanged:
 - User dictates across voices: Verbatim (verify no cleanup request in logs), Clean default (fillers removed, meaning intact), Professional/Casual (register shifts), Custom (their prompt), short utterances skip (log line present), dictionary terms survive cleanup, wrong-key and unplugged-network cases inject uncleaned text visibly and fast.
 - Measure release-to-inject with cleanup on (target: STT p95 + cleanup p95 well under 2 s warm for a sentence); tune prompt wording and `skip_below_words` default if real usage disagrees.
 - macOS deferral rule unchanged: nothing here is platform-specific; validation waits for Mac hardware.

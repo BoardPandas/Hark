@@ -4,6 +4,11 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.8.5] - 2026-07-16
+
+### Changed
+- **BYOK key entry moves to the Phase 4 UI (user decision).** No manual key handling in terminals or env vars; API keys will be pasted into a settings field once the UI exists, writing the same keychain slots the resolver reads. The CP0 live model spike and the CP5 interactive gate defer to Phase 4 accordingly; the per-kind chat model defaults (gpt-5-nano at minimal reasoning effort, llama-3.1-8b-instant) ship provisionally from research until live re-verification. CP1-CP4 proceed now on pure functions and mocked tests. Risk stays bounded by the fail-open design: a wrong provider-quirk assumption costs a logged warning and an uncleaned inject, never a lost dictation.
+
 ## [0.8.4] - 2026-07-16
 
 ### Added
