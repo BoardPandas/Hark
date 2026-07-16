@@ -4,6 +4,11 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.8.3] - 2026-07-16
+
+### Added
+- **Phase 3 spec: voice layer + cleanup BYOK (`tasks/2026-07-16-phase3-voices.md`).** Planned in full: an optional one-shot chat-completions cleanup call rewrites the transcript in a chosen voice (Verbatim / Clean / Professional / Casual / Custom, Clean default) before injection, via a new `hark-voice` crate mirroring hark-stt's adapter discipline. Locked decisions: voice selection is config + a `hark-cli --voice` flag (tray stays in Phase 4); a word-count gate (default 5, configurable, 0 disables) lets short utterances skip cleanup; the dictionary pass runs both before and after cleanup; cleanup is fail-open at every layer with no retry, so a dictation is never lost to the optional feature; cleanup providers may be inherited from an openai/groq STT config or set explicitly, with the keychain account remaining the provider label. Current chat model candidates (gpt-5-nano, llama-3.1-8b-instant) were verified against provider docs on 2026-07-16, including the GPT-5 temperature lock; a CP0 spike pins final defaults empirically. Six checkpoints, CP5 an interactive real-hardware gate.
+
 ## [0.8.2] - 2026-07-16
 
 ### Changed
