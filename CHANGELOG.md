@@ -4,6 +4,11 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.5.0] - 2026-07-16
+
+### Added
+- **Text injection (`hark-inject`, checkpoint 4).** The clipboard path runs the full stash -> set -> read-back verify -> synthesized Ctrl+V -> restore sequence, with every clipboard operation inside a bounded retry loop (the clipboard is a global object; another process can hold it) and tunable settle delays around the paste (no OS-guaranteed timing exists; the verify catches sets that did not take). Every clipboard-side failure falls back to char typing, which never touches the clipboard; only key-synthesis failure is terminal (typing rides the same machinery). Restore failure after a successful paste is a warning, not a failed dictation, and empty transcripts are a strict no-op. The text-only clipboard round-trip (images/RTF/HTML clobbered) is documented as the accepted v1 limitation in the new `crates/hark-inject/CLAUDE.md`, alongside the enigo 0.6.1 pin rationale (its injected-flag contract guards against PTT feedback loops and has regressed upstream before). Retry policy, fallback decisions, and strategy selection are pure and tested (8 tests); the clipboard/key I/O itself is run-on-real-HW, including the checkpoint-6 check that our own hook ignores our own synthesized paste.
+
 ## [0.4.0] - 2026-07-16
 
 ### Added
