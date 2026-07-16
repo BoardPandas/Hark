@@ -4,6 +4,14 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.9.3] - 2026-07-16
+
+### Added
+- **Local dictation storage lands (`hark-store`, Phase 4 checkpoint 0).** New SQLite-backed crate holding dictation history and lifetime stats: WAL journal with a writer/reader two-connection pattern, numbered immutable embedded migrations tracked by `PRAGMA user_version`, and retention pruning (entries older than the age cap and beyond the newest-entries cap are deleted; both caps become configurable in the settings UI). History rows keep the raw transcript and the final injected text plus voice/provider/model labels and per-stage timings. The lifetime stats row is keyed on a fixed id and survives history clears and pruning by construction; "Clear history" and "Reset stats" are independent operations. Privacy semantics are built in: with capture off no transcript content is written while the numeric counters still tick, and the text-bearing types deliberately have no Debug formatting so transcripts cannot leak into logs. Behavior tests cover schema and reopen, paging, case-insensitive literal search (LIKE wildcards neutralized), strict pruning boundaries, and stats independence.
+
+### Changed
+- **Building Hark now needs Rust 1.97+** (workspace `rust-version` moved from 1.94): rusqlite 0.40.1's bundled SQLite (3.53.2) build script uses `cfg_select!`, which was unstable before then. The build machine's stable toolchain was updated to 1.97.1 accordingly.
+
 ## [0.9.2] - 2026-07-16
 
 ### Added

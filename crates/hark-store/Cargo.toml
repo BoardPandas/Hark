@@ -1,0 +1,16 @@
+[package]
+name = "hark-store"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Hark local storage: SQLite dictation history + lifetime stats with retention pruning. The DB is the sanctioned transcript store; nothing here logs content."
+
+[dependencies]
+# `bundled` compiles SQLite in (3.53.2 at 0.40.1): no system dependency on
+# either target OS, which matters for a self-contained desktop binary.
+rusqlite = { version = "0.40.1", features = ["bundled"] }
+thiserror = "2"
+
+[dev-dependencies]
+tempfile = "3"
