@@ -11,8 +11,12 @@
 
 mod error;
 pub mod openai_compatible;
+mod voices;
 
 pub use error::{error_for_status, error_for_transport, CleanupError};
+pub use voices::{
+    present_terms, skips_cleanup, system_prompt, UnknownVoice, Voice, RETURN_ONLY_CLAUSE,
+};
 
 /// Connect timeout enforced by the shared HTTP client (built once per process
 /// by `hark_stt::shared_client` and cloned here; `Client` is an `Arc`

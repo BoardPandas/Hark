@@ -4,6 +4,11 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.8.7] - 2026-07-16
+
+### Added
+- **Voices, prompt assembly, and the word-count gate (Phase 3 checkpoint 2).** `hark-voice` gains the `Voice` enum (verbatim / clean / professional / casual / custom) with a case-insensitive parse whose error message lists the valid names, ready for `hark-cli --voice`. Per-request system prompts follow the planned shape: the voice's instruction (custom uses the user's prompt verbatim), a "Leave these terms exactly as written" clause built only from dictionary terms actually present in the outgoing text (case-insensitive, multi-word safe, capped at a ~400-token budget with the same order-is-priority drop rule as STT biasing), and a closing return-only instruction. Verbatim never builds a prompt at all. The `skips_cleanup` gate implements "fewer than N words skips" with 0 disabling the gate and exactly-at-threshold not skipping. The cleanup spike now drives the library's real prompt assembly, so future measurements exercise exactly what the adapter will send.
+
 ## [0.8.6] - 2026-07-16
 
 ### Added

@@ -12,8 +12,8 @@
 //! Knobs: `SPIKE_RUNS` (default 10), `SPIKE_DELAY_MS` between timed runs
 //! (default 0), `SPIKE_SKIP_DRILLS=1`.
 //!
-//! The voice prompt wording below is the CP0 tuning ground; CP2 lifts the
-//! winning wording into `hark-voice` proper.
+//! Voice prompts come from `hark_voice`'s real assembly (CP2), so the spike
+//! measures exactly what the adapter sends; wording is tuned there.
 
 use hark_stt::metrics::{contains_term, LatencyTally};
 use hark_stt::shared_client;
@@ -21,7 +21,10 @@ use hark_voice::openai_compatible::{
     build_request_body, chat_completions_url, max_completion_tokens, parse_response,
     retry_after_secs,
 };
-use hark_voice::{error_for_status, error_for_transport, CleanupError, CLEANUP_TIMEOUT_MS};
+use hark_voice::{
+    error_for_status, error_for_transport, present_terms, system_prompt, CleanupError, Voice,
+    CLEANUP_TIMEOUT_MS,
+};
 use reqwest::blocking::Client;
 use std::time::{Duration, Instant};
 
@@ -114,43 +117,12 @@ fn model_arms() -> Vec<ModelArm> {
     arms
 }
 
-/// Draft voice prompts (§2.2 shape: instruction, protected-terms clause for
-/// terms present in the text, return-only close). Tuned here, lifted at CP2.
-fn system_prompt(voice: &str, text: &str) -> String {
-    let instruction = match voice {
-        "clean" => {
-            "Rewrite the transcript below. Fix punctuation, capitalization, filler words \
-             (um, uh, you know), false starts, and repeated words. Preserve the original \
-             wording, meaning, and tone. Never add or remove content."
-        }
-        "professional" => {
-            "Rewrite the transcript below in a polished, professional business register \
-             suitable for a written message to a colleague. Preserve the meaning; never \
-             add or remove content."
-        }
-        "casual" => {
-            "Rewrite the transcript below in a relaxed, casual conversational register. \
-             Fix filler words and false starts but keep it informal. Preserve the meaning; \
-             never add or remove content."
-        }
-        other => panic!("unknown spike voice {other}"),
-    };
-    let lower = text.to_lowercase();
-    let present: Vec<&str> = PROTECTED_TERMS
-        .iter()
-        .filter(|t| lower.contains(&t.to_lowercase()))
-        .copied()
-        .collect();
-    let mut prompt = instruction.to_string();
-    if !present.is_empty() {
-        prompt.push_str(&format!(
-            " Leave these terms exactly as written: {}.",
-            present.join(", ")
-        ));
-    }
-    prompt
-        .push_str(" Return only the rewritten text, with no commentary and no surrounding quotes.");
-    prompt
+/// Per-request prompt via the library assembly (the exact code path the
+/// adapter uses), with the spike's protected terms subset to the text.
+fn spike_prompt(voice: Voice, text: &str) -> String {
+    let terms: Vec<String> = PROTECTED_TERMS.iter().map(|s| s.to_string()).collect();
+    let present = present_terms(text, &terms);
+    system_prompt(voice, "", &present).expect("spike never runs verbatim")
 }
 
 struct HttpOutcome {
@@ -191,12 +163,12 @@ fn post_chat(
 fn clean_once(
     client: &Client,
     arm: &ModelArm,
-    voice: &str,
+    voice: Voice,
     text: &str,
 ) -> Result<(String, HttpOutcome), CleanupError> {
     let body = build_request_body(
         arm.model,
-        &system_prompt(voice, text),
+        &spike_prompt(voice, text),
         text,
         arm.temperature,
         arm.reasoning_effort,
@@ -272,20 +244,21 @@ fn main() {
             arm.provider, arm.model, arm.temperature, arm.reasoning_effort
         ));
         // Clean on every fixture; register voices on medium only.
-        let quality_calls: Vec<(&str, &str, &str)> = fixtures
+        let quality_calls: Vec<(Voice, &str, &str)> = fixtures
             .iter()
-            .map(|(name, text)| ("clean", *name, *text))
+            .map(|(name, text)| (Voice::Clean, *name, *text))
             .chain([
-                ("professional", "medium", FIXTURE_MEDIUM),
-                ("casual", "medium", FIXTURE_MEDIUM),
+                (Voice::Professional, "medium", FIXTURE_MEDIUM),
+                (Voice::Casual, "medium", FIXTURE_MEDIUM),
             ])
             .collect();
         for (voice, fixture_name, text) in quality_calls {
             let cap = max_completion_tokens(text);
+            let vname = voice.name();
             match clean_once(&client, arm, voice, text) {
                 Ok((cleaned, outcome)) => {
                     r.say(format!(
-                        "[{voice}/{fixture_name}] {} ms ({}): {:?}",
+                        "[{vname}/{fixture_name}] {} ms ({}): {:?}",
                         outcome.request_ms,
                         usage_summary(&outcome.body, cap),
                         cleaned
@@ -295,7 +268,7 @@ fn main() {
                         r.say(format!("  protected terms intact: {intact}"));
                     }
                 }
-                Err(e) => r.say(format!("[{voice}/{fixture_name}] FAILED: {e}")),
+                Err(e) => r.say(format!("[{vname}/{fixture_name}] FAILED: {e}")),
             }
         }
     }
@@ -314,7 +287,7 @@ fn main() {
         let mut tally = LatencyTally::default();
         let mut errors = 0usize;
         for _ in 0..runs {
-            match clean_once(&client, arm, "clean", FIXTURE_MEDIUM) {
+            match clean_once(&client, arm, Voice::Clean, FIXTURE_MEDIUM) {
                 Ok((_, outcome)) => tally.record(outcome.request_ms),
                 Err(e) => {
                     errors += 1;
@@ -352,7 +325,7 @@ fn main() {
         if let Some(nano) = arms.iter().find(|a| a.model == "gpt-5-nano") {
             let body = build_request_body(
                 nano.model,
-                &system_prompt("clean", FIXTURE_SHORT),
+                &spike_prompt(Voice::Clean, FIXTURE_SHORT),
                 FIXTURE_SHORT,
                 Some(0.2), // deliberately illegal on the GPT-5 family
                 None,
@@ -371,7 +344,7 @@ fn main() {
                 Err(e) => r.say(format!("  gpt-5 temperature drill transport error: {e}")),
             }
             // 2. reasoning_effort acceptance on nano (reports are inconsistent).
-            match clean_once(&client, nano, "clean", FIXTURE_SHORT) {
+            match clean_once(&client, nano, Voice::Clean, FIXTURE_SHORT) {
                 Ok(_) => r.say("  gpt-5-nano accepts reasoning_effort=minimal: OK (200)"),
                 Err(e) => r.say(format!(
                     "  gpt-5-nano reasoning_effort=minimal REJECTED: {e}"
