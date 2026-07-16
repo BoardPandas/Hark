@@ -40,4 +40,8 @@ paste_restore_delay_ms = 50   # Ctrl+V -> restore the old clipboard
 clipboard_retries = 8         # bounded retries while the clipboard is busy
 
 [dictionary]
-bias_terms = []   # Phase 2 placeholder; passed to provider biasing untouched
+# Canonical terms (names, jargon, product words). Transcript spans that
+# sound like a term but are spelled wrong are replaced with the canonical
+# spelling; the same list also feeds provider biasing. The pre-Phase-2 key
+# name "bias_terms" still works.
+terms = []

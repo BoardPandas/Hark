@@ -4,6 +4,11 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.7.3] - 2026-07-16
+
+### Changed
+- **Dictionary config key renamed from `bias_terms` to `terms` (Phase 2 checkpoint 1).** One list now names what it really is: the canonical terms that will drive phonetic post-correction first and provider biasing second. Existing config files keep working via a serde alias (a regression test pins that forever), the committed `config/default-config.toml` documents the new key, and the pipeline reads `terms` when building provider bias configuration.
+
 ## [0.7.2] - 2026-07-16
 
 ### Added

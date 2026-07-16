@@ -75,7 +75,7 @@ fn provider_config(settings: &Settings, api_key: String) -> Result<ProviderConfi
         base_url,
         model: settings.provider.resolved_model(),
         api_key,
-        bias_terms: settings.dictionary.bias_terms.clone(),
+        bias_terms: settings.dictionary.terms.clone(),
     })
 }
 
@@ -192,8 +192,8 @@ mod tests {
     }
 
     #[test]
-    fn bias_terms_pass_through_untouched() {
-        let s = settings_from("[dictionary]\nbias_terms = [\"Hark\", \"Levenshtein\"]");
+    fn dictionary_terms_feed_provider_bias_terms() {
+        let s = settings_from("[dictionary]\nterms = [\"Hark\", \"Levenshtein\"]");
         let cfg = provider_config(&s, "K".to_string()).unwrap();
         assert_eq!(cfg.bias_terms, vec!["Hark", "Levenshtein"]);
     }

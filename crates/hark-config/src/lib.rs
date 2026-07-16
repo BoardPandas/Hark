@@ -182,8 +182,10 @@ impl Default for Inject {
 #[derive(Debug, Clone, Deserialize, Default)]
 #[serde(default)]
 pub struct Dictionary {
-    /// Phase 2 placeholder; plumbed through to provider biasing untouched.
-    pub bias_terms: Vec<String>,
+    /// Canonical terms: phonetic post-correction targets and the source for
+    /// provider biasing. The alias keeps pre-Phase-2 config files working.
+    #[serde(alias = "bias_terms")]
+    pub terms: Vec<String>,
 }
 
 #[derive(Debug, Clone, Deserialize, Default)]
@@ -286,7 +288,7 @@ mod tests {
         assert_eq!(s.audio.tail_ms, 150);
         assert_eq!(s.audio.max_hold_s, 120);
         assert_eq!(s.inject.strategy, InjectStrategy::Clipboard);
-        assert!(s.dictionary.bias_terms.is_empty());
+        assert!(s.dictionary.terms.is_empty());
     }
 
     #[test]
@@ -307,7 +309,7 @@ mod tests {
             strategy = "type"
 
             [dictionary]
-            bias_terms = ["Hark", "Levenshtein"]
+            terms = ["Hark", "Levenshtein"]
             "#,
         )
         .expect("valid TOML parses");
@@ -322,7 +324,16 @@ mod tests {
         // Untouched keys keep their defaults.
         assert_eq!(s.audio.preroll_ms, 300);
         assert_eq!(s.inject.strategy, InjectStrategy::Type);
-        assert_eq!(s.dictionary.bias_terms, vec!["Hark", "Levenshtein"]);
+        assert_eq!(s.dictionary.terms, vec!["Hark", "Levenshtein"]);
+    }
+
+    #[test]
+    fn legacy_bias_terms_key_still_parses_via_alias() {
+        // Pre-Phase-2 config files used `bias_terms`; the serde alias must
+        // keep them loading forever.
+        let s = Settings::from_toml("[dictionary]\nbias_terms = [\"Modero\"]")
+            .expect("legacy key parses");
+        assert_eq!(s.dictionary.terms, vec!["Modero"]);
     }
 
     #[test]
