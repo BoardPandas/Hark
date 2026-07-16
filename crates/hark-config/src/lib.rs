@@ -3,7 +3,14 @@
 //! deliberately-minimal stand-in for the settings half.
 //!
 //! API keys never live in TOML: they come from the OS keychain or the
-//! `HARK_STT_KEY` env override via `hark-keychain`.
+//! `HARK_STT_KEY` / `HARK_CLEANUP_KEY` env overrides via `hark-keychain`.
+
+mod voice;
+
+pub use voice::{
+    resolve_cleanup_provider, CleanupKeySource, CleanupResolution, ResolvedCleanupProvider, Voice,
+    VoiceName, VoiceProvider,
+};
 
 use serde::Deserialize;
 use std::path::{Path, PathBuf};
@@ -196,6 +203,7 @@ pub struct Settings {
     pub audio: Audio,
     pub inject: Inject,
     pub dictionary: Dictionary,
+    pub voice: Voice,
 }
 
 impl Settings {
@@ -238,6 +246,7 @@ impl Settings {
                 "audio.max_hold_s must be at least 1".to_string(),
             ));
         }
+        voice::validate(&self.voice)?;
         Ok(())
     }
 }

@@ -4,6 +4,12 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.8.6] - 2026-07-16
+
+### Added
+- **`[voice]` config schema and cleanup-provider resolution (Phase 3 checkpoint 1).** `config.toml` gains `[voice]` (`default` voice, `custom_prompt`, `skip_below_words` gate) and an optional `[voice.provider]` table (`kind`, `base_url`, `model`, `temperature`, `reasoning_effort`, `key_account`), all additive with serde defaults, so existing config files keep loading unchanged. Validation enforces: `custom` voice requires a non-empty prompt, Deepgram is rejected as a cleanup provider (no chat product), and `openai-compatible` requires an explicit base URL. A pure, fully unit-tested resolution function decides the cleanup provider at pipeline build: an explicit table wins; otherwise an OpenAI or Groq STT provider is inherited (same kind and base URL, per-kind chat defaults, and the already-resolved STT key is reused with no second keychain read); otherwise a non-verbatim voice degrades to Verbatim with a one-time startup warning, never a hard error, so the out-of-the-box Deepgram + Clean default keeps working.
+- **Keychain resolver generalized for the cleanup role.** `resolve_key_for(env_var, account)` serves any role; `resolve_key` stays as the STT wrapper so existing call sites stand. New `HARK_CLEANUP_KEY` env override; missing-key errors name the role's own env variable and the exact account, including `key_account` overrides. The keychain account remains the provider label, shared between STT and cleanup by design, and the same slots the Phase 4 UI paste field will write.
+
 ## [0.8.5] - 2026-07-16
 
 ### Changed
