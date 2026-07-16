@@ -25,8 +25,6 @@ fn offset_in(parent: &str, slice: &str) -> usize {
     slice.as_ptr() as usize - parent.as_ptr() as usize
 }
 
-// Wired into the matcher at CP3.
-#[allow(dead_code)]
 pub(crate) fn tokenize(text: &str) -> Vec<Token> {
     let mut tokens = Vec::new();
     for chunk in text.split_whitespace() {

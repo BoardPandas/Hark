@@ -4,6 +4,11 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.7.5] - 2026-07-16
+
+### Added
+- **Single-word dictionary matching (Phase 2 checkpoint 3).** `Corrector::correct` now actually corrects: transcript words that sound like a dictionary term but are spelled wrong are replaced with the canonical spelling. Two matching paths, decided per term word at construction: exact-only (case-insensitive equality) for words with digits or of 3 chars or fewer, where Double Metaphone codes degenerate; phonetic (code equality on primary or alternate, either side) confirmed by a Jaro-Winkler score of at least 0.85 as the false-positive guard. Realistic cases proven in tests: "madero" -> "Modero", "vosburg" -> "Vossburg", accent-bridging "muller" -> "Müller", case-insensitive exact hits take canonical casing, already-canonical text is a no-op (not counted), and "matter" (which shares Modero's phonetic code) is left alone by the JW guard, as are common short words. Punctuation around matches survives; unencodable words degrade to exact-only rather than matching everything.
+
 ## [0.7.4] - 2026-07-16
 
 ### Added
