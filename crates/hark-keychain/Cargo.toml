@@ -1,0 +1,15 @@
+[package]
+name = "hark-keychain"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Hark BYOK key resolution: HARK_STT_KEY env override first, then the OS keychain via keyring. Never logs key material."
+
+[dependencies]
+# Exact-patch pin: keyring 4.x changed its backend model from the 2.x/3.x
+# cargo-feature style and shipped 3 releases in ~2 days around 4.1.x. The `v1`
+# umbrella feature bundles the native backends (Windows Credential Manager,
+# macOS Keychain). Re-verify at the packaging milestone (spec §2.4/§12).
+keyring = { version = "=4.1.5", features = ["v1"] }
+thiserror = "2"

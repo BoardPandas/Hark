@@ -1,0 +1,22 @@
+[package]
+name = "hark-hotkey"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Hark push-to-talk source: WH_KEYBOARD_LL (Windows) / CGEventTap (macOS) low-level key hooks with a pure chord edge-detection state machine."
+
+[dependencies]
+thiserror = "2"
+
+# windows-rs, not the legacy winapi (spec §2.4). The hook needs:
+# - Win32_UI_WindowsAndMessaging: SetWindowsHookExW, GetMessageW loop, KBDLLHOOKSTRUCT
+# - Win32_UI_Input_KeyboardAndMouse: VIRTUAL_KEY codes for the chord members
+# - Win32_System_Threading: GetCurrentThreadId (to PostThreadMessageW WM_QUIT for shutdown)
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.62.2", features = [
+    "Win32_Foundation",
+    "Win32_UI_WindowsAndMessaging",
+    "Win32_UI_Input_KeyboardAndMouse",
+    "Win32_System_Threading",
+] }

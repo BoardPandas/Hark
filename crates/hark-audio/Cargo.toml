@@ -1,0 +1,19 @@
+[package]
+name = "hark-audio"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Hark audio capture: cpal input stream, lock-free ring buffer with absolute sample counter, device-rate to 16 kHz mono resampling, pre-roll/tail window assembly, silence gate."
+
+[dependencies]
+# Pin the exact minor: WASAPI host is built in; we request F32 explicitly and
+# never trust default_input_config() heuristics (spec §2.4).
+cpal = "0.18.1"
+# rubato 4.0 (2026-07-09) consolidated the old FftFixedIn/SincFixedIn family
+# into `Fft` + `FixedSync`. `process_all()` is the whole-clip path: it trims
+# the FFT startup delay and yields exact output frame counts, which our unit
+# tests assert on. Do NOT call process() once with chunk_size == clip length —
+# that leaves the delay in and truncates the tail.
+rubato = "4.0"
+thiserror = "2"

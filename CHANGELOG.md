@@ -4,6 +4,13 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.1.4] - 2026-07-16
+
+### Added
+- **Phase 1 pipeline scaffolding (checkpoint 0).** Seven new workspace crates with their final dependency blocks and empty sources: `hark-audio` (cpal 0.18.1 + rubato 4.0), `hark-hotkey` (windows-rs 0.62.2, Windows-only target dep), `hark-inject` (arboard 3.6.1 + enigo 0.6.1, both without default features), `hark-keychain` (keyring pinned `=4.1.5`, `v1` backend bundle), `hark-config` (serde + toml 1.x), `hark-pipeline` (glue crate depending on all of the above plus the frozen `hark-stt`), and the `hark-cli` dev binary (ctrlc + env_logger). Whole-workspace build, clippy `-D warnings`, fmt, and the existing 20 `hark-stt` tests all green; `hark-stt` itself is untouched.
+- **Confirmed Phase 1 defaults from user review:** push-to-talk defaults to a Left Ctrl + Left Win chord (user-configurable), the post-release tail window is configurable with a 150 ms default, and the max-hold cap is 120 s (transcribe-what-we-have on exceed).
+- **rubato 4.0 research baked into `hark-audio`'s manifest:** the 2026-07-09 v4 release replaced the old `FftFixedIn`/`SincFixedIn` types with consolidated `Fft`/`Async` resamplers; whole-clip resampling must go through `process_all()` (trims FFT startup delay, exact output counts) rather than a single oversized `process()` call.
+
 ## [0.1.3] - 2026-07-16
 
 ### Added

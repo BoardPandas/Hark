@@ -1,0 +1,19 @@
+[package]
+name = "hark-inject"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Hark text injection: clipboard stash/set/paste/restore with bounded retries, plus an enigo char-typing fallback for paste-hostile fields."
+
+[dependencies]
+# Text-only clipboard round-trip; image-data (a default feature) is unused, so
+# drop it. Known v1 limitation: set_text clears non-text formats, so images/
+# RTF/HTML on the clipboard before dictation are not preserved (spec §12).
+arboard = { version = "3.6.1", default-features = false }
+# default-features = false drops the X11 stack on Windows/macOS (spec §2.4).
+# Pinned: the LLKHF_INJECTED contract has regressed across enigo versions
+# before (RustDesk #14667); a real-HW test asserts our hook ignores our own
+# synthesized Ctrl+V.
+enigo = { version = "0.6.1", default-features = false }
+thiserror = "2"

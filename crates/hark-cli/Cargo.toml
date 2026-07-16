@@ -1,0 +1,15 @@
+[package]
+name = "hark-cli"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Hark dev binary: wires config + keychain + pipeline and blocks on Ctrl+C. Becomes the tray/egui hark-app in a later phase."
+
+[dependencies]
+ctrlc = "3"
+env_logger = "0.11"
+hark-config = { path = "../hark-config" }
+hark-keychain = { path = "../hark-keychain" }
+hark-pipeline = { path = "../hark-pipeline" }
+log = "0.4"

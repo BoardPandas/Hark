@@ -1,0 +1,16 @@
+[package]
+name = "hark-pipeline"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Hark dictation pipeline: worker-thread state machine gluing audio capture, push-to-talk, cloud STT, and injection. Owns the pre-warmed shared HTTP client."
+
+[dependencies]
+hark-audio = { path = "../hark-audio" }
+hark-config = { path = "../hark-config" }
+hark-hotkey = { path = "../hark-hotkey" }
+hark-inject = { path = "../hark-inject" }
+hark-stt = { path = "../hark-stt" }
+log = "0.4"
+thiserror = "2"

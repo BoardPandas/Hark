@@ -1,6 +1,15 @@
 [workspace]
 resolver = "2"
-members = ["crates/hark-stt"]
+members = [
+    "crates/hark-audio",
+    "crates/hark-cli",
+    "crates/hark-config",
+    "crates/hark-hotkey",
+    "crates/hark-inject",
+    "crates/hark-keychain",
+    "crates/hark-pipeline",
+    "crates/hark-stt",
+]
 
 [workspace.package]
 version = "0.1.0"
