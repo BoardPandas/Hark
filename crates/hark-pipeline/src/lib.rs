@@ -79,6 +79,99 @@ fn provider_config(settings: &Settings, api_key: String) -> Result<ProviderConfi
     })
 }
 
+/// Map the config-side voice name onto the voice crate's enum (same parallel
+/// -enums pattern as `provider_config` for the STT kinds).
+fn effective_voice(name: hark_config::VoiceName) -> hark_voice::Voice {
+    match name {
+        hark_config::VoiceName::Verbatim => hark_voice::Voice::Verbatim,
+        hark_config::VoiceName::Clean => hark_voice::Voice::Clean,
+        hark_config::VoiceName::Professional => hark_voice::Voice::Professional,
+        hark_config::VoiceName::Casual => hark_voice::Voice::Casual,
+        hark_config::VoiceName::Custom => hark_voice::Voice::Custom,
+    }
+}
+
+/// Build the optional cleanup step. Fail-open at every layer (unresolvable
+/// provider, missing key, adapter build failure): warn once and return None,
+/// which the worker treats as Verbatim. The pipeline must start regardless;
+/// STT keeps working when the optional feature cannot.
+fn build_cleanup(
+    settings: &Settings,
+    client: reqwest::blocking::Client,
+    stt_api_key: &str,
+) -> Option<worker::CleanupPlan> {
+    use hark_config::{CleanupKeySource, CleanupResolution};
+
+    let resolved = match hark_config::resolve_cleanup_provider(
+        &settings.provider,
+        &settings.voice,
+        settings.voice.default,
+    ) {
+        CleanupResolution::Verbatim => return None,
+        CleanupResolution::VerbatimWithWarning { reason } => {
+            log::warn!("cleanup disabled: {reason}");
+            return None;
+        }
+        CleanupResolution::Resolved(r) => r,
+    };
+
+    let api_key = match &resolved.key_source {
+        // The "share one provider+key" case: no second keychain read.
+        CleanupKeySource::ReuseSttKey => stt_api_key.to_string(),
+        CleanupKeySource::Account(account) => {
+            match hark_keychain::resolve_key_for(hark_keychain::CLEANUP_ENV_OVERRIDE, account) {
+                Ok(k) => k,
+                Err(e) => {
+                    log::warn!("cleanup key unavailable ({e}); running verbatim");
+                    return None;
+                }
+            }
+        }
+    };
+
+    let voice = effective_voice(settings.voice.default);
+    let config = hark_voice::openai_compatible::CleanupConfig {
+        label: resolved.kind.label().to_string(),
+        base_url: resolved.base_url.clone(),
+        model: resolved.model.clone(),
+        api_key,
+        temperature: resolved.temperature,
+        reasoning_effort: resolved.reasoning_effort.clone(),
+        voice,
+        custom_prompt: settings.voice.custom_prompt.clone(),
+        dictionary_terms: settings.dictionary.terms.clone(),
+    };
+    let adapter = match hark_voice::openai_compatible::OpenAiCompatibleChat::new(&config, client) {
+        Ok(a) => a,
+        Err(e) => {
+            log::warn!("cleanup adapter build failed ({e}); running verbatim");
+            return None;
+        }
+    };
+
+    // Second pre-warm only when the cleanup endpoint differs from the STT
+    // one (base-URL comparison; a same-host false positive just costs one
+    // harmless extra GET).
+    let prewarm_url = (settings.provider.resolved_base_url().as_deref()
+        != Some(resolved.base_url.as_str()))
+    .then(|| resolved.base_url.clone());
+
+    log::info!(
+        "cleanup: voice={} provider={} model={}, gate: skip below {} words",
+        voice.name(),
+        resolved.kind.label(),
+        resolved.model,
+        settings.voice.skip_below_words
+    );
+    Some(worker::CleanupPlan {
+        cleaner: Box::new(adapter),
+        voice,
+        model: resolved.model,
+        skip_below_words: settings.voice.skip_below_words,
+        prewarm_url,
+    })
+}
+
 fn window_params(audio: &hark_config::Audio) -> WindowParams {
     WindowParams {
         preroll_ms: audio.preroll_ms,
@@ -108,10 +201,12 @@ fn inject_settings(inject: &hark_config::Inject) -> InjectSettings {
 pub fn run(settings: &Settings, api_key: String) -> Result<PipelineHandle, PipelineError> {
     let chord = hark_hotkey::PttChord::parse(&settings.hotkey.ptt_key)
         .map_err(hark_hotkey::HotkeyError::from)?;
+    let client = hark_stt::shared_client()?;
+    // Before provider_config consumes the key: the inherit path reuses it.
+    let cleanup = build_cleanup(settings, client.clone(), &api_key);
     let provider_cfg = provider_config(settings, api_key)?;
     let prewarm_url = provider_cfg.base_url.clone();
 
-    let client = hark_stt::shared_client()?;
     let provider = hark_stt::build(&provider_cfg, client.clone())?;
 
     let window = window_params(&settings.audio);
@@ -132,6 +227,7 @@ pub fn run(settings: &Settings, api_key: String) -> Result<PipelineHandle, Pipel
         inject: inject_settings(&settings.inject),
         provider,
         corrector: hark_dictionary::Corrector::new(&settings.dictionary.terms),
+        cleanup,
         prewarm_url,
         client,
     };
@@ -216,5 +312,59 @@ mod tests {
         assert_eq!(i.strategy, Strategy::Type);
         assert_eq!(i.clipboard_retries, 3);
         assert_eq!(i.set_paste_delay_ms, 50); // default carried through
+    }
+
+    // --- cleanup plan wiring. Only paths that never read the real OS
+    // keychain are exercised here: Verbatim, warn-and-degrade, STT key
+    // reuse, and one Account-path test that the HARK_CLEANUP_KEY env
+    // override satisfies before the keyring would be touched. ---
+
+    fn client() -> reqwest::blocking::Client {
+        hark_stt::shared_client().unwrap()
+    }
+
+    #[test]
+    fn verbatim_voice_never_constructs_a_cleaner() {
+        let s = settings_from("[provider]\nkind = \"openai\"\n[voice]\ndefault = \"verbatim\"");
+        assert!(build_cleanup(&s, client(), "STT-KEY").is_none());
+    }
+
+    #[test]
+    fn default_deepgram_config_degrades_to_no_cleaner() {
+        // Out-of-the-box config: Deepgram STT + Clean voice. Warn, no plan,
+        // and crucially no error: the pipeline must start.
+        assert!(build_cleanup(&settings_from(""), client(), "STT-KEY").is_none());
+    }
+
+    #[test]
+    fn openai_stt_inherits_into_a_cleanup_plan_without_keychain() {
+        let s = settings_from(
+            "[provider]\nkind = \"openai\"\n[voice]\nskip_below_words = 3\n[dictionary]\nterms = [\"Hark\"]",
+        );
+        let plan = build_cleanup(&s, client(), "STT-KEY").expect("inherit path builds a plan");
+        assert_eq!(plan.voice, hark_voice::Voice::Clean);
+        assert_eq!(plan.model, "gpt-5-nano");
+        assert_eq!(plan.skip_below_words, 3);
+        assert_eq!(plan.cleaner.label(), "openai");
+        // Same endpoint as STT: no second pre-warm needed.
+        assert_eq!(plan.prewarm_url, None);
+    }
+
+    #[test]
+    fn explicit_provider_with_env_key_prewarns_the_differing_host() {
+        // Deepgram STT + explicit groq cleanup: the Account path resolves
+        // via HARK_CLEANUP_KEY before any keyring read, and the differing
+        // endpoint gets its own pre-warm URL.
+        std::env::set_var("HARK_CLEANUP_KEY", "env-test-key");
+        let s = settings_from("[voice.provider]\nkind = \"groq\"");
+        let plan = build_cleanup(&s, client(), "STT-KEY");
+        std::env::remove_var("HARK_CLEANUP_KEY");
+        let plan = plan.expect("env-keyed explicit provider builds a plan");
+        assert_eq!(plan.model, "llama-3.1-8b-instant");
+        assert_eq!(plan.cleaner.label(), "groq");
+        assert_eq!(
+            plan.prewarm_url.as_deref(),
+            Some("https://api.groq.com/openai/v1")
+        );
     }
 }

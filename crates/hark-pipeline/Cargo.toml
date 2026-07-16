@@ -12,7 +12,9 @@ hark-config = { path = "../hark-config" }
 hark-dictionary = { path = "../hark-dictionary" }
 hark-hotkey = { path = "../hark-hotkey" }
 hark-inject = { path = "../hark-inject" }
+hark-keychain = { path = "../hark-keychain" }
 hark-stt = { path = "../hark-stt" }
+hark-voice = { path = "../hark-voice" }
 log = "0.4"
 # Only to NAME the shared client type hark-stt hands us (and fire the
 # pre-warm request). Same version/features as hark-stt; cargo unifies them.

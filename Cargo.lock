@@ -1051,6 +1051,7 @@ dependencies = [
  "hark-config",
  "hark-keychain",
  "hark-pipeline",
+ "hark-voice",
  "log",
 ]
 
@@ -1107,7 +1108,9 @@ dependencies = [
  "hark-dictionary",
  "hark-hotkey",
  "hark-inject",
+ "hark-keychain",
  "hark-stt",
+ "hark-voice",
  "log",
  "reqwest",
  "thiserror 2.0.18",

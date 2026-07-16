@@ -12,4 +12,6 @@ env_logger = "0.11"
 hark-config = { path = "../hark-config" }
 hark-keychain = { path = "../hark-keychain" }
 hark-pipeline = { path = "../hark-pipeline" }
+# Only for the shared --voice name parse (config and CLI share it).
+hark-voice = { path = "../hark-voice" }
 log = "0.4"

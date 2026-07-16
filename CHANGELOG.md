@@ -4,6 +4,12 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.9.0] - 2026-07-16
+
+### Added
+- **Voice cleanup is live in the dictation loop (Phase 3 checkpoint 4).** With a non-verbatim voice configured and a resolvable cleanup provider, every dictation now runs: dictionary pass 1, the word-count gate (short utterances skip the call and log why), one chat-completions rewrite in the chosen voice, dictionary pass 2 (repairs any term the model re-mangled), then injection. Cleanup is fail-open end to end: an unresolvable provider, missing key, or failed request logs one warning and injects the dictionary-corrected transcript unchanged; a dictation is never lost to the optional feature. Inheriting an OpenAI/Groq STT provider reuses the already-resolved STT key with no second keychain read; when the cleanup endpoint differs from the STT one, the worker pre-warms both at startup so the first cleaned dictation skips the cold TLS handshake. Logging stays counts/millis/config-labels only, never text or prompts.
+- **`hark-cli --voice <name>`** overrides the configured default voice for one run (`--voice=name` also accepted). Invalid names exit with the list of valid voices; `--voice custom` without a configured `custom_prompt` is rejected at startup with the fix named.
+
 ## [0.8.8] - 2026-07-16
 
 ### Added
