@@ -4,6 +4,12 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.7.2] - 2026-07-16
+
+### Added
+- **Phase 2 dictionary spec** (`tasks/2026-07-16-phase2-dictionary.md`): the plan for phonetic post-correction of transcripts against the user's canonical terms (names, jargon, product words). Post-correction is the primary mechanism (the spike measured provider biasing as weak); matching is Double Metaphone code equality confirmed by a Jaro-Winkler score, with exact-only handling for words phonetics cannot encode (digits, very short words). Six commit-sized checkpoints ending in an interactive gate on real hardware.
+- **`hark-dictionary` crate scaffold (Phase 2 checkpoint 0).** New workspace crate with its final dependencies (`rphonetic` 3.0.6, `strsim` 0.11.1), the `Corrector` API surface (identity pass for now), and proof tests pinning the third-party behavior the matcher will rely on: rphonetic encodes empty/non-ASCII/digit/hyphen inputs without panicking, vowel-swap misspellings produce equal Double Metaphone codes, and strsim's `jaro_winkler` returns 1.0 for equal single-char strings (historical-bug regression guard) and clears the planned 0.85 threshold for the flagship "madero" -> "modero" case.
+
 ## [0.7.1] - 2026-07-16
 
 ### Changed

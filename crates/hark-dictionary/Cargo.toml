@@ -1,0 +1,11 @@
+[package]
+name = "hark-dictionary"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Phonetic post-correction of transcripts against the user's canonical terms (Double Metaphone match, Jaro-Winkler confirm). Pure text processing on the pipeline hot path: no I/O, no async."
+
+[dependencies]
+rphonetic = "3.0.6"
+strsim = "0.11.1"

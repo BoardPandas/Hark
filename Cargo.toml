@@ -4,6 +4,7 @@ members = [
     "crates/hark-audio",
     "crates/hark-cli",
     "crates/hark-config",
+    "crates/hark-dictionary",
     "crates/hark-hotkey",
     "crates/hark-inject",
     "crates/hark-keychain",
