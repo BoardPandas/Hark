@@ -1,0 +1,83 @@
+# Claude Code
+.claude/settings.local.json
+.claude/research-notes.md
+.claude/agent-memory-local/
+
+# Node
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+.npm
+.yarn/cache
+.yarn/install-state.gz
+dist/
+build/
+coverage/
+.next/
+.nuxt/
+.output/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+.venv/
+*.egg-info/
+.eggs/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+htmlcov/
+
+# Rust (Cargo.lock is intentionally NOT ignored -- commit lockfiles)
+target/
+
+# Java/Kotlin
+*.class
+*.jar
+*.war
+*.ear
+.gradle/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+*.sublime-workspace
+*.sublime-project
+
+# Environment and secrets
+.env
+.env.local
+.env.*.local
+*.pem
+*.key
+*.cert
+
+# OS
+.DS_Store
+Desktop.ini
+ehthumbs.db
+Icon?
+
+# Logs
+*.log
+logs/
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+
+# Skill-creator eval scaffolding (transient: fixtures, iteration outputs, review HTML)
+.claude/skills/*-workspace/
