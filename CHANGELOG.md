@@ -4,6 +4,11 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.8.8] - 2026-07-16
+
+### Added
+- **The live cleanup adapter (Phase 3 checkpoint 3).** `OpenAiCompatibleChat` implements `CleanupProvider`: one buffered JSON POST to `{base_url}/chat/completions` with Bearer auth, a 10-second per-request timeout (tighter than STT's 15 s, because cleanup failure has a graceful fallback), and no retry, keeping worst-case hot-path latency bounded. The prompt is assembled per request so the protected-terms clause tracks the dictionary terms actually present in the outgoing text. Construction rejects the Verbatim voice (which never calls) instead of panicking, and the adapter's config struct cannot leak the API key or the user's custom prompt through Debug formatting. The live path is a thin shell over the pure request/response layer already under test; network behavior is proven at the deferred live gate.
+
 ## [0.8.7] - 2026-07-16
 
 ### Added

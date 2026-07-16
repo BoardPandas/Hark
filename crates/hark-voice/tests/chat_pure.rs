@@ -5,9 +5,10 @@
 
 use hark_voice::openai_compatible::{
     build_request_body, chat_completions_url, max_completion_tokens, parse_response,
-    retry_after_secs, MAX_COMPLETION_TOKENS_CAP, MAX_COMPLETION_TOKENS_FLOOR,
+    retry_after_secs, CleanupConfig, OpenAiCompatibleChat, MAX_COMPLETION_TOKENS_CAP,
+    MAX_COMPLETION_TOKENS_FLOOR,
 };
-use hark_voice::{error_for_status, CleanupError};
+use hark_voice::{error_for_status, CleanupError, CleanupProvider, Voice};
 
 fn body_json(bytes: &[u8]) -> serde_json::Value {
     serde_json::from_slice(bytes).expect("request body is valid JSON")
@@ -225,6 +226,66 @@ fn other_statuses_map_to_provider_with_truncated_snippet() {
         }
         other => panic!("expected Provider, got {other}"),
     }
+}
+
+// --- adapter construction (the live path is thin over the pure layer;
+// network behavior is proven by the spike and re-proven at the live gate) ---
+
+fn config(voice: Voice) -> CleanupConfig {
+    CleanupConfig {
+        label: "openai".to_string(),
+        base_url: "https://api.openai.com/v1".to_string(),
+        model: "gpt-5-nano".to_string(),
+        api_key: "sk-SENTINEL-NEVER-IN-LOGS".to_string(),
+        temperature: None,
+        reasoning_effort: Some("minimal".to_string()),
+        voice,
+        custom_prompt: String::new(),
+        dictionary_terms: vec!["Hark".to_string()],
+    }
+}
+
+fn client() -> reqwest::blocking::Client {
+    reqwest::blocking::Client::new()
+}
+
+#[test]
+fn adapter_builds_and_reports_its_label() {
+    let adapter =
+        OpenAiCompatibleChat::new(&config(Voice::Clean), client()).expect("clean voice constructs");
+    assert_eq!(adapter.label(), "openai");
+}
+
+#[test]
+fn adapter_is_send_for_the_worker_thread() {
+    fn require_send<T: Send>(_: &T) {}
+    let adapter = OpenAiCompatibleChat::new(&config(Voice::Clean), client()).unwrap();
+    require_send(&adapter);
+}
+
+#[test]
+fn verbatim_voice_is_rejected_at_construction() {
+    // No expect_err: the adapter (deliberately) has no Debug impl.
+    let err = match OpenAiCompatibleChat::new(&config(Voice::Verbatim), client()) {
+        Ok(_) => panic!("verbatim must not construct an adapter"),
+        Err(e) => e,
+    };
+    match &err {
+        CleanupError::Provider { detail, .. } => assert!(detail.contains("verbatim")),
+        other => panic!("expected Provider, got {other}"),
+    }
+    // The construction error must not leak the key either.
+    assert!(!err.to_string().contains("SENTINEL"));
+}
+
+#[test]
+fn cleanup_config_debug_never_leaks_key_or_user_content() {
+    let mut cfg = config(Voice::Custom);
+    cfg.custom_prompt = "SECRET custom prompt".to_string();
+    let debug = format!("{cfg:?}");
+    assert!(!debug.contains("SENTINEL"), "api_key leaked: {debug}");
+    assert!(!debug.contains("SECRET"), "custom prompt leaked: {debug}");
+    assert!(debug.contains("<redacted>"));
 }
 
 // --- Retry-After parsing ---

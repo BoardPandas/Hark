@@ -4,10 +4,13 @@
 //! (OpenAI itself, Groq, any compatible endpoint); Deepgram has no chat
 //! product and is rejected at config validation.
 //!
-//! The live adapter (CP3) is a thin I/O shell over these functions; the CP0
-//! spike drives them against real endpoints.
+//! `OpenAiCompatibleChat` is a thin I/O shell over the pure functions here;
+//! the cleanup spike drives the same functions against real endpoints.
 
-use crate::error::{truncate_snippet, CleanupError};
+use crate::error::{error_for_status, error_for_transport, truncate_snippet, CleanupError};
+use crate::{present_terms, system_prompt, Cleaned, CleanupProvider, Voice, CLEANUP_TIMEOUT_MS};
+use reqwest::blocking::Client;
+use std::time::{Duration, Instant};
 
 /// `{base_url}/chat/completions`, tolerant of a trailing slash on base_url.
 pub fn chat_completions_url(base_url: &str) -> String {
@@ -138,4 +141,146 @@ pub fn retry_after_secs(headers: &reqwest::header::HeaderMap) -> Option<u64> {
         .trim()
         .parse()
         .ok()
+}
+
+/// Everything needed to build one cleanup adapter. The pipeline fills this
+/// from the resolved provider (hark-config) plus the key from hark-keychain
+/// or STT-key reuse. Dictionary terms are user content: they may enter the
+/// request body but never logs.
+#[derive(Clone)]
+pub struct CleanupConfig {
+    /// Short human label for logs and errors ("openai", "groq"). Error
+    /// messages carry this, never the key.
+    pub label: String,
+    /// e.g. "https://api.openai.com/v1"; chat and STT share base URLs.
+    pub base_url: String,
+    /// e.g. "gpt-5-nano", "llama-3.1-8b-instant".
+    pub model: String,
+    /// From the keychain or STT-key reuse. Never logged.
+    pub api_key: String,
+    /// Serialized into the request only when present (GPT-5 family rejects
+    /// any non-default temperature).
+    pub temperature: Option<f32>,
+    /// Serialized only when present (OpenAI GPT-5 family only).
+    pub reasoning_effort: Option<String>,
+    /// The effective voice. Verbatim is rejected at construction: the
+    /// pipeline short-circuits it long before an adapter exists.
+    pub voice: Voice,
+    /// The user's prompt for `Voice::Custom`; ignored otherwise.
+    pub custom_prompt: String,
+    /// Dictionary terms; the per-request protected-terms clause subsets
+    /// these to the ones present in the outgoing text.
+    pub dictionary_terms: Vec<String>,
+}
+
+// Deliberately no Debug derive: a reflexive `{config:?}` in some future log
+// line must not be able to leak `api_key` (or prompt/term user content).
+impl std::fmt::Debug for CleanupConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("CleanupConfig")
+            .field("label", &self.label)
+            .field("base_url", &self.base_url)
+            .field("model", &self.model)
+            .field("api_key", &"<redacted>")
+            .field("voice", &self.voice)
+            .field("custom_prompt", &"<user content>")
+            .field("dictionary_terms", &self.dictionary_terms.len())
+            .finish()
+    }
+}
+
+/// The one live adapter: `POST {base_url}/chat/completions` with Bearer auth
+/// and a per-request timeout tighter than STT's. **No retry**: cleanup
+/// failure has a graceful fallback (the pipeline injects the uncleaned
+/// text), so a retry would only double worst-case hot-path latency.
+pub struct OpenAiCompatibleChat {
+    client: Client,
+    label: String,
+    url: String,
+    model: String,
+    api_key: String,
+    temperature: Option<f32>,
+    reasoning_effort: Option<String>,
+    voice: Voice,
+    custom_prompt: String,
+    dictionary_terms: Vec<String>,
+}
+
+impl OpenAiCompatibleChat {
+    /// Build the adapter, sharing the process-wide HTTP client (`Client` is
+    /// an `Arc` internally). Rejects `Voice::Verbatim`: constructing a
+    /// cleaner for a voice that never calls is a caller bug, surfaced as an
+    /// error the fail-open pipeline logs rather than a panic.
+    pub fn new(config: &CleanupConfig, client: Client) -> Result<Self, CleanupError> {
+        if config.voice == Voice::Verbatim {
+            return Err(CleanupError::Provider {
+                provider: config.label.clone(),
+                detail: "verbatim voice never constructs a cleanup adapter".to_string(),
+            });
+        }
+        Ok(Self {
+            client,
+            label: config.label.clone(),
+            url: chat_completions_url(&config.base_url),
+            model: config.model.clone(),
+            api_key: config.api_key.clone(),
+            temperature: config.temperature,
+            reasoning_effort: config.reasoning_effort.clone(),
+            voice: config.voice,
+            custom_prompt: config.custom_prompt.clone(),
+            dictionary_terms: config.dictionary_terms.clone(),
+        })
+    }
+}
+
+impl CleanupProvider for OpenAiCompatibleChat {
+    fn clean(&self, text: &str) -> Result<Cleaned, CleanupError> {
+        // Prompt assembly is per-request: the protected-terms clause depends
+        // on which dictionary terms the outgoing text actually contains.
+        let present = present_terms(text, &self.dictionary_terms);
+        let prompt = system_prompt(self.voice, &self.custom_prompt, &present)
+            .expect("non-verbatim voice enforced at construction");
+        let body = build_request_body(
+            &self.model,
+            &prompt,
+            text,
+            self.temperature,
+            self.reasoning_effort.as_deref(),
+        );
+
+        let started = Instant::now();
+        let response = self
+            .client
+            .post(&self.url)
+            .bearer_auth(&self.api_key)
+            .header(reqwest::header::CONTENT_TYPE, "application/json")
+            .timeout(Duration::from_millis(CLEANUP_TIMEOUT_MS))
+            .body(body)
+            .send()
+            .map_err(|e| error_for_transport(&self.label, CLEANUP_TIMEOUT_MS, &e))?;
+
+        let status = response.status();
+        let retry_after_s = retry_after_secs(response.headers());
+        let body_text = response
+            .text()
+            .map_err(|e| error_for_transport(&self.label, CLEANUP_TIMEOUT_MS, &e))?;
+        let request_ms = started.elapsed().as_millis();
+
+        if !status.is_success() {
+            return Err(error_for_status(
+                &self.label,
+                status.as_u16(),
+                retry_after_s,
+                &body_text,
+            ));
+        }
+        Ok(Cleaned {
+            text: parse_response(&self.label, &body_text)?,
+            request_ms,
+        })
+    }
+
+    fn label(&self) -> &str {
+        &self.label
+    }
 }
