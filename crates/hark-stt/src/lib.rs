@@ -9,6 +9,7 @@
 mod config;
 pub mod deepgram;
 mod error;
+pub mod fixture;
 pub mod metrics;
 pub mod openai_compatible;
 pub mod wav;

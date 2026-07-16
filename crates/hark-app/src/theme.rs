@@ -7,7 +7,7 @@ use egui::epaint::Shadow;
 use egui::style::{Selection, WidgetVisuals, Widgets};
 use egui::{
     Color32, Context, CornerRadius, FontData, FontDefinitions, FontFamily, FontId, Margin, Stroke,
-    TextStyle, Theme, ThemePreference, Vec2, Visuals,
+    TextStyle, Theme, Vec2, Visuals,
 };
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -70,6 +70,9 @@ pub const ON_ACCENT: Color32 = Color32::WHITE;
 /// Semantic colors, shared by both themes; always paired with an icon or
 /// label (guardrails §3), never the sole carrier of a state.
 pub const DANGER: Color32 = Color32::from_rgb(0xE5, 0x48, 0x4D);
+/// Fill behind [`ON_ACCENT`] text on destructive buttons: deeper than
+/// [`DANGER`] (an icon/stroke color) so white text keeps >= 4.5:1.
+pub const DANGER_FILL: Color32 = Color32::from_rgb(0xC6, 0x2A, 0x30);
 pub const SUCCESS: Color32 = Color32::from_rgb(0x30, 0xA4, 0x6C);
 pub const WARNING: Color32 = Color32::from_rgb(0xF5, 0xA5, 0x24);
 
@@ -114,7 +117,11 @@ pub fn apply(ctx: &Context) {
     });
     ctx.set_visuals_of(Theme::Dark, dark_visuals());
     ctx.set_visuals_of(Theme::Light, light_visuals());
-    ctx.set_theme(ThemePreference::System);
+    // Follow the OS by default, but never clobber a preference the Settings
+    // radio persisted into egui memory (restored before app construction):
+    // re-apply whatever is current instead of forcing System.
+    let preference = ctx.options(|o| o.theme_preference);
+    ctx.set_theme(preference);
 }
 
 /// Inter Regular/Medium/SemiBold each as their own family (egui cannot
@@ -379,6 +386,27 @@ mod tests {
             );
             assert!(ring >= 3.0, "{label} accent on window: {ring:.2}");
         }
+    }
+
+    #[test]
+    fn danger_fill_carries_readable_text() {
+        // The destructive confirm button paints ON_ACCENT text on
+        // DANGER_FILL; body-size text needs 4.5:1.
+        let ratio = contrast(ON_ACCENT, DANGER_FILL);
+        assert!(ratio >= 4.5, "ON_ACCENT on DANGER_FILL: {ratio:.2}");
+    }
+
+    #[test]
+    fn apply_preserves_a_restored_theme_preference() {
+        // eframe restores egui memory (with a persisted Light/Dark/System
+        // choice) before the app constructs; apply() must not reset it.
+        let ctx = Context::default();
+        ctx.set_theme(egui::ThemePreference::Dark);
+        apply(&ctx);
+        assert_eq!(
+            ctx.options(|o| o.theme_preference),
+            egui::ThemePreference::Dark
+        );
     }
 
     #[test]

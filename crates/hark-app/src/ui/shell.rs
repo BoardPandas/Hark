@@ -1,11 +1,12 @@
 //! The window shell (spec §3.11): status footer across the bottom, fixed
 //! left sidebar with the nav, content in a centered column.
 
-use crate::pipeline::PipelineStatus;
+use crate::pipeline::PipelineController;
 use crate::theme;
+use crate::ui::dictionary::DictionaryPage;
+use crate::ui::settings::SettingsPage;
 use crate::ui::{footer, pages};
 use hark_config::Settings;
-use hark_keychain::KeyStatus;
 
 use egui::{Color32, CornerRadius, Frame, Margin, Panel, RichText, Stroke, Ui, Vec2};
 
@@ -14,13 +15,15 @@ const SIDEBAR_WIDTH: f32 = 184.0;
 pub fn show(
     ui: &mut Ui,
     page: &mut pages::Page,
-    status: &PipelineStatus,
-    settings: &Settings,
-    key_status: &KeyStatus,
+    settings: &mut Settings,
+    pipeline: &mut PipelineController,
+    settings_page: &mut SettingsPage,
+    dictionary_page: &mut DictionaryPage,
 ) {
     // The footer claims the full window width first; it is the always-
     // visible truth about the pipeline.
-    if footer::show(ui, status, settings) {
+    let status = pipeline.status().clone();
+    if footer::show(ui, &status, settings) {
         *page = pages::Page::Settings;
     }
 
@@ -44,7 +47,16 @@ pub fn show(
                 .fill(panel_fill)
                 .inner_margin(Margin::same(24)),
         )
-        .show(ui, |ui| pages::show(ui, *page, settings, key_status));
+        .show(ui, |ui| {
+            pages::show(
+                ui,
+                *page,
+                settings,
+                pipeline,
+                settings_page,
+                dictionary_page,
+            )
+        });
 }
 
 fn sidebar(ui: &mut Ui, page: &mut pages::Page) {

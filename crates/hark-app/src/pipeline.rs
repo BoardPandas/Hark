@@ -29,6 +29,9 @@ pub struct PipelineController {
     handle: Option<PipelineHandle>,
     events: Option<Receiver<PipelineEvent>>,
     status: PipelineStatus,
+    /// Successful dictations this app session (survives restarts; the Get
+    /// Started card retires on the first one).
+    injected: u64,
 }
 
 impl PipelineController {
@@ -40,6 +43,7 @@ impl PipelineController {
                 detail: "Not started".to_string(),
                 key_related: false,
             },
+            injected: 0,
         }
     }
 
@@ -49,6 +53,10 @@ impl PipelineController {
 
     pub fn is_running(&self) -> bool {
         self.handle.is_some()
+    }
+
+    pub fn injected_count(&self) -> u64 {
+        self.injected
     }
 
     /// Resolve the key and start the pipeline. On failure the app keeps
@@ -106,6 +114,9 @@ impl PipelineController {
     pub fn drain_events(&mut self) {
         let Some(rx) = &self.events else { return };
         while let Ok(event) = rx.try_recv() {
+            if matches!(event, PipelineEvent::Injected(_)) {
+                self.injected += 1;
+            }
             self.status = next_status(event);
         }
     }
@@ -233,6 +244,22 @@ mod tests {
                 ..
             }
         ));
+    }
+
+    #[test]
+    fn drain_counts_injections_and_stop_does_not_reset_the_count() {
+        let (tx, rx) = mpsc::channel();
+        let mut controller = PipelineController::new();
+        controller.events = Some(rx);
+        tx.send(PipelineEvent::Injected(record())).unwrap();
+        tx.send(PipelineEvent::Recording).unwrap();
+        tx.send(PipelineEvent::Injected(record())).unwrap();
+        controller.drain_events();
+        assert_eq!(controller.injected_count(), 2);
+        // The Get Started card keys off "ever dictated this session";
+        // a settings-save restart must not forget that.
+        controller.stop();
+        assert_eq!(controller.injected_count(), 2);
     }
 
     #[test]

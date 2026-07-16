@@ -4,6 +4,16 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.11.0] - 2026-07-16
+
+### Added
+- **The full settings form (Phase 4 checkpoint 3).** Everything the app needs configured is now in the window, with progressive disclosure: the provider picker, key section, hotkey, and voice stay visible; model & endpoint overrides, the cleanup provider, behavior, and history & privacy live in collapsed sections. The key section pastes into a masked field and writes straight to the OS keychain (a stored key is never displayed back; Remove sits behind a confirm dialog whose safe default is Cancel), the hotkey field validates the chord as you type, the model and base URL fields show each provider's default as a hint (with the endpoint section auto-expanding for OpenAI-compatible endpoints, where a base URL is required), and the voice picker exposes the custom prompt when Custom is selected. The cleanup section states honestly what will run: "Inherited from STT" with the model, the reason cleanup cannot run (e.g. Deepgram has no chat product), or an explicit override with its own key section when the keychain account differs. History & privacy carries the capture toggle (content off, counters still tick), both retention caps, and a plain-language disclosure of exactly what leaves the device.
+- **Test connection, inline and honest.** One click transcribes a bundled speech clip through the configured provider on a background thread and shows the transcript plus latency; when a cleanup call would run, a tiny chat call tests that too. Results stay on screen until the next test, failures name the cause in the provider's own words, and Groq gets an honest note that every request bills a 10 second minimum.
+- **Save applies everything at once:** validate, persist the TOML atomically, restart the dictation pipeline, and say what happened, in that order. An invalid draft changes nothing on disk. Storing or removing a key for the active provider restarts the pipeline immediately, so a fixed key starts working the moment it lands.
+- **Get Started onboarding.** With no key at startup, Settings opens with a three-step card (pick provider, paste key, test) that checks steps off as they complete and then swaps to "Hold [your chord] and speak into any text field", which is true when shown because a passing test during onboarding saves and starts the pipeline automatically. The card is dismissible and retires itself after the first successful dictation. No wizard, nothing modal.
+- **The dictionary is editable:** a pinned add field (Enter adds and keeps focus for the next term), click-to-edit rows, per-row delete. Every change saves immediately and applies to the next dictation.
+- **A Light / Dark / System theme choice** in Settings > Behavior; the preference survives relaunch.
+
 ## [0.10.2] - 2026-07-16
 
 ### Added

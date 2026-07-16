@@ -1,11 +1,12 @@
-//! The four pages in their CP2 form: designed headers and honest empty
-//! states. The real editors and lists land at CP3 (settings, dictionary)
-//! and CP4 (history, stats); a blank region is a bug, so every page states
-//! what it is and what comes next.
+//! Page routing and the CP2-era placeholders that remain (history and
+//! stats land at CP4). Settings and Dictionary are real editors now; every
+//! page still ships an honest empty state (a blank region is a bug).
 
+use crate::pipeline::PipelineController;
 use crate::theme;
+use crate::ui::dictionary::DictionaryPage;
+use crate::ui::settings::{self, SettingsPage};
 use hark_config::Settings;
-use hark_keychain::KeyStatus;
 
 use egui::{RichText, Ui};
 
@@ -54,7 +55,14 @@ fn max_width(page: Page) -> f32 {
     }
 }
 
-pub fn show(ui: &mut Ui, page: Page, settings: &Settings, key_status: &KeyStatus) {
+pub fn show(
+    ui: &mut Ui,
+    page: Page,
+    settings: &mut Settings,
+    pipeline: &mut PipelineController,
+    settings_page: &mut SettingsPage,
+    dictionary_page: &mut DictionaryPage,
+) {
     let column = max_width(page).min(ui.available_width());
     let pad = ((ui.available_width() - column) / 2.0).max(0.0);
     ui.horizontal_top(|ui| {
@@ -66,9 +74,20 @@ pub fn show(ui: &mut Ui, page: Page, settings: &Settings, key_status: &KeyStatus
             ui.add_space(14.0);
             match page {
                 Page::History => history(ui, settings),
-                Page::Dictionary => dictionary(ui, settings),
+                Page::Dictionary => {
+                    dictionary(ui, settings, pipeline, settings_page, dictionary_page)
+                }
                 Page::Stats => stats(ui),
-                Page::Settings => settings_summary(ui, settings, key_status),
+                Page::Settings => {
+                    // Long forms need a scroll container; the sidebar and
+                    // footer stay put.
+                    egui::ScrollArea::vertical()
+                        .auto_shrink([false, false])
+                        .show(ui, |ui| {
+                            ui.set_max_width(column);
+                            settings_page.show(ui, settings, pipeline);
+                        });
+                }
             }
         });
     });
@@ -86,29 +105,21 @@ fn history(ui: &mut Ui, settings: &Settings) {
     );
 }
 
-fn dictionary(ui: &mut Ui, settings: &Settings) {
-    if settings.dictionary.terms.is_empty() {
-        empty_state(
-            ui,
-            theme::icons::BOOK_OPEN,
-            "No dictionary terms yet.",
-            "The editor arrives with the settings form in the next update.",
-        );
-        return;
+/// Dictionary edits persist immediately and restart the pipeline (bias
+/// terms are baked in at start). The settings draft mirrors the change so a
+/// later Save does not resurrect deleted terms.
+fn dictionary(
+    ui: &mut Ui,
+    settings: &mut Settings,
+    pipeline: &mut PipelineController,
+    settings_page: &mut SettingsPage,
+    dictionary_page: &mut DictionaryPage,
+) {
+    if dictionary_page.show(ui, &mut settings.dictionary.terms) {
+        dictionary_page.set_notice(settings::save_to_disk(settings).err());
+        pipeline.start(settings, ui.ctx());
+        settings_page.draft.dictionary = settings.dictionary.clone();
     }
-    ui.label(
-        RichText::new(
-            "Corrections apply on this device after transcription; entries are also sent \
-             to your STT provider as accuracy hints.",
-        )
-        .weak(),
-    );
-    ui.add_space(6.0);
-    for term in &settings.dictionary.terms {
-        ui.label(RichText::new(term).monospace());
-    }
-    ui.add_space(10.0);
-    ui.label(RichText::new("Editing arrives in the next update.").weak());
 }
 
 fn stats(ui: &mut Ui) {
@@ -118,55 +129,6 @@ fn stats(ui: &mut Ui) {
         "Stats unlock after 10 dictations.",
         "No zeroed dashboards; numbers appear once there is enough signal.",
     );
-}
-
-/// Read-only summary until the CP3 form lands. The key row reads the OS
-/// keychain status captured at startup, never key material.
-fn settings_summary(ui: &mut Ui, settings: &Settings, key_status: &KeyStatus) {
-    summary_row(
-        ui,
-        "Provider",
-        &format!(
-            "{} · {}",
-            settings.provider.kind.label(),
-            settings.provider.resolved_model()
-        ),
-    );
-    let (key_icon, key_color, key_text) = match key_status {
-        KeyStatus::Stored => (
-            theme::icons::CHECK,
-            theme::SUCCESS,
-            "Key stored".to_string(),
-        ),
-        KeyStatus::Missing => (theme::icons::KEY, theme::WARNING, "No key yet".to_string()),
-        KeyStatus::Backend(detail) => (
-            theme::icons::WARNING,
-            theme::DANGER,
-            format!("Keychain unavailable: {detail}"),
-        ),
-    };
-    ui.horizontal(|ui| {
-        ui.label(RichText::new("Key").weak());
-        ui.label(RichText::new(key_icon).color(key_color));
-        ui.label(key_text);
-    });
-    summary_row(ui, "Hotkey", &settings.hotkey.ptt_key);
-    summary_row(ui, "Voice", settings.voice.default.label());
-    ui.add_space(14.0);
-    ui.label(
-        RichText::new(
-            "The full form (provider picker, key entry, test connection) is the next \
-             checkpoint. Until then, edit config.toml and store keys via the keychain.",
-        )
-        .weak(),
-    );
-}
-
-fn summary_row(ui: &mut Ui, name: &str, value: &str) {
-    ui.horizontal(|ui| {
-        ui.label(RichText::new(name).weak());
-        ui.label(value);
-    });
 }
 
 /// Centered empty state: icon, one-line title, weak caption. Every panel

@@ -3,19 +3,21 @@
 //! window is hidden whenever `request_repaint` fires); `ui` renders the
 //! shell. All of this stays on the main thread; the pipeline never does.
 
-use crate::pipeline::PipelineController;
+use crate::pipeline::{PipelineController, PipelineStatus};
 use crate::theme;
+use crate::ui::dictionary::DictionaryPage;
+use crate::ui::settings::SettingsPage;
 use crate::ui::{pages, shell};
 use hark_config::Settings;
-use hark_keychain::KeyStatus;
 
 pub struct HarkApp {
+    /// The persisted model; only a settings Save (or dictionary edit)
+    /// changes it. The in-progress form draft lives in `settings_page`.
     settings: Settings,
     pipeline: PipelineController,
     page: pages::Page,
-    /// Keychain status captured at startup (and on future settings saves);
-    /// never re-read per frame, since it hits the OS keychain.
-    key_status: KeyStatus,
+    settings_page: SettingsPage,
+    dictionary_page: DictionaryPage,
 }
 
 impl HarkApp {
@@ -32,7 +34,17 @@ impl HarkApp {
             Some(detail) => pipeline.mark_stopped(detail),
         }
 
-        let key_status = hark_keychain::key_status(settings.provider.kind.label());
+        // No STT key at startup = guided onboarding (spec §3.11): the
+        // Get Started card latches active on the settings page.
+        let onboarding = matches!(
+            pipeline.status(),
+            PipelineStatus::Stopped {
+                key_related: true,
+                ..
+            }
+        );
+        let settings_page = SettingsPage::new(&settings, onboarding);
+
         // Window-first onboarding (spec §3.11): land on History when
         // dictation is live, on Settings when it needs attention.
         let page = if pipeline.is_running() {
@@ -44,7 +56,8 @@ impl HarkApp {
             settings,
             pipeline,
             page,
-            key_status,
+            settings_page,
+            dictionary_page: DictionaryPage::new(),
         }
     }
 }
@@ -79,9 +92,10 @@ impl eframe::App for HarkApp {
         shell::show(
             ui,
             &mut self.page,
-            self.pipeline.status(),
-            &self.settings,
-            &self.key_status,
+            &mut self.settings,
+            &mut self.pipeline,
+            &mut self.settings_page,
+            &mut self.dictionary_page,
         );
     }
 }

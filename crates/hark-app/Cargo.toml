@@ -12,6 +12,12 @@ eframe = { version = "0.35.0", features = ["persistence"] }
 egui = "0.35.0"
 env_logger = "0.11"
 hark-config = { path = "../hark-config" }
+# Direct deps beyond the pipeline: chord validation for the hotkey field
+# (hark-hotkey) and the settings test-connection flow, which drives the STT
+# and cleanup adapters directly on a background thread (hark-stt, hark-voice).
+hark-hotkey = { path = "../hark-hotkey" }
 hark-keychain = { path = "../hark-keychain" }
 hark-pipeline = { path = "../hark-pipeline" }
+hark-stt = { path = "../hark-stt" }
+hark-voice = { path = "../hark-voice" }
 log = "0.4"

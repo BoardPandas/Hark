@@ -61,7 +61,14 @@ impl Drop for PipelineHandle {
 
 /// Map the settings enum onto the STT crate's provider taxonomy: OpenAI and
 /// Groq (and any custom endpoint) share the OpenAI-compatible contract.
-fn provider_config(settings: &Settings, api_key: String) -> Result<ProviderConfig, PipelineError> {
+///
+/// Public because the settings "Test connection" flow builds the exact same
+/// config the pipeline would run with; a passing test therefore validates
+/// the real path, not a parallel reimplementation.
+pub fn provider_config(
+    settings: &Settings,
+    api_key: String,
+) -> Result<ProviderConfig, PipelineError> {
     let kind = match settings.provider.kind {
         hark_config::ProviderKind::Deepgram => hark_stt::ProviderKind::Deepgram,
         hark_config::ProviderKind::Openai

@@ -1953,8 +1953,11 @@ dependencies = [
  "egui",
  "env_logger",
  "hark-config",
+ "hark-hotkey",
  "hark-keychain",
  "hark-pipeline",
+ "hark-stt",
+ "hark-voice",
  "log",
 ]
 
