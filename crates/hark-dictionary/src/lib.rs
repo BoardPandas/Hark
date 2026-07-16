@@ -224,6 +224,96 @@ mod tests {
         assert_eq!(c.correct(text), (text.to_string(), 0));
     }
 
+    // --- CP4: multi-word terms, overlap resolution, replacement.
+
+    #[test]
+    fn hyphen_split_term_matches_spaced_transcript() {
+        let c = corrector(&["hark-stt"]);
+        let (out, n) = c.correct("check hark stt first");
+        assert_eq!(out, "check hark-stt first");
+        assert_eq!(n, 1);
+    }
+
+    #[test]
+    fn hyphen_split_term_matches_hyphenated_transcript_as_a_no_op() {
+        let c = corrector(&["hark-stt"]);
+        let (out, n) = c.correct("check hark-stt first");
+        assert_eq!(out, "check hark-stt first");
+        assert_eq!(n, 0);
+    }
+
+    #[test]
+    fn digit_word_term_matches_spaced_and_hyphenated_forms() {
+        let c = corrector(&["nova-3"]);
+        assert_eq!(
+            c.correct("use nova 3 now"),
+            ("use nova-3 now".to_string(), 1)
+        );
+        assert_eq!(
+            c.correct("use Nova-3 now"),
+            ("use nova-3 now".to_string(), 1)
+        );
+        // The digit word is exact-only: "three" never matches "3".
+        assert_eq!(
+            c.correct("use nova three now"),
+            ("use nova three now".to_string(), 0)
+        );
+    }
+
+    #[test]
+    fn overlapping_terms_pick_the_longer() {
+        let c = corrector(&["Modero", "Modero Cloud"]);
+        let (out, n) = c.correct("open madero cloud today");
+        assert_eq!(out, "open Modero Cloud today");
+        assert_eq!(n, 1);
+        // The shorter term still fires when the longer one does not apply.
+        let (out, n) = c.correct("open madero today");
+        assert_eq!(out, "open Modero today");
+        assert_eq!(n, 1);
+    }
+
+    #[test]
+    fn multi_word_phonetic_misspelling_is_corrected() {
+        let c = corrector(&["Modero Cloud"]);
+        let (out, n) = c.correct("open madero clowd today");
+        assert_eq!(out, "open Modero Cloud today");
+        assert_eq!(n, 1);
+    }
+
+    #[test]
+    fn punctuation_adjacent_to_a_multi_word_match_survives() {
+        let c = corrector(&["hark-stt"]);
+        let (out, n) = c.correct("then (hark stt), please");
+        assert_eq!(out, "then (hark-stt), please");
+        assert_eq!(n, 1);
+    }
+
+    #[test]
+    fn stray_interior_punctuation_is_absorbed_by_the_replacement() {
+        // Both window words match, so the STT-inserted comma between them
+        // is part of the misrecognition and goes with it.
+        let c = corrector(&["hark-stt"]);
+        let (out, n) = c.correct("run hark, stt now");
+        assert_eq!(out, "run hark-stt now");
+        assert_eq!(n, 1);
+    }
+
+    #[test]
+    fn replacement_count_sums_across_terms() {
+        let c = corrector(&["Modero", "hark-stt", "Vossburg"]);
+        let (out, n) = c.correct("vosburg ran hark stt against madero");
+        assert_eq!(out, "Vossburg ran hark-stt against Modero");
+        assert_eq!(n, 3);
+    }
+
+    #[test]
+    fn window_never_matches_across_more_tokens_than_the_term_has() {
+        // "hark" and "stt" separated by another word must not fuse.
+        let c = corrector(&["hark-stt"]);
+        let text = "hark and stt";
+        assert_eq!(c.correct(text), (text.to_string(), 0));
+    }
+
     // --- CP0 proof tests: pin the third-party behavior the matcher relies
     // on. If a dependency upgrade breaks one of these, the matching
     // assumptions need re-checking before anything else.

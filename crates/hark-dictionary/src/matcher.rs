@@ -52,9 +52,11 @@ impl TermEntry {
 }
 
 /// Precompute entries from the configured terms. Terms that tokenize to
-/// nothing (empty, all punctuation) are dropped.
+/// nothing (empty, all punctuation) are dropped. Entries come back sorted
+/// longest word-count first, then longest char length, so multi-word terms
+/// win overlaps (matching consumes tokens in this order).
 pub(crate) fn build_entries(dm: &DoubleMetaphone, terms: &[String]) -> Vec<TermEntry> {
-    terms
+    let mut entries: Vec<TermEntry> = terms
         .iter()
         .filter_map(|term| {
             let words: Vec<TermWord> = tokenize(term)
@@ -69,7 +71,16 @@ pub(crate) fn build_entries(dm: &DoubleMetaphone, terms: &[String]) -> Vec<TermE
                 words,
             })
         })
-        .collect()
+        .collect();
+    entries.sort_by(|a, b| {
+        b.word_count().cmp(&a.word_count()).then_with(|| {
+            b.canonical
+                .chars()
+                .count()
+                .cmp(&a.canonical.chars().count())
+        })
+    });
+    entries
 }
 
 fn term_word(dm: &DoubleMetaphone, lower: String) -> TermWord {

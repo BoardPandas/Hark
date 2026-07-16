@@ -4,6 +4,11 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.7.6] - 2026-07-16
+
+### Added
+- **Multi-word dictionary terms and overlap resolution (Phase 2 checkpoint 4).** Terms split on whitespace and hyphens into word windows: "hark-stt" matches transcript "hark stt" and "hark-stt" (the latter as an uncounted no-op), "nova-3" matches "nova 3" and "Nova-3" but never "nova three" (digit words stay exact-only), and misspelled multi-word phrases correct as a unit ("madero clowd" -> "Modero Cloud"). Matching runs longest term first (word count, then char length), and consumed tokens are skipped, so "Modero Cloud" wins over "Modero" instead of double-firing; separated words never fuse across intervening tokens. Punctuation adjacent to a replaced phrase survives; stray STT-inserted punctuation inside a matched phrase is absorbed with the misrecognition it belongs to.
+
 ## [0.7.5] - 2026-07-16
 
 ### Added
