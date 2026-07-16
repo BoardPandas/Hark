@@ -1002,6 +1002,7 @@ name = "hark-audio"
 version = "0.1.0"
 dependencies = [
  "cpal",
+ "log",
  "rubato",
  "thiserror 2.0.18",
 ]

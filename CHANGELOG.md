@@ -4,6 +4,11 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.3.0] - 2026-07-16
+
+### Added
+- **Audio capture core (`hark-audio`, checkpoint 2).** Four layers, three of them pure and fully unit-tested on any machine: a lock-free SPSC ring buffer whose samples are atomic bit patterns with an absolute sample counter (read-by-index across wraps, with "not yet produced", "already overwritten", and lapped-mid-copy all detected rather than silently torn); rubato 4.0 whole-clip resampling to 16 kHz mono via `process_all` (exact 3:1 from 48 kHz and the non-integer 44.1 kHz ratio both asserted to the sample, startup-delay trim verified by a head-signal test); and pre-roll/tail window math with the two-stage silence gate (hold-duration misfire check before any waiting, RMS check on the assembled clip) so silence never costs a network request. Over-cap holds keep the most recent audio. The cpal glue builds the stream on a dedicated COM-owning thread with an allocation-free callback (cpal #970 discipline) and requires `SampleFormat::F32` explicitly; live capture remains flagged run-on-real-HW. 35 new tests; `crates/hark-audio/CLAUDE.md` records the callback and COM rules.
+
 ## [0.2.0] - 2026-07-16
 
 ### Added

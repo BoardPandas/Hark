@@ -16,4 +16,5 @@ cpal = "0.18.1"
 # tests assert on. Do NOT call process() once with chunk_size == clip length;
 # that leaves the delay in and truncates the tail.
 rubato = "4.0"
+log = "0.4"
 thiserror = "2"
