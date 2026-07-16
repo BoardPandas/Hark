@@ -23,8 +23,18 @@ deliberately drop the response body (provider 401 bodies can echo key
 prefixes); provider-error snippets truncate at 300 chars. Add new providers by
 reusing these, never by ad-hoc `match` on status codes in adapters.
 
+## 2026-07-16: Measured provider latency (spike, N=20 warm, 10.3 s clip)
+Deepgram nova-3: p50 150 ms / p95 630 ms (cold +624 ms) — the Phase 1 default.
+OpenAI gpt-4o-mini-transcribe: p50 789 / p95 1223 (cold +869). Groq
+whisper-large-v3-turbo: p50 944 / p95 1527 (cold +441; free tier threw one
+429 in a 20-burst, Retry-After: 3). Pre-warm the shared client at app launch;
+the cold penalty is 0.4-0.9 s. Groq prompt-biasing failed to enforce
+"Levenshtein" spelling; Deepgram nova-3 got it right even without keyterm.
+Secrets flow: keys live in Doppler project `hark` config `prd`; run anything
+needing them via `doppler run -p hark -c prd -- <cmd>` (never paste keys).
+
 ## 2026-07-15: Spike latency facts (Windows dev box)
 WAV encode of a 10.3 s / 165 k-sample clip from f32: ~3.7 ms (dev build) —
 network dominates the latency budget entirely. Failure bounds: dead DNS fails
 in <20 ms, non-routable host at the 3 s connect timeout, bad key 401 in
-~65-130 ms. Real provider p50/p95 still unmeasured (no valid keys in env yet).
+~65-130 ms.

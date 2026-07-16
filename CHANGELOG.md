@@ -4,6 +4,11 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.1.2] - 2026-07-16
+
+### Changed
+- **Phase 1 STT spike completed with live measurements — verdict: Deepgram nova-3 is the default provider.** With valid keys (now stored in Doppler project `hark`, config `prd`, injected via `doppler run`), the full harness ran against all three providers: Deepgram nova-3 p50 150 ms / p95 630 ms, OpenAI gpt-4o-mini-transcribe p50 789 / p95 1223, Groq whisper-large-v3-turbo p50 944 / p95 1527 (N=20 warm runs on a 10.3 s clip). Cold-client penalty is 0.4-0.9 s across providers, so the pipeline will pre-warm the shared HTTP client at launch. The Deepgram keyterm A/B showed no lift on the clean TTS clip (5/5 recognition in both arms) while Groq's prompt biasing failed to enforce the spelling of "Levenshtein", reinforcing phonetic post-correction as the primary dictionary path. A real Groq 429 was handled correctly (Retry-After parsed). Spike acceptance criteria are all green; results recorded in the spec's Lessons Learned section.
+
 ## [0.1.1] - 2026-07-15
 
 ### Changed

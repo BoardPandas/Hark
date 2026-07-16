@@ -191,7 +191,15 @@ Filled in during implementation (2026-07-15):
 - [x] **Failure drills behave** (measured on the Windows dev box): bad key → `Auth` in 65-131 ms with a message that never echoes the key (verified by grepping captured harness output for the real key: 0 hits, plus a print-time assert in the harness); dead DNS → bounded `Http` in 4-18 ms; non-routable IP → `Timeout` at ~3.0 s. 429 → `RateLimited` with `Retry-After` parsing is unit-tested (no real 429 was provoked).
 - [x] **WAV-encode cost is negligible:** ~3.7 ms to encode the 10.3 s fixture (165 k samples → 322 KiB) from f32 samples, unoptimized dev build. The latency budget is effectively 100% network + provider.
 - [x] **Windows TTS makes committable fixtures:** `System.Speech.Synthesis` (Windows PowerShell 5.1, not pwsh) with `SpeechAudioFormatInfo(16000, Sixteen, Mono)` emits exactly the 16 kHz mono PCM16 WAV contract; the clip's transcript is known by construction.
-- [ ] **Measured p50/p95 per provider/model — BLOCKED on valid keys.** The `OPENAI_API_KEY` present in the dev environment is rejected by OpenAI (401 on both `/audio/transcriptions` and a bare `/v1/models` probe; the key is well-formed, so it is expired/revoked). `GROQ_API_KEY` and `DEEPGRAM_API_KEY` are not set. The harness, tables, A/B, and verdict all work; re-run `cargo run --example transcribe_spike` once valid keys are in the env to fill this in.
-- [ ] **Cold-vs-warm client delta** — same blocker as above.
-- [ ] **Deepgram keyterm A/B lift** — same blocker (needs `DEEPGRAM_API_KEY`).
-- [ ] **Real 401/429 body shapes per provider** — the OpenAI 401 body was observed live (mapped correctly); Groq/Deepgram bodies and any real 429 still need capturing once keys exist.
+- [x] **Measured p50/p95 (2026-07-16, Windows dev box, home connection, N=20 warm runs, 10.3 s clip; keys now injected via `doppler run -p hark -c prd --`):**
+
+  | provider/model | cold | p50 | p95 | min | max |
+  |---|---|---|---|---|---|
+  | deepgram/nova-3 | 774 | **150** | **630** | 132 | 655 |
+  | openai/gpt-4o-mini-transcribe | 1658 | 789 | 1223 | 510 | 1608 |
+  | groq/whisper-large-v3-turbo | 1385 | 944 | 1527 | 683 | 1968 |
+
+  **Verdict: default provider = Deepgram nova-3** — p50 150 ms feels instant; even p95 630 ms is comfortably under the ~2 s bound. All three providers pass; no reason to reopen the local-model question. Retry policy stands: one retry on Timeout/connect-class Http only, never on 4xx.
+- [x] **Cold-vs-warm delta is real and worth pre-warming:** +624 ms (deepgram), +869 ms (openai), +441 ms (groq) for a cold client vs warm p50. The pipeline should build the shared client at app launch and optionally fire a HEAD/tiny request to pre-establish the TLS session.
+- [x] **Deepgram keyterm A/B: no measurable lift on this clip** — "Levenshtein" was recognized 5/5 in *both* arms (the TTS clip is too clean to need biasing). Not a failure; it confirms nova-3's base recognition is strong and that phonetic post-correction stays the primary dictionary path. Re-test keyterm with genuinely rare terms (product names, surnames) on real mic audio in Phase 2. Meanwhile Groq's `prompt` biasing demonstrably under-delivers: its transcript spelled "Levenstein" despite the term being in the prompt (divergence 0.01).
+- [x] **Real 429 observed live from Groq** mid-loop (free-tier burst): mapped to `RateLimited` with `Retry-After: 3` parsed correctly; the harness's sleep-and-continue handling worked, 19/20 runs completed. Live 401s observed from both OpenAI (expired key) and Groq (drill); both mapped to `Auth` without echoing anything sensitive.
