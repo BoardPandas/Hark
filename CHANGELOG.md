@@ -4,6 +4,11 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.13.3] - 2026-07-17
+
+### Fixed
+- **Release signing now fails fast with a clear message when a signing secret is empty.** Previously an empty Azure credential surfaced only as an opaque `SignerSign() failed` crash deep inside signtool. A preflight step now checks all six signing secrets before signing and, if any is empty, stops with a message naming the offending secret and pointing at the Doppler source. It prints only secret lengths, never values, so the log stays safe to share.
+
 ## [0.13.2] - 2026-07-17
 
 ### Fixed
