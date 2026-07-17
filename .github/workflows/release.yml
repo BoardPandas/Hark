@@ -16,9 +16,9 @@
 #   AZURE_CLIENT_ID
 #   AZURE_TENANT_ID
 #   AZURE_CLIENT_SECRET
-#   AZURE_SIGNING_ENDPOINT              e.g. https://eus.codesigning.azure.net/
-#   AZURE_SIGNING_ACCOUNT_NAME          the Trusted Signing account name
-#   AZURE_SIGNING_CERT_PROFILE_NAME     the certificate profile name
+#   AZURE_TRUSTED_SIGNING_ENDPOINT           e.g. https://eus.codesigning.azure.net/
+#   AZURE_TRUSTED_SIGNING_ACCOUNT_NAME       the Trusted Signing account name
+#   AZURE_TRUSTED_SIGNING_CERT_PROFILE_NAME  the certificate profile name
 
 name: Release
 
@@ -87,9 +87,9 @@ jobs:
           AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
           AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
         with:
-          endpoint: ${{ secrets.AZURE_SIGNING_ENDPOINT }}
-          signing-account-name: ${{ secrets.AZURE_SIGNING_ACCOUNT_NAME }}
-          certificate-profile-name: ${{ secrets.AZURE_SIGNING_CERT_PROFILE_NAME }}
+          endpoint: ${{ secrets.AZURE_TRUSTED_SIGNING_ENDPOINT }}
+          signing-account-name: ${{ secrets.AZURE_TRUSTED_SIGNING_ACCOUNT_NAME }}
+          certificate-profile-name: ${{ secrets.AZURE_TRUSTED_SIGNING_CERT_PROFILE_NAME }}
           files-folder: ${{ github.workspace }}\target\release
           files-folder-filter: exe
           files-folder-recurse: false

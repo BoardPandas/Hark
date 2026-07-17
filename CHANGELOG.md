@@ -4,6 +4,11 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.13.2] - 2026-07-17
+
+### Fixed
+- **Release workflow now references the actual Azure signing secret names.** The signing step read `AZURE_SIGNING_ENDPOINT` / `_ACCOUNT_NAME` / `_CERT_PROFILE_NAME`, but the Doppler-synced secrets are named `AZURE_TRUSTED_SIGNING_*`; the mismatch left the endpoint empty and failed signing. Aligned the workflow and `.github/RELEASING.md` to the real names.
+
 ## [0.13.1] - 2026-07-17
 
 ### Added

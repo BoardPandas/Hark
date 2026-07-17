@@ -33,9 +33,9 @@ exact names:
 | `AZURE_CLIENT_ID` | Service principal (app registration) client ID |
 | `AZURE_TENANT_ID` | Entra tenant ID |
 | `AZURE_CLIENT_SECRET` | Service principal client secret |
-| `AZURE_SIGNING_ENDPOINT` | Region endpoint, e.g. `https://eus.codesigning.azure.net/` (must match the account's region, or signing 403s) |
-| `AZURE_SIGNING_ACCOUNT_NAME` | Trusted Signing account name |
-| `AZURE_SIGNING_CERT_PROFILE_NAME` | Certificate profile name |
+| `AZURE_TRUSTED_SIGNING_ENDPOINT` | Region endpoint, e.g. `https://eus.codesigning.azure.net/` (must match the account's region, or signing 403s) |
+| `AZURE_TRUSTED_SIGNING_ACCOUNT_NAME` | Trusted Signing account name |
+| `AZURE_TRUSTED_SIGNING_CERT_PROFILE_NAME` | Certificate profile name |
 
 If the Doppler config uses different key names, either rename them in Doppler
 or adjust the `secrets.*` references in the workflow.
