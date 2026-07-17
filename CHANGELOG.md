@@ -4,6 +4,11 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.13.7] - 2026-07-17
+
+### Removed
+- **Retired the internal `hark-cli` dev binary.** The push-to-talk app (`hark-app`) has fully replaced it end to end, so the standalone command-line harness has been removed from the workspace. Internal cleanup only, with no effect on the installed app.
+
 ## [0.13.6] - 2026-07-17
 
 ### Added

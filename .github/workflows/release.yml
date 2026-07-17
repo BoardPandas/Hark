@@ -83,8 +83,7 @@ jobs:
       - name: Cache cargo build
         uses: Swatinem/rust-cache@v2
 
-      # Only hark-app, so target/release holds exactly one top-level exe
-      # (hark-cli is a separate workspace member and is not built here).
+      # Only hark-app, so target/release holds exactly one top-level exe.
       - name: Build release binary
         run: cargo build --release -p hark-app
 
