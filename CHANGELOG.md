@@ -9,6 +9,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Added
 - **Windows installer.** Hark now ships as a proper installer (`Hark-<version>-windows-x64-setup.exe`), the headline download on each release, alongside the portable exe. It installs per user to `%LOCALAPPDATA%\Programs\Hark` with no admin prompt, adds a Start Menu shortcut (and an optional desktop shortcut), and registers a clean uninstaller. An uninstall leaves your settings and history in `%APPDATA%\hark` untouched.
 - **Launch at login.** Hark can start automatically when you sign in to Windows, running hidden in the system tray with no window. It is on by default and controlled by a new **"Launch Hark at login"** toggle under **Settings → Behavior**. Turning it off removes the startup entry, and disabling Hark from Windows Task Manager's Startup tab is respected rather than overridden.
+- **Microphone picker in Settings.** A new **Microphone** section lets you choose which input device Hark records from, with a **Rescan** button for mics plugged in after the page opened. A configured microphone that is currently unavailable stays selected (shown as "not connected") instead of silently resetting, and capture falls back to the system default until it returns.
+
+### Changed
+- **README brought in line with the BYOK-cloud pivot.** The intro, design principles, tech-stack table, architecture diagram, prerequisites, project structure, and privacy notes no longer describe the retired on-device (sherpa-onnx / Parakeet) transcription; they now document the `SttProvider` trait, the OpenAI-compatible and Deepgram adapters, and the actual crate layout, and the privacy section states plainly that audio is sent to your chosen provider under your own key.
 
 ## [0.13.7] - 2026-07-17
 

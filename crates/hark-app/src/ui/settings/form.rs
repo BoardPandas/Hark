@@ -137,6 +137,56 @@ pub fn model_endpoint_section(ui: &mut Ui, draft: &mut Settings, bufs: &mut Form
         });
 }
 
+/// Shown in the picker for "use whatever the OS picks".
+const DEFAULT_MIC_LABEL: &str = "System default";
+
+/// Microphone picker. `devices` is the list enumerated off the UI thread and
+/// cached by the page; `on_refresh` is set true when the user asks to re-scan
+/// (a mic plugged in after the page opened). The chosen device applies on the
+/// next Save, like every other field here.
+pub fn mic_section(ui: &mut Ui, draft: &mut Settings, devices: &[String]) -> bool {
+    subhead(ui, "Microphone");
+    let selected = draft.audio.input_device.clone();
+    let selected_text = selected.as_deref().unwrap_or(DEFAULT_MIC_LABEL);
+    let mut refresh = false;
+    ui.horizontal(|ui| {
+        egui::ComboBox::from_id_salt("mic-picker")
+            .selected_text(selected_text)
+            .show_ui(ui, |ui| {
+                ui.selectable_value(&mut draft.audio.input_device, None, DEFAULT_MIC_LABEL);
+                for name in devices {
+                    ui.selectable_value(&mut draft.audio.input_device, Some(name.clone()), name);
+                }
+                // A configured device that is not currently enumerated (mic
+                // unplugged) stays selectable so opening the picker cannot
+                // silently reset the choice; capture falls back to the
+                // default until it returns.
+                if let Some(name) = &selected {
+                    if !devices.iter().any(|d| d == name) {
+                        ui.selectable_value(
+                            &mut draft.audio.input_device,
+                            Some(name.clone()),
+                            format!("{name} (not connected)"),
+                        );
+                    }
+                }
+            });
+        if ui
+            .button("Rescan")
+            .on_hover_text("Re-scan for microphones plugged in since this page opened")
+            .clicked()
+        {
+            refresh = true;
+        }
+    });
+    ui.label(
+        RichText::new("Falls back to the system default if the chosen microphone is unavailable.")
+            .small()
+            .weak(),
+    );
+    refresh
+}
+
 /// Push-to-talk shortcut: a "Record" button captures held keys via the same
 /// low-level hook the pipeline uses (egui's input can't tell L/R modifiers
 /// apart or see the Win key), with the text field kept as a manual fallback.
@@ -291,6 +341,16 @@ pub fn behavior_section(ui: &mut Ui, draft: &mut Settings) {
                     ui.ctx().set_theme(preference);
                 }
             });
+
+            ui.add_space(4.0);
+            // The registry reconcile happens on Save (settings::mod::save), so
+            // the checkbox only edits the draft here, like every other field.
+            ui.checkbox(&mut draft.startup.launch_at_login, "Launch Hark at login");
+            ui.label(
+                RichText::new("Starts hidden in the system tray when you sign in to Windows.")
+                    .small()
+                    .weak(),
+            );
         });
 }
 
