@@ -4,6 +4,11 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.14.2] - 2026-07-17
+
+### Added
+- **Project documentation wiki.** A new `Docs/` folder holds a generated, evidence-based wiki: an overview, architecture, getting-started, configuration, and data-storage pages, one page per pipeline subsystem (audio capture, transcription, dictionary, voice cleanup, text injection, desktop UI, updates and autostart), a release-and-packaging runbook, and a glossary, all indexed from `Docs/README.md`. Every claim links to the exact source file and line range it describes. Developer-facing only, with no change to the app.
+
 ## [0.14.1] - 2026-07-17
 
 ### Changed

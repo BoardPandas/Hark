@@ -1,0 +1,763 @@
+project:
+  name: "Hark"
+  description: "Push-to-talk voice dictation desktop app for Windows and macOS, written in Rust, with BYOK cloud transcription and optional LLM cleanup."
+  repo_base_url: "https://github.com/BoardPandas/Hark/blob"
+  ref_commit_hash: "1c1738716fa4cd758b0c26ec94d0873d1bc35ac1"
+  branch: "main"
+  updated_at: "2026-07-17"
+
+pages:
+  - id: hark_01_overview
+    title: "Overview"
+    folder: ""
+    filename: "OVERVIEW.md"
+    description: "What Hark is, its design principles, tech stack, and crate layout."
+    category: overview
+    source_files:
+      - "README.md"
+      - "package.json"
+      - "Cargo.toml"
+      - "CLAUDE.md"
+    sections:
+      - id: hark_01_overview_introduction
+        title: "Introduction"
+        autogen: true
+        diagrams_needed: false
+        diagram_types: []
+      - id: hark_01_overview_principles
+        title: "Design Principles"
+        autogen: true
+        diagrams_needed: false
+        diagram_types: []
+      - id: hark_01_overview_stack
+        title: "Technology Stack"
+        autogen: true
+        diagrams_needed: false
+        diagram_types: []
+      - id: hark_01_overview_layout
+        title: "Crate Layout"
+        autogen: true
+        diagrams_needed: true
+        diagram_types: ["flowchart"]
+      - id: hark_01_overview_hotpath
+        title: "The Hot Path"
+        autogen: true
+        diagrams_needed: true
+        diagram_types: ["flowchart"]
+      - id: hark_01_overview_navigate
+        title: "Where to Start"
+        autogen: true
+        diagrams_needed: false
+        diagram_types: []
+    related_pages:
+      - hark_02_architecture
+      - hark_03_getting_started
+      - hark_14_glossary
+
+  - id: hark_02_architecture
+    title: "Architecture"
+    folder: "core"
+    filename: "ARCHITECTURE.md"
+    description: "Process model, the main-thread/worker-thread split, the release-to-inject pipeline, and its state machine."
+    category: architecture
+    source_files:
+      - "crates/hark-app/src/main.rs"
+      - "crates/hark-app/src/app.rs"
+      - "crates/hark-app/src/pipeline.rs"
+      - "crates/hark-pipeline/src/lib.rs"
+      - "crates/hark-pipeline/src/worker.rs"
+      - "crates/hark-pipeline/src/state.rs"
+      - "crates/hark-pipeline/src/events.rs"
+      - "crates/hark-pipeline/src/retry.rs"
+    sections:
+      - id: hark_02_architecture_process_model
+        title: "Process and Threading Model"
+        autogen: true
+        source_files:
+          - "crates/hark-app/src/main.rs"
+          - "crates/hark-app/src/app.rs"
+        diagrams_needed: true
+        diagram_types: ["flowchart"]
+      - id: hark_02_architecture_pipeline
+        title: "The Release-to-Inject Pipeline"
+        autogen: true
+        source_files:
+          - "crates/hark-pipeline/src/lib.rs"
+          - "crates/hark-pipeline/src/worker.rs"
+        diagrams_needed: true
+        diagram_types: ["sequence"]
+      - id: hark_02_architecture_state
+        title: "Pipeline State Machine"
+        autogen: true
+        source_files:
+          - "crates/hark-pipeline/src/state.rs"
+          - "crates/hark-pipeline/src/events.rs"
+        diagrams_needed: true
+        diagram_types: ["state"]
+      - id: hark_02_architecture_events
+        title: "Events and UI Bridge"
+        autogen: true
+        source_files:
+          - "crates/hark-pipeline/src/events.rs"
+          - "crates/hark-app/src/pipeline.rs"
+        diagrams_needed: false
+        diagram_types: []
+      - id: hark_02_architecture_retry
+        title: "Retry and Latency Discipline"
+        autogen: true
+        source_files:
+          - "crates/hark-pipeline/src/retry.rs"
+        diagrams_needed: false
+        diagram_types: []
+      - id: hark_02_architecture_failure
+        title: "Failure Modes"
+        autogen: true
+        diagrams_needed: false
+        diagram_types: []
+    related_pages:
+      - hark_01_overview
+      - hark_06_audio_capture
+      - hark_07_transcription
+      - hark_10_text_injection
+
+  - id: hark_03_getting_started
+    title: "Getting Started"
+    folder: ""
+    filename: "GETTING_STARTED.md"
+    description: "Prerequisites, installing on Windows, building from source, and first-run setup."
+    category: guide
+    source_files:
+      - "README.md"
+      - "Cargo.toml"
+      - "config/default-config.toml"
+    sections:
+      - id: hark_03_getting_started_prerequisites
+        title: "Prerequisites"
+        autogen: true
+        diagrams_needed: false
+        diagram_types: []
+      - id: hark_03_getting_started_install
+        title: "Install on Windows"
+        autogen: true
+        diagrams_needed: false
+        diagram_types: []
+      - id: hark_03_getting_started_build
+        title: "Build from Source"
+        autogen: true
+        diagrams_needed: false
+        diagram_types: []
+      - id: hark_03_getting_started_firstrun
+        title: "First-Run Setup"
+        autogen: true
+        source_files:
+          - "config/default-config.toml"
+        diagrams_needed: false
+        diagram_types: []
+      - id: hark_03_getting_started_dev
+        title: "Development Workflow"
+        autogen: true
+        source_files:
+          - "CLAUDE.md"
+        diagrams_needed: false
+        diagram_types: []
+      - id: hark_03_getting_started_next
+        title: "Where to Go Next"
+        autogen: true
+        diagrams_needed: false
+        diagram_types: []
+    related_pages:
+      - hark_01_overview
+      - hark_04_configuration
+      - hark_13_release_packaging
+
+  - id: hark_04_configuration
+    title: "Configuration and Secrets"
+    folder: "core"
+    filename: "CONFIGURATION.md"
+    description: "The TOML settings schema, defaults, override order, and how the BYOK key lives in the OS keychain."
+    category: configuration
+    source_files:
+      - "crates/hark-config/src/lib.rs"
+      - "crates/hark-config/src/voice.rs"
+      - "crates/hark-keychain/src/lib.rs"
+      - "config/default-config.toml"
+    sections:
+      - id: hark_04_configuration_layers
+        title: "Configuration Layers"
+        autogen: true
+        source_files:
+          - "crates/hark-config/src/lib.rs"
+        diagrams_needed: false
+        diagram_types: []
+      - id: hark_04_configuration_schema
+        title: "Settings Schema"
+        autogen: true
+        source_files:
+          - "crates/hark-config/src/lib.rs"
+          - "config/default-config.toml"
+        diagrams_needed: false
+        diagram_types: []
+      - id: hark_04_configuration_voices
+        title: "Voice Presets Config"
+        autogen: true
+        source_files:
+          - "crates/hark-config/src/voice.rs"
+        diagrams_needed: false
+        diagram_types: []
+      - id: hark_04_configuration_loadsave
+        title: "Load and Save"
+        autogen: true
+        source_files:
+          - "crates/hark-config/src/lib.rs"
+        diagrams_needed: false
+        diagram_types: []
+      - id: hark_04_configuration_keychain
+        title: "Keychain Secret Storage"
+        autogen: true
+        source_files:
+          - "crates/hark-keychain/src/lib.rs"
+        diagrams_needed: false
+        diagram_types: []
+      - id: hark_04_configuration_locations
+        title: "File Locations"
+        autogen: true
+        diagrams_needed: false
+        diagram_types: []
+    related_pages:
+      - hark_01_overview
+      - hark_05_data_storage
+      - hark_09_voice_cleanup
+
+  - id: hark_05_data_storage
+    title: "Data Storage"
+    folder: "core"
+    filename: "DATA_STORAGE.md"
+    description: "The SQLite history and lifetime-stats schema, retention pruning, and the store API."
+    category: data-model
+    source_files:
+      - "crates/hark-store/src/lib.rs"
+      - "crates/hark-store/tests/store.rs"
+      - "crates/hark-app/src/storage.rs"
+    sections:
+      - id: hark_05_data_storage_overview
+        title: "Overview"
+        autogen: true
+        diagrams_needed: false
+        diagram_types: []
+      - id: hark_05_data_storage_schema
+        title: "Schema"
+        autogen: true
+        source_files:
+          - "crates/hark-store/src/lib.rs"
+        diagrams_needed: true
+        diagram_types: ["er"]
+      - id: hark_05_data_storage_history
+        title: "History API"
+        autogen: true
+        source_files:
+          - "crates/hark-store/src/lib.rs"
+        diagrams_needed: false
+        diagram_types: []
+      - id: hark_05_data_storage_stats
+        title: "Lifetime Stats"
+        autogen: true
+        source_files:
+          - "crates/hark-store/src/lib.rs"
+        diagrams_needed: false
+        diagram_types: []
+      - id: hark_05_data_storage_retention
+        title: "Retention and Pruning"
+        autogen: true
+        source_files:
+          - "crates/hark-store/src/lib.rs"
+        diagrams_needed: false
+        diagram_types: []
+      - id: hark_05_data_storage_integration
+        title: "App Integration"
+        autogen: true
+        source_files:
+          - "crates/hark-app/src/storage.rs"
+        diagrams_needed: false
+        diagram_types: []
+    related_pages:
+      - hark_02_architecture
+      - hark_04_configuration
+      - hark_12_desktop_ui
+
+  - id: hark_06_audio_capture
+    title: "Audio Capture and Push-to-Talk"
+    folder: "features"
+    filename: "AUDIO_CAPTURE.md"
+    description: "The cpal ring buffer with pre-roll and tail, silence trimming, and the native push-to-talk key hooks."
+    category: feature
+    source_files:
+      - "crates/hark-audio/src/lib.rs"
+      - "crates/hark-audio/src/ring.rs"
+      - "crates/hark-audio/src/window.rs"
+      - "crates/hark-audio/src/level.rs"
+      - "crates/hark-audio/src/resample.rs"
+      - "crates/hark-audio/src/capture_win.rs"
+      - "crates/hark-hotkey/src/lib.rs"
+      - "crates/hark-hotkey/src/hook_win.rs"
+      - "crates/hark-hotkey/src/edges.rs"
+    sections:
+      - id: hark_06_audio_capture_overview
+        title: "Overview"
+        autogen: true
+        diagrams_needed: true
+        diagram_types: ["flowchart"]
+      - id: hark_06_audio_capture_ring
+        title: "Ring Buffer and Pre-roll"
+        autogen: true
+        source_files:
+          - "crates/hark-audio/src/ring.rs"
+          - "crates/hark-audio/src/window.rs"
+        diagrams_needed: false
+        diagram_types: []
+      - id: hark_06_audio_capture_device
+        title: "Device Capture and Resampling"
+        autogen: true
+        source_files:
+          - "crates/hark-audio/src/capture_win.rs"
+          - "crates/hark-audio/src/resample.rs"
+          - "crates/hark-audio/src/level.rs"
+        diagrams_needed: false
+        diagram_types: []
+      - id: hark_06_audio_capture_hotkey
+        title: "Push-to-Talk Key Hooks"
+        autogen: true
+        source_files:
+          - "crates/hark-hotkey/src/lib.rs"
+          - "crates/hark-hotkey/src/hook_win.rs"
+        diagrams_needed: false
+        diagram_types: []
+      - id: hark_06_audio_capture_edges
+        title: "Chord Edge Detection"
+        autogen: true
+        source_files:
+          - "crates/hark-hotkey/src/edges.rs"
+        diagrams_needed: false
+        diagram_types: []
+      - id: hark_06_audio_capture_notes
+        title: "Operational Notes"
+        autogen: true
+        diagrams_needed: false
+        diagram_types: []
+    related_pages:
+      - hark_02_architecture
+      - hark_04_configuration
+      - hark_07_transcription
+
+  - id: hark_07_transcription
+    title: "Transcription (STT Providers)"
+    folder: "features"
+    filename: "TRANSCRIPTION.md"
+    description: "The SttProvider trait, the OpenAI-compatible and Deepgram adapters, WAV encoding, and biasing."
+    category: feature
+    source_files:
+      - "crates/hark-stt/src/lib.rs"
+      - "crates/hark-stt/src/config.rs"
+      - "crates/hark-stt/src/openai_compatible.rs"
+      - "crates/hark-stt/src/deepgram.rs"
+      - "crates/hark-stt/src/wav.rs"
+      - "crates/hark-stt/src/error.rs"
+      - "crates/hark-stt/src/metrics.rs"
+    sections:
+      - id: hark_07_transcription_trait
+        title: "The SttProvider Trait"
+        autogen: true
+        source_files:
+          - "crates/hark-stt/src/lib.rs"
+          - "crates/hark-stt/src/config.rs"
+        diagrams_needed: true
+        diagram_types: ["class"]
+      - id: hark_07_transcription_openai
+        title: "OpenAI-Compatible Adapter"
+        autogen: true
+        source_files:
+          - "crates/hark-stt/src/openai_compatible.rs"
+        diagrams_needed: false
+        diagram_types: []
+      - id: hark_07_transcription_deepgram
+        title: "Deepgram Adapter"
+        autogen: true
+        source_files:
+          - "crates/hark-stt/src/deepgram.rs"
+        diagrams_needed: false
+        diagram_types: []
+      - id: hark_07_transcription_wav
+        title: "WAV Encoding"
+        autogen: true
+        source_files:
+          - "crates/hark-stt/src/wav.rs"
+        diagrams_needed: false
+        diagram_types: []
+      - id: hark_07_transcription_errors
+        title: "Errors and Metrics"
+        autogen: true
+        source_files:
+          - "crates/hark-stt/src/error.rs"
+          - "crates/hark-stt/src/metrics.rs"
+        diagrams_needed: false
+        diagram_types: []
+      - id: hark_07_transcription_gotchas
+        title: "Provider Gotchas"
+        autogen: true
+        diagrams_needed: false
+        diagram_types: []
+    related_pages:
+      - hark_02_architecture
+      - hark_08_dictionary
+      - hark_09_voice_cleanup
+
+  - id: hark_08_dictionary
+    title: "Dictionary"
+    folder: "features"
+    filename: "DICTIONARY.md"
+    description: "Phonetic post-correction of transcripts plus per-provider biasing term generation."
+    category: feature
+    source_files:
+      - "crates/hark-dictionary/src/lib.rs"
+      - "crates/hark-dictionary/src/matcher.rs"
+      - "crates/hark-dictionary/src/tokenize.rs"
+    sections:
+      - id: hark_08_dictionary_overview
+        title: "Overview"
+        autogen: true
+        diagrams_needed: true
+        diagram_types: ["flowchart"]
+      - id: hark_08_dictionary_matcher
+        title: "Phonetic Matcher"
+        autogen: true
+        source_files:
+          - "crates/hark-dictionary/src/matcher.rs"
+        diagrams_needed: false
+        diagram_types: []
+      - id: hark_08_dictionary_tokenize
+        title: "Tokenization"
+        autogen: true
+        source_files:
+          - "crates/hark-dictionary/src/tokenize.rs"
+        diagrams_needed: false
+        diagram_types: []
+      - id: hark_08_dictionary_biasing
+        title: "Provider Biasing"
+        autogen: true
+        source_files:
+          - "crates/hark-dictionary/src/lib.rs"
+        diagrams_needed: false
+        diagram_types: []
+      - id: hark_08_dictionary_api
+        title: "Public API"
+        autogen: true
+        source_files:
+          - "crates/hark-dictionary/src/lib.rs"
+        diagrams_needed: false
+        diagram_types: []
+      - id: hark_08_dictionary_edge
+        title: "Edge Cases"
+        autogen: true
+        diagrams_needed: false
+        diagram_types: []
+    related_pages:
+      - hark_07_transcription
+      - hark_09_voice_cleanup
+      - hark_04_configuration
+
+  - id: hark_09_voice_cleanup
+    title: "Voice Cleanup"
+    folder: "features"
+    filename: "VOICE_CLEANUP.md"
+    description: "Voice presets and the optional BYOK LLM cleanup pass over the raw transcript."
+    category: feature
+    source_files:
+      - "crates/hark-voice/src/lib.rs"
+      - "crates/hark-voice/src/voices.rs"
+      - "crates/hark-voice/src/openai_compatible.rs"
+      - "crates/hark-voice/src/error.rs"
+    sections:
+      - id: hark_09_voice_cleanup_overview
+        title: "Overview"
+        autogen: true
+        diagrams_needed: true
+        diagram_types: ["flowchart"]
+      - id: hark_09_voice_cleanup_voices
+        title: "Voice Presets"
+        autogen: true
+        source_files:
+          - "crates/hark-voice/src/voices.rs"
+        diagrams_needed: false
+        diagram_types: []
+      - id: hark_09_voice_cleanup_adapter
+        title: "Cleanup Adapter"
+        autogen: true
+        source_files:
+          - "crates/hark-voice/src/openai_compatible.rs"
+        diagrams_needed: false
+        diagram_types: []
+      - id: hark_09_voice_cleanup_api
+        title: "Public API"
+        autogen: true
+        source_files:
+          - "crates/hark-voice/src/lib.rs"
+        diagrams_needed: false
+        diagram_types: []
+      - id: hark_09_voice_cleanup_errors
+        title: "Error Handling"
+        autogen: true
+        source_files:
+          - "crates/hark-voice/src/error.rs"
+        diagrams_needed: false
+        diagram_types: []
+    related_pages:
+      - hark_07_transcription
+      - hark_08_dictionary
+      - hark_04_configuration
+
+  - id: hark_10_text_injection
+    title: "Text Injection"
+    folder: "features"
+    filename: "TEXT_INJECTION.md"
+    description: "Clipboard stash-set-paste-restore injection with an enigo keystroke fallback."
+    category: feature
+    source_files:
+      - "crates/hark-inject/src/lib.rs"
+      - "crates/hark-inject/src/clipboard.rs"
+      - "crates/hark-inject/src/keys.rs"
+    sections:
+      - id: hark_10_text_injection_overview
+        title: "Overview"
+        autogen: true
+        diagrams_needed: true
+        diagram_types: ["flowchart"]
+      - id: hark_10_text_injection_clipboard
+        title: "Clipboard Strategy"
+        autogen: true
+        source_files:
+          - "crates/hark-inject/src/clipboard.rs"
+        diagrams_needed: false
+        diagram_types: []
+      - id: hark_10_text_injection_keys
+        title: "Keystroke Fallback"
+        autogen: true
+        source_files:
+          - "crates/hark-inject/src/keys.rs"
+        diagrams_needed: false
+        diagram_types: []
+      - id: hark_10_text_injection_api
+        title: "Public API"
+        autogen: true
+        source_files:
+          - "crates/hark-inject/src/lib.rs"
+        diagrams_needed: false
+        diagram_types: []
+      - id: hark_10_text_injection_edge
+        title: "Edge Cases"
+        autogen: true
+        diagrams_needed: false
+        diagram_types: []
+    related_pages:
+      - hark_02_architecture
+      - hark_04_configuration
+      - hark_07_transcription
+
+  - id: hark_11_updates_autostart
+    title: "Updates and Autostart"
+    folder: "features"
+    filename: "UPDATES_AND_AUTOSTART.md"
+    description: "The in-app update checker with Windows self-update, and launch-at-login registration."
+    category: feature
+    source_files:
+      - "crates/hark-update/src/lib.rs"
+      - "crates/hark-update/src/verify.rs"
+      - "crates/hark-autostart/src/lib.rs"
+      - "crates/hark-app/src/update.rs"
+    sections:
+      - id: hark_11_updates_autostart_overview
+        title: "Overview"
+        autogen: true
+        diagrams_needed: true
+        diagram_types: ["flowchart"]
+      - id: hark_11_updates_autostart_checker
+        title: "Update Checker"
+        autogen: true
+        source_files:
+          - "crates/hark-update/src/lib.rs"
+        diagrams_needed: false
+        diagram_types: []
+      - id: hark_11_updates_autostart_verify
+        title: "Signature Verification"
+        autogen: true
+        source_files:
+          - "crates/hark-update/src/verify.rs"
+        diagrams_needed: false
+        diagram_types: []
+      - id: hark_11_updates_autostart_appglue
+        title: "App Integration"
+        autogen: true
+        source_files:
+          - "crates/hark-app/src/update.rs"
+        diagrams_needed: false
+        diagram_types: []
+      - id: hark_11_updates_autostart_autostart
+        title: "Launch at Login"
+        autogen: true
+        source_files:
+          - "crates/hark-autostart/src/lib.rs"
+        diagrams_needed: false
+        diagram_types: []
+    related_pages:
+      - hark_12_desktop_ui
+      - hark_13_release_packaging
+      - hark_01_overview
+
+  - id: hark_12_desktop_ui
+    title: "Desktop UI"
+    folder: "features"
+    filename: "DESKTOP_UI.md"
+    description: "The tray daemon, the recording overlay, and the egui settings/history/stats window."
+    category: feature
+    source_files:
+      - "crates/hark-app/src/tray/mod.rs"
+      - "crates/hark-app/src/tray/icon.rs"
+      - "crates/hark-app/src/overlay.rs"
+      - "crates/hark-app/src/theme.rs"
+      - "crates/hark-app/src/ui/mod.rs"
+      - "crates/hark-app/src/ui/shell.rs"
+      - "crates/hark-app/src/ui/pages.rs"
+      - "crates/hark-app/src/ui/history/mod.rs"
+      - "crates/hark-app/src/ui/stats.rs"
+      - "crates/hark-app/src/ui/settings/mod.rs"
+    sections:
+      - id: hark_12_desktop_ui_overview
+        title: "Overview"
+        autogen: true
+        diagrams_needed: false
+        diagram_types: []
+      - id: hark_12_desktop_ui_tray
+        title: "Tray Daemon"
+        autogen: true
+        source_files:
+          - "crates/hark-app/src/tray/mod.rs"
+          - "crates/hark-app/src/tray/icon.rs"
+        diagrams_needed: false
+        diagram_types: []
+      - id: hark_12_desktop_ui_overlay
+        title: "Recording Overlay"
+        autogen: true
+        source_files:
+          - "crates/hark-app/src/overlay.rs"
+        diagrams_needed: false
+        diagram_types: []
+      - id: hark_12_desktop_ui_window
+        title: "Settings Window Shell"
+        autogen: true
+        source_files:
+          - "crates/hark-app/src/ui/shell.rs"
+          - "crates/hark-app/src/ui/pages.rs"
+          - "crates/hark-app/src/ui/mod.rs"
+        diagrams_needed: false
+        diagram_types: []
+      - id: hark_12_desktop_ui_pages
+        title: "History, Stats and Settings"
+        autogen: true
+        source_files:
+          - "crates/hark-app/src/ui/history/mod.rs"
+          - "crates/hark-app/src/ui/stats.rs"
+          - "crates/hark-app/src/ui/settings/mod.rs"
+        diagrams_needed: false
+        diagram_types: []
+      - id: hark_12_desktop_ui_theme
+        title: "Theming"
+        autogen: true
+        source_files:
+          - "crates/hark-app/src/theme.rs"
+        diagrams_needed: false
+        diagram_types: []
+    related_pages:
+      - hark_02_architecture
+      - hark_05_data_storage
+      - hark_11_updates_autostart
+
+  - id: hark_13_release_packaging
+    title: "Release and Packaging"
+    folder: "operations"
+    filename: "RELEASE_AND_PACKAGING.md"
+    description: "The Windows installer, the signed GitHub release workflow, and the version-lockstep rule."
+    category: runbook
+    source_files:
+      - "installer/hark.iss"
+      - ".github/workflows/release.yml"
+      - ".github/RELEASING.md"
+      - "package.json"
+      - "Cargo.toml"
+    sections:
+      - id: hark_13_release_packaging_overview
+        title: "Overview"
+        autogen: true
+        diagrams_needed: true
+        diagram_types: ["flowchart"]
+      - id: hark_13_release_packaging_installer
+        title: "Windows Installer"
+        autogen: true
+        source_files:
+          - "installer/hark.iss"
+        diagrams_needed: false
+        diagram_types: []
+      - id: hark_13_release_packaging_workflow
+        title: "Release Workflow"
+        autogen: true
+        source_files:
+          - ".github/workflows/release.yml"
+        diagrams_needed: false
+        diagram_types: []
+      - id: hark_13_release_packaging_signing
+        title: "Signing and Secrets"
+        autogen: true
+        source_files:
+          - ".github/RELEASING.md"
+        diagrams_needed: false
+        diagram_types: []
+      - id: hark_13_release_packaging_version
+        title: "Version Lockstep"
+        autogen: true
+        source_files:
+          - "package.json"
+          - "Cargo.toml"
+        diagrams_needed: false
+        diagram_types: []
+    related_pages:
+      - hark_03_getting_started
+      - hark_11_updates_autostart
+      - hark_01_overview
+
+  - id: hark_14_glossary
+    title: "Glossary"
+    folder: ""
+    filename: "GLOSSARY.md"
+    description: "Domain terms and acronyms used across Hark's documentation."
+    category: glossary
+    source_files:
+      - "README.md"
+      - "CLAUDE.md"
+    sections:
+      - id: hark_14_glossary_terms
+        title: "Terms"
+        autogen: true
+        diagrams_needed: false
+        diagram_types: []
+      - id: hark_14_glossary_acronyms
+        title: "Acronyms"
+        autogen: true
+        diagrams_needed: false
+        diagram_types: []
+    related_pages:
+      - hark_01_overview
+      - hark_02_architecture
+
+notes:
+  - "Large Rust workspace: 13 crates, ~65 source files. 14 pages chosen per the Large guideline (8-14)."
+  - "hark-pipeline orchestration is documented inside core/ARCHITECTURE.md rather than a standalone page."
+  - "hark-audio and hark-hotkey are combined into AUDIO_CAPTURE.md since they form the input-capture stage together."
+  - "hark-update and hark-autostart are combined into UPDATES_AND_AUTOSTART.md as related lifecycle concerns."
+  - "This is a native desktop app: no API-reference, database-service, auth, or hosting/infra pages apply."
