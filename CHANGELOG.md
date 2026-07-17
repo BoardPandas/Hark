@@ -4,6 +4,11 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.14.1] - 2026-07-17
+
+### Changed
+- **Phase-5 handoff documentation.** Added a Phase 5 (Polish/Ship) handoff recording that the Windows-side Ship work has landed (signed installer, launch-at-login, in-app updates, mic picker) and scoping the remaining macOS work (packaging/notarization, login item, first-run permission flow) plus a cross-platform single-instance guard. No app behavior changed.
+
 ## [0.14.0] - 2026-07-17
 
 ### Added
