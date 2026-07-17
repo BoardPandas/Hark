@@ -4,6 +4,15 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.12.0] - 2026-07-16
+
+### Added
+- **Dictation history is live (Phase 4 checkpoint 4).** Every successful dictation is now saved locally the moment after it injects: a dedicated storage thread receives the finished record from the pipeline, writes it to the history database, and applies the retention caps, all off both the dictation hot path and the UI thread, so neither latency nor responsiveness pays for it. If the database cannot be opened, dictation still works; History and Stats say why they are empty.
+- **The History panel is real.** Dictations appear newest first under day headers (Today / Yesterday / date), searchable as you type across both the raw transcript and the final text, with a live entry count. Each row shows the final text with a caption (relative time, voice, model) and always-visible copy and delete buttons; copying affirms inline with a fading "Copied". Clicking a row expands the raw transcript, the timing breakdown (stt / cleanup / total ms, naming the cleanup model only when one actually ran), and the full timestamp; Esc or a second click collapses it. Ctrl+F jumps to search. "Clear all" sits behind a confirm that states the exact entry count and that lifetime stats are untouched. Long histories load in pages behind a "Show more" button.
+- **The Stats panel is real.** Locked behind the first 10 dictations (a progress bar toward unlocking, never a dashboard of zeros), it then shows lifetime cards for dictations, words, speaking time, and average release-to-inject latency, plus an honest "time saved vs typing at 40 WPM" line and the date counting began. "Reset stats" has its own confirm and leaves history entries untouched. On a database from before this release the latency average shows "n/a" instead of a made-up zero until new dictations accumulate.
+- **Retention settings now apply on save and at startup** (not just after the next dictation): every pipeline start re-applies the entry-count and age caps.
+- The stats row now also accumulates total release-to-inject time (schema migration 002) so the average latency figure derives from real totals rather than an approximation that would omit encode and inject time.
+
 ## [0.11.1] - 2026-07-16
 
 ### Added

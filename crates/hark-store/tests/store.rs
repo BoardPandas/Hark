@@ -54,6 +54,7 @@ fn record_with_capture_stores_entry_and_ticks_stats() {
     assert_eq!(stats.audio_ms, 1_500);
     assert_eq!(stats.stt_ms, 400);
     assert_eq!(stats.cleanup_ms, 300);
+    assert_eq!(stats.total_ms, 800, "release-to-inject sum (migration 002)");
     assert!(stats.since_ts_ms > 0, "since date seeded at open");
 }
 
@@ -211,6 +212,7 @@ fn reset_stats_leaves_history_untouched() {
     assert_eq!(stats.audio_ms, 0);
     assert_eq!(stats.stt_ms, 0);
     assert_eq!(stats.cleanup_ms, 0);
+    assert_eq!(stats.total_ms, 0);
     assert_eq!(stats.since_ts_ms, 42_000, "since date restarts at reset");
 
     assert_eq!(
@@ -329,4 +331,45 @@ fn file_db_reopens_with_data_wal_and_same_stats_row() {
         "reopen must not reseed the fixed-id stats row"
     );
     assert_eq!(stats.dictations, 1, "counters persisted across reopen");
+}
+
+#[test]
+fn migration_002_upgrades_a_v1_database_without_losing_data() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let db_path = dir.path().join("hark.db");
+
+    // Build a database exactly as migration 001 left it: the real 001 file,
+    // user_version = 1, and a stats row with counters already accumulated.
+    {
+        let conn = rusqlite::Connection::open(&db_path).expect("raw open");
+        conn.execute_batch(include_str!("../migrations/001_init.sql"))
+            .expect("apply 001");
+        conn.pragma_update(None, "user_version", 1).expect("stamp");
+        conn.execute(
+            "INSERT INTO stats (id, dictations, words, since_ts_ms) VALUES (1, 5, 25, 9_000)",
+            [],
+        )
+        .expect("seed stats");
+        conn.execute(
+            "INSERT INTO entries (ts_ms, raw_text, final_text, voice, stt_provider, \
+             stt_model, stt_ms, total_ms) VALUES (1, 'r', 'f', 'clean', 'deepgram', \
+             'nova-3', 100, 200)",
+            [],
+        )
+        .expect("seed entry");
+    }
+
+    let mut store = Store::open(&db_path).expect("open runs migration 002");
+    let stats = store.stats().expect("stats");
+    assert_eq!(stats.dictations, 5, "001-era counters survive the upgrade");
+    assert_eq!(stats.words, 25);
+    assert_eq!(stats.total_ms, 0, "pre-002 rows contribute a zero sum");
+    assert_eq!(stats.since_ts_ms, 9_000);
+    assert_eq!(store.entry_count(None).expect("count"), 1);
+
+    // New dictations accumulate into the new column.
+    store
+        .record(&dictation(2, "raw", "two words"), true)
+        .expect("record");
+    assert_eq!(store.stats().expect("stats").total_ms, 800);
 }

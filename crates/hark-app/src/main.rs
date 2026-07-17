@@ -12,6 +12,7 @@
 
 mod app;
 mod pipeline;
+mod storage;
 mod theme;
 mod ui;
 

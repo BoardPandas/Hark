@@ -1,9 +1,26 @@
-//! Shared widgets. Today: the destructive-confirm modal (spec §3.11).
-//! Destructive actions never fire on first click; the confirm button
-//! carries the verb, and Cancel is the focused default.
+//! Shared widgets: the destructive-confirm modal (spec §3.11) and the
+//! centered empty/error state every panel ships (state coverage rule: a
+//! blank region is a bug). Destructive actions never fire on first click;
+//! the confirm button carries the verb, and Cancel is the focused default.
 
 use crate::theme;
 use egui::{Id, Key, Modal, RichText, Ui};
+
+/// Centered panel state: icon, one-line title, weak caption. Serves empty,
+/// gated, and error states alike (the icon and copy carry the difference).
+pub fn empty_state(ui: &mut Ui, icon: &str, title: &str, caption: &str) {
+    ui.add_space(56.0);
+    ui.vertical_centered(|ui| {
+        ui.label(
+            RichText::new(icon)
+                .size(40.0)
+                .color(ui.visuals().weak_text_color()),
+        );
+        ui.add_space(6.0);
+        ui.label(RichText::new(title).text_style(theme::subheading()));
+        ui.label(RichText::new(caption).weak());
+    });
+}
 
 /// A pending destructive confirmation. Callers hold at most one in state
 /// and render it every frame until it resolves.

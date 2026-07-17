@@ -21,7 +21,10 @@ use thiserror::Error;
 
 /// Embedded migrations, applied in order; index + 1 == resulting
 /// `user_version`. Append only; never edit or renumber an applied file.
-const MIGRATIONS: &[&str] = &[include_str!("../migrations/001_init.sql")];
+const MIGRATIONS: &[&str] = &[
+    include_str!("../migrations/001_init.sql"),
+    include_str!("../migrations/002_stats_total_ms.sql"),
+];
 
 const BUSY_TIMEOUT: Duration = Duration::from_secs(5);
 
@@ -84,6 +87,9 @@ pub struct Stats {
     pub audio_ms: i64,
     pub stt_ms: i64,
     pub cleanup_ms: i64,
+    /// Sum of release-to-inject wall times (migration 002); entries recorded
+    /// before 002 contribute 0, so a derived average converges upward.
+    pub total_ms: i64,
     pub since_ts_ms: i64,
 }
 
@@ -182,13 +188,15 @@ impl Store {
         }
         tx.execute(
             "UPDATE stats SET dictations = dictations + 1, words = words + ?1, \
-             audio_ms = audio_ms + ?2, stt_ms = stt_ms + ?3, cleanup_ms = cleanup_ms + ?4 \
+             audio_ms = audio_ms + ?2, stt_ms = stt_ms + ?3, cleanup_ms = cleanup_ms + ?4, \
+             total_ms = total_ms + ?5 \
              WHERE id = 1",
             params![
                 word_count(&d.final_text),
                 d.audio_ms,
                 d.stt_ms,
                 d.cleanup_ms.unwrap_or(0),
+                d.total_ms,
             ],
         )?;
         tx.commit()?;
@@ -292,7 +300,7 @@ impl Store {
 
     pub fn stats(&self) -> Result<Stats, StoreError> {
         Ok(self.conn.query_row(
-            "SELECT dictations, words, audio_ms, stt_ms, cleanup_ms, since_ts_ms \
+            "SELECT dictations, words, audio_ms, stt_ms, cleanup_ms, total_ms, since_ts_ms \
              FROM stats WHERE id = 1",
             [],
             |r| {
@@ -302,7 +310,8 @@ impl Store {
                     audio_ms: r.get(2)?,
                     stt_ms: r.get(3)?,
                     cleanup_ms: r.get(4)?,
-                    since_ts_ms: r.get(5)?,
+                    total_ms: r.get(5)?,
+                    since_ts_ms: r.get(6)?,
                 })
             },
         )?)
@@ -313,7 +322,7 @@ impl Store {
     pub fn reset_stats(&mut self, now_ms: i64) -> Result<(), StoreError> {
         self.conn.execute(
             "UPDATE stats SET dictations = 0, words = 0, audio_ms = 0, \
-             stt_ms = 0, cleanup_ms = 0, since_ts_ms = ?1 WHERE id = 1",
+             stt_ms = 0, cleanup_ms = 0, total_ms = 0, since_ts_ms = ?1 WHERE id = 1",
             params![now_ms],
         )?;
         Ok(())

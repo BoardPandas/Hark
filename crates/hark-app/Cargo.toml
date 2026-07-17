@@ -18,6 +18,10 @@ hark-config = { path = "../hark-config" }
 hark-hotkey = { path = "../hark-hotkey" }
 hark-keychain = { path = "../hark-keychain" }
 hark-pipeline = { path = "../hark-pipeline" }
+hark-store = { path = "../hark-store" }
 hark-stt = { path = "../hark-stt" }
 hark-voice = { path = "../hark-voice" }
+# Local-timezone day grouping and timestamps for the history panel; bundles
+# its own tzdb on Windows (no registry parsing).
+jiff = "0.2"
 log = "0.4"

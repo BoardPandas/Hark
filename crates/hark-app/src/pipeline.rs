@@ -2,9 +2,10 @@
 //! stream, and the status the footer renders. The pipeline itself runs on
 //! worker threads (hark-pipeline); this module never blocks the UI thread.
 
+use crate::storage::{self, RecordPolicy, StorageCmd};
 use hark_config::Settings;
 use hark_pipeline::{FailStage, PipelineEvent, PipelineHandle};
-use std::sync::mpsc::{self, Receiver};
+use std::sync::mpsc::{self, Receiver, Sender};
 
 /// What the status footer shows. There is no silent dead state: the pipeline
 /// is either listening (and says for what), mid-dictation, or stopped with a
@@ -32,10 +33,13 @@ pub struct PipelineController {
     /// Successful dictations this app session (survives restarts; the Get
     /// Started card retires on the first one).
     injected: u64,
+    /// Command lane to the storage thread; `None` when storage failed to
+    /// open (dictation still works, nothing persists).
+    storage: Option<Sender<StorageCmd>>,
 }
 
 impl PipelineController {
-    pub fn new() -> Self {
+    pub fn new(storage: Option<Sender<StorageCmd>>) -> Self {
         PipelineController {
             handle: None,
             events: None,
@@ -44,6 +48,7 @@ impl PipelineController {
                 key_related: false,
             },
             injected: 0,
+            storage,
         }
     }
 
@@ -63,6 +68,12 @@ impl PipelineController {
     /// running with a visible cause in the footer.
     pub fn start(&mut self, settings: &Settings, ctx: &egui::Context) {
         self.stop();
+        // Every (re)start is a policy application point: retention changed
+        // in a save takes effect now, and app startup prunes old entries
+        // before the first dictation.
+        if let Some(tx) = &self.storage {
+            let _ = tx.send(StorageCmd::Prune(storage::retention(settings)));
+        }
         let provider = settings.provider.kind.label();
         let api_key = match hark_keychain::resolve_key(provider) {
             Ok(k) => k,
@@ -78,8 +89,15 @@ impl PipelineController {
         let (tx, rx) = mpsc::channel();
         match hark_pipeline::run(settings, api_key, tx) {
             Ok(handle) => {
+                // The record policy travels with this pipeline run: settings
+                // changes restart the pipeline, so the pump never needs a
+                // shared, mutable view of the config.
+                let tee = self
+                    .storage
+                    .clone()
+                    .map(|tx| (tx, storage::record_policy(settings)));
                 self.handle = Some(handle);
-                self.events = Some(spawn_repaint_pump(rx, ctx.clone()));
+                self.events = Some(spawn_repaint_pump(rx, ctx.clone(), tee));
                 self.status = PipelineStatus::Idle;
             }
             Err(e) => {
@@ -147,15 +165,31 @@ fn next_status(event: PipelineEvent) -> PipelineStatus {
 }
 
 /// Forward pipeline events onto a UI-side channel, waking the event loop per
-/// event (`request_repaint` is the sanctioned cross-thread wake-up). Exits
-/// when the pipeline drops its sender or the UI drops its receiver; zero
-/// idle cost either way.
-fn spawn_repaint_pump(rx: Receiver<PipelineEvent>, ctx: egui::Context) -> Receiver<PipelineEvent> {
+/// event (`request_repaint` is the sanctioned cross-thread wake-up), and tee
+/// `Injected` records to the storage thread. Both sends are non-blocking
+/// (unbounded channels), so the UI lane never waits on storage or vice
+/// versa. The injection already happened before the event was emitted, so a
+/// DB write can never precede it (CP4 acceptance). Exits when the pipeline
+/// drops its sender or the UI drops its receiver; zero idle cost either way.
+fn spawn_repaint_pump(
+    rx: Receiver<PipelineEvent>,
+    ctx: egui::Context,
+    storage: Option<(Sender<StorageCmd>, RecordPolicy)>,
+) -> Receiver<PipelineEvent> {
     let (tx, ui_rx) = mpsc::channel();
     std::thread::Builder::new()
         .name("hark-ui-event-pump".to_string())
         .spawn(move || {
             while let Ok(event) = rx.recv() {
+                if let (PipelineEvent::Injected(record), Some((storage_tx, policy))) =
+                    (&event, &storage)
+                {
+                    let _ = storage_tx.send(StorageCmd::Record {
+                        record: Box::new(record.clone()),
+                        capture: policy.capture,
+                        retention: policy.retention,
+                    });
+                }
                 if tx.send(event).is_err() {
                     break;
                 }
@@ -249,7 +283,7 @@ mod tests {
     #[test]
     fn drain_counts_injections_and_stop_does_not_reset_the_count() {
         let (tx, rx) = mpsc::channel();
-        let mut controller = PipelineController::new();
+        let mut controller = PipelineController::new(None);
         controller.events = Some(rx);
         tx.send(PipelineEvent::Injected(record())).unwrap();
         tx.send(PipelineEvent::Recording).unwrap();
@@ -269,5 +303,56 @@ mod tests {
             next_status(PipelineEvent::Recording),
             PipelineStatus::Recording
         ));
+    }
+
+    #[test]
+    fn pump_tees_injected_records_to_storage_and_forwards_every_event() {
+        let policy = RecordPolicy {
+            capture: false,
+            retention: hark_store::Retention {
+                max_entries: 7,
+                max_age_days: 3,
+            },
+        };
+        let (pipeline_tx, pipeline_rx) = mpsc::channel();
+        let (storage_tx, storage_rx) = mpsc::channel();
+        let ui_rx = spawn_repaint_pump(
+            pipeline_rx,
+            egui::Context::default(),
+            Some((storage_tx, policy)),
+        );
+
+        pipeline_tx.send(PipelineEvent::Recording).unwrap();
+        pipeline_tx.send(PipelineEvent::Processing).unwrap();
+        pipeline_tx.send(PipelineEvent::Injected(record())).unwrap();
+        drop(pipeline_tx); // pump drains, then exits
+
+        let ui_events: Vec<_> = ui_rx.iter().collect();
+        assert_eq!(ui_events.len(), 3, "the UI lane sees every event");
+
+        let teed: Vec<_> = storage_rx.iter().collect();
+        assert_eq!(teed.len(), 1, "only Injected reaches storage");
+        match &teed[0] {
+            StorageCmd::Record {
+                record,
+                capture,
+                retention,
+            } => {
+                assert_eq!(record.final_text, "final");
+                assert!(!capture, "the pump forwards the run's policy");
+                assert_eq!(retention.max_entries, 7);
+                assert_eq!(retention.max_age_days, 3);
+            }
+            _ => panic!("expected a Record command"),
+        }
+    }
+
+    #[test]
+    fn pump_without_storage_still_forwards_events() {
+        let (pipeline_tx, pipeline_rx) = mpsc::channel();
+        let ui_rx = spawn_repaint_pump(pipeline_rx, egui::Context::default(), None);
+        pipeline_tx.send(PipelineEvent::Injected(record())).unwrap();
+        drop(pipeline_tx);
+        assert_eq!(ui_rx.iter().count(), 1);
     }
 }

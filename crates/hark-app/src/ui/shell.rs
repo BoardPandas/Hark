@@ -2,9 +2,8 @@
 //! left sidebar with the nav, content in a centered column.
 
 use crate::pipeline::PipelineController;
+use crate::storage::StorageHandle;
 use crate::theme;
-use crate::ui::dictionary::DictionaryPage;
-use crate::ui::settings::SettingsPage;
 use crate::ui::{footer, pages};
 use hark_config::Settings;
 
@@ -17,8 +16,9 @@ pub fn show(
     page: &mut pages::Page,
     settings: &mut Settings,
     pipeline: &mut PipelineController,
-    settings_page: &mut SettingsPage,
-    dictionary_page: &mut DictionaryPage,
+    views: &mut pages::Views,
+    storage: Option<&StorageHandle>,
+    storage_error: Option<&str>,
 ) {
     // The footer claims the full window width first; it is the always-
     // visible truth about the pipeline.
@@ -48,14 +48,7 @@ pub fn show(
                 .inner_margin(Margin::same(24)),
         )
         .show(ui, |ui| {
-            pages::show(
-                ui,
-                *page,
-                settings,
-                pipeline,
-                settings_page,
-                dictionary_page,
-            )
+            pages::show(ui, *page, settings, pipeline, views, storage, storage_error)
         });
 }
 
