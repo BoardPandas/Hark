@@ -4,6 +4,11 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.11.1] - 2026-07-16
+
+### Added
+- **Phase 4 CP4 session handoff (`tasks/2026-07-16-handoff-phase4-cp4.md`):** repo state after CP3, the load-bearing CP3 discoveries, the CP4 scope (storage thread, history panel, stats panel), and the deferred items parked for CP6 real-hardware validation. Two durable CP3 lessons were contributed to the shared LL-G knowledge base: eframe startup `set_theme` silently clobbering the persisted theme preference (HIGH), and the egui `CollapsingHeader` controlled-open one-frame latch (MEDIUM).
+
 ## [0.11.0] - 2026-07-16
 
 ### Added
