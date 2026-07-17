@@ -4,6 +4,11 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.12.1] - 2026-07-16
+
+### Added
+- **Phase 4 CP5 session handoff (`tasks/2026-07-16-handoff-phase4-cp5.md`):** repo state after CP4, the load-bearing CP4 discoveries, the CP5 scope (tray icon and menu, state icons, close-to-hide, the hidden-window event-delivery design question with the recommended pump-pattern answer), and the deferred items carried to CP6, now including a real-hardware pass over the new History/Stats panels. Two durable CP4 lessons were contributed to the shared LL-G knowledge base: egui `ScrollArea::show_rows`'s uniform-row-height assumption breaking heterogeneous lists (MEDIUM), and the join-on-drop `JoinHandle` deadlock when a later-dropped field still holds a sender to the worker (HIGH).
+
 ## [0.12.0] - 2026-07-16
 
 ### Added
