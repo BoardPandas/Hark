@@ -8,11 +8,13 @@
 //! operation the pipeline worker needs.
 
 pub mod capture_win;
+pub mod level;
 pub mod resample;
 pub mod ring;
 pub mod window;
 
 pub use capture_win::{list_input_devices, start, CaptureError, CaptureHandle};
+pub use level::LevelMeter;
 pub use resample::TARGET_RATE;
 pub use ring::{Consumer, Producer, RangeError};
 pub use window::{GateVerdict, WindowParams};

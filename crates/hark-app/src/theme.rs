@@ -82,6 +82,18 @@ pub const WARNING: Color32 = Color32::from_rgb(0xF5, 0xA5, 0x24);
 pub const TRAY_ACCENT: Color32 = DARK_ACCENT;
 pub const TRAY_STOPPED: Color32 = Color32::from_rgb(0x8A, 0x8F, 0x98);
 
+/// Recording overlay tokens (the Phase 5 "floating recording pill"): a
+/// floating always-on-top viewport shown while the push-to-talk chord is
+/// held. It is always dark and reads over arbitrary desktop content, so its
+/// palette is fixed rather than theme-paired. The accent is the tray/brand
+/// purple.
+pub const OVERLAY_ACCENT: Color32 = DARK_ACCENT;
+/// The dark "pill" capsule behind the pulsing circle. Translucent so it
+/// blends over the desktop through the transparent overlay window.
+pub const OVERLAY_PILL_FILL: Color32 = Color32::from_rgba_premultiplied(0x0D, 0x0E, 0x12, 0xE6);
+/// A hairline rim on the pill so it stays legible on same-tone backgrounds.
+pub const OVERLAY_PILL_STROKE: Color32 = Color32::from_rgba_premultiplied(0x2E, 0x30, 0x3B, 0x80);
+
 /// The one non-built-in text style (16 px Inter Medium).
 pub fn subheading() -> TextStyle {
     TextStyle::Name("Subheading".into())

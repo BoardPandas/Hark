@@ -8,6 +8,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 - **Choose which microphone Hark records from.** Capture can now target a specific input device instead of always using the Windows default: the selected device name is stored in the `[audio]` section of the config, and if that device is later unavailable (unplugged, powered off) capture falls back to the system default rather than stopping. The Settings picker that exposes this lands with the settings-UI update.
+- **A recording indicator you can see.** While you hold the push-to-talk keys, a small floating "pill" now appears near the bottom of the screen with a purple circle that pulses in time with your voice, so it is always obvious when Hark is listening. It disappears the moment you release the keys, never takes focus, and lets clicks pass straight through to whatever you are working in.
 
 ## [0.13.5] - 2026-07-17
 

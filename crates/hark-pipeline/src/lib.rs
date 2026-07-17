@@ -14,6 +14,7 @@ mod state;
 mod worker;
 
 pub use events::{DictationRecord, FailStage, PipelineEvent};
+pub use hark_audio::LevelMeter;
 pub use retry::should_retry;
 pub use state::{advance, Action, Event, PipelineState};
 
@@ -22,6 +23,7 @@ use hark_config::Settings;
 use hark_inject::{InjectSettings, Strategy};
 use hark_stt::{ProviderConfig, SttError};
 use std::sync::mpsc;
+use std::sync::Arc;
 use thiserror::Error;
 
 #[derive(Debug, Error)]
@@ -44,7 +46,18 @@ pub struct PipelineHandle {
     // channel), then the worker join, then capture.
     listener: Option<hark_hotkey::ListenerHandle>,
     worker: Option<std::thread::JoinHandle<()>>,
+    /// Live mic-level meter, cloned from the capture handle. Advisory UI data
+    /// (the recording overlay's audio-reactive pulse); reading it never
+    /// touches the audio path.
+    level: Arc<LevelMeter>,
     _capture: hark_audio::CaptureHandle,
+}
+
+impl PipelineHandle {
+    /// The live input-level meter for UI feedback. Cheap to clone.
+    pub fn level_meter(&self) -> Arc<LevelMeter> {
+        self.level.clone()
+    }
 }
 
 impl Drop for PipelineHandle {
@@ -229,6 +242,7 @@ pub fn run(
         settings.audio.input_device.clone(),
     )?;
     let sample_rate = capture.sample_rate();
+    let level = capture.level_meter();
     log::info!(
         "capture live at {sample_rate} Hz; ptt chord: {chord}; provider: {}",
         provider_cfg.label
@@ -258,6 +272,7 @@ pub fn run(
     Ok(PipelineHandle {
         listener: Some(listener),
         worker: Some(worker),
+        level,
         _capture: capture,
     })
 }

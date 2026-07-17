@@ -179,6 +179,22 @@ impl HarkApp {
         ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
         ctx.send_viewport_cmd(egui::ViewportCommand::Visible(false));
     }
+
+    /// While the chord is held, register the recording overlay viewport;
+    /// otherwise leave it unregistered so egui tears the window down. Called
+    /// from `logic`, which runs even while the main window is hidden, so the
+    /// overlay works during normal tray-daemon operation. The overlay only
+    /// exists while a meter does (i.e. the pipeline is live), so a Recording
+    /// status without one is impossible in practice and simply shows nothing.
+    fn show_recording_overlay(&mut self, ctx: &egui::Context) {
+        if !matches!(self.pipeline.status(), PipelineStatus::Recording) {
+            return;
+        }
+        if let Some(meter) = self.pipeline.level_meter() {
+            let monitor = ctx.input(|i| i.viewport().monitor_size);
+            crate::overlay::show(ctx, meter, monitor);
+        }
+    }
 }
 
 fn show_window(ctx: &egui::Context) {
@@ -236,6 +252,7 @@ impl eframe::App for HarkApp {
         self.pipeline.drain_events();
         self.handle_tray_actions(ctx);
         self.handle_close(ctx);
+        self.show_recording_overlay(ctx);
         if let Some(tray) = &mut self.tray {
             tray.apply(
                 self.pipeline.status(),
@@ -243,6 +260,14 @@ impl eframe::App for HarkApp {
                 self.settings.voice.default,
             );
         }
+    }
+
+    // clear_color is transparent so the recording overlay's borderless
+    // viewport shows only its pill, not an opaque window fill. The main
+    // window is opaque and fully painted by its panels, so a transparent
+    // clear is invisible there.
+    fn clear_color(&self, _visuals: &egui::Visuals) -> [f32; 4] {
+        egui::Color32::TRANSPARENT.to_normalized_gamma_f32()
     }
 
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {

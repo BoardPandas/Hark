@@ -4,8 +4,9 @@
 
 use crate::storage::{self, RecordPolicy, StorageCmd};
 use hark_config::Settings;
-use hark_pipeline::{FailStage, PipelineEvent, PipelineHandle};
+use hark_pipeline::{FailStage, LevelMeter, PipelineEvent, PipelineHandle};
 use std::sync::mpsc::{self, Receiver, Sender};
+use std::sync::Arc;
 
 /// What the status footer shows. There is no silent dead state: the pipeline
 /// is either listening (and says for what), mid-dictation, or stopped with a
@@ -36,6 +37,10 @@ pub struct PipelineController {
     /// Command lane to the storage thread; `None` when storage failed to
     /// open (dictation still works, nothing persists).
     storage: Option<Sender<StorageCmd>>,
+    /// Live mic-level meter for the recording overlay's audio-reactive pulse;
+    /// `None` while the pipeline is stopped. Read every frame the overlay
+    /// paints, so it is a cheap `Arc`, not a per-frame lookup.
+    level: Option<Arc<LevelMeter>>,
 }
 
 impl PipelineController {
@@ -49,6 +54,7 @@ impl PipelineController {
             },
             injected: 0,
             storage,
+            level: None,
         }
     }
 
@@ -58,6 +64,13 @@ impl PipelineController {
 
     pub fn is_running(&self) -> bool {
         self.handle.is_some()
+    }
+
+    /// The live mic-level meter, or `None` while the pipeline is stopped. The
+    /// recording overlay reads it every frame to drive its audio-reactive
+    /// pulse; the `Arc` is cheap to clone into the overlay's paint closure.
+    pub fn level_meter(&self) -> Option<Arc<LevelMeter>> {
+        self.level.clone()
     }
 
     pub fn injected_count(&self) -> u64 {
@@ -96,6 +109,7 @@ impl PipelineController {
                     .storage
                     .clone()
                     .map(|tx| (tx, storage::record_policy(settings)));
+                self.level = Some(handle.level_meter());
                 self.handle = Some(handle);
                 self.events = Some(spawn_repaint_pump(rx, ctx.clone(), tee));
                 self.status = PipelineStatus::Idle;
@@ -114,6 +128,7 @@ impl PipelineController {
     pub fn stop(&mut self) {
         self.handle = None;
         self.events = None;
+        self.level = None;
     }
 
     /// Stop (if running) and surface a non-key cause in the footer, e.g. a

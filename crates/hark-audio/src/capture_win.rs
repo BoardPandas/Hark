@@ -8,6 +8,7 @@
 //! callback only calls `Producer::push_interleaved` (relaxed atomic stores;
 //! no allocation, no locks, no syscalls) per the cpal #970 gotcha.
 
+use crate::level::LevelMeter;
 use crate::ring::{ring, Consumer, Producer};
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -39,6 +40,7 @@ pub struct CaptureHandle {
     sample_rate: u32,
     stream_error: Arc<AtomicBool>,
     shutdown: Arc<AtomicBool>,
+    level: Arc<LevelMeter>,
     thread: Option<std::thread::JoinHandle<()>>,
 }
 
@@ -47,6 +49,13 @@ impl CaptureHandle {
     /// resamples to 16 kHz per clip.
     pub fn sample_rate(&self) -> u32 {
         self.sample_rate
+    }
+
+    /// The live input-level meter, updated from the capture callback. Cheap
+    /// to clone (an `Arc`); the UI reads it every frame to drive the
+    /// recording overlay's audio-reactive pulse.
+    pub fn level_meter(&self) -> Arc<LevelMeter> {
+        self.level.clone()
     }
 
     /// True once the stream has reported an error (device unplugged, etc.).
@@ -104,10 +113,12 @@ pub fn start(
 ) -> Result<(CaptureHandle, Consumer), CaptureError> {
     let shutdown = Arc::new(AtomicBool::new(false));
     let stream_error = Arc::new(AtomicBool::new(false));
+    let level = LevelMeter::new();
     let (result_tx, result_rx) = mpsc::sync_channel::<Result<(Consumer, u32), CaptureError>>(1);
 
     let thread_shutdown = shutdown.clone();
     let thread_error = stream_error.clone();
+    let thread_level = level.clone();
     let thread = std::thread::Builder::new()
         .name("hark-audio-capture".to_string())
         .spawn(move || {
@@ -116,6 +127,7 @@ pub fn start(
                 input_device,
                 thread_error,
                 thread_shutdown,
+                thread_level,
                 result_tx,
             );
         })
@@ -127,6 +139,7 @@ pub fn start(
                 sample_rate,
                 stream_error,
                 shutdown,
+                level,
                 thread: Some(thread),
             },
             consumer,
@@ -146,9 +159,10 @@ fn capture_thread(
     input_device: Option<String>,
     stream_error: Arc<AtomicBool>,
     shutdown: Arc<AtomicBool>,
+    level: Arc<LevelMeter>,
     result_tx: mpsc::SyncSender<Result<(Consumer, u32), CaptureError>>,
 ) {
-    let built = build_stream(ring_seconds, input_device.as_deref(), stream_error);
+    let built = build_stream(ring_seconds, input_device.as_deref(), stream_error, level);
     match built {
         Ok((stream, consumer, rate)) => {
             if let Err(e) = stream.play() {
@@ -206,6 +220,7 @@ fn build_stream(
     ring_seconds: u32,
     input_device: Option<&str>,
     stream_error: Arc<AtomicBool>,
+    level: Arc<LevelMeter>,
 ) -> Result<(cpal::Stream, Consumer, u32), CaptureError> {
     let host = cpal::default_host();
     let device = select_device(&host, input_device)?;
@@ -245,8 +260,11 @@ fn build_stream(
         .build_input_stream(
             config,
             move |data: &[f32], _info: &cpal::InputCallbackInfo| {
-                // Hot path: relaxed atomic stores only (cpal #970).
+                // Hot path: relaxed atomic stores only (cpal #970). The level
+                // meter is the same discipline (a bounded scan + one relaxed
+                // store) and is advisory-only, so it never affects the ring.
                 producer.push_interleaved(data, channels);
+                level.observe(data);
             },
             move |err| {
                 // Called on stream failure (device lost). Not the data path;
