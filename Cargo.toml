@@ -2,6 +2,7 @@
 resolver = "2"
 members = [
     "crates/hark-app",
+    "crates/hark-autostart",
     "crates/hark-audio",
     "crates/hark-config",
     "crates/hark-dictionary",

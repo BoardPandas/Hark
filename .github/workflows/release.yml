@@ -150,15 +150,66 @@ jobs:
           if ($sig.Status -ne 'Valid') { throw "Signature not valid: $($sig.Status) - $($sig.StatusMessage)" }
           if (-not $sig.TimeStamperCertificate) { throw "Signature carries no trusted timestamp." }
 
-      # Rename for a friendly asset name. Authenticode lives in the PE, not
-      # the filename, so the copy stays signed.
-      - name: Stage the signed asset
+      # Package the signed exe into a per-user installer (installer/hark.iss).
+      # ISCC is not preinstalled on windows-latest. The bundled exe is already
+      # signed above; the produced setup.exe is signed in the next step.
+      - name: Install Inno Setup
+        run: choco install innosetup --no-progress -y
+
+      - name: Build the installer
+        shell: pwsh
+        run: |
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          if (-not (Test-Path $iscc)) { throw "ISCC not found at $iscc" }
+          & $iscc `
+            "/DAppVersion=${{ steps.version.outputs.version }}" `
+            "/DSourceExe=${{ github.workspace }}\target\release\hark-app.exe" `
+            installer\hark.iss
+          if ($LASTEXITCODE -ne 0) { throw "ISCC failed with exit code $LASTEXITCODE" }
+          $out = "installer\Output\Hark-${{ steps.version.outputs.version }}-windows-x64-setup.exe"
+          if (-not (Test-Path $out)) { throw "Installer not produced at $out" }
+
+      # v2 reads the service principal from its own inputs, same as the exe
+      # sign step; passing them via env: does not reach DefaultAzureCredential.
+      - name: Sign the installer with Azure Trusted Signing
+        uses: Azure/artifact-signing-action@v2
+        with:
+          azure-tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          azure-client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          azure-client-secret: ${{ secrets.AZURE_CLIENT_SECRET }}
+          endpoint: ${{ secrets.AZURE_TRUSTED_SIGNING_ENDPOINT }}
+          signing-account-name: ${{ secrets.AZURE_TRUSTED_SIGNING_ACCOUNT_NAME }}
+          certificate-profile-name: ${{ secrets.AZURE_TRUSTED_SIGNING_CERT_PROFILE_NAME }}
+          files-folder: ${{ github.workspace }}\installer\Output
+          files-folder-filter: exe
+          files-folder-recurse: false
+          file-digest: SHA256
+          timestamp-rfc3161: http://timestamp.acs.microsoft.com
+          timestamp-digest: SHA256
+
+      # A silent no-op signing step must fail the build, not ship unsigned.
+      - name: Verify the installer signature
+        shell: pwsh
+        run: |
+          $exe = "installer\Output\Hark-${{ steps.version.outputs.version }}-windows-x64-setup.exe"
+          $sig = Get-AuthenticodeSignature $exe
+          Write-Host "Status: $($sig.Status)"
+          Write-Host "Signer: $($sig.SignerCertificate.Subject)"
+          if ($sig.Status -ne 'Valid') { throw "Installer signature not valid: $($sig.Status) - $($sig.StatusMessage)" }
+          if (-not $sig.TimeStamperCertificate) { throw "Installer signature carries no trusted timestamp." }
+
+      # Rename the portable exe for a friendly asset name. Authenticode lives
+      # in the PE, not the filename, so the copy stays signed. The installer
+      # keeps its built name. Both ship: installer is the headline download.
+      - name: Stage the signed assets
         id: asset
         shell: pwsh
         run: |
-          $name = "Hark-${{ steps.version.outputs.version }}-windows-x64.exe"
-          Copy-Item target\release\hark-app.exe $name
-          Add-Content -Path $env:GITHUB_OUTPUT -Value "name=$name"
+          $portable = "Hark-${{ steps.version.outputs.version }}-windows-x64.exe"
+          Copy-Item target\release\hark-app.exe $portable
+          $installer = "installer\Output\Hark-${{ steps.version.outputs.version }}-windows-x64-setup.exe"
+          Add-Content -Path $env:GITHUB_OUTPUT -Value "portable=$portable"
+          Add-Content -Path $env:GITHUB_OUTPUT -Value "installer=$installer"
 
       - name: Publish the GitHub release
         uses: softprops/action-gh-release@v3
@@ -166,4 +217,6 @@ jobs:
           tag_name: ${{ steps.version.outputs.tag }}
           name: Hark ${{ steps.version.outputs.version }}
           generate_release_notes: true
-          files: ${{ steps.asset.outputs.name }}
+          files: |
+            ${{ steps.asset.outputs.installer }}
+            ${{ steps.asset.outputs.portable }}

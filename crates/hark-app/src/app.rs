@@ -45,6 +45,7 @@ impl HarkApp {
         theme::apply(&cc.egui_ctx);
 
         let (settings, load_error) = load_settings();
+        reconcile_autostart(settings.startup.launch_at_login);
         let (storage, storage_error) = open_storage(&cc.egui_ctx);
         let mut pipeline = PipelineController::new(storage.as_ref().map(|s| s.sender()));
         match load_error {
@@ -212,6 +213,15 @@ impl HarkApp {
 fn show_window(ctx: &egui::Context) {
     ctx.send_viewport_cmd(egui::ViewportCommand::Visible(true));
     ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
+}
+
+/// Bring the OS launch-at-login entry in line with the setting. Best-effort:
+/// a registry failure is logged (label only) and never blocks startup or a
+/// Save. No-op off Windows (`hark-autostart`).
+pub(crate) fn reconcile_autostart(enabled: bool) {
+    if let Err(e) = hark_autostart::reconcile(enabled) {
+        log::warn!("could not update launch-at-login (enabled={enabled}): {e}");
+    }
 }
 
 /// Load settings from the OS config dir. A missing file is defaults (first

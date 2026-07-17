@@ -11,6 +11,7 @@ description = "Hark desktop app: eframe window (and later tray) on the main thre
 eframe = { version = "0.35.0", features = ["persistence"] }
 egui = "0.35.0"
 env_logger = "0.11"
+hark-autostart = { path = "../hark-autostart" }
 hark-config = { path = "../hark-config" }
 # Direct deps beyond the pipeline: microphone enumeration for the input-device
 # picker (hark-audio), chord validation for the hotkey field (hark-hotkey), and

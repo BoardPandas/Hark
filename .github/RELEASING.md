@@ -1,6 +1,8 @@
 # Releasing Hark
 
-Hark ships as a signed Windows `.exe`, built and published by
+Hark ships as a signed Windows **installer** (`Hark-<version>-windows-x64-setup.exe`,
+built from [`installer/hark.iss`](../installer/hark.iss) with Inno Setup) plus the
+signed portable `.exe`, both built and published by
 [`.github/workflows/release.yml`](workflows/release.yml). Signing uses Azure
 Trusted Signing (now branded "Artifact Signing").
 
@@ -15,10 +17,18 @@ Trusted Signing (now branded "Artifact Signing").
    ```
    The tag version must equal `package.json`'s `version`, or the workflow
    fails before building.
-3. The workflow builds `hark-app` in release, signs the exe, verifies the
-   signature (valid + timestamped) and publishes a GitHub release named
-   `Hark <version>` with `Hark-<version>-windows-x64.exe` attached and
+3. The workflow builds `hark-app` in release and signs the exe, then packages
+   it into a per-user installer (Inno Setup, installed on the runner via
+   `choco install innosetup`) and signs the installer too. Both signatures are
+   verified (valid + timestamped). It publishes a GitHub release named
+   `Hark <version>` with the installer `Hark-<version>-windows-x64-setup.exe`
+   (headline) and the portable `Hark-<version>-windows-x64.exe` attached, plus
    auto-generated notes.
+
+   The installer is per user (no admin), installs to `%LOCALAPPDATA%\Programs\Hark`,
+   and seeds the launch-at-login registry entry the app then manages. See
+   [`installer/hark.iss`](../installer/hark.iss); its `AppId` GUID is permanent
+   (it keys upgrades and uninstall) and must never change.
 
 `workflow_dispatch` (Actions tab, "Release") is a manual fallback: it takes an
 existing tag and does the same build-sign-publish.

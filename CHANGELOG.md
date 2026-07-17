@@ -4,6 +4,12 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.14.0] - 2026-07-17
+
+### Added
+- **Windows installer.** Hark now ships as a proper installer (`Hark-<version>-windows-x64-setup.exe`), the headline download on each release, alongside the portable exe. It installs per user to `%LOCALAPPDATA%\Programs\Hark` with no admin prompt, adds a Start Menu shortcut (and an optional desktop shortcut), and registers a clean uninstaller. An uninstall leaves your settings and history in `%APPDATA%\hark` untouched.
+- **Launch at login.** Hark can start automatically when you sign in to Windows, running hidden in the system tray with no window. It is on by default and controlled by a new **"Launch Hark at login"** toggle under **Settings → Behavior**. Turning it off removes the startup entry, and disabling Hark from Windows Task Manager's Startup tab is respected rather than overridden.
+
 ## [0.13.7] - 2026-07-17
 
 ### Removed

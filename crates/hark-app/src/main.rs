@@ -22,6 +22,13 @@ mod update;
 fn main() -> eframe::Result {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
 
+    // The autostart entry launches Hark with `--hidden` (hark-autostart). The
+    // window already starts hidden into the tray, so this is informational
+    // today; it keeps the launch intent explicit and the stored Run command
+    // stable if a manual launch is ever made to show the window.
+    let launched_hidden = std::env::args().any(|a| a == hark_autostart::HIDDEN_FLAG);
+    log::info!("startup: launched_hidden={launched_hidden}");
+
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_title("Hark")

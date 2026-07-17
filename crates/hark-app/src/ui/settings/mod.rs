@@ -151,6 +151,9 @@ impl SettingsPage {
     ) {
         match save_to_disk(&self.draft) {
             Ok(()) => {
+                // Bring the OS startup entry in line with the just-saved
+                // toggle. Best-effort (logs on failure); never blocks the save.
+                crate::app::reconcile_autostart(self.draft.startup.launch_at_login);
                 *saved = self.draft.clone();
                 pipeline.start(saved, ctx);
                 self.save_notice = Some(Ok(if pipeline.is_running() {

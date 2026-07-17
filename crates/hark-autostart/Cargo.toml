@@ -1,0 +1,17 @@
+[package]
+name = "hark-autostart"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Hark launch-at-login: app-managed Windows HKCU Run entry (no console spawn). No-op on other platforms."
+
+[dependencies]
+thiserror = "2"
+
+# Registry access in-process via winreg, NOT by shelling out to reg.exe /
+# powershell: the release build is windowless, so a console child would flash
+# a focus-stealing window (LL-G HIGH kb/rust/gui-subsystem-console-child-window).
+# winreg is a thin safe wrapper over windows-sys; it spawns no process.
+[target.'cfg(windows)'.dependencies]
+winreg = "0.56"

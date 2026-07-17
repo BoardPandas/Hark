@@ -79,5 +79,8 @@ tmp/
 temp/
 *.tmp
 
+# Inno Setup build output (installer/hark.iss OutputDir)
+installer/Output/
+
 # Skill-creator eval scaffolding (transient: fixtures, iteration outputs, review HTML)
 .claude/skills/*-workspace/
