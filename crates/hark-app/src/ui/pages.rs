@@ -9,6 +9,7 @@ use crate::ui::dictionary::DictionaryPage;
 use crate::ui::history::HistoryPage;
 use crate::ui::settings::{self, SettingsPage};
 use crate::ui::stats::StatsPage;
+use crate::update::Updater;
 use hark_config::Settings;
 
 use egui::{RichText, Ui};
@@ -67,12 +68,14 @@ fn max_width(page: Page) -> f32 {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn show(
     ui: &mut Ui,
     page: Page,
     settings: &mut Settings,
     pipeline: &mut PipelineController,
     views: &mut Views,
+    updater: &mut Updater,
     storage: Option<&StorageHandle>,
     storage_error: Option<&str>,
 ) {
@@ -100,7 +103,7 @@ pub fn show(
                         .auto_shrink([false, false])
                         .show(ui, |ui| {
                             ui.set_max_width(column);
-                            views.settings.show(ui, settings, pipeline);
+                            views.settings.show(ui, settings, pipeline, updater);
                         });
                 }
             }

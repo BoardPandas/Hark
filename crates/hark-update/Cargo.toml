@@ -1,0 +1,36 @@
+[package]
+name = "hark-update"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Hark in-app update checker and Windows self-update against GitHub Releases."
+
+[dependencies]
+# Same reqwest surface the STT crate pins (static rustls roots, no OS store);
+# callers pass the process-wide client from hark_stt::shared_client(). No
+# "multipart" feature: this crate only does plain GET (check + download).
+reqwest = { version = "0.13", default-features = false, features = [
+    "blocking",
+    "rustls",
+    "webpki-roots",
+    "json",
+] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+# SemVer comparison of the running version against the latest release tag.
+semver = "1"
+# The running-exe swap: handles the Windows "cannot overwrite a running exe"
+# rename dance in one well-tested place. Cross-platform.
+self-replace = "1"
+log = "0.4"
+thiserror = "2"
+
+# Authenticode verification of the downloaded exe before it replaces the
+# running one. Same windows-rs pin as hark-hotkey.
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.62.2", features = [
+    "Win32_Foundation",
+    "Win32_Security_WinTrust",
+    "Win32_Security_Cryptography",
+] }

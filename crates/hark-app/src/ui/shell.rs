@@ -5,18 +5,21 @@ use crate::pipeline::PipelineController;
 use crate::storage::StorageHandle;
 use crate::theme;
 use crate::ui::{footer, pages};
+use crate::update::{Phase, Updater};
 use hark_config::Settings;
 
 use egui::{Color32, CornerRadius, Frame, Margin, Panel, RichText, Stroke, Ui, Vec2};
 
 const SIDEBAR_WIDTH: f32 = 184.0;
 
+#[allow(clippy::too_many_arguments)]
 pub fn show(
     ui: &mut Ui,
     page: &mut pages::Page,
     settings: &mut Settings,
     pipeline: &mut PipelineController,
     views: &mut pages::Views,
+    updater: &mut Updater,
     storage: Option<&StorageHandle>,
     storage_error: Option<&str>,
 ) {
@@ -25,6 +28,12 @@ pub fn show(
     let status = pipeline.status().clone();
     if footer::show(ui, &status, settings) {
         *page = pages::Page::Settings;
+    }
+
+    // The update banner claims the top strip, below the title bar, above the
+    // sidebar and content. Only shown when an update is pending and undismissed.
+    if updater.banner_visible() {
+        banner(ui, updater, page);
     }
 
     let window_fill = ui.visuals().window_fill;
@@ -48,8 +57,111 @@ pub fn show(
                 .inner_margin(Margin::same(24)),
         )
         .show(ui, |ui| {
-            pages::show(ui, *page, settings, pipeline, views, storage, storage_error)
+            pages::show(
+                ui,
+                *page,
+                settings,
+                pipeline,
+                views,
+                updater,
+                storage,
+                storage_error,
+            )
         });
+}
+
+/// The accent-filled update strip across the top. Primary action (install /
+/// view / restart), a shortcut to the Settings section for the full notes, and
+/// a dismiss. Colors from `theme.rs`; status is icon + label, never color alone.
+fn banner(ui: &mut Ui, updater: &mut Updater, page: &mut pages::Page) {
+    let accent = theme::accent_fill(ui.visuals());
+    Panel::top("update-banner")
+        .resizable(false)
+        .show_separator_line(false)
+        .frame(
+            Frame::default()
+                .fill(accent)
+                .inner_margin(Margin::symmetric(16, 8)),
+        )
+        .show(ui, |ui| {
+            ui.horizontal(|ui| {
+                ui.spacing_mut().item_spacing.x = 8.0;
+                let version = updater
+                    .release()
+                    .map(|r| r.version.clone())
+                    .unwrap_or_default();
+
+                match updater.phase() {
+                    Phase::Installing(_) => {
+                        ui.add(egui::Spinner::new().size(16.0).color(theme::ON_ACCENT));
+                        ui.label(
+                            RichText::new(format!("Downloading Hark {version}\u{2026}"))
+                                .color(theme::ON_ACCENT),
+                        );
+                    }
+                    Phase::Ready { .. } => {
+                        ui.label(RichText::new(theme::icons::CHECK).color(theme::ON_ACCENT));
+                        ui.label(
+                            RichText::new(format!("Hark {version} is ready to install"))
+                                .color(theme::ON_ACCENT),
+                        );
+                    }
+                    _ => {
+                        ui.label(RichText::new(theme::icons::CIRCLE_NOTCH).color(theme::ON_ACCENT));
+                        ui.label(
+                            RichText::new(format!("Update available: Hark {version}"))
+                                .color(theme::ON_ACCENT),
+                        );
+                    }
+                }
+
+                // Actions pin to the right edge.
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    if ui
+                        .add(egui::Button::new(
+                            RichText::new(theme::icons::X).color(theme::ON_ACCENT),
+                        ))
+                        .on_hover_text("Dismiss")
+                        .clicked()
+                    {
+                        updater.dismiss_banner();
+                    }
+                    banner_action(ui, updater, page);
+                });
+            });
+        });
+}
+
+/// The banner's primary button, matched to the current phase.
+fn banner_action(ui: &mut Ui, updater: &mut Updater, page: &mut pages::Page) {
+    let light = |text: &str| {
+        egui::Button::new(RichText::new(text.to_string()).color(theme::ON_ACCENT))
+            .fill(Color32::TRANSPARENT)
+            .stroke(Stroke::new(1.0, theme::ON_ACCENT))
+    };
+    match updater.phase() {
+        Phase::Installing(_) => {}
+        Phase::Ready { .. } => {
+            if ui.add(light("Restart now")).clicked() {
+                updater.restart();
+            }
+        }
+        _ => {
+            // "Details" jumps to the Settings section with the release notes.
+            if ui.add(light("Details")).clicked() {
+                *page = pages::Page::Settings;
+            }
+            if updater.can_self_install() {
+                if ui.add(light("Install")).clicked() {
+                    updater.start_install(ui.ctx());
+                }
+            } else if let Some(url) = updater.release().map(|r| r.html_url.clone()) {
+                if ui.add(light("View release")).clicked() {
+                    ui.ctx().open_url(egui::OpenUrl::new_tab(url));
+                }
+            }
+        }
+    }
 }
 
 fn sidebar(ui: &mut Ui, page: &mut pages::Page) {

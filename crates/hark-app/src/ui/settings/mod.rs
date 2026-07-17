@@ -10,9 +10,11 @@ pub mod form;
 pub mod get_started;
 pub mod keys;
 pub mod test;
+pub mod updates;
 
 use crate::pipeline::PipelineController;
 use crate::theme;
+use crate::update::Updater;
 use egui::{RichText, Ui};
 use hark_config::Settings;
 
@@ -26,6 +28,10 @@ pub struct SettingsPage {
     get_started: get_started::GetStarted,
     /// Outcome of the last save; persists until the next one.
     save_notice: Option<Result<String, String>>,
+    /// Input-device names for the microphone picker, enumerated off the UI
+    /// thread once at construction and re-scanned on demand (WASAPI COM must
+    /// not be initialized on this thread; see `hark_audio::list_input_devices`).
+    mic_devices: Vec<String>,
     /// Cross-frame state for recording the push-to-talk shortcut.
     hotkey: capture::HotkeyCapture,
 }
@@ -42,11 +48,18 @@ impl SettingsPage {
             test: test::TestConnection::new(),
             get_started: get_started::GetStarted::new(onboarding),
             save_notice: None,
+            mic_devices: hark_audio::list_input_devices(),
             hotkey: capture::HotkeyCapture::new(),
         }
     }
 
-    pub fn show(&mut self, ui: &mut Ui, saved: &mut Settings, pipeline: &mut PipelineController) {
+    pub fn show(
+        &mut self,
+        ui: &mut Ui,
+        saved: &mut Settings,
+        pipeline: &mut PipelineController,
+        updater: &mut Updater,
+    ) {
         // The key section follows the draft's provider account.
         self.stt_keys.sync_account(self.draft.provider.kind.label());
 
@@ -81,10 +94,14 @@ impl SettingsPage {
             capture::CaptureTransition::Ended => pipeline.start(saved, &ctx),
             capture::CaptureTransition::None => {}
         }
+        if form::mic_section(ui, &mut self.draft, &self.mic_devices) {
+            self.mic_devices = hark_audio::list_input_devices();
+        }
         form::voice_section(ui, &mut self.draft);
         cleanup::section(ui, &mut self.draft, &mut self.bufs, &mut self.cleanup_keys);
         form::behavior_section(ui, &mut self.draft);
         form::privacy_section(ui, &mut self.draft);
+        updates::section(ui, updater, &mut self.draft);
 
         ui.add_space(12.0);
         let save = egui::Button::new(RichText::new("Save").color(theme::ON_ACCENT))

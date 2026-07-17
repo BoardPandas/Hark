@@ -610,12 +610,7 @@ mod tests {
             .expect("updates section parses");
         assert!(!s.updates.check_on_startup);
         let text = s.to_toml().expect("serializes");
-        assert!(
-            !Settings::from_toml(&text)
-                .unwrap()
-                .updates
-                .check_on_startup
-        );
+        assert!(!Settings::from_toml(&text).unwrap().updates.check_on_startup);
     }
 
     #[test]

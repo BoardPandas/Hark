@@ -17,6 +17,7 @@ mod storage;
 mod theme;
 mod tray;
 mod ui;
+mod update;
 
 fn main() -> eframe::Result {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();

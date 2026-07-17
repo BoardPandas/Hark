@@ -10,6 +10,7 @@ use crate::ui::history::HistoryPage;
 use crate::ui::settings::SettingsPage;
 use crate::ui::stats::StatsPage;
 use crate::ui::{pages, settings, shell};
+use crate::update::Updater;
 use crate::{storage, theme, tray};
 use hark_config::{Settings, VoiceName};
 
@@ -34,6 +35,9 @@ pub struct HarkApp {
     quitting: bool,
     page: pages::Page,
     views: pages::Views,
+    /// Update check/self-update state, shared by the startup banner and the
+    /// Settings section.
+    updater: Updater,
 }
 
 impl HarkApp {
@@ -87,6 +91,13 @@ impl HarkApp {
         // the visibility command above) even if the window never shows.
         cc.egui_ctx.request_repaint();
 
+        // Opt-in (default on): one background check at startup surfaces a
+        // banner if a newer release exists. Runs on a worker thread.
+        let mut updater = Updater::new();
+        if settings.updates.check_on_startup {
+            updater.start_check(&cc.egui_ctx);
+        }
+
         HarkApp {
             settings,
             pipeline,
@@ -97,6 +108,7 @@ impl HarkApp {
             quitting: false,
             page,
             views,
+            updater,
         }
     }
 
@@ -250,6 +262,7 @@ impl eframe::App for HarkApp {
     fn logic(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         self.ensure_tray(ctx);
         self.pipeline.drain_events();
+        self.updater.poll();
         self.handle_tray_actions(ctx);
         self.handle_close(ctx);
         self.show_recording_overlay(ctx);
@@ -277,6 +290,7 @@ impl eframe::App for HarkApp {
             &mut self.settings,
             &mut self.pipeline,
             &mut self.views,
+            &mut self.updater,
             self.storage.as_ref(),
             self.storage_error.as_deref(),
         );

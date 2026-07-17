@@ -7,9 +7,9 @@
 #
 # Signing: Azure Trusted Signing (the service is now branded "Artifact
 # Signing"; the action Azure/trusted-signing-action redirects to
-# Azure/artifact-signing-action). Auth is a service principal read by
-# DefaultAzureCredential from the AZURE_CLIENT_ID / AZURE_TENANT_ID /
-# AZURE_CLIENT_SECRET env vars.
+# Azure/artifact-signing-action). Auth is a service principal passed via
+# the action's own with: inputs (azure-client-id / -tenant-id /
+# -client-secret), which it promotes to DefaultAzureCredential's env.
 #
 # Required GitHub Actions secrets (synced from Doppler). See
 # .github/RELEASING.md for the Azure RBAC role and one-time setup:
@@ -61,6 +61,14 @@ jobs:
           $pkg = (Get-Content package.json -Raw | ConvertFrom-Json).version
           if ($version -ne $pkg) {
             throw "Tag '$ref' (version '$version') does not match package.json version '$pkg'. Bump package.json or retag."
+          }
+          # The binary reports the Cargo workspace version (env!("CARGO_PKG_VERSION")),
+          # which the in-app update checker compares against release tags. It must
+          # match package.json, or a shipped build misreports its own version.
+          $cargo = ([regex]::Match((Get-Content Cargo.toml -Raw), '(?ms)^\[workspace\.package\].*?^\s*version\s*=\s*"([^"]+)"')).Groups[1].Value
+          if (-not $cargo) { throw "Could not read [workspace.package] version from Cargo.toml." }
+          if ($version -ne $cargo) {
+            throw "Tag '$ref' (version '$version') does not match Cargo.toml workspace version '$cargo'. Bump Cargo.toml or retag."
           }
           Add-Content -Path $env:GITHUB_OUTPUT -Value "version=$version"
           Add-Content -Path $env:GITHUB_OUTPUT -Value "tag=$ref"

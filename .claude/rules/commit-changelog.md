@@ -18,7 +18,18 @@ Before every `git commit`, you MUST:
 - Review staged changes (`git diff --cached`) to determine what changed.
 - Write entries from the user's perspective, not implementation details.
 
-## 2. Bump Version in package.json
+## 2. Bump Version in package.json AND Cargo.toml
+
+`package.json` is the release source of truth, but the compiled binary reports
+its version from the Cargo **workspace** version (`env!("CARGO_PKG_VERSION")`),
+which the in-app update checker compares against GitHub release tags. The two
+MUST stay identical, so bump **both** in the same commit:
+
+- `package.json` → `version`
+- root `Cargo.toml` → `[workspace.package] version`
+
+`release.yml` fails the build if they ever disagree, so a missed Cargo bump is
+caught at release time rather than shipping a binary that misreports its version.
 
 Version format: **Major.Minor.Patch** (SemVer, e.g., `0.0.1`)
 
@@ -35,17 +46,17 @@ Rules:
 - **NEVER bump Major autonomously.** Always ask the user for guidance before incrementing the Major version, even if the changes appear to be breaking. The user decides when a Major bump happens.
 - If unsure between Minor and Patch, ask the user.
 
-## 3. Stage Both Files
+## 3. Stage All Version Files
 
-After updating, stage both files before committing:
+After updating, stage the changelog and both version files before committing:
 ```bash
-git add CHANGELOG.md package.json
+git add CHANGELOG.md package.json Cargo.toml
 ```
 
 ## Workflow
 
 1. Run `git diff --cached --stat` to see what's staged
 2. Update CHANGELOG.md with appropriate entries
-3. Bump version in package.json
-4. `git add CHANGELOG.md package.json`
+3. Bump version in package.json AND the root Cargo.toml workspace version (keep them identical)
+4. `git add CHANGELOG.md package.json Cargo.toml`
 5. Proceed with the commit
