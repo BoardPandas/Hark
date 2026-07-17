@@ -4,6 +4,11 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.13.4] - 2026-07-17
+
+### Fixed
+- **Windows release signing now authenticates correctly.** The Azure Trusted Signing action (v2) reads the service principal from its own `azure-tenant-id` / `azure-client-id` / `azure-client-secret` inputs; the workflow had been supplying them as step environment variables, which the action never picked up, so every signed release failed with "environment variables are not fully configured." The credentials are now passed as action inputs.
+
 ## [0.13.3] - 2026-07-17
 
 ### Fixed

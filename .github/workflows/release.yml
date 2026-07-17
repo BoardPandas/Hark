@@ -112,13 +112,16 @@ jobs:
             throw "Empty signing secret(s): $($missing -join ', '). Re-sync from Doppler (hark/prd) into the repo's Actions secrets."
           }
 
+      # v2 reads the service principal from its own inputs (which it promotes
+      # to action-scoped env vars for DefaultAzureCredential). Passing the
+      # credentials via the step's env: does NOT reach that scope, so they
+      # must go here under with: or auth fails with "not fully configured".
       - name: Sign hark-app.exe with Azure Trusted Signing
         uses: Azure/artifact-signing-action@v2
-        env:
-          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
-          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
-          AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
         with:
+          azure-tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          azure-client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          azure-client-secret: ${{ secrets.AZURE_CLIENT_SECRET }}
           endpoint: ${{ secrets.AZURE_TRUSTED_SIGNING_ENDPOINT }}
           signing-account-name: ${{ secrets.AZURE_TRUSTED_SIGNING_ACCOUNT_NAME }}
           certificate-profile-name: ${{ secrets.AZURE_TRUSTED_SIGNING_CERT_PROFILE_NAME }}
