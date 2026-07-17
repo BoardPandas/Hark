@@ -14,6 +14,7 @@ mod app;
 mod pipeline;
 mod storage;
 mod theme;
+mod tray;
 mod ui;
 
 fn main() -> eframe::Result {
@@ -23,7 +24,11 @@ fn main() -> eframe::Result {
         viewport: egui::ViewportBuilder::default()
             .with_title("Hark")
             .with_inner_size([960.0, 640.0])
-            .with_min_inner_size([720.0, 480.0]),
+            .with_min_inner_size([720.0, 480.0])
+            // Launch hidden: when a key resolves the app lives in the tray
+            // (CP5); `HarkApp::new` shows the window only when it needs
+            // attention (onboarding, config error, stopped pipeline).
+            .with_visible(false),
         ..Default::default()
     };
     eframe::run_native(

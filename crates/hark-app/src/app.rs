@@ -9,9 +9,9 @@ use crate::ui::dictionary::DictionaryPage;
 use crate::ui::history::HistoryPage;
 use crate::ui::settings::SettingsPage;
 use crate::ui::stats::StatsPage;
-use crate::ui::{pages, shell};
-use crate::{storage, theme};
-use hark_config::Settings;
+use crate::ui::{pages, settings, shell};
+use crate::{storage, theme, tray};
+use hark_config::{Settings, VoiceName};
 
 pub struct HarkApp {
     /// The persisted model; only a settings Save (or dictionary edit)
@@ -24,6 +24,14 @@ pub struct HarkApp {
     storage: Option<storage::StorageHandle>,
     /// Why storage is off, surfaced by the history/stats error states.
     storage_error: Option<String>,
+    /// Created lazily on the first `logic` call (event loop running, main
+    /// thread: the macOS requirement). `None` before that, and also after
+    /// a failed attempt (`tray_failed` stops retries).
+    tray: Option<tray::Tray>,
+    tray_failed: bool,
+    /// Set by the tray's Quit: lets the close request through instead of
+    /// hiding the window.
+    quitting: bool,
     page: pages::Page,
     views: pages::Views,
 }
@@ -66,15 +74,116 @@ impl HarkApp {
         } else {
             pages::Page::Settings
         };
+
+        // The window starts hidden (main.rs) and shows only when it has
+        // something to say: onboarding or a stopped pipeline. A running
+        // pipeline keeps the app in the tray, the daemon shape it is meant
+        // to have.
+        if !pipeline.is_running() {
+            show_window(&cc.egui_ctx);
+        }
+        // A hidden window is not guaranteed a natural first frame; one
+        // explicit repaint makes `logic` run (creating the tray, flushing
+        // the visibility command above) even if the window never shows.
+        cc.egui_ctx.request_repaint();
+
         HarkApp {
             settings,
             pipeline,
             storage,
             storage_error,
+            tray: None,
+            tray_failed: false,
+            quitting: false,
             page,
             views,
         }
     }
+
+    /// Create the tray on the first callback: by then the event loop runs
+    /// and we are on the main thread (macOS hard requirement, invisible on
+    /// a Windows-only dev loop; right by construction). One attempt only.
+    fn ensure_tray(&mut self, ctx: &egui::Context) {
+        if self.tray.is_some() || self.tray_failed {
+            return;
+        }
+        match tray::Tray::create(
+            ctx,
+            self.pipeline.status(),
+            &self.settings.hotkey.ptt_key,
+            self.settings.voice.default,
+        ) {
+            Ok(tray) => self.tray = Some(tray),
+            Err(e) => {
+                self.tray_failed = true;
+                log::error!("tray creation failed: {e}");
+                // Without a tray there is no way back to a hidden window,
+                // so show it; close falls through to quit (handle_close).
+                show_window(ctx);
+            }
+        }
+    }
+
+    fn handle_tray_actions(&mut self, ctx: &egui::Context) {
+        let actions = match &self.tray {
+            Some(tray) => tray.take_actions(),
+            None => return,
+        };
+        for action in actions {
+            match action {
+                tray::TrayAction::SelectVoice(voice) => self.select_voice(voice, ctx),
+                tray::TrayAction::OpenSettings => {
+                    self.page = pages::Page::Settings;
+                    show_window(ctx);
+                }
+                tray::TrayAction::ShowWindow => show_window(ctx),
+                tray::TrayAction::Quit => {
+                    self.quitting = true;
+                    ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                }
+            }
+        }
+    }
+
+    /// A tray voice pick behaves like a dictionary edit: persist
+    /// immediately, restart the pipeline (voices bake in at start), and
+    /// mirror the settings draft so a later Save does not resurrect the
+    /// old voice.
+    fn select_voice(&mut self, voice: VoiceName, ctx: &egui::Context) {
+        self.settings.voice.default = voice;
+        self.views.settings.draft.voice.default = voice;
+        if let Err(e) = settings::save_to_disk(&self.settings) {
+            log::error!("tray voice change not persisted: {e}");
+            self.views.settings.set_save_notice(Err(format!(
+                "Voice changed for this session, but saving failed: {e}"
+            )));
+        }
+        self.pipeline.start(&self.settings, ctx);
+        if let Some(tray) = &mut self.tray {
+            // Unconditional: native check items toggle themselves, so even
+            // re-clicking the current voice needs its checkmark restored.
+            tray.set_voice(voice);
+        }
+    }
+
+    /// Close = hide once the tray exists (Quit lives in the tray menu).
+    /// With no tray, or after Quit, the close request passes through and
+    /// `run_native` returns.
+    fn handle_close(&mut self, ctx: &egui::Context) {
+        if !ctx.input(|i| i.viewport().close_requested()) {
+            return;
+        }
+        if self.quitting || self.tray.is_none() {
+            return;
+        }
+        ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
+        ctx.send_viewport_cmd(egui::ViewportCommand::Visible(false));
+    }
+}
+
+fn show_window(ctx: &egui::Context) {
+    ctx.send_viewport_cmd(egui::ViewportCommand::Visible(true));
+    ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
 }
 
 /// Load settings from the OS config dir. A missing file is defaults (first
@@ -122,8 +231,18 @@ fn open_storage(ctx: &egui::Context) -> (Option<storage::StorageHandle>, Option<
 }
 
 impl eframe::App for HarkApp {
-    fn logic(&mut self, _ctx: &egui::Context, _frame: &mut eframe::Frame) {
+    fn logic(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        self.ensure_tray(ctx);
         self.pipeline.drain_events();
+        self.handle_tray_actions(ctx);
+        self.handle_close(ctx);
+        if let Some(tray) = &mut self.tray {
+            tray.apply(
+                self.pipeline.status(),
+                &self.settings.hotkey.ptt_key,
+                self.settings.voice.default,
+            );
+        }
     }
 
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
@@ -139,8 +258,10 @@ impl eframe::App for HarkApp {
     }
 }
 
-// Clean shutdown is structural: when `run_native` returns, `HarkApp` drops
-// field by field. `PipelineController` drops the `PipelineHandle` (hook,
-// worker, capture stop in order; the event pump follows), then
-// `StorageHandle` joins the storage worker so the last history write commits
-// before the process exits. Close = quit until the tray lands (CP5).
+// Clean shutdown is structural: when `run_native` returns (tray Quit, or a
+// window close while trayless), `HarkApp` drops field by field.
+// `PipelineController` drops the `PipelineHandle` (hook, worker, capture
+// stop in order; the event pump follows), then `StorageHandle` joins the
+// storage worker so the last history write commits before the process
+// exits. The tray pumps park on global channels and die with the process;
+// dropping `Tray` removes the OS icon.

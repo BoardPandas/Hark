@@ -102,6 +102,13 @@ impl SettingsPage {
         }
     }
 
+    /// Surface the outcome of a save that happened outside the form (a
+    /// tray voice change while the window may be hidden): the notice waits
+    /// under the Save button for the next time the page is seen.
+    pub(crate) fn set_save_notice(&mut self, notice: Result<String, String>) {
+        self.save_notice = Some(notice);
+    }
+
     /// Validate -> persist TOML -> restart the pipeline (§3.6 Save).
     /// `Settings::save` validates before writing and writes atomically, so
     /// an invalid draft changes nothing on disk. `PipelineController::start`

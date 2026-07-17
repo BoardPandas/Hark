@@ -76,6 +76,12 @@ pub const DANGER_FILL: Color32 = Color32::from_rgb(0xC6, 0x2A, 0x30);
 pub const SUCCESS: Color32 = Color32::from_rgb(0x30, 0xA4, 0x6C);
 pub const WARNING: Color32 = Color32::from_rgb(0xF5, 0xA5, 0x24);
 
+/// Tray icon fills (CP5): drawn into RGBA bitmaps, not painted by egui, so
+/// they cannot follow the theme. Mid-tones legible on both light and dark
+/// taskbars; the dark accent doubles as the tray accent.
+pub const TRAY_ACCENT: Color32 = DARK_ACCENT;
+pub const TRAY_STOPPED: Color32 = Color32::from_rgb(0x8A, 0x8F, 0x98);
+
 /// The one non-built-in text style (16 px Inter Medium).
 pub fn subheading() -> TextStyle {
     TextStyle::Name("Subheading".into())

@@ -155,18 +155,22 @@ pub fn hotkey_section(ui: &mut Ui, draft: &mut Settings) {
     }
 }
 
+/// Every selectable voice, in display order. Shared with the tray menu's
+/// radio group, so the two pickers can never drift apart.
+pub(crate) const VOICES: [VoiceName; 5] = [
+    VoiceName::Verbatim,
+    VoiceName::Clean,
+    VoiceName::Professional,
+    VoiceName::Casual,
+    VoiceName::Custom,
+];
+
 pub fn voice_section(ui: &mut Ui, draft: &mut Settings) {
     subhead(ui, "Voice");
     egui::ComboBox::from_id_salt("voice-picker")
         .selected_text(voice_display(draft.voice.default))
         .show_ui(ui, |ui| {
-            for name in [
-                VoiceName::Verbatim,
-                VoiceName::Clean,
-                VoiceName::Professional,
-                VoiceName::Casual,
-                VoiceName::Custom,
-            ] {
+            for name in VOICES {
                 ui.selectable_value(&mut draft.voice.default, name, voice_display(name));
             }
         });
@@ -183,7 +187,7 @@ pub fn voice_section(ui: &mut Ui, draft: &mut Settings) {
     }
 }
 
-fn voice_display(name: VoiceName) -> &'static str {
+pub(crate) fn voice_display(name: VoiceName) -> &'static str {
     match name {
         VoiceName::Verbatim => "Verbatim",
         VoiceName::Clean => "Clean",
@@ -290,13 +294,7 @@ mod tests {
 
     #[test]
     fn every_voice_has_a_display_name_matching_its_config_label() {
-        for name in [
-            VoiceName::Verbatim,
-            VoiceName::Clean,
-            VoiceName::Professional,
-            VoiceName::Casual,
-            VoiceName::Custom,
-        ] {
+        for name in VOICES {
             assert_eq!(voice_display(name).to_lowercase(), name.label());
         }
     }

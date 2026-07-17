@@ -25,3 +25,6 @@ hark-voice = { path = "../hark-voice" }
 # its own tzdb on Windows (no registry parsing).
 jiff = "0.2"
 log = "0.4"
+# Tray icon + menu (muda arrives re-exported as `tray_icon::menu`). Created
+# on the main thread after the event loop starts (spec §3.8).
+tray-icon = "0.24.1"

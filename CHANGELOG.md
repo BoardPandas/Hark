@@ -4,6 +4,16 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.13.0] - 2026-07-17
+
+### Added
+- **Hark now lives in the system tray (Phase 4 checkpoint 5).** A tray icon shows the pipeline state at a glance: an accent ring while listening, a red disc while recording, an accent disc while processing, and exclamation-marked discs for the failure states (amber when the API key needs attention, red when the last dictation failed, gray when the pipeline is stopped). The tooltip always says the same thing in words, including the hotkey chord while listening and the actual cause on a failure.
+- **The tray menu carries the essentials:** a voice radio group (picking a voice persists it, applies it to the next dictation immediately, and keeps the Settings form in sync), Open Settings, and Quit. Double-clicking the tray icon brings the window back on whatever page it was.
+- **The app launches hidden when dictation is ready.** With a key stored, Hark starts straight into the tray; the window only appears when something needs attention (first-run onboarding, a broken config, a stopped pipeline). Tray interactions are delivered promptly even while the window is hidden.
+
+### Changed
+- **Closing the window now hides it instead of quitting;** Hark keeps dictating from the tray, and Quit lives in the tray menu. If the tray cannot be created, the window stays visible and close means quit, so the app is never unreachable.
+
 ## [0.12.1] - 2026-07-16
 
 ### Added
