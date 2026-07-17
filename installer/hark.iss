@@ -81,11 +81,11 @@ Name: "{autodesktop}\{#AppName}"; Filename: "{app}\{#AppExeName}"; Tasks: deskto
 [Registry]
 ; Seed launch-at-login (default on). Data mirrors hark-autostart's format
 ; exactly: "<exe>" --hidden, path quoted so a space in the dir cannot split
-; the command at login. uninstalldeletevalue removes it on uninstall.
+; the command at login. uninsdeletevalue removes it on uninstall.
 Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; \
     ValueType: string; ValueName: "{#RunValueName}"; \
     ValueData: """{app}\{#AppExeName}"" --hidden"; \
-    Flags: uninstalldeletevalue
+    Flags: uninsdeletevalue
 
 [Run]
 ; No --hidden here: a fresh install's first launch should show the window

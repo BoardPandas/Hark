@@ -4,6 +4,11 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.14.3] - 2026-07-17
+
+### Fixed
+- **Windows installer build.** The installer script used an invalid registry flag that aborted the Inno Setup compile, so no signed installer was produced. The launch-at-login registry entry now uses the correct flag and the installer builds again.
+
 ## [0.14.2] - 2026-07-17
 
 ### Added
