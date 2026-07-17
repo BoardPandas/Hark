@@ -4,6 +4,11 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.13.1] - 2026-07-17
+
+### Added
+- **Signed Windows release automation.** Pushing a `vMAJOR.MINOR.PATCH` tag now builds `hark-app` on a Windows runner, signs the exe with Azure Trusted Signing (RFC3161-timestamped), verifies the signature, and publishes a GitHub release with the signed `Hark-<version>-windows-x64.exe` attached and auto-generated notes. The tag version is checked against `package.json` so a mistagged build fails before shipping. Setup (required secrets, Azure RBAC role, and the tag flow) is documented in [`.github/RELEASING.md`](.github/RELEASING.md).
+
 ## [0.13.0] - 2026-07-17
 
 ### Added

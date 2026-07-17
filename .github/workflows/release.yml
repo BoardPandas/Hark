@@ -1,0 +1,127 @@
+# Build, sign, and publish a Windows release of Hark.
+#
+# Trigger: push a SemVer tag (v0.13.0). The tag's version must match
+# package.json (the repo's version source of truth, per
+# .claude/rules/commit-changelog.md), or the run fails before building.
+# workflow_dispatch is a manual fallback that takes an existing tag.
+#
+# Signing: Azure Trusted Signing (the service is now branded "Artifact
+# Signing"; the action Azure/trusted-signing-action redirects to
+# Azure/artifact-signing-action). Auth is a service principal read by
+# DefaultAzureCredential from the AZURE_CLIENT_ID / AZURE_TENANT_ID /
+# AZURE_CLIENT_SECRET env vars.
+#
+# Required GitHub Actions secrets (synced from Doppler). See
+# .github/RELEASING.md for the Azure RBAC role and one-time setup:
+#   AZURE_CLIENT_ID
+#   AZURE_TENANT_ID
+#   AZURE_CLIENT_SECRET
+#   AZURE_SIGNING_ENDPOINT              e.g. https://eus.codesigning.azure.net/
+#   AZURE_SIGNING_ACCOUNT_NAME          the Trusted Signing account name
+#   AZURE_SIGNING_CERT_PROFILE_NAME     the certificate profile name
+
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing tag to build and release (e.g. v0.13.0)"
+        required: true
+
+# The release step creates a release and uploads an asset.
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.event.inputs.tag || github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: windows-latest
+    steps:
+      - name: Check out the tagged commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
+
+      # The tag is authoritative for the release; package.json must agree so
+      # a mistagged build fails loudly instead of shipping a mismatched exe.
+      - name: Resolve and verify version
+        id: version
+        shell: pwsh
+        run: |
+          $ref = if ('${{ github.event_name }}' -eq 'workflow_dispatch') { '${{ inputs.tag }}' } else { '${{ github.ref_name }}' }
+          if ($ref -notmatch '^v\d+\.\d+\.\d+$') { throw "Expected a vMAJOR.MINOR.PATCH tag, got '$ref'." }
+          $version = $ref.TrimStart('v')
+          $pkg = (Get-Content package.json -Raw | ConvertFrom-Json).version
+          if ($version -ne $pkg) {
+            throw "Tag '$ref' (version '$version') does not match package.json version '$pkg'. Bump package.json or retag."
+          }
+          Add-Content -Path $env:GITHUB_OUTPUT -Value "version=$version"
+          Add-Content -Path $env:GITHUB_OUTPUT -Value "tag=$ref"
+          Write-Host "Releasing Hark $version from tag $ref"
+
+      # No explicit toolchain pin: the workspace rust-version = "1.97" floor
+      # (Cargo.toml) makes cargo error if the runner's stable is ever older,
+      # which is the libsqlite3-sys MSRV trap this guards against.
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo build
+        uses: Swatinem/rust-cache@v2
+
+      # Only hark-app, so target/release holds exactly one top-level exe
+      # (hark-cli is a separate workspace member and is not built here).
+      - name: Build release binary
+        run: cargo build --release -p hark-app
+
+      - name: Sign hark-app.exe with Azure Trusted Signing
+        uses: Azure/artifact-signing-action@v2
+        env:
+          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+        with:
+          endpoint: ${{ secrets.AZURE_SIGNING_ENDPOINT }}
+          signing-account-name: ${{ secrets.AZURE_SIGNING_ACCOUNT_NAME }}
+          certificate-profile-name: ${{ secrets.AZURE_SIGNING_CERT_PROFILE_NAME }}
+          files-folder: ${{ github.workspace }}\target\release
+          files-folder-filter: exe
+          files-folder-recurse: false
+          file-digest: SHA256
+          timestamp-rfc3161: http://timestamp.acs.microsoft.com
+          timestamp-digest: SHA256
+
+      # A silent no-op signing step must fail the build, not ship unsigned.
+      - name: Verify the signature
+        shell: pwsh
+        run: |
+          $exe = "target\release\hark-app.exe"
+          $sig = Get-AuthenticodeSignature $exe
+          Write-Host "Status: $($sig.Status)"
+          Write-Host "Signer: $($sig.SignerCertificate.Subject)"
+          if ($sig.Status -ne 'Valid') { throw "Signature not valid: $($sig.Status) - $($sig.StatusMessage)" }
+          if (-not $sig.TimeStamperCertificate) { throw "Signature carries no trusted timestamp." }
+
+      # Rename for a friendly asset name. Authenticode lives in the PE, not
+      # the filename, so the copy stays signed.
+      - name: Stage the signed asset
+        id: asset
+        shell: pwsh
+        run: |
+          $name = "Hark-${{ steps.version.outputs.version }}-windows-x64.exe"
+          Copy-Item target\release\hark-app.exe $name
+          Add-Content -Path $env:GITHUB_OUTPUT -Value "name=$name"
+
+      - name: Publish the GitHub release
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: ${{ steps.version.outputs.tag }}
+          name: Hark ${{ steps.version.outputs.version }}
+          generate_release_notes: true
+          files: ${{ steps.asset.outputs.name }}
