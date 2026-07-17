@@ -4,6 +4,11 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.13.5] - 2026-07-17
+
+### Changed
+- **Phase-4 wrap documentation.** CP6 (live hardware validation) and the signed-release pipeline are marked done in the phase-4 spec, and a CP7 handoff (retire hark-cli) was added for the next session. The three Azure Trusted Signing gotchas found while getting signed releases green were contributed to the shared LL-G knowledge base under a new `github-actions` category.
+
 ## [0.13.4] - 2026-07-17
 
 ### Fixed
