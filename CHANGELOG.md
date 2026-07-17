@@ -4,6 +4,11 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.13.6] - 2026-07-17
+
+### Added
+- **Choose which microphone Hark records from.** Capture can now target a specific input device instead of always using the Windows default: the selected device name is stored in the `[audio]` section of the config, and if that device is later unavailable (unplugged, powered off) capture falls back to the system default rather than stopping. The Settings picker that exposes this lands with the settings-UI update.
+
 ## [0.13.5] - 2026-07-17
 
 ### Changed

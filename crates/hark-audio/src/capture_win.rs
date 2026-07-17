@@ -66,12 +66,42 @@ impl Drop for CaptureHandle {
     }
 }
 
+/// Enumerate the names of the available input devices. Runs the WASAPI query
+/// on a dedicated thread so COM is initialized on a thread we own: the UI
+/// thread inits COM as STA (winit) and cpal wants MTA, which would collide
+/// with `RPC_E_CHANGED_MODE` if we queried inline. The thread inits its own
+/// apartment, does the query, and exits clean. Errors (or no host) yield an
+/// empty list; the caller treats an empty list as "system default only".
+pub fn list_input_devices() -> Vec<String> {
+    std::thread::Builder::new()
+        .name("hark-audio-enumerate".to_string())
+        .spawn(enumerate_input_devices)
+        .ok()
+        .and_then(|t| t.join().ok())
+        .unwrap_or_default()
+}
+
+/// The WASAPI query itself, run only on the dedicated enumeration thread.
+/// The device name is its `Display` form (cpal `DeviceTrait: Display`).
+fn enumerate_input_devices() -> Vec<String> {
+    let host = cpal::default_host();
+    let Ok(devices) = host.input_devices() else {
+        return Vec::new();
+    };
+    devices.map(|d| d.to_string()).collect()
+}
+
 /// Start continuous capture into a ring sized `ring_seconds * live device
 /// rate` (the rate is only known once the stream config resolves, so sizing
-/// is by duration, not sample count). Blocks until the stream is live (or
-/// failed to build). Returns the handle plus the ring `Consumer`, which
-/// moves to the pipeline worker.
-pub fn start(ring_seconds: u32) -> Result<(CaptureHandle, Consumer), CaptureError> {
+/// is by duration, not sample count). `input_device` names a specific
+/// microphone (a name from [`list_input_devices`]); `None`, or a name that no
+/// longer matches any device, falls back to the OS default. Blocks until the
+/// stream is live (or failed to build). Returns the handle plus the ring
+/// `Consumer`, which moves to the pipeline worker.
+pub fn start(
+    ring_seconds: u32,
+    input_device: Option<String>,
+) -> Result<(CaptureHandle, Consumer), CaptureError> {
     let shutdown = Arc::new(AtomicBool::new(false));
     let stream_error = Arc::new(AtomicBool::new(false));
     let (result_tx, result_rx) = mpsc::sync_channel::<Result<(Consumer, u32), CaptureError>>(1);
@@ -81,7 +111,13 @@ pub fn start(ring_seconds: u32) -> Result<(CaptureHandle, Consumer), CaptureErro
     let thread = std::thread::Builder::new()
         .name("hark-audio-capture".to_string())
         .spawn(move || {
-            capture_thread(ring_seconds, thread_error, thread_shutdown, result_tx);
+            capture_thread(
+                ring_seconds,
+                input_device,
+                thread_error,
+                thread_shutdown,
+                result_tx,
+            );
         })
         .expect("spawning the capture thread cannot fail");
 
@@ -107,11 +143,12 @@ pub fn start(ring_seconds: u32) -> Result<(CaptureHandle, Consumer), CaptureErro
 /// then keep the stream alive until shutdown.
 fn capture_thread(
     ring_seconds: u32,
+    input_device: Option<String>,
     stream_error: Arc<AtomicBool>,
     shutdown: Arc<AtomicBool>,
     result_tx: mpsc::SyncSender<Result<(Consumer, u32), CaptureError>>,
 ) {
-    let built = build_stream(ring_seconds, stream_error);
+    let built = build_stream(ring_seconds, input_device.as_deref(), stream_error);
     match built {
         Ok((stream, consumer, rate)) => {
             if let Err(e) = stream.play() {
@@ -132,16 +169,46 @@ fn capture_thread(
     }
 }
 
-/// Pick the default input device's f32 config at its default rate and build
-/// the stream. SampleFormat::F32 is required explicitly (spec §2.4): we do
-/// not trust default heuristics, and Phase 1 does not add integer-format
+/// Resolve the input device: the named one when it is still present, else the
+/// OS default. A configured name that no longer matches (mic unplugged, an
+/// audio interface powered off) degrades to the default with a warning rather
+/// than failing the whole pipeline: keeping dictation working beats a hard
+/// stop over a device change.
+fn select_device(
+    host: &cpal::Host,
+    input_device: Option<&str>,
+) -> Result<cpal::Device, CaptureError> {
+    if let Some(name) = input_device {
+        match host.input_devices() {
+            Ok(mut devices) => {
+                // Match on the `Display` name, the same string the picker
+                // stored (cpal `DeviceTrait: Display`).
+                if let Some(device) = devices.find(|d| d.to_string() == name) {
+                    return Ok(device);
+                }
+                log::warn!(
+                    "configured input device {name:?} not found; falling back to the default"
+                );
+            }
+            Err(e) => log::warn!(
+                "cannot enumerate input devices ({e}); falling back to the default for {name:?}"
+            ),
+        }
+    }
+    host.default_input_device().ok_or(CaptureError::NoDevice)
+}
+
+/// Pick the input device's f32 config at its default rate and build the
+/// stream. SampleFormat::F32 is required explicitly (spec §2.4): we do not
+/// trust default heuristics, and Phase 1 does not add integer-format
 /// conversion paths.
 fn build_stream(
     ring_seconds: u32,
+    input_device: Option<&str>,
     stream_error: Arc<AtomicBool>,
 ) -> Result<(cpal::Stream, Consumer, u32), CaptureError> {
     let host = cpal::default_host();
-    let device = host.default_input_device().ok_or(CaptureError::NoDevice)?;
+    let device = select_device(&host, input_device)?;
 
     let default = device
         .default_input_config()

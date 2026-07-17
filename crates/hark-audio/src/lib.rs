@@ -12,7 +12,7 @@ pub mod resample;
 pub mod ring;
 pub mod window;
 
-pub use capture_win::{start, CaptureError, CaptureHandle};
+pub use capture_win::{list_input_devices, start, CaptureError, CaptureHandle};
 pub use resample::TARGET_RATE;
 pub use ring::{Consumer, Producer, RangeError};
 pub use window::{GateVerdict, WindowParams};

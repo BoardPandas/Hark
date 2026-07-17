@@ -224,7 +224,10 @@ pub fn run(
     let provider = hark_stt::build(&provider_cfg, client.clone())?;
 
     let window = window_params(&settings.audio);
-    let (capture, consumer) = hark_audio::start(hark_audio::window::ring_seconds(&window))?;
+    let (capture, consumer) = hark_audio::start(
+        hark_audio::window::ring_seconds(&window),
+        settings.audio.input_device.clone(),
+    )?;
     let sample_rate = capture.sample_rate();
     log::info!(
         "capture live at {sample_rate} Hz; ptt chord: {chord}; provider: {}",

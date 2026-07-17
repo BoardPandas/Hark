@@ -145,6 +145,11 @@ impl Default for Hotkey {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Audio {
+    /// Which microphone to capture from, by cpal device name. `None` (or a
+    /// name that no longer matches any present device) falls back to the OS
+    /// default input device.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub input_device: Option<String>,
     /// Audio kept from before the chord registers (catches led-in words).
     pub preroll_ms: u32,
     /// Audio kept after release (catches trailing word endings). Adds
@@ -161,6 +166,7 @@ pub struct Audio {
 impl Default for Audio {
     fn default() -> Self {
         Audio {
+            input_device: None,
             preroll_ms: 300,
             tail_ms: 150,
             max_hold_s: 120,
@@ -241,6 +247,23 @@ impl Default for History {
     }
 }
 
+/// In-app update behavior. The check hits the GitHub Releases API (network),
+/// so it is user-controllable; the default is on.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Updates {
+    /// Check GitHub for a newer release once at startup and surface a banner.
+    pub check_on_startup: bool,
+}
+
+impl Default for Updates {
+    fn default() -> Self {
+        Updates {
+            check_on_startup: true,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Settings {
@@ -255,6 +278,7 @@ pub struct Settings {
     pub dictionary: Dictionary,
     pub voice: Voice,
     pub history: History,
+    pub updates: Updates,
 }
 
 impl Default for Settings {
@@ -268,6 +292,7 @@ impl Default for Settings {
             dictionary: Dictionary::default(),
             voice: Voice::default(),
             history: History::default(),
+            updates: Updates::default(),
         }
     }
 }
@@ -543,6 +568,54 @@ mod tests {
 
         let s = Settings::from_toml("version = 1").expect("explicit stamp parses");
         assert_eq!(s.version, 1);
+    }
+
+    #[test]
+    fn input_device_defaults_to_none_and_round_trips_when_set() {
+        // Absent: the OS default microphone (serialized as nothing).
+        let s = Settings::from_toml("").expect("empty TOML parses");
+        assert_eq!(s.audio.input_device, None);
+        assert!(
+            !Settings::default()
+                .to_toml()
+                .unwrap()
+                .contains("input_device"),
+            "the default (OS default mic) must not serialize a key"
+        );
+
+        // Present: the chosen device name parses and survives a save/load.
+        let s = Settings::from_toml("[audio]\ninput_device = \"Yeti Stereo Microphone\"")
+            .expect("named device parses");
+        assert_eq!(
+            s.audio.input_device.as_deref(),
+            Some("Yeti Stereo Microphone")
+        );
+        let text = s.to_toml().expect("serializes");
+        assert_eq!(
+            Settings::from_toml(&text)
+                .unwrap()
+                .audio
+                .input_device
+                .as_deref(),
+            Some("Yeti Stereo Microphone")
+        );
+    }
+
+    #[test]
+    fn updates_default_to_startup_check_on_and_round_trip() {
+        let s = Settings::from_toml("").expect("empty TOML parses");
+        assert!(s.updates.check_on_startup);
+
+        let s = Settings::from_toml("[updates]\ncheck_on_startup = false")
+            .expect("updates section parses");
+        assert!(!s.updates.check_on_startup);
+        let text = s.to_toml().expect("serializes");
+        assert!(
+            !Settings::from_toml(&text)
+                .unwrap()
+                .updates
+                .check_on_startup
+        );
     }
 
     #[test]
