@@ -3,8 +3,9 @@
 //! else lives in `CollapsingHeader`s. Buffers sync into the draft at
 //! widget-render time, so the draft is always current when Save reads it.
 
+use super::capture::{CaptureTransition, HotkeyCapture};
 use crate::theme;
-use egui::{CollapsingHeader, DragValue, RichText, TextEdit, Ui};
+use egui::{CollapsingHeader, Context, DragValue, RichText, TextEdit, Ui};
 use hark_config::{Provider, ProviderKind, Settings, VoiceName};
 
 /// String buffers behind optional config fields (empty = unset) plus the
@@ -136,13 +137,72 @@ pub fn model_endpoint_section(ui: &mut Ui, draft: &mut Settings, bufs: &mut Form
         });
 }
 
-pub fn hotkey_section(ui: &mut Ui, draft: &mut Settings) {
+/// Push-to-talk shortcut: a "Record" button captures held keys via the same
+/// low-level hook the pipeline uses (egui's input can't tell L/R modifiers
+/// apart or see the Win key), with the text field kept as a manual fallback.
+/// Returns whether recording started or ended so the page can pause/resume the
+/// pipeline (only one keyboard hook may run at a time).
+pub fn hotkey_section(
+    ui: &mut Ui,
+    draft: &mut Settings,
+    capture: &mut HotkeyCapture,
+    ctx: &Context,
+) -> CaptureTransition {
     subhead(ui, "Push-to-talk");
-    ui.add(
-        TextEdit::singleline(&mut draft.hotkey.ptt_key)
-            .hint_text("LCtrl+LWin")
-            .desired_width(200.0),
-    );
+    let mut transition = CaptureTransition::None;
+
+    // A completed chord lands straight in the draft and ends recording; the
+    // idle field below then renders with the new value in the same frame.
+    if capture.is_recording() {
+        if let CaptureTransition::Ended = capture.poll_into(&mut draft.hotkey.ptt_key) {
+            transition = CaptureTransition::Ended;
+        }
+    }
+
+    if capture.is_recording() {
+        egui::Frame::group(ui.style()).show(ui, |ui| {
+            let held = capture.held_display();
+            if held.is_empty() {
+                ui.label(RichText::new("Press and hold your shortcut keys...").strong());
+            } else {
+                ui.label(RichText::new(held).strong());
+            }
+            ui.label(
+                RichText::new(
+                    "Release to set. Modifier keys (Ctrl, Shift, Alt, Win), CapsLock, \
+                     and F1..F24 only.",
+                )
+                .small()
+                .weak(),
+            );
+        });
+        if ui.button("Cancel").clicked() {
+            if let CaptureTransition::Ended = capture.cancel() {
+                transition = CaptureTransition::Ended;
+            }
+        }
+        return transition;
+    }
+
+    ui.horizontal(|ui| {
+        ui.add(
+            TextEdit::singleline(&mut draft.hotkey.ptt_key)
+                .hint_text("LCtrl+LWin")
+                .desired_width(160.0),
+        );
+        if ui
+            .button("Record")
+            .on_hover_text("Press the keys you want to hold; Hark captures them")
+            .clicked()
+        {
+            if let CaptureTransition::Started = capture.begin(ctx) {
+                transition = CaptureTransition::Started;
+            }
+        }
+    });
+    if let Some(notice) = capture.notice() {
+        inline_error(ui, notice);
+    }
     match hark_hotkey::PttChord::parse(&draft.hotkey.ptt_key) {
         Ok(_) => {
             ui.label(
@@ -153,6 +213,7 @@ pub fn hotkey_section(ui: &mut Ui, draft: &mut Settings) {
         }
         Err(e) => inline_error(ui, &e.to_string()),
     }
+    transition
 }
 
 /// Every selectable voice, in display order. Shared with the tray menu's

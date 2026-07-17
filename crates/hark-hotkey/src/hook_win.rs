@@ -15,7 +15,7 @@
 //!   (Holding Ctrl+Win marks the Win press as "used in a chord", so the
 //!   Start menu does not fire on release; no swallowing needed.)
 
-use crate::edges::{ChordTracker, PttChord, PttEvent, PttKeyCode};
+use crate::edges::{CaptureEvent, ChordTracker, PttChord, PttEvent, PttKeyCode};
 use crate::{HotkeyError, ListenerHandle};
 use std::cell::RefCell;
 use std::sync::mpsc::{self, Sender};
@@ -54,9 +54,16 @@ fn vk_to_key(vk: u32) -> Option<PttKeyCode> {
 
 /// Per-hook-thread state. The LL hook callback carries no user pointer, but
 /// it always runs on the installing thread, so thread-local state is exact.
-struct HookState {
-    tracker: ChordTracker,
-    tx: Sender<PttEvent>,
+/// The same hook serves push-to-talk (resolved chord edges) and the settings
+/// "record a shortcut" flow (raw key edges); the mode picks which.
+enum HookState {
+    /// Push-to-talk: feed a `ChordTracker`, emit engage/disengage edges.
+    Ptt {
+        tracker: ChordTracker,
+        tx: Sender<PttEvent>,
+    },
+    /// Recording: forward every non-injected chord-capable key edge.
+    Capture { tx: Sender<CaptureEvent> },
 }
 
 thread_local! {
@@ -72,12 +79,21 @@ unsafe extern "system" fn keyboard_hook(code: i32, wparam: WPARAM, lparam: LPARA
         if let Some(key) = vk_to_key(info.vkCode) {
             HOOK_STATE.with(|state| {
                 if let Some(s) = state.borrow_mut().as_mut() {
-                    if let Some(event) = s.tracker.on_event(key, down, injected) {
-                        if s.tx.send(event).is_err() {
-                            // Receiver (the pipeline) is gone: shut this
-                            // listener down rather than hooking keys forever.
-                            unsafe { PostQuitMessage(0) };
+                    // A send error means the receiver is gone (pipeline stopped
+                    // or the record UI closed): shut this hook down rather than
+                    // hooking keys forever.
+                    let disconnected = match s {
+                        HookState::Ptt { tracker, tx } => tracker
+                            .on_event(key, down, injected)
+                            .is_some_and(|event| tx.send(event).is_err()),
+                        HookState::Capture { tx } => {
+                            // Injected input (our own synthesized Ctrl+V) must
+                            // never land in a recorded shortcut.
+                            !injected && tx.send(CaptureEvent { key, down }).is_err()
                         }
+                    };
+                    if disconnected {
+                        unsafe { PostQuitMessage(0) };
                     }
                 }
             });
@@ -86,22 +102,36 @@ unsafe extern "system" fn keyboard_hook(code: i32, wparam: WPARAM, lparam: LPARA
     unsafe { CallNextHookEx(None, code, wparam, lparam) }
 }
 
-/// Install the hook and pump messages until WM_QUIT. Runs as the entire body
-/// of the dedicated listener thread.
+/// Install the hook for push-to-talk: resolved chord edges arrive on `tx`.
 pub(crate) fn spawn_listener(
     chord: PttChord,
     tx: Sender<PttEvent>,
 ) -> Result<ListenerHandle, HotkeyError> {
+    spawn_hook(
+        "hark-hotkey",
+        HookState::Ptt {
+            tracker: ChordTracker::new(chord),
+            tx,
+        },
+    )
+}
+
+/// Install the hook for the record-a-shortcut flow: raw key edges arrive on
+/// `tx`. Same install/teardown as `spawn_listener`.
+pub(crate) fn spawn_capture(tx: Sender<CaptureEvent>) -> Result<ListenerHandle, HotkeyError> {
+    spawn_hook("hark-hotkey-capture", HookState::Capture { tx })
+}
+
+/// Install the hook and pump messages until WM_QUIT. Runs as the entire body
+/// of the dedicated listener thread.
+fn spawn_hook(thread_name: &str, hook_state: HookState) -> Result<ListenerHandle, HotkeyError> {
     let (ready_tx, ready_rx) = mpsc::sync_channel::<Result<u32, HotkeyError>>(1);
 
     let thread = std::thread::Builder::new()
-        .name("hark-hotkey".to_string())
+        .name(thread_name.to_string())
         .spawn(move || {
             HOOK_STATE.with(|state| {
-                *state.borrow_mut() = Some(HookState {
-                    tracker: ChordTracker::new(chord),
-                    tx,
-                });
+                *state.borrow_mut() = Some(hook_state);
             });
 
             // A low-level hook needs no module handle: the callback runs in

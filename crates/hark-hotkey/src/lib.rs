@@ -11,7 +11,9 @@ pub mod edges;
 #[cfg(windows)]
 mod hook_win;
 
-pub use edges::{ChordParseError, ChordTracker, PttChord, PttEvent, PttKeyCode};
+pub use edges::{
+    CaptureBuffer, CaptureEvent, ChordParseError, ChordTracker, PttChord, PttEvent, PttKeyCode,
+};
 
 use std::sync::mpsc::Sender;
 use thiserror::Error;
@@ -57,6 +59,25 @@ pub fn spawn_listener(
     {
         // CGEventTap arrives in checkpoint 7 (NEEDS MAC).
         let _ = (chord, tx);
+        Err(HotkeyError::UnsupportedPlatform)
+    }
+}
+
+/// Start recording a shortcut: every chord-capable key press/release arrives
+/// on `tx` (injected events filtered) so the settings UI can build a chord
+/// with `CaptureBuffer`. Same install/teardown contract as `spawn_listener`;
+/// dropping the handle stops the hook. Only one hook should run at a time, so
+/// the caller pauses the push-to-talk listener while recording.
+pub fn spawn_capture(tx: Sender<CaptureEvent>) -> Result<ListenerHandle, HotkeyError> {
+    #[cfg(windows)]
+    {
+        hook_win::spawn_capture(tx)
+    }
+    #[cfg(not(windows))]
+    {
+        // Recording rides the same platform hook, so it lands with the
+        // CGEventTap in checkpoint 7 (NEEDS MAC).
+        let _ = tx;
         Err(HotkeyError::UnsupportedPlatform)
     }
 }

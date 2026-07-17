@@ -4,6 +4,7 @@
 //! restart. Failures leave the app running with the pipeline stopped and a
 //! visible cause; never a silent dead state.
 
+pub mod capture;
 pub mod cleanup;
 pub mod form;
 pub mod get_started;
@@ -25,6 +26,8 @@ pub struct SettingsPage {
     get_started: get_started::GetStarted,
     /// Outcome of the last save; persists until the next one.
     save_notice: Option<Result<String, String>>,
+    /// Cross-frame state for recording the push-to-talk shortcut.
+    hotkey: capture::HotkeyCapture,
 }
 
 impl SettingsPage {
@@ -39,6 +42,7 @@ impl SettingsPage {
             test: test::TestConnection::new(),
             get_started: get_started::GetStarted::new(onboarding),
             save_notice: None,
+            hotkey: capture::HotkeyCapture::new(),
         }
     }
 
@@ -68,7 +72,15 @@ impl SettingsPage {
             pipeline.start(saved, ui.ctx());
         }
         let test_finished = self.test.show(ui, &self.draft);
-        form::hotkey_section(ui, &mut self.draft);
+        // Recording a shortcut installs its own keyboard hook; only one may run
+        // at a time, so the pipeline's push-to-talk hook stands down while
+        // recording and resumes (with the still-saved chord) when it ends.
+        let ctx = ui.ctx().clone();
+        match form::hotkey_section(ui, &mut self.draft, &mut self.hotkey, &ctx) {
+            capture::CaptureTransition::Started => pipeline.stop(),
+            capture::CaptureTransition::Ended => pipeline.start(saved, &ctx),
+            capture::CaptureTransition::None => {}
+        }
         form::voice_section(ui, &mut self.draft);
         cleanup::section(ui, &mut self.draft, &mut self.bufs, &mut self.cleanup_keys);
         form::behavior_section(ui, &mut self.draft);
