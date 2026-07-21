@@ -4,6 +4,16 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.18.0] - 2026-07-21
+
+### Added
+- **Hark can now transcribe without the internet.** Under Settings → On-device model you can download a speech model onto your computer and have Hark use it. Nothing is sent anywhere: the audio never leaves the machine. Two ways to use it, and you pick: as a **backup**, where Hark tries your cloud provider first and quietly falls back to the local model when the provider is down, times out, or your key stops working — so a dropped connection costs you a second instead of your sentence; or as your **primary engine**, where Hark never contacts a provider at all and does not ask you for an API key. The model is Parakeet TDT 0.6B v3, it is about 670 MB, and it is not included in Hark — you download it on demand from the Settings page, with a progress bar, a cancel button, and a delete button to get the space back later. Cancelling keeps what you have already downloaded, so starting again picks up where you left off rather than beginning again.
+- **History says which engine wrote each line.** An entry produced on-device is labelled `local`, and one produced because the cloud failed is labelled `local (fallback)`, so a transcript that reads differently from usual explains itself instead of being blamed on the wrong model.
+
+### Changed
+- **When a local backup is ready, Hark gives the cloud a shorter deadline.** Waiting the full 15 seconds for a failing provider and only then spending a couple of seconds transcribing locally would make a rescued dictation slower than no rescue at all. With a downloaded model standing by, cloud requests get 6 seconds before Hark falls back (`local_stt.fallback_after_ms`). Without one, nothing changes.
+- **The first dictation using the local model says what it is doing.** Loading the model into memory takes a few seconds, once, and the status bar now names that instead of looking frozen. After that it stays loaded and every dictation is fast — at the cost of the memory it occupies, which is why there is a Delete button.
+
 ## [0.17.0] - 2026-07-21
 
 ### Fixed

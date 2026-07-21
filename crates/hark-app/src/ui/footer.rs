@@ -56,6 +56,14 @@ fn state_side(ui: &mut Ui, status: &PipelineStatus, settings: &Settings) -> bool
         PipelineStatus::Processing => {
             icon_label(ui, theme::icons::CIRCLE_NOTCH, accent, "Processing");
         }
+        PipelineStatus::LoadingModel => {
+            icon_label(
+                ui,
+                theme::icons::CIRCLE_NOTCH,
+                accent,
+                "Loading the on-device model\u{2026}",
+            );
+        }
         PipelineStatus::Errored {
             detail,
             key_related,

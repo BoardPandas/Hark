@@ -65,6 +65,11 @@ pub enum PipelineEvent {
     Recording,
     /// The chord released; encode + STT request are in flight.
     Processing,
+    /// The on-device model is being read into RAM. Emitted only for the first
+    /// dictation that needs it (the engine then stays resident), but that load
+    /// is a multi-second pause, so the UI must be able to say why rather than
+    /// looking hung.
+    LoadingLocalModel,
     /// The dictation injected successfully; the record goes to history.
     Injected(DictationRecord),
     /// The dictation ended without injecting.

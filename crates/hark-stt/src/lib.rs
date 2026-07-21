@@ -57,9 +57,23 @@ pub fn build(
 /// resumption are a large share of warm-request latency savings. Build once,
 /// clone freely (`Client` is an `Arc` internally).
 pub fn shared_client() -> Result<reqwest::blocking::Client, SttError> {
+    client_with_timeout(TOTAL_TIMEOUT_MS)
+}
+
+/// A client identical to [`shared_client`] but with a different total request
+/// budget.
+///
+/// This exists for the on-device fallback: when a local model is armed and
+/// ready, waiting the full [`TOTAL_TIMEOUT_MS`] before failing over would make
+/// a rescued dictation take 15 s of cloud plus ~2 s of local decoding. A
+/// fallback that slow is worse than none, so the pipeline gives the cloud a
+/// shorter budget precisely when it has something to fall back to.
+pub fn client_with_timeout(total_ms: u64) -> Result<reqwest::blocking::Client, SttError> {
     reqwest::blocking::Client::builder()
-        .connect_timeout(std::time::Duration::from_millis(CONNECT_TIMEOUT_MS))
-        .timeout(std::time::Duration::from_millis(TOTAL_TIMEOUT_MS))
+        .connect_timeout(std::time::Duration::from_millis(
+            CONNECT_TIMEOUT_MS.min(total_ms),
+        ))
+        .timeout(std::time::Duration::from_millis(total_ms))
         .build()
         .map_err(|e| SttError::Http {
             provider: "client".to_string(),

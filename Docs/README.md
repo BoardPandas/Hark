@@ -17,6 +17,7 @@ This is the canonical wiki for Hark, a push-to-talk voice dictation desktop app 
 | **What Hark is and how it is laid out** | [OVERVIEW.md](OVERVIEW.md) |
 | **Configure settings and the BYOK key** | [CONFIGURATION.md](core/CONFIGURATION.md) |
 | **How dictation turns speech into text** | [TRANSCRIPTION.md](features/TRANSCRIPTION.md) |
+| **Transcribe offline, with no provider** | [ON_DEVICE_STT.md](features/ON_DEVICE_STT.md) |
 | **Cut a signed release** | [RELEASE_AND_PACKAGING.md](operations/RELEASE_AND_PACKAGING.md) |
 | **Look up a term** | [GLOSSARY.md](GLOSSARY.md) |
 
@@ -42,6 +43,7 @@ One page per major subsystem of the dictation pipeline and the desktop shell.
 |----------|-------------|
 | [AUDIO_CAPTURE.md](features/AUDIO_CAPTURE.md) | The cpal ring buffer with pre-roll and tail, silence trimming, and the native push-to-talk key hooks. |
 | [TRANSCRIPTION.md](features/TRANSCRIPTION.md) | The `SttProvider` trait, the OpenAI-compatible and Deepgram adapters, WAV encoding, and biasing. |
+| [ON_DEVICE_STT.md](features/ON_DEVICE_STT.md) | Opt-in local Parakeet model: download manager, the cloud/local fallback policy, and the `local-engine` build feature. |
 | [DICTIONARY.md](features/DICTIONARY.md) | Phonetic post-correction of transcripts plus per-provider biasing term generation. |
 | [VOICE_CLEANUP.md](features/VOICE_CLEANUP.md) | Voice presets and the optional BYOK LLM cleanup pass over the raw transcript. |
 | [TEXT_INJECTION.md](features/TEXT_INJECTION.md) | Clipboard stash-set-paste-restore injection with an enigo keystroke fallback. |

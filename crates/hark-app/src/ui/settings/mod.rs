@@ -9,9 +9,11 @@ pub mod cleanup;
 pub mod form;
 pub mod get_started;
 pub mod keys;
+pub mod local;
 pub mod test;
 pub mod updates;
 
+use crate::model_download::ModelDownload;
 use crate::pipeline::PipelineController;
 use crate::theme;
 use crate::update::Updater;
@@ -39,6 +41,9 @@ pub struct SettingsPage {
     comms_default: Option<String>,
     /// Cross-frame state for recording the push-to-talk shortcut.
     hotkey: capture::HotkeyCapture,
+    /// On-device model download state. Lives here rather than in `HarkApp`
+    /// because nothing outside Settings drives it.
+    download: ModelDownload,
 }
 
 impl SettingsPage {
@@ -56,6 +61,12 @@ impl SettingsPage {
             mic_devices: hark_audio::list_input_devices(),
             comms_default: hark_audio::communications_default_device(),
             hotkey: capture::HotkeyCapture::new(),
+            // An unknown model id in config falls back to the catalog default
+            // rather than failing construction; the section shows what it is.
+            download: ModelDownload::new(
+                hark_local_stt::find(&settings.local_stt.model)
+                    .unwrap_or(&hark_local_stt::PARAKEET_V3_INT8),
+            ),
         }
     }
 
@@ -113,6 +124,7 @@ impl SettingsPage {
             self.mic_devices = hark_audio::list_input_devices();
             self.comms_default = hark_audio::communications_default_device();
         }
+        local::section(ui, &mut self.draft, &mut self.download);
         form::voice_section(ui, &mut self.draft);
         cleanup::section(ui, &mut self.draft, &mut self.bufs, &mut self.cleanup_keys);
         form::behavior_section(ui, &mut self.draft);

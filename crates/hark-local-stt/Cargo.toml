@@ -1,0 +1,40 @@
+[package]
+name = "hark-local-stt"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Hark opt-in on-device speech-to-text: model download manager and sherpa-onnx Parakeet engine."
+
+[dependencies]
+# Same reqwest surface the other network crates pin (static rustls roots, no
+# OS store). Plain GET only, but unlike hark-update this crate streams the
+# response to disk: the encoder alone is 652 MB, so `.bytes()` would be a
+# 652 MB RAM spike.
+reqwest = { version = "0.13", default-features = false, features = [
+    "blocking",
+    "rustls",
+    "webpki-roots",
+] }
+hark-config = { path = "../hark-config" }
+log = "0.4"
+thiserror = "2"
+# Integrity check for downloaded weights against the sha256 pinned in model.rs.
+sha2 = "0.10"
+
+# The native engine. Optional and OFF by default: linking it statically costs
+# ~28 MB of binary (measured 2026-07-21, linux-x64), which every user would
+# pay whether or not they ever enable local STT. Building without this feature
+# still compiles and tests the whole download/model-management half.
+[dependencies.sherpa-onnx]
+version = "1.13.4"
+default-features = false
+features = ["static"]
+optional = true
+
+[features]
+default = []
+engine = ["dep:sherpa-onnx"]
+
+[dev-dependencies]
+tempfile = "3"

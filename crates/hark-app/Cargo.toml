@@ -20,6 +20,9 @@ hark-config = { path = "../hark-config" }
 hark-audio = { path = "../hark-audio" }
 hark-hotkey = { path = "../hark-hotkey" }
 hark-keychain = { path = "../hark-keychain" }
+# Opt-in on-device STT: model catalog, download manager, and (behind the
+# "local-engine" feature below) the native engine itself.
+hark-local-stt = { path = "../hark-local-stt" }
 hark-pipeline = { path = "../hark-pipeline" }
 # Guards against a second process (autostart + a manual launch) racing this
 # one for the keyboard hook, the tray, and the history DB.
@@ -37,3 +40,12 @@ log = "0.4"
 # Tray icon + menu (muda arrives re-exported as `tray_icon::menu`). Created
 # on the main thread after the event loop starts (spec §3.8).
 tray-icon = "0.24.1"
+
+[features]
+# On by default so a stock build can actually use on-device STT. Building
+# with --no-default-features drops the native sherpa-onnx + ONNX Runtime
+# link, which is ~28 MB of binary (measured 2026-07-21, linux-x64), for a
+# slim cloud-only artifact. The Settings section explains itself in that
+# build rather than offering a toggle that cannot work.
+default = ["local-engine"]
+local-engine = ["hark-local-stt/engine", "hark-pipeline/engine"]

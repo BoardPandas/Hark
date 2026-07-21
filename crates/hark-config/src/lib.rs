@@ -8,8 +8,10 @@
 //! user hand-added are dropped. Acceptable while the schema is additive
 //! (Phase 4 spec §5); the struct is the source of truth.
 
+mod local;
 mod voice;
 
+pub use local::{LocalMode, LocalStt, DEFAULT_FALLBACK_AFTER_MS, DEFAULT_MODEL};
 pub use voice::{
     resolve_cleanup_provider, CleanupKeySource, CleanupResolution, ResolvedCleanupProvider, Voice,
     VoiceName, VoiceProvider,
@@ -301,6 +303,7 @@ pub struct Settings {
     pub history: History,
     pub updates: Updates,
     pub startup: Startup,
+    pub local_stt: LocalStt,
 }
 
 impl Default for Settings {
@@ -316,6 +319,7 @@ impl Default for Settings {
             history: History::default(),
             updates: Updates::default(),
             startup: Startup::default(),
+            local_stt: LocalStt::default(),
         }
     }
 }
@@ -402,6 +406,7 @@ impl Settings {
             ));
         }
         voice::validate(&self.voice)?;
+        local::validate(&self.local_stt)?;
         Ok(())
     }
 }
@@ -458,6 +463,14 @@ pub fn default_data_dir() -> Option<PathBuf> {
         }
         std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".local").join("share").join("hark"))
     }
+}
+
+/// Where downloaded on-device model weights live: `<data_dir>/models/<model>`.
+/// `None` when the OS gives us no home (headless CI), matching
+/// [`default_data_dir`]. `model` is validated to be a plain path segment, so
+/// the result can never escape the models root.
+pub fn model_dir(model: &str) -> Option<PathBuf> {
+    default_data_dir().map(|d| d.join("models").join(model))
 }
 
 #[cfg(test)]

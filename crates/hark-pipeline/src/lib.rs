@@ -9,6 +9,7 @@
 //! may drop the receiver immediately.
 
 mod events;
+mod local;
 mod retry;
 mod state;
 mod worker;
@@ -198,6 +199,43 @@ fn build_cleanup(
     })
 }
 
+/// Build the on-device plan, or `None` when local STT is off or unusable.
+///
+/// Fail-open like `build_cleanup`: an unknown model id or a missing data
+/// directory warns and degrades to cloud-only rather than refusing to start.
+/// The one exception is primary mode, where degrading silently would leave
+/// the user with no engine at all — so that case logs an error, and the
+/// worker's policy surfaces it on the first dictation.
+fn build_local(settings: &Settings) -> Option<local::LocalPlan> {
+    let cfg = &settings.local_stt;
+    if !cfg.mode.uses_local() {
+        return None;
+    }
+    if !hark_local_stt::LocalEngine::is_available() {
+        log::warn!(
+            "local STT is set to {} but this build has no on-device engine; using cloud only",
+            cfg.mode.label()
+        );
+        return None;
+    }
+    let (spec, dir) = match hark_local_stt::resolve(&cfg.model) {
+        Ok(pair) => pair,
+        Err(e) => {
+            log::error!("local STT unavailable: {e}");
+            return None;
+        }
+    };
+    let plan = local::LocalPlan::new(cfg.mode, spec, dir, cfg.threads);
+    if !plan.is_ready() {
+        log::warn!(
+            "local model {} is not downloaded yet; mode={}",
+            spec.id,
+            cfg.mode.label()
+        );
+    }
+    Some(plan)
+}
+
 fn window_params(audio: &hark_config::Audio) -> WindowParams {
     WindowParams {
         preroll_ms: audio.preroll_ms,
@@ -237,7 +275,31 @@ pub fn run(
     let provider_cfg = provider_config(settings, api_key)?;
     let prewarm_url = provider_cfg.base_url.clone();
 
-    let provider = hark_stt::build(&provider_cfg, client.clone())?;
+    let local = build_local(settings);
+    let mode = settings.local_stt.mode;
+
+    // Primary mode never contacts a provider, so it must not require a key
+    // (that is the whole point of "I don't want to use a cloud model").
+    let provider = if mode.uses_cloud() {
+        // A ready local fallback earns the cloud a *shorter* leash: the full
+        // 15 s timeout plus on-device decoding would make a rescued dictation
+        // slower than no fallback at all.
+        let fallback_armed = mode == hark_config::LocalMode::Fallback
+            && local.as_ref().is_some_and(|p| p.is_ready());
+        let stt_client = if fallback_armed {
+            log::info!(
+                "on-device fallback armed; cloud requests capped at {} ms",
+                settings.local_stt.fallback_after_ms
+            );
+            hark_stt::client_with_timeout(settings.local_stt.fallback_after_ms)?
+        } else {
+            client.clone()
+        };
+        Some(hark_stt::build(&provider_cfg, stt_client)?)
+    } else {
+        log::info!("local STT is primary; no cloud provider will be contacted");
+        None
+    };
 
     let window = window_params(&settings.audio);
     let (capture, consumer) = hark_audio::start(
@@ -260,6 +322,8 @@ pub fn run(
         window,
         inject: inject_settings(&settings.inject),
         provider,
+        cloud_label: provider_cfg.label.clone(),
+        local,
         corrector: hark_dictionary::Corrector::new(&settings.dictionary.terms),
         cleanup,
         prewarm_url,

@@ -45,3 +45,19 @@ clipboard_retries = 8         # bounded retries while the clipboard is busy
 # spelling; the same list also feeds provider biasing. The pre-Phase-2 key
 # name "bias_terms" still works.
 terms = []
+
+[local_stt]
+# Opt-in on-device transcription. The model is NOT shipped with Hark; it is
+# downloaded on demand from Settings -> On-device model (~670 MB on disk,
+# ~1.2 GB of RAM once loaded).
+#
+#   off       never used (default)
+#   fallback  cloud first; the local model rescues a failed or timed-out request
+#   primary   local only; no provider is contacted and no API key is required
+mode = "off"
+model = "parakeet-tdt-0.6b-v3-int8"
+threads = 2
+# Cloud request budget used INSTEAD of the usual 15 s, but only while a
+# downloaded model is standing by. Waiting the full 15 s and then decoding
+# locally would make a rescued dictation slower than no fallback at all.
+fallback_after_ms = 6000

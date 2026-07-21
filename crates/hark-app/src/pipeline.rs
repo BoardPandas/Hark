@@ -19,6 +19,10 @@ pub enum PipelineStatus {
     Recording,
     /// Chord released; request in flight.
     Processing,
+    /// Reading the on-device model into RAM. Only the first dictation after a
+    /// pipeline start sees this (the engine then stays resident), but it lasts
+    /// seconds, so it gets its own state rather than looking like a hang.
+    LoadingModel,
     /// Running, but the last dictation failed. Sticky until the next
     /// dictation starts.
     Errored { detail: String, key_related: bool },
@@ -95,8 +99,12 @@ impl PipelineController {
             let _ = tx.send(StorageCmd::Prune(storage::retention(settings)));
         }
         let provider = settings.provider.kind.label();
+        // Primary-mode local STT contacts no provider, so a missing key must
+        // not stop the pipeline — running keyless is the entire point of that
+        // mode. Every other mode still needs one.
         let api_key = match hark_keychain::resolve_key(provider) {
             Ok(k) => k,
+            Err(_) if !settings.local_stt.mode.uses_cloud() => String::new(),
             Err(e) => {
                 // Missing/unreadable key: by construction key-related.
                 self.status = PipelineStatus::Stopped {
@@ -167,6 +175,7 @@ fn next_status(event: PipelineEvent) -> PipelineStatus {
     match event {
         PipelineEvent::Recording => PipelineStatus::Recording,
         PipelineEvent::Processing => PipelineStatus::Processing,
+        PipelineEvent::LoadingLocalModel => PipelineStatus::LoadingModel,
         // CP4 forwards the record to the storage thread; for now reaching
         // Idle is the whole story the footer needs.
         PipelineEvent::Injected(_) => PipelineStatus::Idle,

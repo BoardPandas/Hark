@@ -3,6 +3,7 @@
 //! logging is lengths/counts/millis, never key material, audio, or text.
 
 use crate::events::{DictationRecord, FailStage, PipelineEvent};
+use crate::local::{LocalPlan, Source, Transcriber};
 use crate::retry::should_retry;
 use crate::state::{advance, Action, Event, PipelineState};
 use hark_audio::ring::Consumer;
@@ -39,7 +40,14 @@ pub(crate) struct Worker {
     pub sample_rate: u32,
     pub window: WindowParams,
     pub inject: InjectSettings,
-    pub provider: Box<dyn SttProvider>,
+    /// The cloud adapter. `None` when `[local_stt] mode = "primary"`: that
+    /// mode never contacts a provider and does not even require an API key.
+    pub provider: Option<Box<dyn SttProvider>>,
+    /// Provider label for the dictation record. Kept separately because
+    /// `provider` may be absent while the record still needs a label.
+    pub cloud_label: String,
+    /// On-device engine plan; `None` when local STT is off or unavailable.
+    pub local: Option<LocalPlan>,
     /// Dictionary post-correction, built once from the configured terms.
     pub corrector: Corrector,
     /// Optional voice cleanup between dictionary pass 1 and injection.
@@ -58,8 +66,12 @@ pub(crate) struct Worker {
 
 /// The one long-lived worker loop. Exits when the hotkey listener drops its
 /// sender (pipeline shutdown).
-pub(crate) fn run(worker: Worker, rx: Receiver<PttEvent>) {
-    prewarm(&worker.client, &worker.prewarm_url);
+pub(crate) fn run(mut worker: Worker, rx: Receiver<PttEvent>) {
+    // Primary-mode never issues a cloud request, so warming a connection to a
+    // provider we will not call would just be a pointless network round trip.
+    if worker.provider.is_some() {
+        prewarm(&worker.client, &worker.prewarm_url);
+    }
     if let Some(url) = worker
         .cleanup
         .as_ref()
@@ -88,7 +100,7 @@ pub(crate) fn run(worker: Worker, rx: Receiver<PttEvent>) {
         state = next;
         if let Action::Dictate { down_abs, up_abs } = action {
             let _ = worker.events.send(PipelineEvent::Processing);
-            state = dictate(&worker, down_abs, up_abs, state);
+            state = dictate(&mut worker, down_abs, up_abs, state);
         }
     }
     log::debug!("ptt channel closed; pipeline worker exiting");
@@ -114,10 +126,14 @@ fn prewarm(client: &reqwest::blocking::Client, url: &str) {
 /// One full dictation: assemble -> gate -> encode -> transcribe -> inject.
 /// Always returns the post-dictation state (Idle via Injected or Aborted).
 /// Every exit reports its outcome on the events channel (best-effort).
-fn dictate(worker: &Worker, down_abs: u64, up_abs: u64, state: PipelineState) -> PipelineState {
+fn dictate(worker: &mut Worker, down_abs: u64, up_abs: u64, state: PipelineState) -> PipelineState {
     let released = Instant::now();
+    // Cloned up front so reporting a failure does not hold a borrow of
+    // `worker` across the transcription step, which needs `&mut` for the
+    // lazily-loaded on-device engine. `Sender` clones are cheap.
+    let events = worker.events.clone();
     let fail = |stage: FailStage, detail: String| {
-        let _ = worker.events.send(PipelineEvent::Failed { stage, detail });
+        let _ = events.send(PipelineEvent::Failed { stage, detail });
     };
 
     let clip = match hark_audio::assemble_window(
@@ -150,8 +166,14 @@ fn dictate(worker: &Worker, down_abs: u64, up_abs: u64, state: PipelineState) ->
     };
     let audio_ms = (clip.samples_16k.len() as u64) * 1_000 / 16_000;
 
+    // Only the cloud adapters need a WAV; the on-device engine consumes the
+    // f32 samples directly. In primary mode there is no cloud adapter, so
+    // encoding one would be pure waste on the hot path.
     let encode_started = Instant::now();
-    let wav = hark_stt::wav::encode_wav_16k_mono(&clip.samples_16k);
+    let wav = match worker.provider {
+        Some(_) => hark_stt::wav::encode_wav_16k_mono(&clip.samples_16k),
+        None => Vec::new(),
+    };
     log::debug!(
         "clip: {} samples at 16 kHz ({} bytes WAV, encoded in {} ms)",
         clip.samples_16k.len(),
@@ -159,14 +181,29 @@ fn dictate(worker: &Worker, down_abs: u64, up_abs: u64, state: PipelineState) ->
         encode_started.elapsed().as_millis()
     );
 
-    let transcript = match transcribe_with_retry(worker.provider.as_ref(), &wav) {
-        Ok(t) => t,
+    let mode = worker
+        .local
+        .as_ref()
+        .map_or(hark_config::LocalMode::Off, |p| p.mode);
+    let local_ready = worker.local.as_ref().is_some_and(|p| p.is_ready());
+    let mut engines = Engines {
+        // Disjoint field borrows: `provider` shared, `local` mutable.
+        provider: worker.provider.as_deref(),
+        wav: &wav,
+        local: worker.local.as_mut(),
+        samples: &clip.samples_16k,
+        events: &events,
+    };
+    let outcome = match crate::local::transcribe(mode, local_ready, &mut engines) {
+        Ok(o) => o,
         Err(e) => {
             log::error!("transcription failed: {e}");
             fail(FailStage::Transcribe, e.to_string());
             return advance(state, Event::Aborted).0;
         }
     };
+    let source = outcome.source;
+    let transcript = outcome.transcript;
     let state = advance(state, Event::TranscriptReady).0;
 
     if transcript.text.trim().is_empty() {
@@ -184,8 +221,12 @@ fn dictate(worker: &Worker, down_abs: u64, up_abs: u64, state: PipelineState) ->
         Ok(()) => {
             let total_ms = released.elapsed().as_millis() as u64;
             log::info!(
-                "dictation injected: {} chars, request {} ms, release-to-inject {total_ms} ms",
+                "dictation injected: {} chars, {} {} ms, release-to-inject {total_ms} ms",
                 cleaned.text.chars().count(),
+                match source {
+                    Source::Cloud => "request",
+                    _ => "on-device decode",
+                },
                 transcript.request_ms,
             );
             // The labels state what actually shaped the text: a skipped,
@@ -196,12 +237,22 @@ fn dictate(worker: &Worker, down_abs: u64, up_abs: u64, state: PipelineState) ->
                 Some(plan) => (plan.voice.name().to_string(), Some(plan.model.clone())),
                 None => (Voice::Verbatim.name().to_string(), None),
             };
-            let _ = worker.events.send(PipelineEvent::Injected(DictationRecord {
+            // Name the engine that actually produced this line. A fallback
+            // dictation credited to the cloud provider would make history
+            // lie about why a transcript reads the way it does.
+            let stt_model = match source {
+                Source::Cloud => worker.stt_model.clone(),
+                _ => worker
+                    .local
+                    .as_ref()
+                    .map_or_else(String::new, |p| p.spec.id.to_string()),
+            };
+            let _ = events.send(PipelineEvent::Injected(DictationRecord {
                 raw_text: transcript.text,
                 final_text: cleaned.text,
                 voice,
-                stt_provider: worker.provider.label().to_string(),
-                stt_model: worker.stt_model.clone(),
+                stt_provider: source.label(&worker.cloud_label),
+                stt_model,
                 cleanup_model,
                 audio_ms,
                 stt_ms: transcript.request_ms as u64,
@@ -296,6 +347,41 @@ fn corrected_text(corrector: &Corrector, transcript_text: &str) -> String {
         started.elapsed().as_millis()
     );
     text
+}
+
+/// Binds one dictation's audio to whichever engines this worker has, so the
+/// cloud/local policy in [`crate::local`] can stay pure and testable.
+struct Engines<'a> {
+    provider: Option<&'a dyn SttProvider>,
+    /// Empty in primary mode, where no WAV is ever encoded.
+    wav: &'a [u8],
+    local: Option<&'a mut LocalPlan>,
+    samples: &'a [f32],
+    events: &'a Sender<PipelineEvent>,
+}
+
+impl Transcriber for Engines<'_> {
+    fn cloud(&mut self) -> Option<Result<Transcript, SttError>> {
+        let provider = self.provider?;
+        Some(transcribe_with_retry(provider, self.wav))
+    }
+
+    fn local(&mut self) -> Result<Transcript, hark_local_stt::LocalSttError> {
+        let plan = self
+            .local
+            .as_mut()
+            .ok_or(hark_local_stt::LocalSttError::EngineUnavailable)?;
+        // First use reads ~670 MB of weights into RAM, which takes seconds.
+        // Say so before blocking, or the app just looks hung.
+        if !plan.is_loaded() {
+            let _ = self.events.send(PipelineEvent::LoadingLocalModel);
+        }
+        let decoded = plan.engine()?.transcribe(self.samples)?;
+        Ok(Transcript {
+            text: decoded.text,
+            request_ms: decoded.request_ms,
+        })
+    }
 }
 
 /// At most one retry, and only when `should_retry` says the failure class

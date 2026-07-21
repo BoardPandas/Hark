@@ -12,6 +12,10 @@ hark-config = { path = "../hark-config" }
 hark-dictionary = { path = "../hark-dictionary" }
 hark-hotkey = { path = "../hark-hotkey" }
 hark-inject = { path = "../hark-inject" }
+# Opt-in on-device STT. The native engine sits behind this crate's own
+# "engine" feature, forwarded from hark-app; without it only the model
+# download/management half compiles in.
+hark-local-stt = { path = "../hark-local-stt" }
 hark-keychain = { path = "../hark-keychain" }
 hark-stt = { path = "../hark-stt" }
 hark-voice = { path = "../hark-voice" }
@@ -20,3 +24,8 @@ log = "0.4"
 # pre-warm request). Same version/features as hark-stt; cargo unifies them.
 reqwest = { version = "0.13", default-features = false, features = ["blocking"] }
 thiserror = "2"
+
+[features]
+default = []
+# Forwarded by hark-app; pulls the ~28 MB native sherpa-onnx engine in.
+engine = ["hark-local-stt/engine"]

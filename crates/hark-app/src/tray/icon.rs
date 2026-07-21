@@ -39,7 +39,9 @@ pub fn state(status: &PipelineStatus) -> TrayState {
     match status {
         PipelineStatus::Idle => TrayState::Idle,
         PipelineStatus::Recording => TrayState::Recording,
-        PipelineStatus::Processing => TrayState::Processing,
+        // Loading the model is work in flight, same as a request: the tray
+        // shows the processing state rather than inventing a fourth icon.
+        PipelineStatus::Processing | PipelineStatus::LoadingModel => TrayState::Processing,
         PipelineStatus::Errored {
             key_related: true, ..
         }
@@ -59,6 +61,7 @@ pub fn tooltip(status: &PipelineStatus, chord: &str) -> String {
         PipelineStatus::Idle => format!("Hark: listening for {chord}"),
         PipelineStatus::Recording => "Hark: recording".to_string(),
         PipelineStatus::Processing => "Hark: processing".to_string(),
+        PipelineStatus::LoadingModel => "Hark: loading the on-device model".to_string(),
         PipelineStatus::Errored { detail, .. } => {
             format!("Hark: last dictation failed. {detail}")
         }
