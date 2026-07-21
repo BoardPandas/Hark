@@ -29,6 +29,25 @@ fn main() -> eframe::Result {
     let launched_hidden = std::env::args().any(|a| a == hark_autostart::HIDDEN_FLAG);
     log::info!("startup: launched_hidden={launched_hidden}");
 
+    // Bound to a named variable, not `_`: dropping the guard releases the lock,
+    // and `let _ =` would do that on this very line. It must live to the end of
+    // main, past run_native.
+    let _instance_guard = match hark_single_instance::acquire() {
+        Ok(Some(guard)) => Some(guard),
+        Ok(None) => {
+            // Autostart plus a manual launch is the common way here. Exiting
+            // quietly leaves the running instance untouched in the tray.
+            log::info!("startup: another Hark instance is already running; exiting");
+            return Ok(());
+        }
+        // Fail open: a guard that can block startup is worse than the double
+        // instance it exists to prevent.
+        Err(e) => {
+            log::warn!("startup: single-instance check failed ({e}); starting anyway");
+            None
+        }
+    };
+
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_title("Hark")

@@ -4,6 +4,11 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.16.0] - 2026-07-21
+
+### Added
+- **Only one Hark runs at a time.** Starting Hark while it is already running — the usual way being launch-at-login plus a manual launch or a double-click on the Start Menu shortcut — used to start a second copy, leaving two programs fighting over the same push-to-talk key, two tray icons, and two writers on one history database. The second copy now notices the first and exits quietly, leaving the running Hark alone. Signing in as a different user still gets its own Hark, and force-quitting Hark never blocks the next launch.
+
 ## [0.15.0] - 2026-07-21
 
 ### Added

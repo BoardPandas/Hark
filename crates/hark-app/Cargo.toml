@@ -21,6 +21,9 @@ hark-audio = { path = "../hark-audio" }
 hark-hotkey = { path = "../hark-hotkey" }
 hark-keychain = { path = "../hark-keychain" }
 hark-pipeline = { path = "../hark-pipeline" }
+# Guards against a second process (autostart + a manual launch) racing this
+# one for the keyboard hook, the tray, and the history DB.
+hark-single-instance = { path = "../hark-single-instance" }
 hark-store = { path = "../hark-store" }
 hark-stt = { path = "../hark-stt" }
 # In-app update checker + Windows self-update (GitHub Releases). Reuses the

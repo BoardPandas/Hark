@@ -1,0 +1,28 @@
+[package]
+name = "hark-single-instance"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Hark single-instance guard: a named kernel mutex on Windows, an flock'd lock file elsewhere. The guard must outlive the process's useful work."
+
+[dependencies]
+thiserror = "2"
+
+# CreateMutexW needs Win32_Security for the SECURITY_ATTRIBUTES parameter type
+# even though we pass None. Same windows-rs pin as hark-hotkey / hark-update.
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.62.2", features = [
+    "Win32_Foundation",
+    "Win32_Security",
+    "Win32_System_Threading",
+] }
+
+# The lock file lives in Hark's per-user data dir; hark-config owns that
+# decision for the whole workspace, so we borrow it rather than re-deriving it.
+[target.'cfg(unix)'.dependencies]
+hark-config = { path = "../hark-config" }
+libc = "0.2"
+
+[dev-dependencies]
+tempfile = "3"
