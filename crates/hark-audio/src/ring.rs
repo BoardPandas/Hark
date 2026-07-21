@@ -63,9 +63,19 @@ impl Producer {
             .store(start + samples.len() as u64, Ordering::Release);
     }
 
-    /// Downmix interleaved multi-channel frames to mono by averaging, then
-    /// push. Allocation-free: averaging happens frame-by-frame on the way in.
-    /// A trailing partial frame (malformed input) is dropped.
+    /// Downmix interleaved multi-channel frames to mono by taking the FIRST
+    /// channel, then push. Allocation-free; a trailing partial frame
+    /// (malformed input) is dropped.
+    ///
+    /// First channel, not an average, because averaging is only safe when every
+    /// channel carries the signal. Laptop array microphones commonly present a
+    /// second channel that is a near-silent reference, and averaging speech with
+    /// silence costs 6 dB — enough to drop an otherwise fine utterance under the
+    /// loudness gate. Two genuinely live channels are near-identical for a
+    /// co-located pair, so taking one loses nothing there either. The live
+    /// channel is channel 0 on every device we have seen; `capture_win` logs
+    /// the channel count so a device that violates that is diagnosable from a
+    /// user's log rather than invisible.
     pub fn push_interleaved(&self, interleaved: &[f32], channels: usize) {
         assert!(channels > 0, "channel count must be non-zero");
         if channels == 1 {
@@ -75,9 +85,8 @@ impl Producer {
         let start = self.ring.written.load(Ordering::Relaxed);
         let mut frames = 0u64;
         for frame in interleaved.chunks_exact(channels) {
-            let avg = frame.iter().sum::<f32>() / channels as f32;
             let idx = ((start + frames) % cap) as usize;
-            self.ring.data[idx].store(avg.to_bits(), Ordering::Relaxed);
+            self.ring.data[idx].store(frame[0].to_bits(), Ordering::Relaxed);
             frames += 1;
         }
         self.ring.written.store(start + frames, Ordering::Release);
@@ -222,15 +231,29 @@ mod tests {
     }
 
     #[test]
-    fn interleaved_stereo_downmixes_by_averaging() {
+    fn interleaved_stereo_downmixes_by_taking_the_first_channel() {
         let (p, c) = ring(8);
-        // Frames: (0.2, 0.4) -> 0.3; (1.0, -1.0) -> 0.0; (0.5, 0.5) -> 0.5.
+        // Frames: (0.2, 0.4); (1.0, -1.0); (0.5, 0.5).
         p.push_interleaved(&[0.2, 0.4, 1.0, -1.0, 0.5, 0.5], 2);
         assert_eq!(c.total_written(), 3);
-        let got = c.read_range(0, 3).unwrap();
-        assert!((got[0] - 0.3).abs() < 1e-6);
-        assert!(got[1].abs() < 1e-6);
-        assert!((got[2] - 0.5).abs() < 1e-6);
+        assert_eq!(c.read_range(0, 3).unwrap(), vec![0.2, 1.0, 0.5]);
+    }
+
+    /// The array-microphone case: channel 1 is a near-silent reference. Under
+    /// the old averaging downmix this halved every sample, a 6 dB loss that
+    /// pushed otherwise-fine utterances under the loudness gate.
+    #[test]
+    fn a_silent_reference_channel_does_not_attenuate_the_signal() {
+        let (p, c) = ring(8);
+        p.push_interleaved(&[0.6, 0.0, -0.4, 0.0, 0.8, 0.0], 2);
+        assert_eq!(c.read_range(0, 3).unwrap(), vec![0.6, -0.4, 0.8]);
+    }
+
+    #[test]
+    fn more_than_two_channels_also_take_the_first() {
+        let (p, c) = ring(8);
+        p.push_interleaved(&[0.7, 0.0, 0.0, 0.0, -0.5, 0.1, 0.2, 0.3], 4);
+        assert_eq!(c.read_range(0, 2).unwrap(), vec![0.7, -0.5]);
     }
 
     #[test]

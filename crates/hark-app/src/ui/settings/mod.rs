@@ -32,6 +32,11 @@ pub struct SettingsPage {
     /// thread once at construction and re-scanned on demand (WASAPI COM must
     /// not be initialized on this thread; see `hark_audio::list_input_devices`).
     mic_devices: Vec<String>,
+    /// The Windows Default *Communications* capture device, if any. Queried
+    /// off the UI thread with the device list (it is a COM call), and cached
+    /// for the same reason: the picker labels it so a user whose headset is
+    /// the communications default can see why Hark and Teams disagree.
+    comms_default: Option<String>,
     /// Cross-frame state for recording the push-to-talk shortcut.
     hotkey: capture::HotkeyCapture,
 }
@@ -49,6 +54,7 @@ impl SettingsPage {
             get_started: get_started::GetStarted::new(onboarding),
             save_notice: None,
             mic_devices: hark_audio::list_input_devices(),
+            comms_default: hark_audio::communications_default_device(),
             hotkey: capture::HotkeyCapture::new(),
         }
     }
@@ -94,8 +100,18 @@ impl SettingsPage {
             capture::CaptureTransition::Ended => pipeline.start(saved, &ctx),
             capture::CaptureTransition::None => {}
         }
-        if form::mic_section(ui, &mut self.draft, &self.mic_devices) {
+        // The capture stream runs continuously while the pipeline is up, so
+        // the meter is live here without starting anything extra.
+        let level = pipeline.level_meter().map(|m| m.level());
+        if form::mic_section(
+            ui,
+            &mut self.draft,
+            &self.mic_devices,
+            level,
+            self.comms_default.as_deref(),
+        ) {
             self.mic_devices = hark_audio::list_input_devices();
+            self.comms_default = hark_audio::communications_default_device();
         }
         form::voice_section(ui, &mut self.draft);
         cleanup::section(ui, &mut self.draft, &mut self.bufs, &mut self.cleanup_keys);

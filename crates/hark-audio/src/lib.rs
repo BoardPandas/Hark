@@ -8,12 +8,15 @@
 //! operation the pipeline worker needs.
 
 pub mod capture_win;
+pub mod gain;
 pub mod level;
 pub mod resample;
 pub mod ring;
 pub mod window;
 
-pub use capture_win::{list_input_devices, start, CaptureError, CaptureHandle};
+pub use capture_win::{
+    communications_default_device, list_input_devices, start, CaptureError, CaptureHandle,
+};
 pub use level::LevelMeter;
 pub use resample::TARGET_RATE;
 pub use ring::{Consumer, Producer, RangeError};
@@ -27,6 +30,21 @@ pub struct AudioClip {
     pub samples_16k: Vec<f32>,
     /// The rate the audio was captured at (before resampling), for logs.
     pub source_rate: u32,
+    /// The normalization gain applied to `samples_16k` (1.0 = untouched).
+    /// Carried for logging: a clip that needed a large boost is the signature
+    /// of a microphone the user should be told about.
+    pub applied_gain: f32,
+}
+
+/// The outcome of assembling a window: either a clip to transcribe, or the
+/// reason it was dropped. The reason is carried rather than collapsed to
+/// `None` so callers can tell the user *which* gate stopped them — "you
+/// tapped the key" and "we could not hear you" need different responses.
+// Safe to derive: AudioClip's own Debug prints lengths and rates, never samples.
+#[derive(Debug)]
+pub enum Assembled {
+    Clip(AudioClip),
+    Gated(GateVerdict),
 }
 
 // Deliberately no Debug derive: a reflexive `{clip:?}` in some future log
@@ -36,6 +54,7 @@ impl std::fmt::Debug for AudioClip {
         f.debug_struct("AudioClip")
             .field("samples_16k_len", &self.samples_16k.len())
             .field("source_rate", &self.source_rate)
+            .field("applied_gain", &self.applied_gain)
             .finish()
     }
 }
@@ -57,8 +76,9 @@ pub enum AssembleError {
     Resample(#[from] resample::ResampleError),
 }
 
-/// Assemble `pre-roll + utterance + tail` for a chord press/release pair and
-/// run the silence gate. `Ok(None)` means "gated: drop it, no request".
+/// Assemble `pre-roll + utterance + tail` for a chord press/release pair, run
+/// the gates, and normalize. [`Assembled::Gated`] means "drop it, no request",
+/// and carries which gate fired.
 ///
 /// Blocks (bounded) until the ring has produced the tail samples: the tail
 /// extends past the release instant, so those samples are still arriving
@@ -70,11 +90,11 @@ pub fn assemble_window(
     down_abs: u64,
     up_abs: u64,
     params: &WindowParams,
-) -> Result<Option<AudioClip>, AssembleError> {
+) -> Result<Assembled, AssembleError> {
     // Misfire gate first: a too-short hold costs nothing, not even waiting
     // for the tail.
     if window::gate_hold(down_abs, up_abs, source_rate, params) == GateVerdict::TooShort {
-        return Ok(None);
+        return Ok(Assembled::Gated(GateVerdict::TooShort));
     }
 
     let (start, end) = window::window_bounds(down_abs, up_abs, source_rate, params);
@@ -107,14 +127,34 @@ pub fn assemble_window(
         Err(e) => return Err(e.into()),
     };
 
-    if window::gate_clip(&device_samples, params) == GateVerdict::TooQuiet {
-        return Ok(None);
+    if window::gate_clip(&device_samples, source_rate, params) == GateVerdict::TooQuiet {
+        // Log the numbers that decided it: "too quiet" without the measurement
+        // cannot distinguish a muted mic from a threshold set too high, and
+        // without the floor cannot show how close the clip came.
+        log::info!(
+            "clip gated as too quiet: loudest {} ms window {:.4} (noise floor {:.4}) \
+             below threshold {:.4}; {} samples at {} Hz",
+            window::GATE_WINDOW_MS,
+            window::clip_loudness(&device_samples, source_rate),
+            window::noise_floor(&device_samples, source_rate),
+            params.silence_rms,
+            device_samples.len(),
+            source_rate,
+        );
+        return Ok(Assembled::Gated(GateVerdict::TooQuiet));
     }
 
-    let samples_16k = resample::resample_to_16k(&device_samples, source_rate)?;
-    Ok(Some(AudioClip {
+    let mut samples_16k = resample::resample_to_16k(&device_samples, source_rate)?;
+    // Normalize after resampling: same audio, a third of the samples to touch,
+    // and it is the buffer that actually goes to the provider.
+    let applied_gain = gain::normalize(&mut samples_16k, TARGET_RATE);
+    if applied_gain > 1.0 {
+        log::debug!("input normalized: gain {applied_gain:.2}x");
+    }
+    Ok(Assembled::Clip(AudioClip {
         samples_16k,
         source_rate,
+        applied_gain,
     }))
 }
 
@@ -127,6 +167,22 @@ mod tests {
 
     fn params() -> WindowParams {
         WindowParams::default()
+    }
+
+    /// Unwrap an assembly that must have produced a clip.
+    fn clip_of(a: Assembled) -> AudioClip {
+        match a {
+            Assembled::Clip(c) => c,
+            Assembled::Gated(v) => panic!("expected a clip, was gated: {v:?}"),
+        }
+    }
+
+    /// The verdict of an assembly that must have been gated.
+    fn gated_as(a: Assembled) -> GateVerdict {
+        match a {
+            Assembled::Clip(_) => panic!("expected a gate, got a clip"),
+            Assembled::Gated(v) => v,
+        }
     }
 
     /// A synthetic ring pre-filled with a 440 Hz tone: assembly never waits.
@@ -145,9 +201,8 @@ mod tests {
         let (_p, c) = tone_ring(3 * RATE as u64);
         let down = RATE as u64;
         let up = 2 * RATE as u64;
-        let clip = assemble_window(&c, RATE, down, up, &params())
-            .expect("assembly succeeds")
-            .expect("tone passes the gate");
+        let clip =
+            clip_of(assemble_window(&c, RATE, down, up, &params()).expect("assembly succeeds"));
         // Window = 300 ms pre-roll + 1 s hold + 150 ms tail = 1.45 s at 48 kHz,
         // resampled 3:1 to 16 kHz.
         let device_len =
@@ -164,18 +219,22 @@ mod tests {
         // 100 ms hold < 250 ms minimum. The ring is EMPTY: if gating did not
         // happen first, assembly would wait for samples and time out.
         let (_p, c) = ring(1024);
-        let verdict = assemble_window(&c, RATE, 0, window::ms_to_samples(100, RATE), &params())
+        let outcome = assemble_window(&c, RATE, 0, window::ms_to_samples(100, RATE), &params())
             .expect("gating is not an error");
-        assert!(verdict.is_none());
+        assert_eq!(gated_as(outcome), GateVerdict::TooShort);
     }
 
     #[test]
     fn silent_clip_is_gated() {
         let (p, c) = ring(window::ring_capacity(RATE, &params()));
         p.push(&vec![0.0_f32; 3 * RATE as usize]);
-        let verdict = assemble_window(&c, RATE, RATE as u64, 2 * RATE as u64, &params())
+        let outcome = assemble_window(&c, RATE, RATE as u64, 2 * RATE as u64, &params())
             .expect("assembly succeeds");
-        assert!(verdict.is_none(), "silence must not reach the network");
+        assert_eq!(
+            gated_as(outcome),
+            GateVerdict::TooQuiet,
+            "silence must not reach the network"
+        );
     }
 
     #[test]
@@ -184,9 +243,8 @@ mod tests {
         let (_p, c) = tone_ring(2 * RATE as u64);
         let down = window::ms_to_samples(50, RATE);
         let up = down + RATE as u64;
-        let clip = assemble_window(&c, RATE, down, up, &params())
-            .expect("assembly succeeds")
-            .expect("tone passes the gate");
+        let clip =
+            clip_of(assemble_window(&c, RATE, down, up, &params()).expect("assembly succeeds"));
         // Only 50 ms of pre-roll exists; window = 50 ms + 1 s + 150 ms.
         let device_len = down + RATE as u64 + window::ms_to_samples(150, RATE);
         assert_eq!(

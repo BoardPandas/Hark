@@ -4,7 +4,7 @@
 //! on sample counts, never wall-clock (per .claude/rules/tests.md).
 
 use hark_audio::ring::ring;
-use hark_audio::{assemble_window, window, WindowParams};
+use hark_audio::{assemble_window, window, Assembled, GateVerdict, WindowParams};
 
 const FIXTURE: &str = concat!(
     env!("CARGO_MANIFEST_DIR"),
@@ -40,9 +40,11 @@ fn fixture_speech_survives_the_full_pre_stt_path() {
     let up_abs = consumer.total_written();
     producer.push(&tail_pad);
 
-    let clip = assemble_window(&consumer, rate, down_abs, up_abs, &p)
-        .expect("assembly succeeds")
-        .expect("real speech must pass the silence gate");
+    let clip =
+        match assemble_window(&consumer, rate, down_abs, up_abs, &p).expect("assembly succeeds") {
+            Assembled::Clip(c) => c,
+            Assembled::Gated(v) => panic!("real speech must pass the silence gate, got {v:?}"),
+        };
 
     // At the 16 kHz source rate resampling is a passthrough, so the clip is
     // exactly pre-roll + hold + tail samples.
@@ -71,7 +73,10 @@ fn silence_around_the_fixture_is_gated_but_speech_is_not() {
     producer.push(&vec![0.0_f32; 3 * rate as usize]);
     let gated = assemble_window(&consumer, rate, rate as u64, 2 * rate as u64, &p)
         .expect("assembly succeeds");
-    assert!(gated.is_none(), "silence must be gated");
+    assert!(
+        matches!(gated, Assembled::Gated(GateVerdict::TooQuiet)),
+        "silence must be gated as too quiet, got {gated:?}"
+    );
 
     // Speech hold in the same ring: passes.
     let down_abs = consumer.total_written();
@@ -79,5 +84,8 @@ fn silence_around_the_fixture_is_gated_but_speech_is_not() {
     let up_abs = consumer.total_written();
     producer.push(&vec![0.0_f32; rate as usize]);
     let clip = assemble_window(&consumer, rate, down_abs, up_abs, &p).expect("assembly succeeds");
-    assert!(clip.is_some(), "fixture speech must pass the gate");
+    assert!(
+        matches!(clip, Assembled::Clip(_)),
+        "fixture speech must pass the gate, got {clip:?}"
+    );
 }

@@ -144,7 +144,13 @@ const DEFAULT_MIC_LABEL: &str = "System default";
 /// cached by the page; `on_refresh` is set true when the user asks to re-scan
 /// (a mic plugged in after the page opened). The chosen device applies on the
 /// next Save, like every other field here.
-pub fn mic_section(ui: &mut Ui, draft: &mut Settings, devices: &[String]) -> bool {
+pub fn mic_section(
+    ui: &mut Ui,
+    draft: &mut Settings,
+    devices: &[String],
+    level: Option<f32>,
+    comms_default: Option<&str>,
+) -> bool {
     subhead(ui, "Microphone");
     let selected = draft.audio.input_device.clone();
     let selected_text = selected.as_deref().unwrap_or(DEFAULT_MIC_LABEL);
@@ -155,7 +161,17 @@ pub fn mic_section(ui: &mut Ui, draft: &mut Settings, devices: &[String]) -> boo
             .show_ui(ui, |ui| {
                 ui.selectable_value(&mut draft.audio.input_device, None, DEFAULT_MIC_LABEL);
                 for name in devices {
-                    ui.selectable_value(&mut draft.audio.input_device, Some(name.clone()), name);
+                    // Windows keeps a second capture default for communications
+                    // apps, and cpal never asks for it. If the user set their
+                    // headset there — every headset guide says to — Teams gets
+                    // the headset and Hark gets the built-in array mic. Naming
+                    // it turns an invisible mismatch into an obvious one.
+                    let label = if comms_default == Some(name.as_str()) {
+                        format!("{name}  — used by Teams/Zoom")
+                    } else {
+                        name.clone()
+                    };
+                    ui.selectable_value(&mut draft.audio.input_device, Some(name.clone()), label);
                 }
                 // A configured device that is not currently enumerated (mic
                 // unplugged) stays selectable so opening the picker cannot
@@ -184,7 +200,72 @@ pub fn mic_section(ui: &mut Ui, draft: &mut Settings, devices: &[String]) -> boo
             .small()
             .weak(),
     );
+    if let Some(peak) = level {
+        input_meter(ui, peak);
+    }
     refresh
+}
+
+/// How loud the live input is, in the terms a user can act on.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum InputLevel {
+    /// Nothing arriving at all: wrong device, or muted.
+    Silent,
+    /// Arriving, but too quiet to transcribe reliably.
+    TooQuiet,
+    Good,
+    /// Loud enough to clip, which destroys consonants.
+    Hot,
+}
+
+/// Classify a peak amplitude (0..=1) into a band. Pure: the thresholds are the
+/// whole content of the meter, so they are worth testing directly.
+pub fn classify_level(peak: f32) -> InputLevel {
+    match peak {
+        p if p < 0.005 => InputLevel::Silent,
+        p if p < 0.05 => InputLevel::TooQuiet,
+        p if p < 0.95 => InputLevel::Good,
+        _ => InputLevel::Hot,
+    }
+}
+
+/// A live input meter under the picker.
+///
+/// This exists so "Hark can't hear me" becomes something the user can see
+/// rather than guess at: a bar that does not move names the wrong device, and
+/// one that barely moves names a level problem. Without it the only feedback is
+/// dictation silently doing nothing, which is indistinguishable from a bug.
+fn input_meter(ui: &mut Ui, peak: f32) {
+    let band = classify_level(peak);
+    let (color, note) = match band {
+        InputLevel::Silent => (
+            ui.visuals().weak_text_color(),
+            "No input — is this the right microphone?",
+        ),
+        InputLevel::TooQuiet => (
+            theme::WARNING,
+            "Very quiet — move closer, or raise the level in Windows sound settings.",
+        ),
+        InputLevel::Good => (theme::SUCCESS, "Good level."),
+        InputLevel::Hot => (
+            theme::DANGER,
+            "Too loud — lower the level in Windows sound settings.",
+        ),
+    };
+    ui.add_space(6.0);
+    // Amplitude is linear but hearing is not; a square root gives the quiet end
+    // enough of the bar to be readable, which is the end that matters here.
+    ui.add(
+        egui::ProgressBar::new(peak.clamp(0.0, 1.0).sqrt())
+            .desired_width(220.0)
+            .fill(color),
+    );
+    ui.label(RichText::new(note).small().weak());
+    // Drive the meter while this page is open. 20 fps is plenty for a level
+    // bar and an order of magnitude cheaper than the overlay's 60; the cost
+    // stops the moment the user leaves Settings.
+    ui.ctx()
+        .request_repaint_after(std::time::Duration::from_millis(50));
 }
 
 /// Push-to-talk shortcut: a "Record" button captures held keys via the same
@@ -441,5 +522,23 @@ mod tests {
         for name in VOICES {
             assert_eq!(voice_display(name).to_lowercase(), name.label());
         }
+    }
+
+    #[test]
+    fn input_level_bands_cover_the_range_in_order() {
+        assert_eq!(classify_level(0.0), InputLevel::Silent);
+        assert_eq!(classify_level(0.004), InputLevel::Silent);
+        assert_eq!(classify_level(0.02), InputLevel::TooQuiet);
+        assert_eq!(classify_level(0.3), InputLevel::Good);
+        assert_eq!(classify_level(0.99), InputLevel::Hot);
+        assert_eq!(classify_level(1.0), InputLevel::Hot);
+    }
+
+    /// The band a user sits in when they say "it only works if I lean in":
+    /// audible, but under the level a recognizer wants.
+    #[test]
+    fn a_quiet_but_present_signal_reads_as_too_quiet_not_silent() {
+        assert_eq!(classify_level(0.01), InputLevel::TooQuiet);
+        assert_eq!(classify_level(0.049), InputLevel::TooQuiet);
     }
 }

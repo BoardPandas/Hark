@@ -31,7 +31,7 @@ preroll_ms = 300      # audio kept from before the chord registers
 tail_ms = 150         # audio kept after release (trailing word endings)
 max_hold_s = 120      # cap; on exceed, transcribe what we have
 min_speech_ms = 250   # shorter holds are dropped (no network request)
-silence_rms = 0.01    # clips quieter than this RMS are dropped
+silence_rms = 0.01    # drop clips whose loudest 100 ms window is quieter than this
 
 [inject]
 strategy = "clipboard"        # clipboard | type

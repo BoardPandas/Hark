@@ -48,6 +48,8 @@ pub fn state(status: &PipelineStatus) -> TrayState {
         } => TrayState::NeedsKey,
         PipelineStatus::Errored { .. } => TrayState::Error,
         PipelineStatus::Stopped { .. } => TrayState::Stopped,
+        // Nothing is broken: the tray must not go red for "we heard nothing".
+        PipelineStatus::Hint { .. } => TrayState::Idle,
     }
 }
 
@@ -60,6 +62,7 @@ pub fn tooltip(status: &PipelineStatus, chord: &str) -> String {
         PipelineStatus::Errored { detail, .. } => {
             format!("Hark: last dictation failed. {detail}")
         }
+        PipelineStatus::Hint { detail } => format!("Hark: {detail}"),
         PipelineStatus::Stopped {
             key_related: true, ..
         } => "Hark: no STT key. Open Settings from the tray menu.".to_string(),

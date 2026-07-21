@@ -159,7 +159,10 @@ pub struct Audio {
     pub max_hold_s: u32,
     /// Holds shorter than this are dropped without a network request.
     pub min_speech_ms: u32,
-    /// Clips whose RMS is below this are dropped without a network request.
+    /// Clips whose loudest 100 ms window stays below this RMS are dropped
+    /// without a network request. Measured as a peak window, not a whole-clip
+    /// mean, so the threshold means the same thing for a one-word command as
+    /// for a long sentence.
     pub silence_rms: f32,
 }
 

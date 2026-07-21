@@ -63,6 +63,10 @@ fn state_side(ui: &mut Ui, status: &PipelineStatus, settings: &Settings) -> bool
             icon_label(ui, theme::icons::WARNING, theme::DANGER, detail);
             jump = *key_related && settings_jump(ui);
         }
+        PipelineStatus::Hint { detail } => {
+            icon_label(ui, theme::icons::MICROPHONE, theme::WARNING, detail);
+            jump = settings_jump(ui);
+        }
         PipelineStatus::Stopped {
             detail,
             key_related: true,

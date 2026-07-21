@@ -4,6 +4,21 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.17.0] - 2026-07-21
+
+### Fixed
+- **Hark no longer goes deaf on quieter microphones.** If you had to lean into your mic for Hark to pick you up — while the same mic worked fine in Teams, Zoom, or Discord — this is why. Hark judged whether you had spoken by averaging the loudness of the whole recording, and every recording includes the padding Hark keeps before and after your words. That padding is silence, and averaging it in dragged the number down, so short utterances scored lower than long ones spoken at exactly the same volume. A quiet "yes" could be discarded while a quiet full sentence went through. Hark now asks whether the recording ever reached speaking level, which does not care how long you spoke or how long you paused before starting.
+- **Speech is now measured against your room, not a fixed number.** Even with the above fixed, the cutoff was a fixed loudness that assumed a certain microphone. Hark now also accepts anything that stands clearly above the background noise of your own recording, so a quiet setup works without you touching anything.
+- **Stereo and array microphones no longer lose half their volume.** Many laptop microphones present a second channel that is nearly silent. Hark used to average the channels together, which quietened your voice by about half on those machines and pushed borderline recordings under the cutoff.
+
+### Added
+- **A live input meter in Settings → Microphone.** It shows what Hark is actually hearing right now, with plain-language guidance — no input, too quiet, good, or too loud. If Hark cannot hear you, you can now see that immediately instead of guessing.
+- **Windows' communications microphone is labelled in the picker.** Windows keeps two separate default microphones: one for general use and one for calls, and headset setup guides usually tell you to set the calling one. When those differ, Teams and Hark listen to different microphones. The device Teams and Zoom use is now marked in the list.
+- **Quiet recordings get boosted before transcription.** Recordings that come in below the level transcription services expect are lifted automatically, stopping short of distortion and without amplifying a quiet room into hiss. Audio that was already at a good level is passed through untouched.
+
+### Changed
+- **"We didn't catch that" now says so.** Discarded dictations used to end in silence, indistinguishable from a broken app. When Hark hears nothing loud enough to be speech it now says so in the status bar and offers a jump to Settings. Tapping the shortcut by accident stays silent, as before, because that needs no reply.
+
 ## [0.16.0] - 2026-07-21
 
 ### Added

@@ -22,6 +22,13 @@ pub enum PipelineStatus {
     /// Running, but the last dictation failed. Sticky until the next
     /// dictation starts.
     Errored { detail: String, key_related: bool },
+    /// Running, and the last dictation ended in something worth saying out
+    /// loud but which is not a failure: we captured nothing loud enough to be
+    /// speech. Distinct from `Errored` because nothing is broken and the tray
+    /// must not go red — but distinct from `Idle` because silently doing
+    /// nothing is precisely the experience that leaves users convinced the app
+    /// cannot hear them. Sticky until the next dictation starts.
+    Hint { detail: String },
     /// Not running (no key, startup failure, or config error).
     Stopped { detail: String, key_related: bool },
 }
@@ -164,9 +171,15 @@ fn next_status(event: PipelineEvent) -> PipelineStatus {
         // Idle is the whole story the footer needs.
         PipelineEvent::Injected(_) => PipelineStatus::Idle,
         PipelineEvent::Failed { stage, detail } => match stage {
-            // Informational ends (nothing was heard / nothing came back):
-            // back to listening, not an error banner.
-            FailStage::Gated | FailStage::EmptyTranscript => PipelineStatus::Idle,
+            // A tap on the chord is the user's own doing and needs no reply;
+            // an empty transcript means the provider heard nothing to write.
+            FailStage::GatedTooShort | FailStage::EmptyTranscript => PipelineStatus::Idle,
+            // But "we captured nothing loud enough to be speech" is worth
+            // saying, with the way to fix it one click away: the usual cause
+            // is the wrong input device selected, or one turned down.
+            FailStage::GatedTooQuiet => PipelineStatus::Hint {
+                detail: "Didn't catch that. Check your microphone.".to_string(),
+            },
             FailStage::Audio | FailStage::Transcribe | FailStage::Inject => {
                 PipelineStatus::Errored {
                     // Crude but effective: auth errors say "check your API
@@ -252,13 +265,30 @@ mod tests {
     }
 
     #[test]
-    fn gated_and_empty_transcripts_return_to_idle_not_error() {
-        for stage in [FailStage::Gated, FailStage::EmptyTranscript] {
+    fn misfires_and_empty_transcripts_return_to_idle_not_error() {
+        for stage in [FailStage::GatedTooShort, FailStage::EmptyTranscript] {
             let s = next_status(PipelineEvent::Failed {
                 stage,
                 detail: "informational".to_string(),
             });
             assert!(matches!(s, PipelineStatus::Idle), "stage {stage:?}");
+        }
+    }
+
+    /// "We heard nothing" must neither vanish (the old behaviour, which left
+    /// users unable to tell a quiet mic from a broken app) nor raise an error
+    /// banner: it is a hint, with the settings jump attached.
+    #[test]
+    fn a_too_quiet_capture_hints_rather_than_erroring_or_vanishing() {
+        let s = next_status(PipelineEvent::Failed {
+            stage: FailStage::GatedTooQuiet,
+            detail: "no speech detected".to_string(),
+        });
+        match s {
+            PipelineStatus::Hint { detail } => {
+                assert!(detail.contains("microphone"), "unhelpful hint: {detail}")
+            }
+            other => panic!("expected a hint, got {:?}", std::mem::discriminant(&other)),
         }
     }
 

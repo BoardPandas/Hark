@@ -100,6 +100,72 @@ fn enumerate_input_devices() -> Vec<String> {
     devices.map(|d| d.to_string()).collect()
 }
 
+/// The name of the Windows **Default Communications Device** for capture, if
+/// there is one. `None` on other platforms and on any failure.
+///
+/// Windows keeps two capture defaults, and cpal only ever asks for one of
+/// them: `default_input_device()` resolves the `eConsole` role, while
+/// communications apps (Teams, Zoom, Discord) ask for `eCommunications`. A
+/// user who followed any headset setup guide — they all say "set as Default
+/// Communication Device" — has these pointing at different microphones, and
+/// experiences that as Hark ignoring the microphone that demonstrably works
+/// everywhere else. Surfacing the name lets the picker say which is which
+/// instead of leaving the user to guess.
+///
+/// Runs on its own thread so this COM apartment is one we own, exactly as
+/// [`list_input_devices`] does: the UI thread is STA (winit) and this needs
+/// MTA, and mixing them yields `RPC_E_CHANGED_MODE`.
+pub fn communications_default_device() -> Option<String> {
+    std::thread::Builder::new()
+        .name("hark-audio-comms-role".to_string())
+        .spawn(query_communications_default)
+        .ok()
+        .and_then(|t| t.join().ok())
+        .flatten()
+}
+
+#[cfg(windows)]
+fn query_communications_default() -> Option<String> {
+    use windows::core::Result as WinResult;
+    use windows::Win32::Devices::FunctionDiscovery::PKEY_Device_FriendlyName;
+    use windows::Win32::Media::Audio::{
+        eCapture, eCommunications, IMMDeviceEnumerator, MMDeviceEnumerator,
+    };
+    use windows::Win32::System::Com::{
+        CoCreateInstance, CoInitializeEx, CoUninitialize, CLSCTX_ALL, COINIT_MULTITHREADED,
+        STGM_READ,
+    };
+
+    // SAFETY: every call below is a COM call on a thread that owns its own
+    // apartment for the duration; nothing here outlives CoUninitialize.
+    unsafe {
+        if CoInitializeEx(None, COINIT_MULTITHREADED).is_err() {
+            return None;
+        }
+        let queried: WinResult<String> = (|| {
+            let enumerator: IMMDeviceEnumerator =
+                CoCreateInstance(&MMDeviceEnumerator, None, CLSCTX_ALL)?;
+            let device = enumerator.GetDefaultAudioEndpoint(eCapture, eCommunications)?;
+            let store = device.OpenPropertyStore(STGM_READ)?;
+            Ok(store.GetValue(&PKEY_Device_FriendlyName)?.to_string())
+        })();
+        CoUninitialize();
+        match queried {
+            Ok(name) => Some(name),
+            Err(e) => {
+                // No communications default set is a normal state, not a fault.
+                log::debug!("no communications-role capture device: {e}");
+                None
+            }
+        }
+    }
+}
+
+#[cfg(not(windows))]
+fn query_communications_default() -> Option<String> {
+    None
+}
+
 /// Start continuous capture into a ring sized `ring_seconds * live device
 /// rate` (the rate is only known once the stream config resolves, so sizing
 /// is by duration, not sample count). `input_device` names a specific
@@ -250,6 +316,25 @@ fn build_stream(
 
     let sample_rate = supported.sample_rate();
     let channels = supported.channels() as usize;
+
+    // Log what we actually opened. "Hark can't hear me" reports are almost
+    // always one of: the wrong device, an unexpected channel layout, or a rate
+    // we then resample from -- and none of those are visible to the user or
+    // recoverable from a transcript. One line at startup makes every later
+    // report answerable.
+    log::info!(
+        "capture open: device {:?}, {} Hz, {} channel(s), f32",
+        device.to_string(),
+        sample_rate,
+        channels,
+    );
+    if channels > 1 {
+        log::info!(
+            "multi-channel input: taking channel 0 of {channels} (array-mic \
+             reference channels are commonly silent, and averaging them costs 6 dB)"
+        );
+    }
+
     let config: cpal::StreamConfig = supported.into();
 
     let (producer, consumer): (Producer, Consumer) =

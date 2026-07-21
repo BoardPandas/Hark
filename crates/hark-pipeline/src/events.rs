@@ -39,9 +39,13 @@ pub struct DictationRecord {
 /// and never transcript content.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FailStage {
-    /// The silence/length gate stopped the dictation before any request was
-    /// sent. Informational, not an error.
-    Gated,
+    /// The hold was too short to be speech (a tap, a misfire). Stopped before
+    /// any request was sent. Informational, not an error.
+    GatedTooShort,
+    /// Nothing loud enough to be speech was captured. Stopped before any
+    /// request was sent. Informational, but unlike a misfire this one may mean
+    /// the user's microphone is misconfigured, so the UI can offer help.
+    GatedTooQuiet,
     /// Window assembly failed (ring buffer / resample error).
     Audio,
     /// The STT request failed (after the single eligible retry).

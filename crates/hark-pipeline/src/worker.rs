@@ -127,10 +127,19 @@ fn dictate(worker: &Worker, down_abs: u64, up_abs: u64, state: PipelineState) ->
         up_abs,
         &worker.window,
     ) {
-        Ok(Some(clip)) => clip,
-        Ok(None) => {
-            log::info!("dictation gated (too short or silent); no request sent");
-            fail(FailStage::Gated, "too short or silent".to_string());
+        Ok(hark_audio::Assembled::Clip(clip)) => clip,
+        Ok(hark_audio::Assembled::Gated(verdict)) => {
+            // Report WHICH gate fired: a tap is the user's own doing and needs
+            // no response, while "we heard nothing" may mean their microphone
+            // is misconfigured and is worth offering help for.
+            let (stage, detail) = match verdict {
+                hark_audio::GateVerdict::TooShort => (FailStage::GatedTooShort, "hold too short"),
+                // Speech never reaches here; treat it as too-quiet defensively
+                // rather than inventing a third outcome.
+                _ => (FailStage::GatedTooQuiet, "no speech detected"),
+            };
+            log::info!("dictation gated ({detail}); no request sent");
+            fail(stage, detail.to_string());
             return advance(state, Event::Aborted).0;
         }
         Err(e) => {

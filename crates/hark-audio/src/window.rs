@@ -75,11 +75,74 @@ pub fn ring_seconds(params: &WindowParams) -> u32 {
 }
 
 /// Root-mean-square amplitude of a clip. Empty clips are 0.0 (silent).
+///
+/// Accumulates in `f64`: a maximal hold is millions of samples, and an `f32`
+/// accumulator loses the small squares once the running sum grows.
 pub fn rms(samples: &[f32]) -> f32 {
     if samples.is_empty() {
         return 0.0;
     }
-    (samples.iter().map(|s| s * s).sum::<f32>() / samples.len() as f32).sqrt()
+    let sum: f64 = samples.iter().map(|&s| (s as f64) * (s as f64)).sum();
+    (sum / samples.len() as f64).sqrt() as f32
+}
+
+/// The length of the sliding window the loudness gate judges a clip by.
+/// Roughly one syllable: long enough to average out a glottal pulse, short
+/// enough that a single word fills it.
+pub const GATE_WINDOW_MS: u32 = 100;
+
+/// The RMS of the loudest `window_ms` window in the clip, scanning at half-window
+/// hops so no burst straddles a boundary and gets split.
+///
+/// This is the loudness statistic the gate needs, and a whole-clip [`rms`] is
+/// not. RMS is a mean, so it falls as the *proportion* of the clip that is
+/// silence rises — and an assembled window is always padded with pre-roll and
+/// tail, plus whatever pause the user left between pressing the chord and
+/// speaking. Under a mean, a quiet "yes" and a long sentence spoken at the very
+/// same level score differently, and the short one scores lower: the gate ends
+/// up strictest on exactly the short commands push-to-talk exists to serve.
+/// A peak window asks "did this clip ever reach speaking level", which is
+/// length- and pause-independent.
+///
+/// Runs in 2n multiply-adds with no allocation (each sample falls in at most
+/// two windows), so a maximal hold stays cheap on the release-to-inject path.
+pub fn peak_window_rms(samples: &[f32], rate: u32, window_ms: u32) -> f32 {
+    window_rms_extremes(samples, rate, window_ms).1
+}
+
+/// The clip's noise floor: the RMS of its *quietest* window.
+///
+/// Taken across the whole clip rather than just the pre-roll, because the
+/// pre-roll's whole purpose is to catch words the user started before the
+/// chord registered — so it is exactly the region that cannot be assumed
+/// silent. The quietest window anywhere is a far safer estimate of the room.
+pub fn noise_floor(samples: &[f32], rate: u32) -> f32 {
+    window_rms_extremes(samples, rate, GATE_WINDOW_MS).0
+}
+
+/// `(quietest, loudest)` window RMS in one scan. See [`peak_window_rms`] for
+/// why windows rather than a whole-clip mean.
+fn window_rms_extremes(samples: &[f32], rate: u32, window_ms: u32) -> (f32, f32) {
+    let win = ms_to_samples(window_ms, rate) as usize;
+    // A clip shorter than one window has no window to slide: judge it whole.
+    if win == 0 || samples.len() <= win {
+        let whole = rms(samples);
+        return (whole, whole);
+    }
+    let hop = (win / 2).max(1);
+    let (mut min, mut max) = (f32::INFINITY, 0.0f32);
+    let mut start = 0;
+    while start + win <= samples.len() {
+        let sum: f64 = samples[start..start + win]
+            .iter()
+            .map(|&s| (s as f64) * (s as f64))
+            .sum();
+        let window_rms = (sum / win as f64).sqrt() as f32;
+        min = min.min(window_rms);
+        max = max.max(window_rms);
+        start += hop;
+    }
+    (min, max)
 }
 
 /// Why a clip was dropped, or `Speech` to proceed. Gating happens before any
@@ -90,7 +153,7 @@ pub enum GateVerdict {
     Speech,
     /// The hold (down to up) was shorter than `min_speech_ms`: a misfire.
     TooShort,
-    /// The assembled clip's RMS is below `silence_rms`: no speech present.
+    /// No window of the assembled clip reached `silence_rms`: no speech present.
     TooQuiet,
 }
 
@@ -106,13 +169,45 @@ pub fn gate_hold(down_abs: u64, up_abs: u64, rate: u32, params: &WindowParams) -
     }
 }
 
-/// Gate on clip loudness, applied to the assembled window.
-pub fn gate_clip(samples: &[f32], params: &WindowParams) -> GateVerdict {
-    if rms(samples) < params.silence_rms {
-        GateVerdict::TooQuiet
-    } else {
+/// How far the loudest window must rise above the room for a clip to count as
+/// speech on the quiet-microphone path: 4x amplitude, about +12 dB.
+const SPEECH_OVER_ROOM: f32 = 4.0;
+
+/// The dead-microphone backstop, about -55 dBFS. Nothing below this is speech
+/// at any signal-to-noise ratio; it is the one floor the relative path cannot
+/// argue its way under.
+const DEAD_MIC_RMS: f32 = 0.0018;
+
+/// Gate on clip loudness, applied to the assembled window. A clip is speech if
+/// **either** its loudest [`GATE_WINDOW_MS`] window reaches `silence_rms`, or
+/// that window stands clearly above the clip's own noise floor.
+///
+/// The second path is what rescues a quiet microphone. `silence_rms` is an
+/// absolute level, so on its own it encodes an assumption about how hot the
+/// user's hardware is — and users whose gear sits below that assumption
+/// experience the app simply not responding. Comparing against the room
+/// instead asks the question that actually matters: did this person speak?
+///
+/// The two tests are OR'd, never AND'd, so this can only ever admit clips the
+/// absolute threshold would have dropped. Deliberately biased toward passing:
+/// a false pass costs one transcription request, while a false drop is the app
+/// silently doing nothing, which the user cannot diagnose. The cheap failure is
+/// the one to prefer.
+pub fn gate_clip(samples: &[f32], rate: u32, params: &WindowParams) -> GateVerdict {
+    let (floor, peak) = window_rms_extremes(samples, rate, GATE_WINDOW_MS);
+    let loud_enough = peak >= params.silence_rms;
+    let above_the_room = peak >= DEAD_MIC_RMS && peak >= floor * SPEECH_OVER_ROOM;
+    if loud_enough || above_the_room {
         GateVerdict::Speech
+    } else {
+        GateVerdict::TooQuiet
     }
+}
+
+/// The loudness the gate measured, for logging beside a verdict. Callers log
+/// this so a user report carries the number that decided the outcome.
+pub fn clip_loudness(samples: &[f32], rate: u32) -> f32 {
+    peak_window_rms(samples, rate, GATE_WINDOW_MS)
 }
 
 #[cfg(test)]
@@ -210,16 +305,105 @@ mod tests {
     fn gate_clip_drops_silence() {
         let p = params(); // silence_rms 0.01
         let quiet = vec![0.001_f32; 48_000];
-        let loud: Vec<f32> = (0..48_000)
-            .map(|i| (2.0 * std::f32::consts::PI * 440.0 * i as f32 / RATE as f32).sin() * 0.3)
-            .collect();
-        assert_eq!(gate_clip(&quiet, &p), GateVerdict::TooQuiet);
-        assert_eq!(gate_clip(&loud, &p), GateVerdict::Speech);
+        assert_eq!(gate_clip(&quiet, RATE, &p), GateVerdict::TooQuiet);
+        assert_eq!(gate_clip(&tone(48_000, 0.3), RATE, &p), GateVerdict::Speech);
     }
 
     #[test]
     fn gate_clip_empty_is_quiet() {
-        assert_eq!(gate_clip(&[], &params()), GateVerdict::TooQuiet);
+        assert_eq!(gate_clip(&[], RATE, &params()), GateVerdict::TooQuiet);
+    }
+
+    /// A 440 Hz tone of `len` samples at `amp` (RMS = amp / sqrt(2)).
+    fn tone(len: usize, amp: f32) -> Vec<f32> {
+        (0..len)
+            .map(|i| (2.0 * std::f32::consts::PI * 440.0 * i as f32 / RATE as f32).sin() * amp)
+            .collect()
+    }
+
+    /// `speech_ms` of tone embedded in a `total_ms` clip of digital silence,
+    /// the shape `assemble_window` produces: pre-roll, then speech, then tail.
+    fn padded(speech_ms: u32, total_ms: u32, amp: f32) -> Vec<f32> {
+        let speech = ms_to_samples(speech_ms, RATE) as usize;
+        let total = ms_to_samples(total_ms, RATE) as usize;
+        let lead = (total - speech) / 2;
+        let mut clip = vec![0.0f32; lead];
+        clip.extend(tone(speech, amp));
+        clip.resize(total, 0.0);
+        clip
+    }
+
+    /// The regression test for the sensitivity bug: speech at ONE level must
+    /// get ONE verdict, however much silence surrounds it. Under the old
+    /// whole-clip mean, the 250 ms utterance scored ~0.54x the 3 s one purely
+    /// because of padding, so quiet short commands were dropped while identical
+    /// long sentences passed.
+    #[test]
+    fn gate_verdict_is_independent_of_utterance_length() {
+        let p = params();
+        // Quiet speech: 0.02 amplitude, RMS 0.0141 -- above the threshold, but
+        // low enough that padding dilution would sink the short clip.
+        let short = padded(250, 850, 0.02); // "yes"
+        let long = padded(3000, 3450, 0.02); // a sentence
+        assert_eq!(gate_clip(&short, RATE, &p), GateVerdict::Speech);
+        assert_eq!(gate_clip(&long, RATE, &p), GateVerdict::Speech);
+
+        // The measured loudness is the same for both, not merely the verdict.
+        let (a, b) = (clip_loudness(&short, RATE), clip_loudness(&long, RATE));
+        assert!(
+            (a - b).abs() < 1e-3,
+            "loudness differs by length: {a} vs {b}"
+        );
+
+        // And the old statistic really would have split them.
+        assert!(
+            rms(&short) < p.silence_rms && rms(&long) > p.silence_rms,
+            "this test no longer reproduces the original defect"
+        );
+    }
+
+    /// Pausing after pressing the chord must not make the gate stricter.
+    #[test]
+    fn a_lead_in_pause_does_not_gate_speech() {
+        let p = params();
+        let mut clip = vec![0.0f32; ms_to_samples(700, RATE) as usize];
+        clip.extend(tone(ms_to_samples(300, RATE) as usize, 0.02));
+        clip.extend(vec![0.0f32; ms_to_samples(150, RATE) as usize]);
+        assert_eq!(gate_clip(&clip, RATE, &p), GateVerdict::Speech);
+    }
+
+    #[test]
+    fn peak_window_finds_a_burst_a_mean_would_bury() {
+        // One 100 ms burst in 5 s of silence.
+        let clip = padded(100, 5000, 0.5);
+        let peak = peak_window_rms(&clip, RATE, GATE_WINDOW_MS);
+        assert!(peak > 0.3, "peak window should see the burst, got {peak}");
+        assert!(rms(&clip) < 0.06, "and a mean should not");
+    }
+
+    #[test]
+    fn peak_window_of_a_steady_tone_matches_its_rms() {
+        let t = tone(48_000, 0.3);
+        let expected = 0.3 / 2.0_f32.sqrt();
+        assert!((peak_window_rms(&t, RATE, GATE_WINDOW_MS) - expected).abs() < 1e-3);
+    }
+
+    #[test]
+    fn peak_window_falls_back_to_whole_clip_when_shorter_than_a_window() {
+        // 50 ms clip, 100 ms window: nothing to slide.
+        let t = tone(ms_to_samples(50, RATE) as usize, 0.3);
+        assert!((peak_window_rms(&t, RATE, GATE_WINDOW_MS) - rms(&t)).abs() < 1e-6);
+        assert_eq!(peak_window_rms(&[], RATE, GATE_WINDOW_MS), 0.0);
+    }
+
+    #[test]
+    fn room_tone_alone_is_still_gated() {
+        // Steady -54 dBFS hiss across a 2 s clip: no window reaches speech.
+        let p = params();
+        let hiss: Vec<f32> = (0..2 * RATE as usize)
+            .map(|i| if i % 2 == 0 { 0.002 } else { -0.002 })
+            .collect();
+        assert_eq!(gate_clip(&hiss, RATE, &p), GateVerdict::TooQuiet);
     }
 
     #[test]

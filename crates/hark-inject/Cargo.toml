@@ -18,3 +18,11 @@ arboard = { version = "3.6.1", default-features = false }
 enigo = { version = "0.6.1", default-features = false }
 log = "0.4"
 thiserror = "2"
+
+# Linux is NOT a target platform: this exists only so the workspace compiles
+# and tests on a Linux dev machine. enigo refuses to build on Linux unless a
+# backend is named, so name the pure-Rust one (x11rb needs no C libraries).
+# The 0.6.1 pin and default-features = false above are unchanged, and
+# Windows/macOS builds never see this section.
+[target.'cfg(target_os = "linux")'.dependencies]
+enigo = { version = "0.6.1", default-features = false, features = ["x11rb"] }

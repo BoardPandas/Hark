@@ -18,3 +18,21 @@ cpal = "0.18.1"
 rubato = "4.0"
 log = "0.4"
 thiserror = "2"
+
+# cpal resolves the default capture device by the eConsole role only, but
+# Windows keeps a SECOND capture default for the eCommunications role -- the
+# one every headset setup guide tells users to set. When they differ, Hark and
+# Teams listen to different microphones. cpal exposes no way to ask, so query
+# WASAPI directly to label it in the device picker.
+# - Win32_Media_Audio: IMMDeviceEnumerator, MMDeviceEnumerator, eCapture, eCommunications
+# - Win32_System_Com: CoCreateInstance/CoInitializeEx, STGM_READ
+# - Win32_Devices_FunctionDiscovery: PKEY_Device_FriendlyName
+# - Win32_UI_Shell_PropertiesSystem: IPropertyStore
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.62.2", features = [
+    "Win32_Foundation",
+    "Win32_Media_Audio",
+    "Win32_System_Com",
+    "Win32_Devices_FunctionDiscovery",
+    "Win32_UI_Shell_PropertiesSystem",
+] }
