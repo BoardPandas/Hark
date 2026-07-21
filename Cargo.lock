@@ -2275,7 +2275,7 @@ dependencies = [
 
 [[package]]
 name = "hark-app"
-version = "0.18.0"
+version = "0.18.1"
 dependencies = [
  "eframe",
  "egui",
@@ -2295,11 +2295,12 @@ dependencies = [
  "jiff",
  "log",
  "tray-icon",
+ "windows 0.62.2",
 ]
 
 [[package]]
 name = "hark-audio"
-version = "0.18.0"
+version = "0.18.1"
 dependencies = [
  "cpal",
  "log",
@@ -2310,7 +2311,7 @@ dependencies = [
 
 [[package]]
 name = "hark-autostart"
-version = "0.18.0"
+version = "0.18.1"
 dependencies = [
  "thiserror 2.0.18",
  "winreg",
@@ -2318,7 +2319,7 @@ dependencies = [
 
 [[package]]
 name = "hark-config"
-version = "0.18.0"
+version = "0.18.1"
 dependencies = [
  "serde",
  "tempfile",
@@ -2328,7 +2329,7 @@ dependencies = [
 
 [[package]]
 name = "hark-dictionary"
-version = "0.18.0"
+version = "0.18.1"
 dependencies = [
  "rphonetic",
  "strsim",
@@ -2336,7 +2337,7 @@ dependencies = [
 
 [[package]]
 name = "hark-hotkey"
-version = "0.18.0"
+version = "0.18.1"
 dependencies = [
  "log",
  "thiserror 2.0.18",
@@ -2345,7 +2346,7 @@ dependencies = [
 
 [[package]]
 name = "hark-inject"
-version = "0.18.0"
+version = "0.18.1"
 dependencies = [
  "arboard",
  "enigo",
@@ -2355,7 +2356,7 @@ dependencies = [
 
 [[package]]
 name = "hark-keychain"
-version = "0.18.0"
+version = "0.18.1"
 dependencies = [
  "keyring",
  "thiserror 2.0.18",
@@ -2363,7 +2364,7 @@ dependencies = [
 
 [[package]]
 name = "hark-local-stt"
-version = "0.18.0"
+version = "0.18.1"
 dependencies = [
  "hark-config",
  "log",
@@ -2376,7 +2377,7 @@ dependencies = [
 
 [[package]]
 name = "hark-pipeline"
-version = "0.18.0"
+version = "0.18.1"
 dependencies = [
  "hark-audio",
  "hark-config",
@@ -2394,7 +2395,7 @@ dependencies = [
 
 [[package]]
 name = "hark-single-instance"
-version = "0.18.0"
+version = "0.18.1"
 dependencies = [
  "hark-config",
  "libc",
@@ -2405,7 +2406,7 @@ dependencies = [
 
 [[package]]
 name = "hark-store"
-version = "0.18.0"
+version = "0.18.1"
 dependencies = [
  "rusqlite",
  "tempfile",
@@ -2414,7 +2415,7 @@ dependencies = [
 
 [[package]]
 name = "hark-stt"
-version = "0.18.0"
+version = "0.18.1"
 dependencies = [
  "hound",
  "log",
@@ -2426,7 +2427,7 @@ dependencies = [
 
 [[package]]
 name = "hark-update"
-version = "0.18.0"
+version = "0.18.1"
 dependencies = [
  "log",
  "reqwest",
@@ -2440,7 +2441,7 @@ dependencies = [
 
 [[package]]
 name = "hark-voice"
-version = "0.18.0"
+version = "0.18.1"
 dependencies = [
  "hark-stt",
  "log",

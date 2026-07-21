@@ -41,6 +41,21 @@ log = "0.4"
 # on the main thread after the event loop starts (spec §3.8).
 tray-icon = "0.24.1"
 
+# Same windows-rs pin as hark-hotkey / hark-single-instance. The recording
+# overlay needs real monitor geometry to place itself:
+# - Win32_Graphics_Gdi: MonitorFromWindow/MonitorFromPoint + GetMonitorInfoW
+#   (the work area, in desktop pixels, taskbar excluded)
+# - Win32_UI_HiDpi: GetDpiForMonitor, for that monitor's own scale factor
+# - Win32_UI_WindowsAndMessaging: GetForegroundWindow (the app being dictated
+#   into, i.e. the monitor the user is looking at)
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.62.2", features = [
+    "Win32_Foundation",
+    "Win32_Graphics_Gdi",
+    "Win32_UI_HiDpi",
+    "Win32_UI_WindowsAndMessaging",
+] }
+
 [features]
 # On by default so a stock build can actually use on-device STT. Building
 # with --no-default-features drops the native sherpa-onnx + ONNX Runtime

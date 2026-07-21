@@ -4,6 +4,11 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.18.1] - 2026-07-21
+
+### Fixed
+- **The recording pill is visible again on multi-monitor setups.** If the floating indicator stopped appearing when you hold the shortcut — while dictation itself kept working perfectly — this is why. Hark worked out where to put the pill from the size of one monitor while the position was measured from the corner of your main one, and it assumed every screen ran at the same scaling. On a single screen that guess happens to be right. On two, especially at different scaling levels, it put the pill on the wrong monitor or in the empty space between them, where it was drawn every frame and never seen. Hark now asks Windows where your screens actually are, and places the pill on the one you are typing into, clear of the taskbar.
+
 ## [0.18.0] - 2026-07-21
 
 ### Added

@@ -1,0 +1,97 @@
+hark-app
+================
+Name  Project  Compat  Latest  Kind    Platform
+----  -------  ------  ------  ----    --------
+jiff  0.2.32   ---     0.2.34  Normal  ---
+
+hark-audio
+================
+Name       Project  Compat  Latest  Kind    Platform
+----       -------  ------  ------  ----    --------
+thiserror  2.0.18   ---     2.0.19  Normal  ---
+
+hark-autostart
+================
+Name       Project  Compat  Latest  Kind    Platform
+----       -------  ------  ------  ----    --------
+thiserror  2.0.18   ---     2.0.19  Normal  ---
+
+hark-config
+================
+Name       Project  Compat  Latest   Kind    Platform
+----       -------  ------  ------   ----    --------
+serde      1.0.228  ---     1.0.229  Normal  ---
+thiserror  2.0.18   ---     2.0.19   Normal  ---
+
+hark-hotkey
+================
+Name       Project  Compat  Latest  Kind    Platform
+----       -------  ------  ------  ----    --------
+thiserror  2.0.18   ---     2.0.19  Normal  ---
+
+hark-keychain
+================
+Name       Project  Compat  Latest  Kind    Platform
+----       -------  ------  ------  ----    --------
+thiserror  2.0.18   ---     2.0.19  Normal  ---
+
+hark-local-stt
+================
+Name       Project  Compat  Latest  Kind    Platform
+----       -------  ------  ------  ----    --------
+reqwest    0.13.1   ---     0.13.4  Normal  ---
+sha2       0.10.9   ---     0.11.0  Normal  ---
+thiserror  2.0.18   ---     2.0.19  Normal  ---
+
+hark-pipeline
+================
+Name       Project  Compat  Latest  Kind    Platform
+----       -------  ------  ------  ----    --------
+reqwest    0.13.1   ---     0.13.4  Normal  ---
+thiserror  2.0.18   ---     2.0.19  Normal  ---
+
+hark-inject
+================
+Name       Project  Compat  Latest  Kind    Platform
+----       -------  ------  ------  ----    --------
+thiserror  2.0.18   ---     2.0.19  Normal  ---
+
+hark-stt
+================
+Name        Project  Compat  Latest   Kind    Platform
+----        -------  ------  ------   ----    --------
+reqwest     0.13.1   ---     0.13.4   Normal  ---
+serde       1.0.228  ---     1.0.229  Normal  ---
+serde_json  1.0.150  ---     1.0.151  Normal  ---
+thiserror   2.0.18   ---     2.0.19   Normal  ---
+
+hark-voice
+================
+Name        Project  Compat  Latest   Kind    Platform
+----        -------  ------  ------   ----    --------
+reqwest     0.13.1   ---     0.13.4   Normal  ---
+serde       1.0.228  ---     1.0.229  Normal  ---
+serde_json  1.0.150  ---     1.0.151  Normal  ---
+thiserror   2.0.18   ---     2.0.19   Normal  ---
+
+hark-single-instance
+================
+Name       Project  Compat  Latest   Kind    Platform
+----       -------  ------  ------   ----    --------
+libc       0.2.186  ---     0.2.188  Normal  cfg(unix)
+thiserror  2.0.18   ---     2.0.19   Normal  ---
+
+hark-store
+================
+Name       Project  Compat  Latest  Kind    Platform
+----       -------  ------  ------  ----    --------
+thiserror  2.0.18   ---     2.0.19  Normal  ---
+
+hark-update
+================
+Name        Project  Compat  Latest   Kind    Platform
+----        -------  ------  ------   ----    --------
+reqwest     0.13.1   ---     0.13.4   Normal  ---
+serde       1.0.228  ---     1.0.229  Normal  ---
+serde_json  1.0.150  ---     1.0.151  Normal  ---
+thiserror   2.0.18   ---     2.0.19   Normal  ---
