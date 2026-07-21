@@ -4,6 +4,14 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.15.0] - 2026-07-21
+
+### Added
+- **A cleanup that rewrites too much is now thrown away.** Clean, Professional, and Casual could turn a short remark into a full paragraph. Any cleanup whose output runs past a length budget is discarded and your own uncleaned words are injected instead, so a chatty model can no longer put sentences in your mouth. The limit is `voice.max_expansion_ratio` (default 1.4x what you said; `0` turns the check off), adjustable under Settings → Behavior.
+
+### Changed
+- **Voice presets edit rather than rewrite.** Every built-in voice now states that it is editing a spoken transcript, not writing prose: a five-word dictation comes back about five words, with no invented sentences, greetings, sign-offs, or context you did not say. Professional and Casual adjust wording and formality only. The Custom voice is deliberately exempt from both the instruction and the length check, so a prompt like "turn this into an email" still works as written.
+
 ## [0.14.3] - 2026-07-17
 
 ### Fixed

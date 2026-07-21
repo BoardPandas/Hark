@@ -145,6 +145,38 @@ Full file: `.claude/references/design-guardrails.md` (updated for the pivot).
 - Provider profiles: STT and cleanup may share one provider+key (e.g. both OpenAI) or differ (Groq STT + OpenAI cleanup); config models this explicitly.
 - One low-temp call; dictionary terms passed as "leave these untouched"; length-gate lets send-ready short utterances skip cleanup (cleanup only; STT always runs).
 
+#### Cleanup is *editing*, not *writing* (hard constraint)
+
+Every non-Verbatim voice — including Professional and Casual — is a **grammar and delivery pass over
+what the user actually said**. It must never expand a short utterance into prose. Dictating five words
+should return roughly five words, tidied.
+
+**In scope for every voice:** filler/disfluency removal ("um", "uh", stutters, false starts), the
+repeated-word artifacts of speech ("I don't, I don't want"), punctuation and capitalization, subject/verb
+agreement and tense repair, dropped articles, spoken-number → digit normalization. Professional/Casual
+additionally adjust *register* (word choice, contractions, formality) — swapping words, not adding them.
+
+**Out of scope, always:** new sentences, new claims, greetings/sign-offs, restructuring one sentence into
+a paragraph or bullets, elaborating on an idea, "helpful" context the speaker didn't say.
+
+Enforce this in two places, because prompt wording alone will not hold:
+
+1. **Prompt** — state the rule explicitly and give the model an output-length budget rather than a vibe
+   ("return within ±15% of the input word count; if the input is already clean, return it unchanged").
+   Include a short few-shot pair showing a five-word input returning five words.
+2. **Programmatic guardrail** — after the call, compare output word count to input. If it exceeds the
+   allowance, **discard the cleanup and inject the raw transcript**, and log the rejection so the
+   over-expansion rate is visible per model. A too-long rewrite is a worse failure than no rewrite:
+   the user can fix a missing comma, but they cannot un-read a paragraph they didn't dictate.
+
+The allowance is `max(input_words × ratio, input_words + 3)`, ratio default **1.4×**, configurable via
+`voice.max_expansion_ratio` (0 disables). The `+3` grace matters more than the ratio: a bare ratio is
+unusably tight on short utterances (a legitimate tidy of "yeah sounds good" genuinely adds words), and
+a *floor* — exempting inputs under N words — would have left the reported five-words-into-a-paragraph
+case unprotected, which is exactly the case that prompted the rule. Grace keeps the guard live at every
+length. **Custom is exempt** from both the clause and the check: a user who writes "turn this into an
+email" means it.
+
 ### Phase 4, Settings/history UI + storage
 - `rusqlite` schema (`entries`, `stats`); retention pruning (default: last 1,000 entries or 90 days); lifetime counters survive history clears; separate reset-stats control.
 - egui window: settings form incl. **provider config** (STT provider picker, model picker, base-URL override for compatible endpoints, key entry straight to keychain, test-connection button), dictionary editor, history list, stats panel, capture toggle.

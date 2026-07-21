@@ -324,6 +324,29 @@ pub fn behavior_section(ui: &mut Ui, draft: &mut Settings) {
             );
 
             ui.add_space(4.0);
+            // The range starts at 1.0, so fully disabling the guard stays a
+            // config-file edit (`max_expansion_ratio = 0`); the slider cannot
+            // reach a value config validation would reject.
+            ui.horizontal(|ui| {
+                ui.label("Reject cleanup longer than");
+                ui.add(
+                    DragValue::new(&mut draft.voice.max_expansion_ratio)
+                        .range(1.0..=5.0)
+                        .speed(0.05)
+                        .fixed_decimals(2),
+                );
+                ui.label("x what you said");
+            });
+            ui.label(
+                RichText::new(
+                    "Keeps a voice from turning a short remark into a paragraph: over the \
+                     limit, your uncleaned words are injected instead.",
+                )
+                .small()
+                .weak(),
+            );
+
+            ui.add_space(4.0);
             ui.horizontal(|ui| {
                 ui.label("Theme");
                 let mut preference = ui.ctx().options(|o| o.theme_preference);

@@ -11,7 +11,7 @@ use hark_dictionary::Corrector;
 use hark_hotkey::PttEvent;
 use hark_inject::InjectSettings;
 use hark_stt::{SttError, SttProvider, Transcript};
-use hark_voice::{skips_cleanup, CleanupProvider, Voice};
+use hark_voice::{over_expanded, skips_cleanup, CleanupProvider, Voice};
 use std::sync::mpsc::{Receiver, Sender};
 use std::time::Instant;
 
@@ -26,6 +26,9 @@ pub(crate) struct CleanupPlan {
     pub model: String,
     /// Fewer words than this skip the cleanup call; 0 disables the gate.
     pub skip_below_words: u32,
+    /// Output longer than this multiple of the input word count is discarded
+    /// and the uncleaned transcript injected; 0 disables the check.
+    pub max_expansion_ratio: f32,
     /// Set only when the cleanup endpoint differs from the STT one, so the
     /// first cleaned dictation also skips a cold TLS handshake.
     pub prewarm_url: Option<String>,
@@ -236,6 +239,23 @@ fn cleaned_text(plan: Option<&CleanupPlan>, corrector: &Corrector, text: String)
         return passthrough(text);
     }
     match plan.cleaner.clean(&text) {
+        // Custom is the user's own prompt, so an expansion there was asked
+        // for; every built-in voice is an edit and must not grow the text.
+        Ok(cleaned)
+            if plan.voice != Voice::Custom
+                && over_expanded(&text, &cleaned.text, plan.max_expansion_ratio) =>
+        {
+            log::warn!(
+                "cleanup rejected: voice={} model={} expanded {} -> {} words (limit {}x); \
+                 injecting uncleaned transcript",
+                plan.voice.name(),
+                plan.model,
+                text.split_whitespace().count(),
+                cleaned.text.split_whitespace().count(),
+                plan.max_expansion_ratio
+            );
+            passthrough(text)
+        }
         Ok(cleaned) => {
             log::info!(
                 "cleanup: voice={} model={} {}->{} chars, request {} ms",
@@ -430,6 +450,7 @@ mod tests {
                 voice: hark_voice::Voice::Clean,
                 model: "mock-model".to_string(),
                 skip_below_words,
+                max_expansion_ratio: 1.4,
                 prewarm_url: None,
             }
         }
@@ -457,6 +478,74 @@ mod tests {
         assert_eq!(out.text, "Cleaned and polished.");
         // A successful cleanup reports its wall time for the record.
         assert!(out.request_ms.is_some());
+    }
+
+    #[test]
+    fn an_over_expanded_cleanup_is_discarded_for_the_pass_1_text() {
+        let corrector = Corrector::new(&[]);
+        // Five words in, a paragraph out: the reported Professional/Clean
+        // failure. The call still happened, so the cost was paid, but the
+        // user gets what they said rather than what the model wrote.
+        let plan = MockCleaner::plan(
+            vec![MockCleaner::ok(
+                "I wanted to follow up regarding our release timeline. After giving it some \
+                 thought, I believe we should aim to ship this coming Friday. Please let me \
+                 know if that works for you.",
+            )],
+            0,
+        );
+        let out = cleaned_text(
+            Some(&plan),
+            &corrector,
+            "we should ship it friday".to_string(),
+        );
+        assert_eq!(out.text, "we should ship it friday");
+        // Rejected cleanup must not claim a model shaped the record.
+        assert_eq!(out.request_ms, None);
+    }
+
+    #[test]
+    fn a_same_length_cleanup_is_kept() {
+        let corrector = Corrector::new(&[]);
+        let plan = MockCleaner::plan(vec![MockCleaner::ok("We should ship it Friday.")], 0);
+        let out = cleaned_text(
+            Some(&plan),
+            &corrector,
+            "so um we should ship it friday".to_string(),
+        );
+        assert_eq!(out.text, "We should ship it Friday.");
+        assert!(out.request_ms.is_some());
+    }
+
+    #[test]
+    fn custom_voice_may_expand_freely() {
+        let corrector = Corrector::new(&[]);
+        let long = "Dear team, I wanted to write and let you know that we should aim to ship \
+                    this coming Friday. Please let me know if that works. Best regards.";
+        let mut plan = MockCleaner::plan(vec![MockCleaner::ok(long)], 0);
+        plan.voice = hark_voice::Voice::Custom;
+        let out = cleaned_text(
+            Some(&plan),
+            &corrector,
+            "we should ship it friday".to_string(),
+        );
+        // The user's own prompt asked for this; the guard must not fight it.
+        assert_eq!(out.text, long);
+        assert!(out.request_ms.is_some());
+    }
+
+    #[test]
+    fn ratio_of_zero_disables_the_expansion_guard() {
+        let corrector = Corrector::new(&[]);
+        let long = vec!["word"; 200].join(" ");
+        let mut plan = MockCleaner::plan(vec![MockCleaner::ok(&long)], 0);
+        plan.max_expansion_ratio = 0.0;
+        let out = cleaned_text(
+            Some(&plan),
+            &corrector,
+            "we should ship it friday".to_string(),
+        );
+        assert_eq!(out.text, long);
     }
 
     #[test]

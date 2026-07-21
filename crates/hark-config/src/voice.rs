@@ -47,6 +47,13 @@ pub struct Voice {
     /// Corrected transcripts with fewer words than this skip the cleanup
     /// call (STT always runs). 0 disables the gate.
     pub skip_below_words: u32,
+    /// Discard a cleanup whose output exceeds this multiple of the input word
+    /// count and inject the uncleaned transcript instead. Guards against a
+    /// chatty model turning a one-line remark into a paragraph, which is a
+    /// worse outcome than no cleanup at all: a missing comma costs one
+    /// keystroke, invented prose has to be read and deleted. Built-in voices
+    /// only (never Custom). 0 disables the check.
+    pub max_expansion_ratio: f32,
     /// Explicit cleanup provider; omit to inherit from an openai/groq STT
     /// provider (see `resolve_cleanup_provider`).
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -59,6 +66,7 @@ impl Default for Voice {
             default: VoiceName::Clean,
             custom_prompt: String::new(),
             skip_below_words: 5,
+            max_expansion_ratio: 1.4,
             provider: None,
         }
     }
@@ -156,6 +164,15 @@ pub(crate) fn validate(voice: &Voice) -> Result<(), ConfigError> {
         return Err(ConfigError::Invalid(
             "voice.default = \"custom\" requires a non-empty voice.custom_prompt".to_string(),
         ));
+    }
+    // NaN is spelled out rather than folded into a negated comparison: TOML
+    // accepts `nan`, and it must be rejected here instead of silently
+    // disabling the guard at the call site.
+    let ratio = voice.max_expansion_ratio;
+    if ratio.is_nan() || (ratio != 0.0 && ratio < 1.0) {
+        return Err(ConfigError::Invalid(format!(
+            "voice.max_expansion_ratio must be 0 (disabled) or at least 1.0; got {ratio}"
+        )));
     }
     if let Some(p) = &voice.provider {
         if p.kind == ProviderKind::Deepgram {
@@ -491,6 +508,39 @@ mod tests {
                 }
                 other => panic!("expected Resolved for {label}, got {other:?}"),
             }
+        }
+    }
+
+    #[test]
+    fn max_expansion_ratio_defaults_and_parses() {
+        assert_eq!(
+            Settings::from_toml("").unwrap().voice.max_expansion_ratio,
+            1.4
+        );
+        let s = Settings::from_toml("[voice]\nmax_expansion_ratio = 1.15").expect("parses");
+        assert_eq!(s.voice.max_expansion_ratio, 1.15);
+        // 0 is the documented "disabled" value, mirroring skip_below_words.
+        assert_eq!(
+            Settings::from_toml("[voice]\nmax_expansion_ratio = 0.0")
+                .expect("zero disables")
+                .voice
+                .max_expansion_ratio,
+            0.0
+        );
+    }
+
+    #[test]
+    fn a_ratio_below_one_or_nan_is_rejected() {
+        // Below 1.0 would reject every cleanup that adds a single word,
+        // silently disabling the feature it looks like it is tuning.
+        for bad in ["0.8", "-1.0", "nan"] {
+            let err = Settings::from_toml(&format!("[voice]\nmax_expansion_ratio = {bad}"))
+                .expect_err("must be rejected");
+            assert!(
+                matches!(err, ConfigError::Invalid(_)),
+                "{bad} must be invalid"
+            );
+            assert!(err.to_string().contains("max_expansion_ratio"));
         }
     }
 

@@ -1,6 +1,9 @@
 //! Pure-logic tests for voices, prompt assembly, and the word gate.
 
-use hark_voice::{present_terms, skips_cleanup, system_prompt, Voice, RETURN_ONLY_CLAUSE};
+use hark_voice::{
+    over_expanded, present_terms, skips_cleanup, system_prompt, Voice, LENGTH_DISCIPLINE_CLAUSE,
+    RETURN_ONLY_CLAUSE,
+};
 use std::str::FromStr;
 
 fn s(v: &[&str]) -> Vec<String> {
@@ -55,8 +58,8 @@ fn each_voice_template_carries_its_instruction_and_the_closing_clause() {
             voice.name()
         );
         assert!(
-            prompt.contains("add or remove content"),
-            "{} prompt must forbid content changes",
+            prompt.contains("Never add sentences"),
+            "{} prompt must forbid added content",
             voice.name()
         );
     }
@@ -171,4 +174,113 @@ fn unicode_words_and_odd_whitespace_count_sanely() {
     assert!(skips_cleanup("héllo wörld naïve tëst", 5));
     // Runs of mixed whitespace do not inflate the count.
     assert!(skips_cleanup("one \t two\n three", 4));
+}
+
+// --- length discipline: prompt clause ---
+
+#[test]
+fn every_built_in_voice_carries_the_length_clause() {
+    // Professional and Casual are the voices that drifted into writing prose;
+    // the clause is what tells the model they are still edits.
+    for voice in [Voice::Clean, Voice::Professional, Voice::Casual] {
+        let prompt = system_prompt(voice, "", &[]).unwrap();
+        assert!(
+            prompt.contains(LENGTH_DISCIPLINE_CLAUSE),
+            "{} is missing the length clause",
+            voice.name()
+        );
+    }
+}
+
+#[test]
+fn custom_voice_is_not_given_the_length_clause() {
+    // The user's own prompt is used verbatim; "expand this into an email" is
+    // a legitimate custom voice.
+    let prompt = system_prompt(Voice::Custom, "Turn this into a formal email.", &[]).unwrap();
+    assert!(!prompt.contains(LENGTH_DISCIPLINE_CLAUSE));
+    assert!(prompt.starts_with("Turn this into a formal email."));
+    assert!(prompt.ends_with(RETURN_ONLY_CLAUSE));
+}
+
+#[test]
+fn length_clause_precedes_the_protected_terms_clause() {
+    // Ordering matters only for readability, but a swap would bury the terms
+    // clause mid-prompt; pin the assembled shape.
+    let prompt = system_prompt(Voice::Clean, "", &["Modero"]).unwrap();
+    let clause = prompt.find(LENGTH_DISCIPLINE_CLAUSE).unwrap();
+    let terms = prompt.find("Leave these terms").unwrap();
+    assert!(clause < terms);
+    assert!(terms < prompt.find(RETURN_ONLY_CLAUSE).unwrap());
+}
+
+// --- length discipline: the programmatic guard ---
+
+#[test]
+fn a_short_remark_blown_into_a_paragraph_is_rejected() {
+    // The reported failure: five words in, a paragraph out.
+    let input = "we should ship it friday";
+    let output = "I wanted to follow up regarding our release timeline. After giving it some \
+                  thought, I believe we should aim to ship this coming Friday. Please let me \
+                  know if that works for you.";
+    assert!(over_expanded(input, output, 1.4));
+}
+
+#[test]
+fn a_legitimate_tidy_of_a_short_remark_survives() {
+    // 4 -> 5 words. Pure ratio would allow only 5.6 and this squeaks by, but
+    // the grace allowance is what makes short utterances reliably safe.
+    assert!(!over_expanded(
+        "yeah sounds good to me",
+        "Yes, that sounds good to me.",
+        1.4
+    ));
+    // Filler removal shrinks text; shrinking is never a rejection.
+    assert!(!over_expanded(
+        "um so I think we should uh ship it",
+        "I think we should ship it.",
+        1.4
+    ));
+}
+
+#[test]
+fn grace_allowance_governs_short_input_and_ratio_governs_long() {
+    // 5 words: allowance is max(7, 8) = 8, so 8 passes and 9 fails.
+    let five = "one two three four five";
+    assert!(!over_expanded(five, "a b c d e f g h", 1.4));
+    assert!(over_expanded(five, "a b c d e f g h i", 1.4));
+
+    // 20 words: ratio (28) now exceeds the grace floor (23) and governs.
+    let twenty = "one two three four five six seven eight nine ten eleven twelve thirteen \
+                  fourteen fifteen sixteen seventeen eighteen nineteen twenty";
+    let words = |n: usize| vec!["w"; n].join(" ");
+    assert!(!over_expanded(twenty, &words(28), 1.4));
+    assert!(over_expanded(twenty, &words(29), 1.4));
+}
+
+#[test]
+fn ratio_of_zero_or_nonfinite_disables_the_guard() {
+    let input = "five little words right here";
+    let paragraph = vec!["w"; 200].join(" ");
+    assert!(!over_expanded(input, &paragraph, 0.0));
+    // A hand-edited TOML `nan` must not silently reject every cleanup; config
+    // validation rejects it first, this is the belt-and-braces path.
+    assert!(!over_expanded(input, &paragraph, f32::NAN));
+    assert!(!over_expanded(input, &paragraph, f32::INFINITY));
+}
+
+#[test]
+fn a_tighter_ratio_is_honored_once_past_the_grace_floor() {
+    let ten = "one two three four five six seven eight nine ten";
+    let words = |n: usize| vec!["w"; n].join(" ");
+    // 1.1x of 10 is 11, but grace still allows 13.
+    assert!(!over_expanded(ten, &words(13), 1.1));
+    assert!(over_expanded(ten, &words(14), 1.1));
+}
+
+#[test]
+fn empty_input_does_not_panic_or_reject_a_short_output() {
+    // Guard runs before any emptiness check upstream; must be total.
+    assert!(!over_expanded("", "", 1.4));
+    assert!(!over_expanded("", "Hi.", 1.4));
+    assert!(over_expanded("", &["w"; 10].join(" "), 1.4));
 }

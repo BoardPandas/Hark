@@ -180,17 +180,20 @@ fn build_cleanup(
     .then(|| resolved.base_url.clone());
 
     log::info!(
-        "cleanup: voice={} provider={} model={}, gate: skip below {} words",
+        "cleanup: voice={} provider={} model={}, gate: skip below {} words, \
+         reject above {}x input words",
         voice.name(),
         resolved.kind.label(),
         resolved.model,
-        settings.voice.skip_below_words
+        settings.voice.skip_below_words,
+        settings.voice.max_expansion_ratio
     );
     Some(worker::CleanupPlan {
         cleaner: Box::new(adapter),
         voice,
         model: resolved.model,
         skip_below_words: settings.voice.skip_below_words,
+        max_expansion_ratio: settings.voice.max_expansion_ratio,
         prewarm_url,
     })
 }

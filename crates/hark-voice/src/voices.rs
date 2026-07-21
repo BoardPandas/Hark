@@ -116,17 +116,56 @@ fn budgeted_terms<'a>(present: &[&'a str]) -> Vec<&'a str> {
 pub const RETURN_ONLY_CLAUSE: &str =
     "Return only the rewritten text, with no commentary and no surrounding quotes.";
 
+/// Appended to every built-in voice prompt (never to Custom, which is the
+/// user's own text). Split out from the per-voice instructions because the
+/// length rule is identical for all of them and is the one clause that most
+/// needs to stay verbatim: "preserve the meaning" reads as permission to
+/// elaborate, so the budget has to be stated as a quantity. No ratio number
+/// appears here on purpose, so this text cannot drift out of sync with
+/// `voice.max_expansion_ratio`; the exact bound is enforced by
+/// `over_expanded` after the response arrives.
+pub const LENGTH_DISCIPLINE_CLAUSE: &str = "You are editing a spoken transcript, not writing \
+     prose. Return about the same number of words as the input: a five-word transcript comes \
+     back about five words. Never add sentences, ideas, greetings, sign-offs, or context the \
+     speaker did not say, and never expand a short remark into a paragraph or a list. If the \
+     transcript is already clean, return it unchanged.";
+
 const CLEAN_INSTRUCTION: &str = "Rewrite the transcript below. Fix punctuation, capitalization, \
-     filler words (um, uh, you know), false starts, and repeated words. Preserve the original \
-     wording, meaning, and tone. Never add or remove content.";
+     filler words (um, uh, you know), false starts, and repeated words. Keep the speaker's own \
+     wording, meaning, and tone.";
 
 const PROFESSIONAL_INSTRUCTION: &str = "Rewrite the transcript below in a polished, professional \
-     business register suitable for a written message to a colleague. Preserve the meaning; \
-     never add or remove content.";
+     business register suitable for a written message to a colleague. Adjust word choice and \
+     formality only, and fix filler words and false starts. Keep the meaning.";
 
 const CASUAL_INSTRUCTION: &str = "Rewrite the transcript below in a relaxed, casual \
-     conversational register. Fix filler words and false starts but keep it informal. Preserve \
-     the meaning; never add or remove content.";
+     conversational register. Adjust word choice only, and fix filler words and false starts \
+     while keeping it informal. Keep the meaning.";
+
+/// Absolute slack allowed on top of `max_ratio`, in words. Without it the
+/// ratio alone is unusably tight on short utterances, where a legitimate tidy
+/// genuinely does add words ("yeah sounds good" -> "Yes, that sounds good.");
+/// with it, a five-word transcript may come back as eight but not as a
+/// paragraph. This is what keeps the guard live at the lengths the ratio
+/// cannot police, so short dictations are covered rather than exempt.
+pub const EXPANSION_GRACE_WORDS: f32 = 3.0;
+
+/// True when `output` is too long to be an edit of `input` and should be
+/// discarded in favor of the uncleaned transcript. The allowance is the
+/// larger of `max_ratio` x input words and input words + [`EXPANSION_GRACE_WORDS`].
+///
+/// `max_ratio == 0.0` disables the check (same convention as
+/// `skip_below_words == 0`), as does any non-finite ratio, which can reach
+/// here from a hand-edited TOML `nan`.
+pub fn over_expanded(input: &str, output: &str, max_ratio: f32) -> bool {
+    if !max_ratio.is_finite() || max_ratio <= 0.0 {
+        return false;
+    }
+    let input_words = input.split_whitespace().count() as f32;
+    let output_words = output.split_whitespace().count() as f32;
+    let allowed = (input_words * max_ratio).max(input_words + EXPANSION_GRACE_WORDS);
+    output_words > allowed
+}
 
 /// Assemble the per-request system prompt (§2.2 shape: voice instruction,
 /// protected-terms clause for terms present in the outgoing text, return-only
@@ -142,6 +181,12 @@ pub fn system_prompt(voice: Voice, custom_prompt: &str, present_terms: &[&str]) 
         Voice::Custom => custom_prompt,
     };
     let mut prompt = instruction.to_string();
+    // Custom is the escape hatch: a user who writes "turn this into an email"
+    // means it, so neither the clause nor `over_expanded` applies there.
+    if voice != Voice::Custom {
+        prompt.push(' ');
+        prompt.push_str(LENGTH_DISCIPLINE_CLAUSE);
+    }
     let kept = budgeted_terms(present_terms);
     if !kept.is_empty() {
         prompt.push_str(" Leave these terms exactly as written: ");
