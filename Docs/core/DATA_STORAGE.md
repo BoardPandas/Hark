@@ -44,7 +44,7 @@ Sources: [crates/hark-store/src/lib.rs:1-16](https://github.com/BoardPandas/Hark
 <!-- BEGIN:AUTOGEN hark_05_data_storage_schema -->
 ## Schema
 
-The schema is defined by two embedded, immutable migrations applied in order at open time; the array index plus one becomes the resulting `PRAGMA user_version`, and an applied migration file is never edited or renumbered ([lib.rs:22-27](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/crates/hark-store/src/lib.rs#L22-L27), [lib.rs:152-163](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/crates/hark-store/src/lib.rs#L152-L163)).
+The schema is defined by three embedded, immutable migrations applied in order at open time; the array index plus one becomes the resulting `PRAGMA user_version`, and an applied migration file is never edited or renumbered ([lib.rs:22-28](https://github.com/BoardPandas/Hark/blob/bcfcc3fef6f02252870fc3f06440d99992818ade/crates/hark-store/src/lib.rs#L22-L28), [lib.rs:159-170](https://github.com/BoardPandas/Hark/blob/bcfcc3fef6f02252870fc3f06440d99992818ade/crates/hark-store/src/lib.rs#L159-L170)).
 
 Migration 001 creates the two tables:
 
@@ -83,6 +83,14 @@ Migration 002 adds a `total_ms` sum column to `stats` so the UI can derive avera
 ALTER TABLE stats ADD COLUMN total_ms INTEGER NOT NULL DEFAULT 0;
 ```
 
+Migration 003 adds a nullable `invocation` column to `entries`, recording the trigger phrase when a dictation's text was pasted from an invocation rather than transcribed. There is no `DEFAULT` and no backfill: every pre-003 row genuinely is "not an invocation", which is exactly `NULL` ([crates/hark-store/migrations/003_entries_invocation.sql:1-6](https://github.com/BoardPandas/Hark/blob/bcfcc3fef6f02252870fc3f06440d99992818ade/crates/hark-store/migrations/003_entries_invocation.sql#L1-L6)):
+
+```sql
+ALTER TABLE entries ADD COLUMN invocation TEXT;
+```
+
+The column also changes how `words` is counted. `Store::record` credits `raw_text` instead of `final_text` when `invocation` is set, because the Stats page values every word at 1500 ms and a two-word trigger producing a 300-word expansion would otherwise fabricate roughly seven and a half minutes of "time saved" ([lib.rs:346-359](https://github.com/BoardPandas/Hark/blob/bcfcc3fef6f02252870fc3f06440d99992818ade/crates/hark-store/src/lib.rs#L346-L359)). See [Invocations](../features/INVOCATIONS.md).
+
 `stats` is a singleton table keyed on the fixed id `1` (`CHECK (id = 1)`); the row is seeded with `INSERT OR IGNORE` at open time because `since_ts_ms` needs the wall clock, and an existing row (and its counters) is preserved across reopens ([lib.rs:143-148](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/crates/hark-store/src/lib.rs#L143-L148), [migrations/001_init.sql:19-22](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/crates/hark-store/migrations/001_init.sql#L19-L22)).
 
 ```mermaid
@@ -96,6 +104,7 @@ erDiagram
         text stt_provider
         text stt_model
         text cleanup_model
+        text invocation
         integer stt_ms
         integer cleanup_ms
         integer total_ms
@@ -114,7 +123,7 @@ erDiagram
 
 `entries` and `stats` have no foreign-key relationship; they are independent by design so that "clear history" and "reset stats" can each mutate one table without touching the other ([lib.rs:12-13](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/crates/hark-store/src/lib.rs#L12-L13)).
 
-Sources: [crates/hark-store/src/lib.rs:22-27](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/crates/hark-store/src/lib.rs#L22-L27), [crates/hark-store/src/lib.rs:133-163](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/crates/hark-store/src/lib.rs#L133-L163), [crates/hark-store/migrations/001_init.sql:1-31](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/crates/hark-store/migrations/001_init.sql#L1-L31), [crates/hark-store/migrations/002_stats_total_ms.sql:1-8](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/crates/hark-store/migrations/002_stats_total_ms.sql#L1-L8)
+Sources: [crates/hark-store/src/lib.rs:22-28](https://github.com/BoardPandas/Hark/blob/bcfcc3fef6f02252870fc3f06440d99992818ade/crates/hark-store/src/lib.rs#L22-L28), [crates/hark-store/src/lib.rs:140-170](https://github.com/BoardPandas/Hark/blob/bcfcc3fef6f02252870fc3f06440d99992818ade/crates/hark-store/src/lib.rs#L140-L170), [crates/hark-store/migrations/001_init.sql:1-31](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/crates/hark-store/migrations/001_init.sql#L1-L31), [crates/hark-store/migrations/002_stats_total_ms.sql:1-8](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/crates/hark-store/migrations/002_stats_total_ms.sql#L1-L8), [crates/hark-store/migrations/003_entries_invocation.sql:1-6](https://github.com/BoardPandas/Hark/blob/bcfcc3fef6f02252870fc3f06440d99992818ade/crates/hark-store/migrations/003_entries_invocation.sql#L1-L6)
 <!-- END:AUTOGEN hark_05_data_storage_schema -->
 
 ---

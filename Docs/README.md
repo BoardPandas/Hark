@@ -1,6 +1,12 @@
 # Hark Documentation
 
 > **Latest Updates (July 2026):**
+> - **v0.20.0:** Invocations — say a trigger phrase, get a block of text you wrote, injected verbatim and never reworded by a cleanup voice.
+> - **v0.19.1:** Groundwork for a Gemini adapter that transcribes and cleans in one request (not yet selectable in Settings).
+> - **v0.19.0:** A Test button for the cleanup provider, and a pinned unsaved-changes bar in Settings.
+> - **v0.18.0:** Opt-in on-device transcription with a downloadable Parakeet model, usable as a cloud backup or as the primary engine.
+> - **v0.17.0:** Quieter microphones are no longer dropped; peak-window silence gating, per-room noise floor, and a live input meter.
+> - **v0.16.0:** Only one Hark runs at a time; a second launch exits quietly instead of fighting for the push-to-talk key.
 > - **v0.14.0:** Windows installer (per-user, no admin), launch-at-login toggle, and a microphone picker in Settings.
 > - **v0.13.7:** Retired the internal `hark-cli` dev binary; `hark-app` is the sole entry point.
 > - **v0.13.6:** In-app update checker with Windows self-update, plus per-device microphone selection.
@@ -45,6 +51,7 @@ One page per major subsystem of the dictation pipeline and the desktop shell.
 | [TRANSCRIPTION.md](features/TRANSCRIPTION.md) | The `SttProvider` trait, the OpenAI-compatible and Deepgram adapters, WAV encoding, and biasing. |
 | [ON_DEVICE_STT.md](features/ON_DEVICE_STT.md) | Opt-in local Parakeet model: download manager, the cloud/local fallback policy, and the `local-engine` build feature. |
 | [DICTIONARY.md](features/DICTIONARY.md) | Phonetic post-correction of transcripts plus per-provider biasing term generation. |
+| [INVOCATIONS.md](features/INVOCATIONS.md) | User-authored trigger phrases that inject canned text verbatim, skipping the cleanup pass. |
 | [VOICE_CLEANUP.md](features/VOICE_CLEANUP.md) | Voice presets and the optional BYOK LLM cleanup pass over the raw transcript. |
 | [TEXT_INJECTION.md](features/TEXT_INJECTION.md) | Clipboard stash-set-paste-restore injection with an enigo keystroke fallback. |
 | [DESKTOP_UI.md](features/DESKTOP_UI.md) | The tray daemon, the recording overlay, and the egui settings/history/stats window. |

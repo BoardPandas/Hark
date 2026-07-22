@@ -13,6 +13,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **An invocation that can never fire says so on its own row.** A trigger shorter than two words, an invocation with no text to type, or a trigger a previous entry already claimed is marked in the list with the reason, instead of quietly doing nothing when you say it.
 - **A "Try it" box in the editor tells you whether a phrase would fire, before you rely on it.** Type what you'd say and Hark answers with the real matcher, not a guess. When it would not fire but came close, it names the nearest trigger and how close it got, so you know whether to reword the trigger or just say it more clearly.
 - **History marks the dictations that came from an invocation.** The row carries an ⚡ Invocation badge, and expanding it names the trigger that fired — so an entry that reads nothing like what you said explains itself.
+- **An Invocations page in the documentation wiki** (`Docs/features/INVOCATIONS.md`), covering the matching rules, both scopes, the configuration keys, and why a fired invocation bypasses your cleanup voice.
 
 ### Changed
 - **Invocations count the words you spoke, not the words Hark pasted, in your stats.** "Time saved" values every word at typing speed, so a two-word trigger producing a 300-word block would otherwise have invented about seven and a half minutes of saved time out of nothing. Your existing figures are untouched; only invocation dictations count differently, and only from this version on.

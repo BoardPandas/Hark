@@ -62,3 +62,62 @@ All 13 workspace crates are documented, plus the config, installer, release work
 ## Regeneration
 
 Run `/doc-sync update` after code changes to regenerate only the AUTOGEN sections whose source files changed. Manual edits between AUTOGEN markers are preserved.
+
+---
+
+## Incremental Update — 2026-07-22 14:26
+
+- **Mode:** update (scoped to the Invocations feature)
+- **Commit range:** `1c17387..bcfcc3f`
+
+### Phase A — TOC drift
+- New pages: 1
+  - `hark_08b_invocations` → `features/INVOCATIONS.md` (6 sections, 1 flowchart)
+- Removed pages: 0
+- Added sections: 6 (all on the new page)
+- Removed sections: 0
+
+### Phase B — Source diff
+- Sections regenerated: 6 across 4 existing pages
+  - `hark_12_desktop_ui_overview` — was "four egui pages (History, Dictionary, Stats, Settings)"; now five, with Invocations
+  - `hark_12_desktop_ui_pages` — page table gains the Invocations row plus an Invocations subsection
+  - `hark_08_dictionary_matcher` — `window_matches` now takes the Jaro-Winkler threshold as a parameter; documents the 0.85 vs 0.90 split and `window_similarity`
+  - `hark_08_dictionary_api` — `Expander`, `phrase_word_count`, and `normalized_phrase` added to the public API table
+  - `hark_04_configuration_schema` — `[[invocations.entries]]` keys, the last-field ordering rule, and the deliberate absence of a `validate` rule
+  - `hark_05_data_storage_schema` — migration 003, the `invocation` column, the ER diagram, and the spoken-word stats rule
+- Pages touched: 5 (1 new, 4 edited)
+- `Docs/README.md`: Invocations added to the Features table; "Latest Updates" refreshed through v0.20.0
+
+### Validation
+- Structure errors: 0 (every PAGE_ID and BEGIN/END pair matches `_toc.yaml`)
+- Broken internal links: 0 across all 15 pages
+- Mermaid: 14 blocks, 0 invalid (static check; `mmdc` not installed, so no render test was performed)
+- Citations emitted this run: verified against `git show bcfcc3f:<path>` — 0 nonexistent paths, 0 out-of-range line numbers
+
+### Known coverage gaps
+
+This run was **deliberately not** a full `1c17387..bcfcc3f` refresh. That range
+spans six releases; regenerating everything would rewrite most of the wiki in a
+single unreviewable diff. The following remain stale or undocumented and need
+their own `/doc-sync update` run:
+
+| Release | Undocumented work | Affected page |
+|---|---|---|
+| 0.15.0 | `over_expanded` guard and `LENGTH_DISCIPLINE_CLAUSE` | VOICE_CLEANUP |
+| 0.16.0 | `hark-single-instance` crate | none — no page exists |
+| 0.17.0 | `hark-audio/src/gain.rs`, peak-window silence gating, live input meter | AUDIO_CAPTURE |
+| 0.18.0 | `hark-local-stt` crate (5 modules), `hark-pipeline/src/local.rs`, `hark-config/src/local.rs` | ON_DEVICE_STT |
+| 0.18.1 | multi-monitor overlay placement | DESKTOP_UI |
+
+26 of 83 non-test Rust source files are not matched by any `_toc.yaml` source
+pattern, concentrated in `hark-local-stt`, `hark-single-instance`, and the
+`hark-app/src/ui/settings/*` submodules.
+
+### Pre-existing issue (not introduced here, not corrected)
+
+Whole-file citations written by the original `init` run are off by one
+(`#L1-L{lines+1}`), e.g. `tray/mod.rs#L1-L236` where the file has 235 lines at
+`1c17387`. GitHub clamps such ranges, so they render correctly. They sit in
+untouched AUTOGEN blocks and in "Relevant source files" lists whose file sets
+did not change, so the incremental-update policy forbids rewriting them here.
+Citations emitted by this run use exact line counts.

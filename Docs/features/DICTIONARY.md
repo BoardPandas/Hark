@@ -4,8 +4,9 @@
 
 The following files were used as evidence for this page:
 
-- [crates/hark-dictionary/src/lib.rs:1-99](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/crates/hark-dictionary/src/lib.rs#L1-L99)
-- [crates/hark-dictionary/src/matcher.rs:1-133](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/crates/hark-dictionary/src/matcher.rs#L1-L133)
+- [crates/hark-dictionary/src/lib.rs:1-108](https://github.com/BoardPandas/Hark/blob/bcfcc3fef6f02252870fc3f06440d99992818ade/crates/hark-dictionary/src/lib.rs#L1-L108)
+- [crates/hark-dictionary/src/matcher.rs:1-158](https://github.com/BoardPandas/Hark/blob/bcfcc3fef6f02252870fc3f06440d99992818ade/crates/hark-dictionary/src/matcher.rs#L1-L158)
+- [crates/hark-dictionary/src/expander.rs:1-257](https://github.com/BoardPandas/Hark/blob/bcfcc3fef6f02252870fc3f06440d99992818ade/crates/hark-dictionary/src/expander.rs#L1-L257)
 - [crates/hark-dictionary/src/tokenize.rs:1-52](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/crates/hark-dictionary/src/tokenize.rs#L1-L52)
 - [crates/hark-config/src/lib.rs:214-221](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/crates/hark-config/src/lib.rs#L214-L221)
 - [crates/hark-config/src/lib.rs:517-524](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/crates/hark-config/src/lib.rs#L517-L524)
@@ -20,7 +21,7 @@ The following files were used as evidence for this page:
 
 # Dictionary
 
-> **Related Pages**: [Transcription](TRANSCRIPTION.md), [Voice Cleanup](VOICE_CLEANUP.md), [Configuration and Secrets](../core/CONFIGURATION.md)
+> **Related Pages**: [Transcription](TRANSCRIPTION.md), [Invocations](INVOCATIONS.md), [Voice Cleanup](VOICE_CLEANUP.md), [Configuration and Secrets](../core/CONFIGURATION.md)
 
 ---
 
@@ -58,10 +59,17 @@ Each word of a configured term is precomputed once, at `Corrector` construction,
 
 | Path | When chosen | Match rule |
 |---|---|---|
-| Exact-only | Word has `< 4` chars or contains a non-alphabetic character (digits included) ([matcher.rs:87](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/crates/hark-dictionary/src/matcher.rs#L87)) | Case-insensitive spelling equality only |
-| Phonetic | Word is `>= 4` alphabetic chars and encodes to a non-empty Double Metaphone code ([matcher.rs:88-95](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/crates/hark-dictionary/src/matcher.rs#L88-L95)) | Double Metaphone primary/alternate code equality on either side, confirmed by Jaro-Winkler `>= 0.85` ([matcher.rs:14-17](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/crates/hark-dictionary/src/matcher.rs#L14-L17)) |
+| Exact-only | Word has `< 4` chars or contains a non-alphabetic character (digits included) ([matcher.rs:91](https://github.com/BoardPandas/Hark/blob/bcfcc3fef6f02252870fc3f06440d99992818ade/crates/hark-dictionary/src/matcher.rs#L91)) | Case-insensitive spelling equality only |
+| Phonetic | Word is `>= 4` alphabetic chars and encodes to a non-empty Double Metaphone code ([matcher.rs:90-97](https://github.com/BoardPandas/Hark/blob/bcfcc3fef6f02252870fc3f06440d99992818ade/crates/hark-dictionary/src/matcher.rs#L90-L97)) | Double Metaphone primary/alternate code equality on either side, confirmed by a caller-supplied Jaro-Winkler threshold ([matcher.rs:120-130](https://github.com/BoardPandas/Hark/blob/bcfcc3fef6f02252870fc3f06440d99992818ade/crates/hark-dictionary/src/matcher.rs#L120-L130)) |
 
-The threshold is a "research-informed guess, tuned at the CP6 interactive gate" and is documented as a candidate for promotion to config only if real usage demands it ([matcher.rs:14-17](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/crates/hark-dictionary/src/matcher.rs#L14-L17)). Code comparison checks all four combinations of primary/alternate on both sides, and an empty code (unencodable input) never matches anything ([matcher.rs:122-132](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/crates/hark-dictionary/src/matcher.rs#L122-L132)):
+The confirmation threshold is a parameter of `window_matches`, not a constant baked into the comparison, because the matcher has two consumers with different blast radii ([matcher.rs:104-117](https://github.com/BoardPandas/Hark/blob/bcfcc3fef6f02252870fc3f06440d99992818ade/crates/hark-dictionary/src/matcher.rs#L104-L117)):
+
+| Consumer | Threshold | Consequence of a false positive |
+|---|---|---|
+| `Corrector` | `JW_CONFIRM_THRESHOLD` = 0.85 ([matcher.rs:14-21](https://github.com/BoardPandas/Hark/blob/bcfcc3fef6f02252870fc3f06440d99992818ade/crates/hark-dictionary/src/matcher.rs#L14-L21)) | One word is rewritten |
+| `Expander` (see [Invocations](INVOCATIONS.md)) | `INVOCATION_JW_THRESHOLD` = 0.90 ([expander.rs:17-26](https://github.com/BoardPandas/Hark/blob/bcfcc3fef6f02252870fc3f06440d99992818ade/crates/hark-dictionary/src/expander.rs#L17-L26)) | A whole paragraph is pasted |
+
+The dictionary's own 0.85 is a "research-informed guess, tuned at the CP6 interactive gate" and is documented as a candidate for promotion to config only if real usage demands it ([matcher.rs:14-21](https://github.com/BoardPandas/Hark/blob/bcfcc3fef6f02252870fc3f06440d99992818ade/crates/hark-dictionary/src/matcher.rs#L14-L21)). Code comparison checks all four combinations of primary/alternate on both sides, and an empty code (unencodable input) never matches anything ([matcher.rs:150-158](https://github.com/BoardPandas/Hark/blob/bcfcc3fef6f02252870fc3f06440d99992818ade/crates/hark-dictionary/src/matcher.rs#L150-L158)):
 
 ```rust
 fn codes_intersect(a: &Codes, b: &Codes) -> bool {
@@ -75,9 +83,11 @@ fn codes_intersect(a: &Codes, b: &Codes) -> bool {
 }
 ```
 
-Multi-word terms are precomputed at construction and sorted longest-word-count-first, then longest-character-length first, so that overlapping terms resolve in favor of the longer match; matching consumes tokens in that order ([matcher.rs:54-84](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/crates/hark-dictionary/src/matcher.rs#L54-L84)). Equal spellings match on either path without needing the Jaro-Winkler confirmation at all ([matcher.rs:110-120](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/crates/hark-dictionary/src/matcher.rs#L110-L120)).
+Multi-word terms are precomputed at construction and sorted longest-word-count-first, then longest-character-length first, so that overlapping terms resolve in favor of the longer match; matching consumes tokens in that order ([matcher.rs:61-91](https://github.com/BoardPandas/Hark/blob/bcfcc3fef6f02252870fc3f06440d99992818ade/crates/hark-dictionary/src/matcher.rs#L61-L91)). Equal spellings match on either path without needing the Jaro-Winkler confirmation at all ([matcher.rs:120-130](https://github.com/BoardPandas/Hark/blob/bcfcc3fef6f02252870fc3f06440d99992818ade/crates/hark-dictionary/src/matcher.rs#L120-L130)).
 
-Sources: [matcher.rs:14-17](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/crates/hark-dictionary/src/matcher.rs#L14-L17), [matcher.rs:54-97](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/crates/hark-dictionary/src/matcher.rs#L54-L97), [matcher.rs:110-132](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/crates/hark-dictionary/src/matcher.rs#L110-L132)
+`window_similarity` is a sibling of `window_matches` that returns the mean Jaro-Winkler score across a token window, ignoring phonetic codes entirely. It powers the Invocations editor's near-miss hint and is never a matching decision ([matcher.rs:132-158](https://github.com/BoardPandas/Hark/blob/bcfcc3fef6f02252870fc3f06440d99992818ade/crates/hark-dictionary/src/matcher.rs#L132-L158)).
+
+Sources: [matcher.rs:14-21](https://github.com/BoardPandas/Hark/blob/bcfcc3fef6f02252870fc3f06440d99992818ade/crates/hark-dictionary/src/matcher.rs#L14-L21), [matcher.rs:61-102](https://github.com/BoardPandas/Hark/blob/bcfcc3fef6f02252870fc3f06440d99992818ade/crates/hark-dictionary/src/matcher.rs#L61-L102), [matcher.rs:104-158](https://github.com/BoardPandas/Hark/blob/bcfcc3fef6f02252870fc3f06440d99992818ade/crates/hark-dictionary/src/matcher.rs#L104-L158), [expander.rs:17-26](https://github.com/BoardPandas/Hark/blob/bcfcc3fef6f02252870fc3f06440d99992818ade/crates/hark-dictionary/src/expander.rs#L17-L26)
 <!-- END:AUTOGEN hark_08_dictionary_matcher -->
 
 ---
@@ -169,12 +179,15 @@ Sources: [hark-config/src/lib.rs:214-221](https://github.com/BoardPandas/Hark/bl
 <!-- BEGIN:AUTOGEN hark_08_dictionary_api -->
 ## Public API
 
-`hark-dictionary`'s only public type is `Corrector`. There is no separate `Dictionary` struct in this crate; the term list itself is owned by `hark-config`'s `Dictionary` settings struct (see [Provider Biasing](#provider-biasing)) and handed to `Corrector::new` as a plain `&[String]`.
+The crate exports two matching types. `Corrector` is the dictionary's own; `Expander` is the invocation matcher documented on the [Invocations](INVOCATIONS.md) page, exported from here because it reuses the same guarded phonetic path ([lib.rs:18-26](https://github.com/BoardPandas/Hark/blob/bcfcc3fef6f02252870fc3f06440d99992818ade/crates/hark-dictionary/src/lib.rs#L18-L26)). There is no separate `Dictionary` struct in this crate; the term list itself is owned by `hark-config`'s `Dictionary` settings struct (see [Provider Biasing](#provider-biasing)) and handed to `Corrector::new` as a plain `&[String]`.
 
 | Item | Signature | Purpose | Source |
 |---|---|---|---|
-| `Corrector::new` | `pub fn new(terms: &[String]) -> Corrector` | Precomputes per-term phonetic codes once, at startup; not meant to be called per dictation ([lib.rs:29-37](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/crates/hark-dictionary/src/lib.rs#L29-L37)) |
-| `Corrector::correct` | `pub fn correct(&self, text: &str) -> (String, usize)` | Returns the corrected text and the number of replacements made; never fails ([lib.rs:39-98](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/crates/hark-dictionary/src/lib.rs#L39-L98)) |
+| `Corrector::new` | `pub fn new(terms: &[String]) -> Corrector` | Precomputes per-term phonetic codes once, at startup; not meant to be called per dictation ([lib.rs:34-42](https://github.com/BoardPandas/Hark/blob/bcfcc3fef6f02252870fc3f06440d99992818ade/crates/hark-dictionary/src/lib.rs#L34-L42)) |
+| `Corrector::correct` | `pub fn correct(&self, text: &str) -> (String, usize)` | Returns the corrected text and the number of replacements made; never fails ([lib.rs:44-108](https://github.com/BoardPandas/Hark/blob/bcfcc3fef6f02252870fc3f06440d99992818ade/crates/hark-dictionary/src/lib.rs#L44-L108)) |
+| `Expander` | `pub struct Expander` | Trigger-phrase to canned-text matching at a 0.90 confirm threshold ([expander.rs:58-66](https://github.com/BoardPandas/Hark/blob/bcfcc3fef6f02252870fc3f06440d99992818ade/crates/hark-dictionary/src/expander.rs#L58-L66)) |
+| `phrase_word_count` | `pub fn phrase_word_count(phrase: &str) -> usize` | Word count under this crate's tokenizer, so UI validation cannot disagree with the matcher ([expander.rs:243-245](https://github.com/BoardPandas/Hark/blob/bcfcc3fef6f02252870fc3f06440d99992818ade/crates/hark-dictionary/src/expander.rs#L243-L245)) |
+| `normalized_phrase` | `pub fn normalized_phrase(phrase: &str) -> String` | A trigger's identity for duplicate detection ([expander.rs:250-256](https://github.com/BoardPandas/Hark/blob/bcfcc3fef6f02252870fc3f06440d99992818ade/crates/hark-dictionary/src/expander.rs#L250-L256)) |
 
 ```rust
 /// Corrects transcripts against a fixed set of canonical terms.
@@ -187,9 +200,9 @@ pub struct Corrector {
 }
 ```
 
-`correct` returns `(text.to_string(), 0)` unchanged whenever the dictionary is empty or the input text is empty, before any tokenization work happens ([lib.rs:45-47](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/crates/hark-dictionary/src/lib.rs#L45-L47)). Internally it tokenizes the transcript once, encodes every token's phonetic codes once, then walks entries longest-first, tracking which tokens are already consumed by an earlier (longer) match so shorter terms skip them ([lib.rs:48-83](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/crates/hark-dictionary/src/lib.rs#L48-L83)). Matched spans that are already spelled canonically are still marked "consumed" (so overlapping terms don't double-fire) but are not spliced or counted ([lib.rs:76-82](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/crates/hark-dictionary/src/lib.rs#L76-L82)).
+`correct` returns `(text.to_string(), 0)` unchanged whenever the dictionary is empty or the input text is empty, before any tokenization work happens ([lib.rs:55-57](https://github.com/BoardPandas/Hark/blob/bcfcc3fef6f02252870fc3f06440d99992818ade/crates/hark-dictionary/src/lib.rs#L55-L57)). Internally it tokenizes the transcript once, encodes every token's phonetic codes once, then walks entries longest-first, tracking which tokens are already consumed by an earlier (longer) match so shorter terms skip them ([lib.rs:58-93](https://github.com/BoardPandas/Hark/blob/bcfcc3fef6f02252870fc3f06440d99992818ade/crates/hark-dictionary/src/lib.rs#L58-L93)). Matched spans that are already spelled canonically are still marked "consumed" (so overlapping terms don't double-fire) but are not spliced or counted ([lib.rs:86-92](https://github.com/BoardPandas/Hark/blob/bcfcc3fef6f02252870fc3f06440d99992818ade/crates/hark-dictionary/src/lib.rs#L86-L92)).
 
-Sources: [lib.rs:19-98](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/crates/hark-dictionary/src/lib.rs#L19-L98)
+Sources: [lib.rs:18-108](https://github.com/BoardPandas/Hark/blob/bcfcc3fef6f02252870fc3f06440d99992818ade/crates/hark-dictionary/src/lib.rs#L18-L108), [expander.rs:58-66](https://github.com/BoardPandas/Hark/blob/bcfcc3fef6f02252870fc3f06440d99992818ade/crates/hark-dictionary/src/expander.rs#L58-L66)
 <!-- END:AUTOGEN hark_08_dictionary_api -->
 
 ---
