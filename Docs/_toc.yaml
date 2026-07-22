@@ -463,6 +463,64 @@ pages:
       - hark_07_transcription
       - hark_09_voice_cleanup
       - hark_04_configuration
+      - hark_08b_invocations
+
+  - id: hark_08b_invocations
+    title: "Invocations"
+    folder: "features"
+    filename: "INVOCATIONS.md"
+    description: "User-authored trigger phrases that inject canned text verbatim, skipping the cleanup pass."
+    category: feature
+    source_files:
+      - "crates/hark-dictionary/src/expander.rs"
+      - "crates/hark-config/src/invocations.rs"
+      - "crates/hark-pipeline/src/worker.rs"
+      - "crates/hark-app/src/ui/invocations/mod.rs"
+      - "crates/hark-app/src/ui/invocations/editor.rs"
+    sections:
+      - id: hark_08b_invocations_overview
+        title: "Overview"
+        autogen: true
+        diagrams_needed: true
+        diagram_types: ["flowchart"]
+      - id: hark_08b_invocations_matching
+        title: "Trigger Matching and Scope"
+        autogen: true
+        source_files:
+          - "crates/hark-dictionary/src/expander.rs"
+        diagrams_needed: false
+        diagram_types: []
+      - id: hark_08b_invocations_cleanup
+        title: "Why a Fired Invocation Skips Cleanup"
+        autogen: true
+        source_files:
+          - "crates/hark-pipeline/src/worker.rs"
+        diagrams_needed: false
+        diagram_types: []
+      - id: hark_08b_invocations_config
+        title: "Configuration"
+        autogen: true
+        source_files:
+          - "crates/hark-config/src/invocations.rs"
+        diagrams_needed: false
+        diagram_types: []
+      - id: hark_08b_invocations_ui
+        title: "The Invocations Page"
+        autogen: true
+        source_files:
+          - "crates/hark-app/src/ui/invocations/mod.rs"
+          - "crates/hark-app/src/ui/invocations/editor.rs"
+        diagrams_needed: false
+        diagram_types: []
+      - id: hark_08b_invocations_edge
+        title: "Edge Cases"
+        autogen: true
+        diagrams_needed: false
+        diagram_types: []
+    related_pages:
+      - hark_08_dictionary
+      - hark_09_voice_cleanup
+      - hark_12_desktop_ui
 
   - id: hark_09_voice_cleanup
     title: "Voice Cleanup"

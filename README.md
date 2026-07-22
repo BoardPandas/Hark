@@ -1,6 +1,6 @@
 # Hark
 
-A lean, system-wide, push-to-talk voice dictation tool for **Windows** and **macOS**. Hold a key, speak, release — polished English text is injected at your cursor in any app. Transcription is **bring-your-own-key cloud** (you supply your own speech-to-text provider key); history, stats, and the dictionary stay local on your machine; cleanup is optional and uses your own LLM key.
+A lean, system-wide, push-to-talk voice dictation tool for **Windows** and **macOS**. Hold a key, speak, release — polished English text is injected at your cursor in any app. Transcription is **bring-your-own-key cloud** (you supply your own speech-to-text provider key); history, stats, the dictionary, and your invocations stay local on your machine; cleanup is optional and uses your own LLM key.
 
 > Wispr Flow-style dictation, scoped to one user, English-only, and local-first.
 
@@ -24,6 +24,7 @@ Desktop app — **no web infrastructure** (no server, database service, auth, or
 | STT | BYOK cloud via an `SttProvider` trait: OpenAI-compatible `/audio/transcriptions` adapter (OpenAI, Groq) + Deepgram nova-3 adapter |
 | STT transport | `reqwest` blocking + multipart + rustls on worker threads; one long-lived client, no global tokio |
 | Dictionary | Phonetic post-correction (primary, provider-agnostic) + per-provider biasing (OpenAI/Groq `prompt`, Deepgram `keyterm`) |
+| Invocations | Trigger phrase → canned text, matched by the same guarded phonetic matcher at a tighter confirm threshold; injected verbatim, cleanup skipped |
 | Cleanup / voices | Bring-your-own-key, OpenAI-compatible chat endpoint (optional) |
 | Injection | Clipboard paste, `enigo` keystroke fallback |
 | Tray + UI | `tray-icon` + `eframe`/`egui` (native, no webview) |
@@ -44,6 +45,10 @@ key up  ─────▶ append ~150 ms tail
        (reused keep-alive client, at most one retry on timeout)
               │
               ▼  phonetic post-correction against dictionary
+              │
+              ▼  invocation trigger matched? ── yes ─▶ inject canned text verbatim
+              │ no                                     (cleanup skipped entirely)
+              ▼
         voice == Verbatim? ── yes ─▶ inject raw transcript
               │ no
               ▼
@@ -104,7 +109,8 @@ crates/
   hark-hotkey/       # native push-to-talk key hooks (WH_KEYBOARD_LL / CGEventTap)
   hark-audio/        # cpal ring buffer, pre-roll + tail
   hark-stt/          # SttProvider trait + adapters (OpenAI-compatible, Deepgram)
-  hark-dictionary/   # phonetic post-correction + per-provider biasing terms
+  hark-dictionary/   # phonetic post-correction, invocation trigger matching,
+                     #   and per-provider biasing terms
   hark-voice/        # voice presets + BYOK cleanup adapter
   hark-inject/       # clipboard paste + enigo fallback
   hark-pipeline/     # release-to-inject orchestration across worker threads
@@ -122,7 +128,7 @@ No web env vars. Settings and secrets live in OS-standard locations:
 
 | Item | Location |
 |---|---|
-| `config.toml` (hotkey, default voice, BYOK provider/model, dictionary, capture toggle, retention cap) | OS config dir (`~/Library/Application Support/Hark/`, `%APPDATA%\Hark\`) |
+| `config.toml` (hotkey, default voice, BYOK provider/model, dictionary, invocations, capture toggle, retention cap) | OS config dir (`~/Library/Application Support/Hark/`, `%APPDATA%\Hark\`) |
 | `hark.db` (history + stats) | OS data dir |
 | BYOK API key | OS keychain — never written to `config.toml` |
 

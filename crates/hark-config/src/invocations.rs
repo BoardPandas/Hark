@@ -164,6 +164,35 @@ mod tests {
         Settings::from_toml(&text).expect("serialized defaults re-parse");
     }
 
+    /// The example commented into `config/default-config.toml`, verbatim.
+    /// It is the first thing a user uncomments, so it must actually parse
+    /// into what the comment above it promises.
+    #[test]
+    fn the_documented_default_config_example_parses() {
+        let s = Settings::from_toml(
+            r#"
+[[invocations.entries]]
+phrase = "access granted"
+scope = "utterance"
+expansion = """
+You have access to the Support Forge tools: ticketing, remote assist,
+and the asset inventory.
+"""
+"#,
+        )
+        .expect("the shipped example must parse");
+        let entry = &s.invocations.entries[0];
+        assert_eq!(entry.phrase, "access granted");
+        assert_eq!(entry.scope, Scope::Utterance);
+        // A TOML multi-line basic string drops the newline right after the
+        // opening delimiter and keeps the one before the closing one.
+        assert_eq!(
+            entry.expansion,
+            "You have access to the Support Forge tools: ticketing, remote assist,\n\
+             and the asset inventory.\n"
+        );
+    }
+
     #[test]
     fn an_unarmable_entry_still_loads_rather_than_failing_the_config() {
         // Fail-soft is the whole contract: a one-word trigger and an empty

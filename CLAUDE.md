@@ -14,6 +14,7 @@ Hark is a single-user, **push-to-talk voice dictation desktop app** for Windows 
 | STT | **BYOK cloud via an `SttProvider` trait**: OpenAI-compatible `/audio/transcriptions` adapter (OpenAI, Groq) + Deepgram nova-3 adapter (`keyterm` biasing). No local model |
 | STT transport | `reqwest` 0.13 blocking + multipart + rustls on pipeline worker threads; one long-lived `Client`; **no global tokio runtime** |
 | Dictionary | Phonetic post-correction (primary, provider-agnostic) + per-provider biasing (OpenAI/Groq `prompt`, Deepgram `keyterm`) |
+| Invocations | Trigger phrase → canned text (`hark_dictionary::Expander`); same guarded matcher as the dictionary at a **0.90** confirm threshold vs 0.85. A fired invocation **must** skip cleanup — control flow, never a prompt clause |
 | Voices / cleanup | BYOK OpenAI-compatible endpoint (optional); one low-temp call |
 | Injection | Clipboard paste (stash → set → paste → restore); `enigo` fallback |
 | Tray + window | `tray-icon` + `eframe`/`egui` (native, no webview) |

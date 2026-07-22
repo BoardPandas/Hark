@@ -47,16 +47,7 @@ pub fn show(
             if response.clicked() {
                 action = Some(Action::Toggle(entry.id));
             }
-            ui.label(
-                RichText::new(format!(
-                    "{} · {} · {}",
-                    format::relative_time(entry.ts_ms, now_ms),
-                    entry.voice,
-                    entry.stt_model
-                ))
-                .small()
-                .weak(),
-            );
+            ui.label(RichText::new(caption(entry, now_ms)).small().weak());
         });
         ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
             if ui
@@ -101,6 +92,23 @@ pub fn show(
 /// (disappointing output must have an obvious cause).
 fn details(ui: &mut Ui, entry: &Entry, tz: &TimeZone) {
     ui.add_space(2.0);
+    // Naming the trigger explains why the entry reads nothing like the raw
+    // transcript directly below it.
+    if let Some(trigger) = &entry.invocation {
+        ui.horizontal_wrapped(|ui| {
+            ui.label(
+                RichText::new(theme::icons::LIGHTNING)
+                    .small()
+                    .color(theme::accent(ui.visuals())),
+            );
+            ui.label(
+                RichText::new(format!("Invocation \u{201C}{trigger}\u{201D} fired"))
+                    .small()
+                    .weak(),
+            );
+        });
+        ui.add_space(2.0);
+    }
     ui.label(RichText::new("Raw transcript").small().weak());
     ui.label(RichText::new(entry.raw_text.trim()).monospace());
     ui.add_space(4.0);
@@ -115,6 +123,23 @@ fn details(ui: &mut Ui, entry: &Entry, tz: &TimeZone) {
         .weak(),
     );
     ui.add_space(2.0);
+}
+
+/// "4m ago · clean · nova-3", with a leading "⚡ Invocation" segment when the
+/// text was pasted from an invocation rather than transcribed. Without it a
+/// row of canned text looks like a suspiciously articulate dictation.
+fn caption(entry: &Entry, now_ms: i64) -> String {
+    let base = format!(
+        "{} · {} · {}",
+        format::relative_time(entry.ts_ms, now_ms),
+        entry.voice,
+        entry.stt_model
+    );
+    match entry.invocation {
+        // Icon + label, never color alone (design system rule).
+        Some(_) => format!("{} Invocation · {base}", theme::icons::LIGHTNING),
+        None => base,
+    }
 }
 
 /// Whitespace-normalized, char-boundary-safe preview with an ellipsis.
@@ -175,6 +200,25 @@ mod tests {
         let cut = preview(&emoji);
         assert!(cut.ends_with('…'));
         assert_eq!(cut.chars().count(), PREVIEW_CHARS + 1);
+    }
+
+    #[test]
+    fn caption_badges_invocations_and_leaves_ordinary_rows_alone() {
+        let plain = entry(false);
+        let caption_plain = caption(&plain, plain.ts_ms);
+        assert!(
+            !caption_plain.contains("Invocation"),
+            "an ordinary dictation must not be badged: {caption_plain}"
+        );
+        assert!(caption_plain.contains("clean") && caption_plain.contains("nova-3"));
+
+        let mut fired = entry(false);
+        fired.invocation = Some("access granted".to_string());
+        let badged = caption(&fired, fired.ts_ms);
+        assert!(badged.starts_with(theme::icons::LIGHTNING), "{badged}");
+        assert!(badged.contains("Invocation"));
+        // The badge is additive: the usual segments still read the same.
+        assert!(badged.ends_with(&caption_plain), "{badged}");
     }
 
     #[test]

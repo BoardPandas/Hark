@@ -61,3 +61,27 @@ threads = 2
 # downloaded model is standing by. Waiting the full 15 s and then decoding
 # locally would make a rescued dictation slower than no fallback at all.
 fallback_after_ms = 6000
+
+# Invocations: say a trigger phrase, get a fixed block of text you wrote.
+# The expansion is injected byte for byte and never goes through a cleanup
+# voice, so it cannot be reworded on the way to the cursor. A dictation that
+# fires one also skips the cleanup call entirely.
+#
+#   scope = "utterance"  the phrase must be the WHOLE dictation (default)
+#   scope = "anywhere"   the phrase is spliced into a longer sentence
+#
+# A trigger needs at least two words, a non-empty expansion, and a phrase no
+# earlier entry already uses. Entries failing any of those are skipped at
+# startup rather than failing the config; the Invocations page marks each one
+# with the reason.
+#
+# This section stays LAST: [[...]] array-of-tables entries must follow every
+# scalar key, which is also where Hark writes it when it saves.
+#
+# [[invocations.entries]]
+# phrase = "access granted"
+# scope = "utterance"
+# expansion = """
+# You have access to the Support Forge tools: ticketing, remote assist,
+# and the asset inventory.
+# """
