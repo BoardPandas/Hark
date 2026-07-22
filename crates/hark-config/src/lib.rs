@@ -8,9 +8,11 @@
 //! user hand-added are dropped. Acceptable while the schema is additive
 //! (Phase 4 spec §5); the struct is the source of truth.
 
+mod invocations;
 mod local;
 mod voice;
 
+pub use invocations::{Invocation, Invocations, Scope};
 pub use local::{LocalMode, LocalStt, DEFAULT_FALLBACK_AFTER_MS, DEFAULT_MODEL};
 pub use voice::{
     resolve_cleanup_provider, CleanupKeySource, CleanupResolution, ResolvedCleanupProvider, Voice,
@@ -304,6 +306,9 @@ pub struct Settings {
     pub updates: Updates,
     pub startup: Startup,
     pub local_stt: LocalStt,
+    /// Last on purpose: this is the only section holding a TOML
+    /// array-of-tables, and those must follow every scalar key.
+    pub invocations: Invocations,
 }
 
 impl Default for Settings {
@@ -320,6 +325,7 @@ impl Default for Settings {
             updates: Updates::default(),
             startup: Startup::default(),
             local_stt: LocalStt::default(),
+            invocations: Invocations::default(),
         }
     }
 }

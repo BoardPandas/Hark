@@ -14,7 +14,11 @@ use rphonetic::{DoubleMetaphone, Encoder};
 /// Jaro-Winkler confirmation threshold after a phonetic-code match.
 /// Research-informed guess, tuned at the CP6 interactive gate; promote to
 /// config only if real usage demands it.
-const JW_CONFIRM_THRESHOLD: f64 = 0.85;
+///
+/// Callers pass their own threshold to [`window_matches`] because the two
+/// consumers carry different blast radii: a dictionary false positive
+/// corrupts one word, an invocation false positive pastes a paragraph.
+pub(crate) const JW_CONFIRM_THRESHOLD: f64 = 0.85;
 
 /// Double Metaphone primary + alternate codes.
 pub(crate) struct Codes {
@@ -97,17 +101,23 @@ fn term_word(dm: &DoubleMetaphone, lower: String) -> TermWord {
 }
 
 /// Does this term match the token window? `token_codes` is parallel to
-/// `tokens` (precomputed once per transcript, not per term).
-pub(crate) fn window_matches(entry: &TermEntry, tokens: &[Token], token_codes: &[Codes]) -> bool {
+/// `tokens` (precomputed once per transcript, not per term). `min_jw` is the
+/// caller's Jaro-Winkler confirmation threshold.
+pub(crate) fn window_matches(
+    entry: &TermEntry,
+    tokens: &[Token],
+    token_codes: &[Codes],
+    min_jw: f64,
+) -> bool {
     debug_assert_eq!(entry.words.len(), tokens.len());
     entry
         .words
         .iter()
         .zip(tokens.iter().zip(token_codes))
-        .all(|(word, (token, codes))| word_matches(word, token, codes))
+        .all(|(word, (token, codes))| word_matches(word, token, codes, min_jw))
 }
 
-fn word_matches(word: &TermWord, token: &Token, token_codes: &Codes) -> bool {
+fn word_matches(word: &TermWord, token: &Token, token_codes: &Codes, min_jw: f64) -> bool {
     // Equal spellings match on either path (and need no JW confirm).
     if word.lower == token.lower {
         return true;
@@ -116,7 +126,23 @@ fn word_matches(word: &TermWord, token: &Token, token_codes: &Codes) -> bool {
         return false; // exact-only, and equality already failed
     };
     codes_intersect(term_codes, token_codes)
-        && strsim::jaro_winkler(&word.lower, &token.lower) >= JW_CONFIRM_THRESHOLD
+        && strsim::jaro_winkler(&word.lower, &token.lower) >= min_jw
+}
+
+/// Mean Jaro-Winkler similarity between this term's words and a same-length
+/// token window, ignoring phonetic codes entirely. Powers the "you were
+/// close" hint in the Invocations test panel; never a matching decision.
+pub(crate) fn window_similarity(entry: &TermEntry, tokens: &[Token]) -> f64 {
+    if entry.words.is_empty() || entry.words.len() != tokens.len() {
+        return 0.0;
+    }
+    let total: f64 = entry
+        .words
+        .iter()
+        .zip(tokens)
+        .map(|(word, token)| strsim::jaro_winkler(&word.lower, &token.lower))
+        .sum();
+    total / entry.words.len() as f64
 }
 
 /// Any non-empty code equal on both sides. Empty codes (unencodable input)

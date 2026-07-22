@@ -9,9 +9,19 @@
 //! Matching is Double Metaphone code equality confirmed by a Jaro-Winkler
 //! score, with exact-only fallbacks for words the phonetic algorithm cannot
 //! encode usefully (digits, very short words).
+//!
+//! The same guarded matcher has a second consumer: [`Expander`] recognizes
+//! user-authored trigger phrases ("invocations") and replaces them with
+//! canned text. It confirms at a tighter threshold than [`Corrector`] —
+//! see [`expander`] for why.
 
+mod expander;
 mod matcher;
 mod tokenize;
+
+pub use expander::{
+    normalized_phrase, phrase_word_count, Expander, Expansion, Scope, MIN_TRIGGER_WORDS,
+};
 
 use matcher::TermEntry;
 use rphonetic::DoubleMetaphone;
@@ -68,7 +78,12 @@ impl Corrector {
                 if consumed[i..i + n].iter().any(|&c| c) {
                     continue;
                 }
-                if !matcher::window_matches(entry, &tokens[i..i + n], &token_codes[i..i + n]) {
+                if !matcher::window_matches(
+                    entry,
+                    &tokens[i..i + n],
+                    &token_codes[i..i + n],
+                    matcher::JW_CONFIRM_THRESHOLD,
+                ) {
                     continue;
                 }
                 consumed[i..i + n].fill(true);

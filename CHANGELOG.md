@@ -4,6 +4,11 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.20.0] - 2026-07-22
+
+### Added
+- **Invocations: say a short phrase, get a block of text you wrote.** A new section in the sidebar, next to Dictionary. You pair a trigger phrase with the text it should produce — say "access granted" and Hark types the paragraph listing what a support tech has access to. The text is injected exactly as you wrote it, including line breaks, and never goes near a cleanup voice, so it cannot be reworded, shortened, or "improved" on the way to your cursor. Each invocation decides for itself when it may fire: **whole dictation only** (the default — the phrase has to be the entire thing you said, so it can never go off mid-sentence by accident) or **anywhere in the sentence**, where it is spliced into a longer dictation in place.
+
 ## [0.19.1] - 2026-07-22
 
 ### Added
