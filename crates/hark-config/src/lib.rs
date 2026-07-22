@@ -73,7 +73,7 @@ impl ProviderKind {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Provider {
     pub kind: ProviderKind,
@@ -127,7 +127,7 @@ impl Provider {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Hotkey {
     /// "+"-separated chord; hold ALL keys to record, release any to stop.
@@ -144,7 +144,7 @@ impl Default for Hotkey {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Audio {
     /// Which microphone to capture from, by cpal device name. `None` (or a
@@ -191,7 +191,7 @@ pub enum InjectStrategy {
     Type,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Inject {
     pub strategy: InjectStrategy,
@@ -216,7 +216,7 @@ impl Default for Inject {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 #[serde(default)]
 pub struct Dictionary {
     /// Canonical terms: phonetic post-correction targets and the source for
@@ -229,7 +229,7 @@ pub struct Dictionary {
 /// numeric stats are deliberately independent: with `capture = false` no
 /// dictation text is persisted, but the counters in the stats row still
 /// tick (they carry no content).
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct History {
     /// `false`: no dictation content is stored; counters still tick.
@@ -254,7 +254,7 @@ impl Default for History {
 
 /// In-app update behavior. The check hits the GitHub Releases API (network),
 /// so it is user-controllable; the default is on.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Updates {
     /// Check GitHub for a newer release once at startup and surface a banner.
@@ -273,7 +273,7 @@ impl Default for Updates {
 /// startup entry: `hark-autostart` reconciles the registry to it at startup
 /// and after every Save. Default on, so a fresh install (and an upgrading
 /// user whose config predates this section) starts with Windows.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Startup {
     pub launch_at_login: bool,
@@ -287,7 +287,7 @@ impl Default for Startup {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Settings {
     /// Config schema stamp; fresh installs write [`CONFIG_VERSION`]. Files

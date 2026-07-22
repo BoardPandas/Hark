@@ -5,7 +5,7 @@
 
 use crate::pipeline::PipelineStatus;
 use crate::theme;
-use hark_config::Settings;
+use hark_config::{LocalMode, Settings};
 
 use egui::{Frame, Margin, Panel, RichText, Sides, Ui};
 
@@ -110,12 +110,24 @@ fn settings_jump(ui: &mut Ui) -> bool {
 
 /// "provider · model", plus the cleanup model when a non-Verbatim voice
 /// would actually run one (pure; the testable seam).
+///
+/// The engine shown is the one that actually transcribes: in `Primary` local
+/// mode the cloud provider is never called, so naming it here would be a
+/// plain lie about where the words come from.
 fn provider_line(settings: &Settings) -> String {
-    let mut line = format!(
-        "{} · {}",
-        settings.provider.kind.label(),
-        settings.provider.resolved_model()
-    );
+    let mut line = match settings.local_stt.mode {
+        LocalMode::Primary => format!("on-device · {}", settings.local_stt.model),
+        LocalMode::Fallback => format!(
+            "{} · {} · on-device fallback",
+            settings.provider.kind.label(),
+            settings.provider.resolved_model()
+        ),
+        LocalMode::Off => format!(
+            "{} · {}",
+            settings.provider.kind.label(),
+            settings.provider.resolved_model()
+        ),
+    };
     if let hark_config::CleanupResolution::Resolved(r) = hark_config::resolve_cleanup_provider(
         &settings.provider,
         &settings.voice,
@@ -155,5 +167,40 @@ mod tests {
         )
         .unwrap();
         assert_eq!(provider_line(&settings), "openai · gpt-4o-mini-transcribe");
+    }
+
+    #[test]
+    fn local_primary_names_the_engine_that_actually_runs() {
+        // The Deepgram default is still in config but is never called; the
+        // footer must not imply otherwise.
+        let settings = Settings::from_toml("[local_stt]\nmode = \"primary\"").unwrap();
+        assert_eq!(
+            provider_line(&settings),
+            "on-device · parakeet-tdt-0.6b-v3-int8"
+        );
+    }
+
+    #[test]
+    fn local_fallback_still_names_the_cloud_provider_first() {
+        let settings = Settings::from_toml("[local_stt]\nmode = \"fallback\"").unwrap();
+        assert_eq!(
+            provider_line(&settings),
+            "deepgram · nova-3 · on-device fallback"
+        );
+    }
+
+    #[test]
+    fn local_primary_still_shows_an_overridden_cleanup_model() {
+        // Cleanup is a separate call and still runs on-device-primary.
+        let settings = Settings::from_toml(
+            "[local_stt]\nmode = \"primary\"\n\
+             [voice]\ndefault = \"clean\"\n\
+             [voice.provider]\nkind = \"openai\"\nmodel = \"gpt-5-nano\"",
+        )
+        .unwrap();
+        assert_eq!(
+            provider_line(&settings),
+            "on-device · parakeet-tdt-0.6b-v3-int8 · cleanup gpt-5-nano"
+        );
     }
 }

@@ -30,6 +30,12 @@ pub fn show(
         *page = pages::Page::Settings;
     }
 
+    // Stacked directly above the footer, outside the settings scroll area:
+    // a Save that scrolls away is a Save the user does not know they owe.
+    if *page == pages::Page::Settings {
+        views.settings.unsaved_bar(ui, settings, pipeline);
+    }
+
     // The update banner claims the top strip, below the title bar, above the
     // sidebar and content. Only shown when an update is pending and undismissed.
     if updater.banner_visible() {

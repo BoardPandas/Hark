@@ -35,7 +35,7 @@ impl VoiceName {
 }
 
 /// The `[voice]` section.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Voice {
     /// The default voice for every dictation; `hark-cli --voice` overrides
@@ -74,7 +74,7 @@ impl Default for Voice {
 
 /// The optional `[voice.provider]` table. `kind` is required when the table
 /// is present; everything else defaults per kind.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct VoiceProvider {
     /// openai | groq | openai-compatible. Deepgram has no chat product and
     /// is rejected at validation.

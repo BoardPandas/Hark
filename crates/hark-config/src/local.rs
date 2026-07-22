@@ -56,7 +56,7 @@ pub const DEFAULT_MODEL: &str = "parakeet-tdt-0.6b-v3-int8";
 /// than no fallback at all; failing over fast is the whole point.
 pub const DEFAULT_FALLBACK_AFTER_MS: u64 = 6_000;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct LocalStt {
     pub mode: LocalMode,

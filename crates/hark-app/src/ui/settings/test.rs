@@ -158,7 +158,7 @@ fn execute(settings: &Settings) -> TestReport {
     let stt = key
         .map_err(|e| e.to_string())
         .and_then(|k| stt_test(settings, k));
-    let cleanup = cleanup_test(settings, stt_key.as_deref());
+    let cleanup = cleanup_test(settings, stt_key.as_deref(), settings.voice.default);
 
     TestReport {
         provider,
@@ -182,20 +182,27 @@ fn stt_test(settings: &Settings, api_key: String) -> Result<SttPass, String> {
     })
 }
 
-/// One tiny chat call when (and only when) the draft would run cleanup.
+/// One tiny chat call when (and only when) `voice` would run cleanup.
 /// Unlike the pipeline's fail-open build, a test failure is reported, not
 /// silently degraded to verbatim.
-fn cleanup_test(settings: &Settings, stt_key: Option<&str>) -> Option<Result<CleanupPass, String>> {
+///
+/// `voice` is a parameter rather than `settings.voice.default` so the
+/// cleanup section's own test button can probe a configured endpoint even
+/// while the saved default voice is Verbatim (which runs no cleanup at all).
+pub(super) fn cleanup_test(
+    settings: &Settings,
+    stt_key: Option<&str>,
+    voice: hark_config::VoiceName,
+) -> Option<Result<CleanupPass, String>> {
     use hark_config::{CleanupKeySource, CleanupResolution};
 
-    let resolved = match hark_config::resolve_cleanup_provider(
-        &settings.provider,
-        &settings.voice,
-        settings.voice.default,
-    ) {
-        CleanupResolution::Resolved(r) => r,
-        CleanupResolution::Verbatim | CleanupResolution::VerbatimWithWarning { .. } => return None,
-    };
+    let resolved =
+        match hark_config::resolve_cleanup_provider(&settings.provider, &settings.voice, voice) {
+            CleanupResolution::Resolved(r) => r,
+            CleanupResolution::Verbatim | CleanupResolution::VerbatimWithWarning { .. } => {
+                return None
+            }
+        };
 
     let run = || -> Result<CleanupPass, String> {
         let api_key = match &resolved.key_source {
@@ -207,9 +214,7 @@ fn cleanup_test(settings: &Settings, stt_key: Option<&str>) -> Option<Result<Cle
                     .map_err(|e| e.to_string())?
             }
         };
-        let voice: hark_voice::Voice = settings
-            .voice
-            .default
+        let voice: hark_voice::Voice = voice
             .label()
             .parse()
             .map_err(|e: hark_voice::UnknownVoice| e.to_string())?;
@@ -251,7 +256,7 @@ mod tests {
         let settings =
             Settings::from_toml("[provider]\nkind = \"openai\"\n[voice]\ndefault = \"verbatim\"")
                 .unwrap();
-        assert!(cleanup_test(&settings, Some("k")).is_none());
+        assert!(cleanup_test(&settings, Some("k"), settings.voice.default).is_none());
     }
 
     #[test]
@@ -259,6 +264,6 @@ mod tests {
         // Deepgram has no chat product; resolution degrades with a warning
         // and the test section stays honest by showing nothing.
         let settings = Settings::default();
-        assert!(cleanup_test(&settings, Some("k")).is_none());
+        assert!(cleanup_test(&settings, Some("k"), settings.voice.default).is_none());
     }
 }

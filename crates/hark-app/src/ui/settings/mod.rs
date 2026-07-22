@@ -26,6 +26,7 @@ pub struct SettingsPage {
     bufs: form::FormBufs,
     stt_keys: keys::KeySection,
     cleanup_keys: Option<keys::KeySection>,
+    cleanup_test: cleanup::CleanupTest,
     test: test::TestConnection,
     get_started: get_started::GetStarted,
     /// Outcome of the last save; persists until the next one.
@@ -55,6 +56,7 @@ impl SettingsPage {
             bufs: form::FormBufs::from_settings(settings),
             stt_keys: keys::KeySection::new("stt", settings.provider.kind.label()),
             cleanup_keys: None,
+            cleanup_test: cleanup::CleanupTest::new(),
             test: test::TestConnection::new(),
             get_started: get_started::GetStarted::new(onboarding),
             save_notice: None,
@@ -126,27 +128,20 @@ impl SettingsPage {
         }
         local::section(ui, &mut self.draft, &mut self.download);
         form::voice_section(ui, &mut self.draft);
-        cleanup::section(ui, &mut self.draft, &mut self.bufs, &mut self.cleanup_keys);
+        cleanup::section(
+            ui,
+            &mut self.draft,
+            &mut self.bufs,
+            &mut self.cleanup_keys,
+            &mut self.cleanup_test,
+        );
         form::behavior_section(ui, &mut self.draft);
         form::privacy_section(ui, &mut self.draft);
         updates::section(ui, updater, &mut self.draft);
-
+        // Save lives in the sticky bar above the footer (`unsaved_bar`), not
+        // at the end of a long scrolling form where a changed field can push
+        // it out of sight.
         ui.add_space(12.0);
-        let save = egui::Button::new(RichText::new("Save").color(theme::ON_ACCENT))
-            .fill(theme::accent_fill(ui.visuals()));
-        if ui.add(save).clicked() {
-            self.save(saved, pipeline, ui.ctx());
-        }
-        if let Some(notice) = &self.save_notice {
-            let (icon, color, text) = match notice {
-                Ok(t) => (theme::icons::CHECK, theme::SUCCESS, t.as_str()),
-                Err(t) => (theme::icons::WARNING, theme::DANGER, t.as_str()),
-            };
-            ui.horizontal_wrapped(|ui| {
-                ui.label(RichText::new(icon).color(color));
-                ui.label(RichText::new(text).small());
-            });
-        }
 
         if test_finished {
             self.get_started.test_passed = self.test.stt_passed();
@@ -161,9 +156,86 @@ impl SettingsPage {
 
     /// Surface the outcome of a save that happened outside the form (a
     /// tray voice change while the window may be hidden): the notice waits
-    /// under the Save button for the next time the page is seen.
+    /// in the sticky bar for the next time the page is seen.
     pub(crate) fn set_save_notice(&mut self, notice: Result<String, String>) {
         self.save_notice = Some(notice);
+    }
+
+    /// The sticky bar pinned above the status footer, drawn by the shell so
+    /// the settings scroll area cannot hide it. Present only when there is
+    /// something to act on: unsaved edits, or the outcome of the last save.
+    pub(crate) fn unsaved_bar(
+        &mut self,
+        ui: &mut Ui,
+        saved: &mut Settings,
+        pipeline: &mut PipelineController,
+    ) {
+        let dirty = self.draft != *saved;
+        if !dirty && self.save_notice.is_none() {
+            return;
+        }
+
+        // A failed save outranks "Unsaved changes": the draft is still dirty
+        // either way, and the reason it stayed that way is the only new
+        // information on the bar. Resolved before the panel so the left side
+        // holds no borrow of `self` while the buttons need it mutably.
+        let (icon, color, text) = match (&self.save_notice, dirty) {
+            (Some(Err(t)), _) => (theme::icons::WARNING, theme::DANGER, t.clone()),
+            (_, true) => (
+                theme::icons::WARNING,
+                theme::WARNING,
+                "Unsaved changes".to_string(),
+            ),
+            (Some(Ok(t)), false) => (theme::icons::CHECK, theme::SUCCESS, t.clone()),
+            // Guarded by the early return above.
+            (None, false) => return,
+        };
+
+        let window_fill = ui.visuals().window_fill;
+        egui::Panel::bottom("settings_save_bar")
+            .resizable(false)
+            .show_separator_line(true)
+            .frame(
+                egui::Frame::default()
+                    .fill(window_fill)
+                    .inner_margin(egui::Margin::symmetric(12, 8)),
+            )
+            .show(ui, |ui| {
+                // Sides, not horizontal + right_to_left: the message truncates
+                // into whatever the buttons leave, never over them.
+                egui::Sides::new().height(24.0).show(
+                    ui,
+                    |ui| {
+                        ui.label(RichText::new(icon).color(color));
+                        ui.add(egui::Label::new(RichText::new(text).small()).truncate());
+                    },
+                    |ui| {
+                        if dirty {
+                            let save =
+                                egui::Button::new(RichText::new("Save").color(theme::ON_ACCENT))
+                                    .fill(theme::accent_fill(ui.visuals()));
+                            if ui.add(save).clicked() {
+                                let ctx = ui.ctx().clone();
+                                self.save(saved, pipeline, &ctx);
+                            }
+                            if ui.button("Discard").clicked() {
+                                self.discard(saved);
+                            }
+                        } else if ui.button("Dismiss").clicked() {
+                            self.save_notice = None;
+                        }
+                    },
+                );
+            });
+    }
+
+    /// Throw the draft away and re-seed every text buffer from the saved
+    /// model; a stale buffer would write its old value straight back into
+    /// the draft on the next frame.
+    fn discard(&mut self, saved: &Settings) {
+        self.draft = saved.clone();
+        self.bufs = form::FormBufs::from_settings(saved);
+        self.save_notice = None;
     }
 
     /// Validate -> persist TOML -> restart the pipeline (§3.6 Save).

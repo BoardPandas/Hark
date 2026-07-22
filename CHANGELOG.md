@@ -4,6 +4,15 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.19.0] - 2026-07-22
+
+### Added
+- **The cleanup provider has its own Test button.** "Test connection" only ever tried cleanup when your default voice was one that runs it, so anyone using Verbatim by default — or pointing cleanup at a second provider with its own key — had no way to check that the endpoint, model, and key actually worked short of dictating and hoping. Settings → Cleanup provider now has a Test cleanup button that sends one short request to whatever that section is currently set to and reports the model it reached and how long it took, or the reason it failed. A Verbatim default is tested with the Clean voice, since Verbatim makes no cleanup call at all, and the result says so.
+- **An unsaved-changes bar above the status footer.** The Save button used to sit at the bottom of the settings form, which is exactly where a long form pushes it out of view — so a changed setting could sit unsaved with nothing to say so. Changing anything in Settings now raises a bar just above the status bar with Save and Discard, pinned in place no matter how far you have scrolled. It also carries the result of the save, so a failure names its cause instead of leaving a silent form.
+
+### Fixed
+- **The status bar names the engine that is actually transcribing.** With the on-device model set as your primary engine, the bottom-right corner still read `deepgram · nova-3` — a cloud provider that, in that mode, is never contacted. It now reads `on-device` and the model name. Set to backup instead, it names your cloud provider first and marks the local model as the fallback it is.
+
 ## [0.18.1] - 2026-07-21
 
 ### Fixed
