@@ -100,6 +100,9 @@ pub fn provider_config(
         model: settings.provider.resolved_model(),
         api_key,
         bias_terms: settings.dictionary.terms.clone(),
+        // No settings path selects the fused adapter yet: the Gemini prototype
+        // is driven by its spike, not by the app.
+        cleanup_instruction: None,
     })
 }
 

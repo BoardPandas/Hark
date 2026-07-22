@@ -17,6 +17,9 @@ reqwest = { version = "0.13", default-features = false, features = [
     "webpki-roots",
     "json",
 ] }
+# Gemini takes inline audio as base64 in a JSON body (there is no multipart
+# path); already in the tree as a transitive dep, so no new vendor surface.
+base64 = "0.22"
 log = "0.4"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
@@ -24,3 +27,6 @@ thiserror = "2"
 
 [dev-dependencies]
 hound = "3.5"
+# The Gemini spike reuses the tuned voice prompts and the expansion guard
+# rather than reinventing either inside the STT crate.
+hark-voice = { path = "../hark-voice" }

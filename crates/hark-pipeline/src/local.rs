@@ -228,6 +228,7 @@ mod tests {
     fn ok(text: &str) -> Transcript {
         Transcript {
             text: text.to_string(),
+            cleaned: None,
             request_ms: 1,
         }
     }

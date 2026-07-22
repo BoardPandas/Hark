@@ -4,6 +4,11 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.19.1] - 2026-07-22
+
+### Added
+- **Groundwork for transcribing and tidying in a single request.** With a cleanup voice switched on, Hark currently makes two round trips before your words appear: one to transcribe, then a second to clean the result up, which cannot start until the first has finished. Google's Gemini can do both at once. This release adds the adapter for it, behind the scenes and not yet selectable in Settings, along with a harness that measures it against the current two-request path so the choice is made on real numbers rather than expectations. Nothing changes about how Hark behaves today.
+
 ## [0.19.0] - 2026-07-22
 
 ### Added

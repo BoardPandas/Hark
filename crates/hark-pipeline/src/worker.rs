@@ -379,6 +379,8 @@ impl Transcriber for Engines<'_> {
         let decoded = plan.engine()?.transcribe(self.samples)?;
         Ok(Transcript {
             text: decoded.text,
+            // The local engine transcribes only; cleanup stays a separate step.
+            cleaned: None,
             request_ms: decoded.request_ms,
         })
     }
@@ -418,6 +420,7 @@ mod tests {
         fn ok(text: &str) -> Result<Transcript, SttError> {
             Ok(Transcript {
                 text: text.to_string(),
+                cleaned: None,
                 request_ms: 1,
             })
         }

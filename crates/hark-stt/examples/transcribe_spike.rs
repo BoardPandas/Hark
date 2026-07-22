@@ -54,6 +54,7 @@ fn provider_configs() -> Vec<ProviderConfig> {
                 .unwrap_or_else(|| "whisper-large-v3-turbo".into()),
             api_key: key,
             bias_terms: bias.clone(),
+            cleanup_instruction: None,
         });
     }
     if let Some(key) = env_nonempty("OPENAI_API_KEY") {
@@ -65,6 +66,7 @@ fn provider_configs() -> Vec<ProviderConfig> {
                 .unwrap_or_else(|| "gpt-4o-mini-transcribe".into()),
             api_key: key,
             bias_terms: bias.clone(),
+            cleanup_instruction: None,
         });
     }
     if let Some(key) = env_nonempty("DEEPGRAM_API_KEY") {
@@ -75,6 +77,7 @@ fn provider_configs() -> Vec<ProviderConfig> {
             model: "nova-3".into(),
             api_key: key,
             bias_terms: bias.clone(),
+            cleanup_instruction: None,
         });
     }
     configs
@@ -268,6 +271,7 @@ fn main() {
                 model: "whisper-1".into(),
                 api_key: String::new(),
                 bias_terms: vec![],
+                cleanup_instruction: None,
             });
         let drills = [
             (

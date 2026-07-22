@@ -10,6 +10,7 @@ mod config;
 pub mod deepgram;
 mod error;
 pub mod fixture;
+pub mod gemini;
 pub mod metrics;
 pub mod openai_compatible;
 pub mod wav;
@@ -25,7 +26,14 @@ pub const TOTAL_TIMEOUT_MS: u64 = 15_000;
 /// One transcription result. `request_ms` is the full HTTP round trip as seen
 /// by the caller (the dominant share of release-to-inject latency).
 pub struct Transcript {
+    /// The verbatim transcript, always present. Stays the ground truth even
+    /// when `cleaned` is populated: dictionary correction and the cleanup
+    /// expansion guard both need the un-rewritten text.
     pub text: String,
+    /// Populated only by fused adapters (Gemini), which return the cleaned
+    /// rewrite from the same round trip. `None` means "this provider did not
+    /// do cleanup" — the caller runs its own cleanup pass as before.
+    pub cleaned: Option<String>,
     pub request_ms: u128,
 }
 
@@ -50,6 +58,7 @@ pub fn build(
             config, client,
         ))),
         ProviderKind::Deepgram => Ok(Box::new(deepgram::Deepgram::new(config, client)?)),
+        ProviderKind::Gemini => Ok(Box::new(gemini::Gemini::new(config, client))),
     }
 }
 

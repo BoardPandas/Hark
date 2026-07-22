@@ -96,6 +96,7 @@ impl SttProvider for Deepgram {
         }
         Ok(Transcript {
             text: parse_response(&self.label, &body)?,
+            cleaned: None,
             request_ms,
         })
     }

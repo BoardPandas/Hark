@@ -185,6 +185,7 @@ impl SttProvider for OpenAiCompatible {
         }
         Ok(Transcript {
             text: parse_response(&self.label, &text)?,
+            cleaned: None,
             request_ms,
         })
     }

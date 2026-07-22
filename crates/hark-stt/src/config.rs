@@ -6,6 +6,10 @@ pub enum ProviderKind {
     OpenAiCompatible,
     /// `POST {base_url}/v1/listen`, `Token` auth, raw `audio/wav` body.
     Deepgram,
+    /// `POST {base_url}/interactions`, `x-goog-api-key` auth, inline base64
+    /// audio. The only fused adapter: returns transcript *and* cleanup from
+    /// one round trip (see `gemini::FusedText`).
+    Gemini,
 }
 
 /// Everything needed to build one provider adapter. The spike fills this from
@@ -22,9 +26,15 @@ pub struct ProviderConfig {
     pub model: String,
     /// Spike: from env. App: from keyring. Never logged.
     pub api_key: String,
-    /// Dictionary-ish bias terms, mapped per adapter: `prompt` (openai-compatible)
-    /// or repeated `keyterm` query params (deepgram).
+    /// Dictionary-ish bias terms, mapped per adapter: `prompt` (openai-compatible),
+    /// repeated `keyterm` query params (deepgram), or a spelling glossary in the
+    /// system instruction (gemini).
     pub bias_terms: Vec<String>,
+    /// Fused adapters only (`ProviderKind::Gemini`): the cleanup rules to apply
+    /// in the same call, supplied by the caller as hark-voice's assembled voice
+    /// prompt so the tuned wording lives in one place. `None` means transcribe
+    /// only; every non-fused adapter ignores this field.
+    pub cleanup_instruction: Option<String>,
 }
 
 // Deliberately no Debug derive: a reflexive `{config:?}` in some future log line
@@ -38,6 +48,8 @@ impl std::fmt::Debug for ProviderConfig {
             .field("model", &self.model)
             .field("api_key", &"<redacted>")
             .field("bias_terms", &self.bias_terms)
+            // User content (a Custom voice prompt can reach here): count only.
+            .field("cleanup_instruction", &self.cleanup_instruction.is_some())
             .finish()
     }
 }
