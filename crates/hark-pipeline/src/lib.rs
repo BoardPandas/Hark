@@ -106,6 +106,41 @@ pub fn provider_config(
     })
 }
 
+/// Build the invocation expander from the configured triggers (same
+/// parallel-enums pattern as `provider_config` for the STT kinds).
+///
+/// The matcher is a **derived artifact**: it is rebuilt from the TOML on
+/// every pipeline start and never cached anywhere, so the config file stays
+/// the single owner (LL-G `architecture/transient-cache-without-drift`).
+/// Entries that cannot arm are skipped by the expander itself; only the
+/// counts are logged, never a phrase or an expansion.
+fn build_expander(invocations: &hark_config::Invocations) -> hark_dictionary::Expander {
+    let entries: Vec<(String, String, hark_dictionary::Scope)> = invocations
+        .entries
+        .iter()
+        .map(|i| {
+            let scope = match i.scope {
+                hark_config::Scope::Utterance => hark_dictionary::Scope::Utterance,
+                hark_config::Scope::Anywhere => hark_dictionary::Scope::Anywhere,
+            };
+            (i.phrase.clone(), i.expansion.clone(), scope)
+        })
+        .collect();
+    let expander = hark_dictionary::Expander::new(&entries);
+    if expander.skipped() > 0 {
+        log::warn!(
+            "{} invocation(s) will not fire (need {}+ words, a non-empty expansion, \
+             and a trigger no earlier entry already uses); {} armed",
+            expander.skipped(),
+            hark_dictionary::MIN_TRIGGER_WORDS,
+            expander.armed()
+        );
+    } else if expander.armed() > 0 {
+        log::info!("{} invocation(s) armed", expander.armed());
+    }
+    expander
+}
+
 /// Map the config-side voice name onto the voice crate's enum (same parallel
 /// -enums pattern as `provider_config` for the STT kinds).
 fn effective_voice(name: hark_config::VoiceName) -> hark_voice::Voice {
@@ -328,6 +363,7 @@ pub fn run(
         cloud_label: provider_cfg.label.clone(),
         local,
         corrector: hark_dictionary::Corrector::new(&settings.dictionary.terms),
+        expander: build_expander(&settings.invocations),
         cleanup,
         prewarm_url,
         client,

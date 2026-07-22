@@ -24,6 +24,11 @@ pub struct DictationRecord {
     /// Cleanup model label, present only when a cleanup response actually
     /// shaped the final text.
     pub cleanup_model: Option<String>,
+    /// The invocation trigger phrase that fired, when the final text is
+    /// canned text rather than something the user actually said. Drives the
+    /// history badge, and tells the stats counter to value the words the
+    /// user *spoke* rather than the ones Hark pasted.
+    pub invocation: Option<String>,
     /// Duration of the assembled clip sent to the provider.
     pub audio_ms: u64,
     /// STT request wall time.

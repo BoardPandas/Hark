@@ -24,6 +24,7 @@ use thiserror::Error;
 const MIGRATIONS: &[&str] = &[
     include_str!("../migrations/001_init.sql"),
     include_str!("../migrations/002_stats_total_ms.sql"),
+    include_str!("../migrations/003_entries_invocation.sql"),
 ];
 
 const BUSY_TIMEOUT: Duration = Duration::from_secs(5);
@@ -58,6 +59,9 @@ pub struct NewDictation {
     pub stt_model: String,
     /// `None` when cleanup did not run (Verbatim voice, gate skip, fail-open).
     pub cleanup_model: Option<String>,
+    /// The invocation trigger that fired, when `final_text` is canned text
+    /// the user authored rather than words they spoke. `None` normally.
+    pub invocation: Option<String>,
     pub audio_ms: i64,
     pub stt_ms: i64,
     pub cleanup_ms: Option<i64>,
@@ -74,6 +78,8 @@ pub struct Entry {
     pub stt_provider: String,
     pub stt_model: String,
     pub cleanup_model: Option<String>,
+    /// The invocation trigger that produced this row, if any.
+    pub invocation: Option<String>,
     pub stt_ms: i64,
     pub cleanup_ms: Option<i64>,
     pub total_ms: i64,
@@ -170,8 +176,8 @@ impl Store {
         if capture {
             tx.execute(
                 "INSERT INTO entries (ts_ms, raw_text, final_text, voice, stt_provider, \
-                 stt_model, cleanup_model, stt_ms, cleanup_ms, total_ms) \
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+                 stt_model, cleanup_model, invocation, stt_ms, cleanup_ms, total_ms) \
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
                 params![
                     d.ts_ms,
                     d.raw_text,
@@ -180,6 +186,7 @@ impl Store {
                     d.stt_provider,
                     d.stt_model,
                     d.cleanup_model,
+                    d.invocation,
                     d.stt_ms,
                     d.cleanup_ms,
                     d.total_ms,
@@ -192,7 +199,7 @@ impl Store {
              total_ms = total_ms + ?5 \
              WHERE id = 1",
             params![
-                word_count(&d.final_text),
+                spoken_word_count(d),
                 d.audio_ms,
                 d.stt_ms,
                 d.cleanup_ms.unwrap_or(0),
@@ -229,7 +236,7 @@ impl Store {
         offset: u32,
     ) -> Result<Vec<Entry>, StoreError> {
         const COLS: &str = "id, ts_ms, raw_text, final_text, voice, stt_provider, \
-                            stt_model, cleanup_model, stt_ms, cleanup_ms, total_ms";
+                            stt_model, cleanup_model, invocation, stt_ms, cleanup_ms, total_ms";
         let map = |r: &rusqlite::Row<'_>| -> rusqlite::Result<Entry> {
             Ok(Entry {
                 id: r.get(0)?,
@@ -240,9 +247,10 @@ impl Store {
                 stt_provider: r.get(5)?,
                 stt_model: r.get(6)?,
                 cleanup_model: r.get(7)?,
-                stt_ms: r.get(8)?,
-                cleanup_ms: r.get(9)?,
-                total_ms: r.get(10)?,
+                invocation: r.get(8)?,
+                stt_ms: r.get(9)?,
+                cleanup_ms: r.get(10)?,
+                total_ms: r.get(11)?,
             })
         };
         let rows = match search.map(str::trim).filter(|s| !s.is_empty()) {
@@ -329,10 +337,25 @@ impl Store {
     }
 }
 
-/// Stats word counting: whitespace-separated tokens of the injected text.
-/// Deliberately simple; it feeds a lifetime counter, not billing.
+/// Stats word counting: whitespace-separated tokens. Deliberately simple;
+/// it feeds a lifetime counter, not billing.
 fn word_count(text: &str) -> i64 {
     text.split_whitespace().count() as i64
+}
+
+/// The words to credit this dictation with: normally the injected text, but
+/// the *spoken* text when an invocation fired.
+///
+/// The stats page values every word at 1500 ms ("time saved vs typing at
+/// 40 WPM"). Counting the injected text would let a two-word trigger
+/// producing a 300-word expansion fabricate about seven and a half minutes
+/// of time saved, which would make the whole figure untrustworthy. The user
+/// did say two words; the other 298 were already written.
+fn spoken_word_count(d: &NewDictation) -> i64 {
+    match d.invocation {
+        Some(_) => word_count(&d.raw_text),
+        None => word_count(&d.final_text),
+    }
 }
 
 /// Escape LIKE wildcards so user search text matches literally

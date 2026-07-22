@@ -8,7 +8,7 @@ use crate::retry::should_retry;
 use crate::state::{advance, Action, Event, PipelineState};
 use hark_audio::ring::Consumer;
 use hark_audio::WindowParams;
-use hark_dictionary::Corrector;
+use hark_dictionary::{Corrector, Expander, Expansion};
 use hark_hotkey::PttEvent;
 use hark_inject::InjectSettings;
 use hark_stt::{SttError, SttProvider, Transcript};
@@ -50,6 +50,10 @@ pub(crate) struct Worker {
     pub local: Option<LocalPlan>,
     /// Dictionary post-correction, built once from the configured terms.
     pub corrector: Corrector,
+    /// Invocation expansion, built once from the configured triggers. A
+    /// derived artifact: rebuilt from TOML on every pipeline start, never
+    /// cached (LL-G `architecture/transient-cache-without-drift`).
+    pub expander: Expander,
     /// Optional voice cleanup between dictionary pass 1 and injection.
     pub cleanup: Option<CleanupPlan>,
     /// Base URL to pre-warm (DNS + TCP + TLS) before the first dictation.
@@ -216,7 +220,14 @@ fn dictate(worker: &mut Worker, down_abs: u64, up_abs: u64, state: PipelineState
     }
 
     let text = corrected_text(&worker.corrector, &transcript.text);
-    let cleaned = cleaned_text(worker.cleanup.as_ref(), &worker.corrector, text);
+    let expanded = expanded_text(&worker.expander, text);
+    // Canned text is authored, not spoken: it never reaches a cleanup model
+    // that would rewrite it, and never pays for the call. `None` here makes
+    // `cleaned_text` hit its passthrough on the first line, which is the
+    // whole protection -- see `expanded_text` for why it must be control
+    // flow and not a prompt clause.
+    let plan = worker.cleanup.as_ref().filter(|_| expanded.fired.is_none());
+    let cleaned = cleaned_text(plan, &worker.corrector, expanded.text);
     match hark_inject::inject(&cleaned.text, &worker.inject) {
         Ok(()) => {
             let total_ms = released.elapsed().as_millis() as u64;
@@ -254,6 +265,7 @@ fn dictate(worker: &mut Worker, down_abs: u64, up_abs: u64, state: PipelineState
                 stt_provider: source.label(&worker.cloud_label),
                 stt_model,
                 cleanup_model,
+                invocation: expanded.fired,
                 audio_ms,
                 stt_ms: transcript.request_ms as u64,
                 cleanup_ms: cleaned.request_ms,
@@ -335,6 +347,47 @@ fn cleaned_text(plan: Option<&CleanupPlan>, corrector: &Corrector, text: String)
             passthrough(text)
         }
     }
+}
+
+/// The invocation pass, between dictionary pass 1 and cleanup. Pure (the
+/// testable seam); logs whether one fired and the millis, never the trigger
+/// phrase or the expansion (both are user content).
+///
+/// Running after pass 1 is deliberate: pass 1 canonicalizes the *spoken*
+/// words, which can only help a trigger match (matching lowercases both
+/// sides, so casing changes are harmless). The expansion is inserted
+/// afterwards and is therefore never touched by the dictionary.
+///
+/// A caller that sees `fired.is_some()` **must** skip cleanup. That is not a
+/// preference, it is the four failure modes this avoids:
+///
+/// 1. `hark_voice::over_expanded` allows `max(words * ratio, words + 3)`, so
+///    a 3-word utterance expanding to 60 words gets an allowance of 6 and
+///    the expansion would be *silently discarded* in favour of the literal
+///    words the user said.
+/// 2. A short, free, instant dictation would turn into a billed LLM round
+///    trip on the release-to-inject path.
+/// 3. No HTTP call at all: no latency, no cost, no failure mode.
+/// 4. Dictionary pass 2 never runs over the expansion, so phonetic
+///    post-correction cannot mangle URLs or product names the user typed
+///    into their own canned text.
+///
+/// It has to be control flow rather than persuasion: every built-in voice
+/// already carries `LENGTH_DISCIPLINE_CLAUSE` telling the model not to
+/// expand a short remark into a paragraph, so a prompt clause would be
+/// fighting the rest of the prompt.
+fn expanded_text(expander: &Expander, text: String) -> Expansion {
+    let started = Instant::now();
+    let expansion = expander.expand(&text);
+    if expansion.fired.is_some() {
+        log::info!(
+            "invocation fired: {} -> {} chars in {} ms; cleanup skipped",
+            text.split_whitespace().count(),
+            expansion.text.chars().count(),
+            started.elapsed().as_millis()
+        );
+    }
+    expansion
 }
 
 /// The dictionary pass between transcript and injection. Pure (the testable
@@ -688,6 +741,81 @@ mod tests {
             cleaned_text(Some(&plan), &corrector, "hi".to_string()).text,
             "Hi."
         );
+    }
+
+    // --- invocations: the expansion must never reach the cleanup model ---
+
+    fn expander(phrase: &str, expansion: &str, scope: hark_dictionary::Scope) -> Expander {
+        Expander::new(&[(phrase.to_string(), expansion.to_string(), scope)])
+    }
+
+    const CANNED: &str = "You have access to the Support Forge tools: ticketing, remote \
+                          assist, and the asset inventory. Raise a ticket for anything \
+                          that needs an escalation, and the on-call engineer will pick \
+                          it up within the hour.";
+
+    /// The load-bearing test for the whole feature.
+    ///
+    /// The cleaner's script is **empty**, so any call to it panics: not
+    /// panicking IS the assertion. It proves the `Option::filter` in
+    /// `dictate` short-circuits before the cleanup call, which is what
+    /// keeps `over_expanded` from silently discarding the expansion (a
+    /// 2-word utterance gets an allowance of 5 words, so a 40-word
+    /// expansion would lose every time).
+    ///
+    /// The corrector is hostile on purpose: it would rewrite "Forge" inside
+    /// the canned text if dictionary pass 2 ever ran over it. It must not.
+    #[test]
+    fn a_fired_invocation_never_calls_the_cleaner() {
+        let corrector = Corrector::new(&["Forj".to_string()]);
+        let expander = expander("access granted", CANNED, hark_dictionary::Scope::Utterance);
+        // Shaped like `Worker::cleanup` so the branch below is the real one.
+        let cleanup = Some(MockCleaner::plan(vec![], 0));
+
+        let expanded = expanded_text(&expander, "access granted".to_string());
+        assert_eq!(expanded.fired.as_deref(), Some("access granted"));
+
+        // Exactly the branch `dictate` runs.
+        let plan = cleanup.as_ref().filter(|_| expanded.fired.is_none());
+        assert!(plan.is_none(), "a fired invocation must null the plan");
+        let out = cleaned_text(plan, &corrector, expanded.text);
+
+        assert_eq!(
+            out.text, CANNED,
+            "canned text is injected byte for byte: no cleanup, no pass 2"
+        );
+        assert_eq!(
+            out.request_ms, None,
+            "no cleanup ran, so the record must not claim one did"
+        );
+    }
+
+    #[test]
+    fn no_invocation_leaves_the_cleanup_path_identical() {
+        let corrector = Corrector::new(&[]);
+        let expander = expander("access granted", CANNED, hark_dictionary::Scope::Utterance);
+        let cleanup = Some(MockCleaner::plan(
+            vec![MockCleaner::ok("Cleaned and polished.")],
+            0,
+        ));
+
+        let expanded = expanded_text(&expander, "so um cleaned and uh polished".to_string());
+        assert_eq!(expanded.fired, None);
+        assert_eq!(expanded.text, "so um cleaned and uh polished");
+
+        let plan = cleanup.as_ref().filter(|_| expanded.fired.is_none());
+        assert!(plan.is_some(), "an ordinary dictation still gets cleanup");
+        let out = cleaned_text(plan, &corrector, expanded.text);
+        assert_eq!(out.text, "Cleaned and polished.");
+        assert!(out.request_ms.is_some());
+    }
+
+    #[test]
+    fn an_empty_invocation_set_is_a_pure_passthrough() {
+        let expander = Expander::new(&[]);
+        let out = expanded_text(&expander, "nothing configured".to_string());
+        assert_eq!(out.text, "nothing configured");
+        assert_eq!(out.fired, None);
     }
 
     #[test]

@@ -41,7 +41,7 @@ impl Scope {
 /// Derives `Debug` because [`crate::Settings`] does — which means a stray
 /// `log::debug!("{settings:?}")` would dump every expansion to disk. Logging
 /// discipline for this type is counts, char lengths, and indices only.
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(default)]
 pub struct Invocation {
     /// What the user says. The phrase is the entry's identity; there are no
@@ -52,7 +52,7 @@ pub struct Invocation {
     pub scope: Scope,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(default)]
 pub struct Invocations {
     pub entries: Vec<Invocation>,

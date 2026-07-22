@@ -250,6 +250,7 @@ mod tests {
             stt_provider: "deepgram".to_string(),
             stt_model: "nova-3".to_string(),
             cleanup_model: None,
+            invocation: None,
             audio_ms: 900,
             stt_ms: 300,
             cleanup_ms: None,

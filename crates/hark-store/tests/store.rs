@@ -13,6 +13,7 @@ fn dictation(ts_ms: i64, raw: &str, fin: &str) -> NewDictation {
         stt_provider: "deepgram".to_string(),
         stt_model: "nova-3".to_string(),
         cleanup_model: Some("gpt-5-nano".to_string()),
+        invocation: None,
         audio_ms: 1_500,
         stt_ms: 400,
         cleanup_ms: Some(300),
@@ -331,6 +332,95 @@ fn file_db_reopens_with_data_wal_and_same_stats_row() {
         "reopen must not reseed the fixed-id stats row"
     );
     assert_eq!(stats.dictations, 1, "counters persisted across reopen");
+}
+
+#[test]
+fn an_invocation_dictation_counts_spoken_words_not_injected_words() {
+    // The stats page values every word at 1500 ms. Counting the injected
+    // text here would credit two spoken words with ~7.5 minutes of "time
+    // saved" and make the whole figure untrustworthy.
+    let mut store = Store::open_in_memory().expect("open");
+    let long: String = vec!["word"; 300].join(" ");
+    let mut d = dictation(1_000, "access granted", &long);
+    d.invocation = Some("access granted".to_string());
+    store.record(&d, true).expect("record");
+
+    let stats = store.stats().expect("stats");
+    assert_eq!(
+        stats.words, 2,
+        "an invocation credits the words spoken, not the ones pasted"
+    );
+
+    // The entry itself still stores the full injected text and the trigger.
+    let entries = store.entries(None, 10, 0).expect("entries");
+    assert_eq!(entries[0].final_text, long);
+    assert_eq!(entries[0].invocation.as_deref(), Some("access granted"));
+
+    // An ordinary dictation is unaffected: it still counts what it injected.
+    store
+        .record(&dictation(2_000, "raw", "three final words"), true)
+        .expect("record");
+    assert_eq!(store.stats().expect("stats").words, 5);
+}
+
+#[test]
+fn a_dictation_without_an_invocation_stores_null() {
+    let mut store = Store::open_in_memory().expect("open");
+    store
+        .record(&dictation(1, "spoken words", "spoken words"), true)
+        .expect("record");
+    assert_eq!(
+        store.entries(None, 10, 0).expect("entries")[0].invocation,
+        None
+    );
+}
+
+#[test]
+fn migration_003_adds_the_invocation_column() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let db_path = dir.path().join("hark.db");
+
+    // Build a database exactly as migration 002 left it: the real 001 + 002
+    // files, user_version = 2, and a row with content already in it.
+    {
+        let conn = rusqlite::Connection::open(&db_path).expect("raw open");
+        conn.execute_batch(include_str!("../migrations/001_init.sql"))
+            .expect("apply 001");
+        conn.execute_batch(include_str!("../migrations/002_stats_total_ms.sql"))
+            .expect("apply 002");
+        conn.pragma_update(None, "user_version", 2).expect("stamp");
+        conn.execute(
+            "INSERT INTO stats (id, dictations, words, since_ts_ms) VALUES (1, 4, 20, 9_000)",
+            [],
+        )
+        .expect("seed stats");
+        conn.execute(
+            "INSERT INTO entries (ts_ms, raw_text, final_text, voice, stt_provider, \
+             stt_model, stt_ms, total_ms) VALUES (1, 'r', 'f', 'clean', 'deepgram', \
+             'nova-3', 100, 200)",
+            [],
+        )
+        .expect("seed entry");
+    }
+
+    let mut store = Store::open(&db_path).expect("open runs migration 003");
+
+    // Pre-003 rows read back as "not an invocation", with everything else
+    // intact: the migration adds a nullable column and backfills nothing.
+    let entries = store.entries(None, 10, 0).expect("entries");
+    assert_eq!(entries.len(), 1);
+    assert_eq!(entries[0].invocation, None);
+    assert_eq!(entries[0].final_text, "f");
+    let stats = store.stats().expect("stats");
+    assert_eq!(stats.dictations, 4, "002-era counters survive the upgrade");
+    assert_eq!(stats.words, 20);
+
+    // New rows round-trip the trigger through the new column.
+    let mut d = dictation(2, "access granted", "the canned paragraph");
+    d.invocation = Some("access granted".to_string());
+    store.record(&d, true).expect("record");
+    let newest = store.entries(None, 1, 0).expect("newest");
+    assert_eq!(newest[0].invocation.as_deref(), Some("access granted"));
 }
 
 #[test]

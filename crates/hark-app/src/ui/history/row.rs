@@ -152,6 +152,7 @@ mod tests {
             stt_provider: "deepgram".to_string(),
             stt_model: "nova-3".to_string(),
             cleanup_model: cleanup.then(|| "gpt-5-nano".to_string()),
+            invocation: None,
             stt_ms: 400,
             cleanup_ms: cleanup.then_some(300),
             total_ms: 800,
