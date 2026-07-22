@@ -7,6 +7,7 @@ use crate::storage::StorageHandle;
 use crate::theme;
 use crate::ui::dictionary::DictionaryPage;
 use crate::ui::history::HistoryPage;
+use crate::ui::invocations::InvocationsPage;
 use crate::ui::settings::{self, SettingsPage};
 use crate::ui::stats::StatsPage;
 use crate::update::Updater;
@@ -18,6 +19,7 @@ use egui::{RichText, Ui};
 pub enum Page {
     History,
     Dictionary,
+    Invocations,
     Stats,
     Settings,
 }
@@ -27,6 +29,7 @@ impl Page {
         match self {
             Page::History => "History",
             Page::Dictionary => "Dictionary",
+            Page::Invocations => "Invocations",
             Page::Stats => "Stats",
             Page::Settings => "Settings",
         }
@@ -36,6 +39,7 @@ impl Page {
         match self {
             Page::History => theme::icons::CLOCK_COUNTER_CLOCKWISE,
             Page::Dictionary => theme::icons::BOOK_OPEN,
+            Page::Invocations => theme::icons::LIGHTNING,
             Page::Stats => theme::icons::CHART_BAR,
             Page::Settings => theme::icons::GEAR,
         }
@@ -45,6 +49,7 @@ impl Page {
         match self {
             Page::History => "Your dictations, newest first. Everything stays on this device.",
             Page::Dictionary => "Names and terms your STT provider keeps missing.",
+            Page::Invocations => "Say a phrase, type a block of text you wrote.",
             Page::Stats => "Lifetime dictation figures. They survive a history clear.",
             Page::Settings => "Provider, key, hotkey, and voice.",
         }
@@ -56,6 +61,7 @@ impl Page {
 pub struct Views {
     pub settings: SettingsPage,
     pub dictionary: DictionaryPage,
+    pub invocations: InvocationsPage,
     pub history: HistoryPage,
     pub stats: StatsPage,
 }
@@ -95,6 +101,7 @@ pub fn show(
                         .show(ui, storage, storage_error, &settings.hotkey.ptt_key)
                 }
                 Page::Dictionary => dictionary(ui, settings, pipeline, views),
+                Page::Invocations => invocations(ui, settings, pipeline, views),
                 Page::Stats => views.stats.show(ui, storage, storage_error),
                 Page::Settings => {
                     // Long forms need a scroll container; the sidebar and
@@ -126,5 +133,28 @@ fn dictionary(
             .set_notice(settings::save_to_disk(settings).err());
         pipeline.start(settings, ui.ctx());
         views.settings.draft.dictionary = settings.dictionary.clone();
+    }
+}
+
+/// Invocation edits persist immediately and restart the pipeline (the
+/// trigger matcher is built at pipeline start). Same four obligations as
+/// `dictionary`, in the same order.
+fn invocations(
+    ui: &mut Ui,
+    settings: &mut Settings,
+    pipeline: &mut PipelineController,
+    views: &mut Views,
+) {
+    if views.invocations.show(ui, &mut settings.invocations) {
+        views
+            .invocations
+            .set_notice(settings::save_to_disk(settings).err());
+        pipeline.start(settings, ui.ctx());
+        // Load-bearing. The Settings page edits a *draft* copy of the whole
+        // Settings struct and writes it wholesale on Save. Without this
+        // line that draft still holds the pre-edit invocations, so opening
+        // Settings and pressing Save would resurrect every deleted
+        // invocation -- silent data loss with no error to notice.
+        views.settings.draft.invocations = settings.invocations.clone();
     }
 }

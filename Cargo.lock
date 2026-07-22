@@ -2283,6 +2283,7 @@ dependencies = [
  "hark-audio",
  "hark-autostart",
  "hark-config",
+ "hark-dictionary",
  "hark-hotkey",
  "hark-keychain",
  "hark-local-stt",

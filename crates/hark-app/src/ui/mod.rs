@@ -7,6 +7,7 @@ pub mod dictionary;
 pub mod footer;
 pub mod format;
 pub mod history;
+pub mod invocations;
 pub mod pages;
 pub mod settings;
 pub mod shell;

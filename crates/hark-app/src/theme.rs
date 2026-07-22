@@ -32,6 +32,7 @@ pub mod icons {
     pub const COPY: &str = "\u{E1CA}";
     pub const GEAR: &str = "\u{E270}";
     pub const KEY: &str = "\u{E2D6}";
+    pub const LIGHTNING: &str = "\u{E2DE}";
     pub const MAGNIFYING_GLASS: &str = "\u{E30C}";
     pub const MICROPHONE: &str = "\u{E326}";
     pub const PLAY: &str = "\u{E3D0}";

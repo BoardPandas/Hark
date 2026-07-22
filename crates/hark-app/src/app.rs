@@ -7,6 +7,7 @@
 use crate::pipeline::{PipelineController, PipelineStatus};
 use crate::ui::dictionary::DictionaryPage;
 use crate::ui::history::HistoryPage;
+use crate::ui::invocations::InvocationsPage;
 use crate::ui::settings::SettingsPage;
 use crate::ui::stats::StatsPage;
 use crate::ui::{pages, settings, shell};
@@ -68,6 +69,7 @@ impl HarkApp {
         let views = pages::Views {
             settings: SettingsPage::new(&settings, onboarding),
             dictionary: DictionaryPage::new(),
+            invocations: InvocationsPage::new(),
             history: HistoryPage::new(),
             stats: StatsPage::new(),
         };

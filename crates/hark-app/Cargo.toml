@@ -18,6 +18,10 @@ hark-config = { path = "../hark-config" }
 # the settings test-connection flow, which drives the STT and cleanup adapters
 # directly on a background thread (hark-stt, hark-voice).
 hark-audio = { path = "../hark-audio" }
+# The Invocations editor validates triggers with the same tokenizer the
+# matcher uses, so the editor and the pipeline can never disagree about what
+# counts as a word (hyphens split) or about which triggers are duplicates.
+hark-dictionary = { path = "../hark-dictionary" }
 hark-hotkey = { path = "../hark-hotkey" }
 hark-keychain = { path = "../hark-keychain" }
 # Opt-in on-device STT: model catalog, download manager, and (behind the
