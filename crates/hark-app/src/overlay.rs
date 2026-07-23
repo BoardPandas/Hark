@@ -18,11 +18,22 @@
 //! wrong does not look like a bug — the pill is created and painted as usual,
 //! just at coordinates no monitor covers.
 //!
-//! The window is transparent and mouse-transparent and never takes focus:
-//! Hark injects text into whatever app is focused, so the overlay must not
-//! steal that focus. Those flags (`with_active(false)`,
-//! `with_mouse_passthrough`, `with_taskbar(false)`) are validated on real
-//! Windows/macOS hardware, not on this build-only machine.
+//! The window is transparent and never takes focus: Hark injects text into
+//! whatever app is focused, so the overlay must not steal that focus.
+//! `with_active(false)` (never activate) and `with_taskbar(false)` handle
+//! that, and are validated on real Windows/macOS hardware, not on this
+//! build-only machine.
+//!
+//! It deliberately does NOT set `with_mouse_passthrough`. On Windows winit
+//! implements passthrough by adding `WS_EX_LAYERED` to the window, and a
+//! layered window is composited by DWM from a redirection bitmap that our
+//! hardware GL surface never fills with per-pixel alpha — so the transparent
+//! area renders as an opaque white (or black) box around the pill instead of
+//! showing the desktop (egui #2537). Per-pixel transparency and passthrough
+//! are mutually exclusive here, and a floating capsule needs the
+//! transparency. The overlay only exists while the push-to-talk chord is
+//! held and never activates, so the small bottom-centre rect briefly
+//! swallowing a click matters far less than a broken-looking box.
 
 use crate::theme;
 use hark_pipeline::LevelMeter;
@@ -61,9 +72,9 @@ pub fn show(ctx: &egui::Context, meter: Arc<LevelMeter>, monitor: Option<egui::V
         .with_always_on_top()
         .with_taskbar(false)
         // Never take focus: injection targets the previously focused app.
-        .with_active(false)
-        // Clicks fall through to whatever is underneath.
-        .with_mouse_passthrough(true);
+        // (No `with_mouse_passthrough`: on Windows it forces a layered window
+        // that breaks per-pixel GL transparency — see the module docs.)
+        .with_active(false);
 
     // Windows places the pill itself, from the real work area of the monitor
     // the user is on (`reposition`); a creation-time guess would only make it

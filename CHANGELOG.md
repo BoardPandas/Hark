@@ -4,6 +4,11 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.21.2] - 2026-07-23
+
+### Fixed
+- **The "Listening…" pill now floats cleanly over the desktop, with no box around it.** The recording overlay is meant to show only its pill, but on Windows the surrounding window area was rendering as a solid rectangle — first black, then (after 0.21.1) white. The cause was the overlay's click-through setting, which forces a Windows window mode that can't show a see-through background behind hardware-drawn graphics. Click-through is dropped so the background is genuinely transparent; the overlay still never takes focus, and it only appears for the moment you hold the dictation key.
+
 ## [0.21.1] - 2026-07-23
 
 ### Fixed
