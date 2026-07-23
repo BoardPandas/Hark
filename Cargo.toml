@@ -22,7 +22,7 @@ members = [
 # Kept in lockstep with package.json (the release source of truth): the built
 # binary reports this via env!("CARGO_PKG_VERSION"), and the update checker
 # compares it against GitHub release tags. release.yml fails if they drift.
-version = "0.20.0"
+version = "0.20.1"
 edition = "2021"
 # 1.97+: libsqlite3-sys 0.38.1 (rusqlite bundled SQLite) uses cfg_select!,
 # which is unstable before then. Verified on 1.97.1 (2026-07-16).

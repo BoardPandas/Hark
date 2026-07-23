@@ -178,11 +178,14 @@ impl Updater {
             return;
         };
         let staged = staged.clone();
-        if let Err(e) = hark_update::apply(&staged) {
-            self.phase = Phase::Failed(format!("could not apply the update: {e}"));
-            return;
-        }
-        if let Err(e) = hark_update::relaunch() {
+        let exe = match hark_update::apply(&staged) {
+            Ok(exe) => exe,
+            Err(e) => {
+                self.phase = Phase::Failed(format!("could not apply the update: {e}"));
+                return;
+            }
+        };
+        if let Err(e) = hark_update::relaunch(&exe) {
             // The exe is already swapped; the next manual launch is the new
             // version. Surface why the auto-relaunch did not happen.
             self.phase = Phase::Failed(format!(

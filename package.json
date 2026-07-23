@@ -1,6 +1,6 @@
 {
   "name": "hark",
-  "version": "0.20.0",
+  "version": "0.20.1",
   "private": true,
   "description": "Push-to-talk voice dictation desktop app for Windows and macOS (Rust) with BYOK cloud transcription"
 }

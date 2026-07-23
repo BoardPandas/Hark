@@ -20,6 +20,16 @@ mod tray;
 mod ui;
 mod update;
 
+use std::time::{Duration, Instant};
+
+/// When the updater relaunches us it spawns the new process before the outgoing
+/// one has released its single-instance lock, so the lock is briefly still held
+/// at startup. Poll for it up to this long before giving up, rather than losing
+/// the race and exiting — which left the user with no running Hark after
+/// "Download & install".
+const RELAUNCH_LOCK_WAIT: Duration = Duration::from_secs(5);
+const RELAUNCH_LOCK_POLL: Duration = Duration::from_millis(100);
+
 fn main() -> eframe::Result {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
 
@@ -28,12 +38,15 @@ fn main() -> eframe::Result {
     // today; it keeps the launch intent explicit and the stored Run command
     // stable if a manual launch is ever made to show the window.
     let launched_hidden = std::env::args().any(|a| a == hark_autostart::HIDDEN_FLAG);
-    log::info!("startup: launched_hidden={launched_hidden}");
+    // The updater relaunches us with this flag; it means an outgoing instance is
+    // still shutting down and holding the lock, so wait for it (see below).
+    let relaunched = std::env::args().any(|a| a == hark_update::RELAUNCHED_FLAG);
+    log::info!("startup: launched_hidden={launched_hidden} relaunched={relaunched}");
 
     // Bound to a named variable, not `_`: dropping the guard releases the lock,
     // and `let _ =` would do that on this very line. It must live to the end of
     // main, past run_native.
-    let _instance_guard = match hark_single_instance::acquire() {
+    let _instance_guard = match acquire_instance(relaunched) {
         Ok(Some(guard)) => Some(guard),
         Ok(None) => {
             // Autostart plus a manual launch is the common way here. Exiting
@@ -65,4 +78,29 @@ fn main() -> eframe::Result {
         options,
         Box::new(|cc| Ok(Box::new(app::HarkApp::new(cc)))),
     )
+}
+
+/// Claim the single-instance lock. A normal launch tries once and reports the
+/// lock taken immediately (`Ok(None)`), so autostart-plus-manual-launch exits at
+/// once. A launch relaunched by the updater instead polls: the outgoing instance
+/// is mid-shutdown and still holds the lock for a few hundred milliseconds, so
+/// racing it and exiting is exactly the "app never comes back" bug. Waiting lets
+/// the old process finish releasing the OS lock, then we claim it and start.
+fn acquire_instance(
+    relaunched: bool,
+) -> Result<Option<hark_single_instance::InstanceGuard>, hark_single_instance::Error> {
+    let guard = hark_single_instance::acquire()?;
+    if guard.is_some() || !relaunched {
+        return Ok(guard);
+    }
+    log::info!("startup: relaunched after update; waiting for the previous instance to release the lock");
+    let deadline = Instant::now() + RELAUNCH_LOCK_WAIT;
+    while Instant::now() < deadline {
+        std::thread::sleep(RELAUNCH_LOCK_POLL);
+        if let Some(guard) = hark_single_instance::acquire()? {
+            return Ok(Some(guard));
+        }
+    }
+    log::warn!("startup: previous instance still holds the lock after the relaunch grace period; exiting");
+    Ok(None)
 }

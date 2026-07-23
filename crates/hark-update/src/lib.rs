@@ -40,6 +40,12 @@ const USER_AGENT: &str = concat!(
 /// suffix so a version change in the middle does not break the picker.
 const WINDOWS_ASSET_SUFFIX: &str = "-windows-x64.exe";
 
+/// Passed to the process [`relaunch`] spawns so it knows to wait for this
+/// (outgoing) instance to release the single-instance lock instead of losing
+/// the startup race and exiting. `hark-app` reads it on startup; without it a
+/// relaunch left the user with no running Hark after "Download & install".
+pub const RELAUNCHED_FLAG: &str = "--relaunched-after-update";
+
 /// A binary download can take much longer than the STT client's 15 s total
 /// timeout, so the download request overrides it with a generous ceiling.
 const DOWNLOAD_TIMEOUT: Duration = Duration::from_secs(600);
@@ -186,24 +192,33 @@ pub fn download(
     Ok(staged)
 }
 
-/// Replace the running executable with the (already verified) staged file, then
-/// remove the staging copy. Call [`verify`] first.
-pub fn apply(staged: &Path) -> Result<(), UpdateError> {
+/// Replace the running executable with the (already verified) staged file,
+/// remove the staging copy, and return the path the running exe occupied. Call
+/// [`verify`] first, and pass the returned path to [`relaunch`].
+///
+/// The path is captured *before* the swap on purpose: once `self_replace` has
+/// renamed the running image aside, `current_exe()` follows that rename (on
+/// Windows `GetModuleFileNameW` resolves to the renamed backup), so reading it
+/// afterward would point at the old binary, not the freshly-installed one.
+pub fn apply(staged: &Path) -> Result<PathBuf, UpdateError> {
+    // Capture the original path while the running image still lives there.
+    let exe = current_exe()?;
     self_replace::self_replace(staged)?;
     // The swap copied the contents into place; the staging file is now spent.
     if let Err(e) = std::fs::remove_file(staged) {
         log::warn!("could not remove staged update {}: {e}", staged.display());
     }
     log::info!("update applied; running exe replaced");
-    Ok(())
+    Ok(exe)
 }
 
-/// Launch the (now replaced) running executable and return so the caller can
-/// exit. Spawns with `CREATE_NO_WINDOW` on Windows so no console flashes (the
-/// release binary is `windows_subsystem = "windows"`; LL-G Rust HIGH).
-pub fn relaunch() -> Result<(), UpdateError> {
-    let exe = current_exe()?;
-    spawn_detached(&exe)?;
+/// Launch the freshly-replaced executable at `exe` (the path [`apply`] returned)
+/// and return so the caller can exit. Spawns with `CREATE_NO_WINDOW` on Windows
+/// so no console flashes (the release binary is `windows_subsystem = "windows"`;
+/// LL-G Rust HIGH), and passes [`RELAUNCHED_FLAG`] so the new process waits out
+/// the single-instance lock this one still holds until it exits.
+pub fn relaunch(exe: &Path) -> Result<(), UpdateError> {
+    spawn_detached(exe)?;
     log::info!("relaunched {}", exe.display());
     Ok(())
 }
@@ -238,6 +253,7 @@ fn spawn_detached(exe: &Path) -> Result<(), UpdateError> {
     // CREATE_NO_WINDOW: no console window for the child (LL-G Rust HIGH #2).
     const CREATE_NO_WINDOW: u32 = 0x0800_0000;
     std::process::Command::new(exe)
+        .arg(RELAUNCHED_FLAG)
         .creation_flags(CREATE_NO_WINDOW)
         .spawn()?;
     Ok(())
@@ -245,7 +261,7 @@ fn spawn_detached(exe: &Path) -> Result<(), UpdateError> {
 
 #[cfg(not(windows))]
 fn spawn_detached(exe: &Path) -> Result<(), UpdateError> {
-    std::process::Command::new(exe).spawn()?;
+    std::process::Command::new(exe).arg(RELAUNCHED_FLAG).spawn()?;
     Ok(())
 }
 

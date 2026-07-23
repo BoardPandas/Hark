@@ -4,6 +4,11 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.20.1] - 2026-07-23
+
+### Fixed
+- **"Download & install" now reopens Hark on the new version by itself.** Installing an update restarted Hark but the new copy quit on the way up — it saw the old one still shutting down, assumed a second Hark was already running, and bowed out, leaving you to reopen it by hand. The relaunched copy now waits the moment it takes the previous one to let go, then starts normally. It also always relaunches the version you just installed, closing a Windows case where it could have come back on the old build.
+
 ## [0.20.0] - 2026-07-22
 
 ### Added
