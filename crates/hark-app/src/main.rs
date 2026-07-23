@@ -70,7 +70,16 @@ fn main() -> eframe::Result {
             // Launch hidden: when a key resolves the app lives in the tray
             // (CP5); `HarkApp::new` shows the window only when it needs
             // attention (onboarding, config error, stopped pipeline).
-            .with_visible(false),
+            .with_visible(false)
+            // The glow backend builds ONE GL framebuffer config from the main
+            // viewport and shares it with every child viewport. It only asks
+            // for an alpha-capable (transparent) framebuffer when this main
+            // viewport requests transparency — so without this flag the
+            // recording overlay's transparent clear composites onto an opaque
+            // buffer and renders as an opaque black box around the pill. The
+            // main window itself stays opaque: its panels fully paint it (see
+            // `HarkApp::clear_color`), so a transparent clear is invisible here.
+            .with_transparent(true),
         ..Default::default()
     };
     eframe::run_native(

@@ -4,6 +4,11 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.21.1] - 2026-07-23
+
+### Fixed
+- **The "Listening…" pill no longer sits inside a black box.** The recording overlay is meant to float its pill straight over the desktop, but on Windows it was painting onto an opaque background, so a black rounded rectangle showed around the pill. The overlay now composites transparently and only the pill is visible.
+
 ## [0.21.0] - 2026-07-23
 
 ### Changed
