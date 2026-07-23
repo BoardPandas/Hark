@@ -191,14 +191,14 @@ impl SettingsPage {
             (None, false) => return,
         };
 
-        let window_fill = ui.visuals().window_fill;
+        let bar_fill = theme::surface(ui.visuals());
         egui::Panel::bottom("settings_save_bar")
             .resizable(false)
             .show_separator_line(true)
             .frame(
                 egui::Frame::default()
-                    .fill(window_fill)
-                    .inner_margin(egui::Margin::symmetric(12, 8)),
+                    .fill(bar_fill)
+                    .inner_margin(egui::Margin::symmetric(16, 9)),
             )
             .show(ui, |ui| {
                 // Sides, not horizontal + right_to_left: the message truncates
@@ -211,10 +211,10 @@ impl SettingsPage {
                     },
                     |ui| {
                         if dirty {
-                            let save =
-                                egui::Button::new(RichText::new("Save").color(theme::ON_ACCENT))
-                                    .fill(theme::accent_fill(ui.visuals()));
-                            if ui.add(save).clicked() {
+                            if ui
+                                .add(theme::primary_button(ui.visuals(), "Save"))
+                                .clicked()
+                            {
                                 let ctx = ui.ctx().clone();
                                 self.save(saved, pipeline, &ctx);
                             }

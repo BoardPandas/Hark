@@ -93,7 +93,9 @@ fn acquire_instance(
     if guard.is_some() || !relaunched {
         return Ok(guard);
     }
-    log::info!("startup: relaunched after update; waiting for the previous instance to release the lock");
+    log::info!(
+        "startup: relaunched after update; waiting for the previous instance to release the lock"
+    );
     let deadline = Instant::now() + RELAUNCH_LOCK_WAIT;
     while Instant::now() < deadline {
         std::thread::sleep(RELAUNCH_LOCK_POLL);
@@ -101,6 +103,8 @@ fn acquire_instance(
             return Ok(Some(guard));
         }
     }
-    log::warn!("startup: previous instance still holds the lock after the relaunch grace period; exiting");
+    log::warn!(
+        "startup: previous instance still holds the lock after the relaunch grace period; exiting"
+    );
     Ok(None)
 }

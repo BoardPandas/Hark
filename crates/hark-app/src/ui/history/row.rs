@@ -4,7 +4,7 @@
 
 use crate::theme;
 use crate::ui::format;
-use egui::{Align, Id, Label, Layout, RichText, Sense, Ui};
+use egui::{Align, Frame, Id, Label, Layout, Margin, RichText, Sense, Ui};
 use hark_store::Entry;
 use jiff::tz::TimeZone;
 
@@ -83,46 +83,59 @@ pub fn show(
     if expanded {
         details(ui, entry, tz);
     }
-    ui.separator();
+    // The Nocturne signature: a 1px rule fading to transparent at both ends,
+    // in an 8px strip that gives each row its breathing room.
+    theme::fading_rule(ui, 8.0);
     action
 }
 
-/// Expanded detail: the raw transcript exactly as the provider returned it,
-/// the timing breakdown, and the full timestamp with the provider label
-/// (disappointing output must have an obvious cause).
+/// Expanded detail (a surface panel): the raw transcript exactly as the
+/// provider returned it, the timing breakdown, and the full timestamp with
+/// the provider label (disappointing output must have an obvious cause).
 fn details(ui: &mut Ui, entry: &Entry, tz: &TimeZone) {
-    ui.add_space(2.0);
-    // Naming the trigger explains why the entry reads nothing like the raw
-    // transcript directly below it.
-    if let Some(trigger) = &entry.invocation {
-        ui.horizontal_wrapped(|ui| {
+    ui.add_space(4.0);
+    Frame::default()
+        .fill(theme::surface(ui.visuals()))
+        .stroke(ui.visuals().widgets.noninteractive.bg_stroke)
+        .corner_radius(8)
+        .inner_margin(Margin {
+            left: 14,
+            right: 14,
+            top: 11,
+            bottom: 11,
+        })
+        .show(ui, |ui| {
+            // Naming the trigger explains why the entry reads nothing like the
+            // raw transcript directly below it.
+            if let Some(trigger) = &entry.invocation {
+                ui.horizontal_wrapped(|ui| {
+                    ui.label(
+                        RichText::new(theme::icons::LIGHTNING)
+                            .small()
+                            .color(theme::accent(ui.visuals())),
+                    );
+                    ui.label(
+                        RichText::new(format!("Invocation \u{201C}{trigger}\u{201D} fired"))
+                            .small()
+                            .weak(),
+                    );
+                });
+                ui.add_space(2.0);
+            }
+            ui.label(RichText::new("RAW TRANSCRIPT").size(10.5).weak());
+            ui.label(RichText::new(entry.raw_text.trim()).monospace());
+            ui.add_space(4.0);
+            ui.label(RichText::new(timing_line(entry)).monospace().small());
             ui.label(
-                RichText::new(theme::icons::LIGHTNING)
-                    .small()
-                    .color(theme::accent(ui.visuals())),
-            );
-            ui.label(
-                RichText::new(format!("Invocation \u{201C}{trigger}\u{201D} fired"))
-                    .small()
-                    .weak(),
+                RichText::new(format!(
+                    "{} · {}",
+                    format::full_timestamp(entry.ts_ms, tz),
+                    entry.stt_provider
+                ))
+                .small()
+                .weak(),
             );
         });
-        ui.add_space(2.0);
-    }
-    ui.label(RichText::new("Raw transcript").small().weak());
-    ui.label(RichText::new(entry.raw_text.trim()).monospace());
-    ui.add_space(4.0);
-    ui.label(RichText::new(timing_line(entry)).monospace().small());
-    ui.label(
-        RichText::new(format!(
-            "{} · {}",
-            format::full_timestamp(entry.ts_ms, tz),
-            entry.stt_provider
-        ))
-        .small()
-        .weak(),
-    );
-    ui.add_space(2.0);
 }
 
 /// "4m ago · clean · nova-3", with a leading "⚡ Invocation" segment when the

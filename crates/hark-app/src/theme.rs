@@ -3,11 +3,11 @@
 //! icon glyphs. `apply` runs once at startup; no panel sets ad-hoc colors,
 //! sizes, or spacing inline.
 
-use egui::epaint::Shadow;
+use egui::epaint::{Mesh, Shadow, Vertex, WHITE_UV};
 use egui::style::{Selection, WidgetVisuals, Widgets};
 use egui::{
-    Color32, Context, CornerRadius, FontData, FontDefinitions, FontFamily, FontId, Margin, Stroke,
-    TextStyle, Theme, Vec2, Visuals,
+    Color32, Context, CornerRadius, FontData, FontDefinitions, FontFamily, FontId, Margin, Pos2,
+    Rect, RichText, Sense, Stroke, TextStyle, Theme, Ui, Vec2, Visuals,
 };
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -23,6 +23,7 @@ pub mod icons {
     // and out per checkpoint.
     #![allow(dead_code)]
 
+    pub const ARROW_UP: &str = "\u{E048}";
     pub const BOOK_OPEN: &str = "\u{E0E6}";
     pub const CHART_BAR: &str = "\u{E150}";
     pub const CHECK: &str = "\u{E182}";
@@ -43,39 +44,67 @@ pub mod icons {
     pub const X: &str = "\u{E4F6}";
 }
 
-// --- palette (spec §3.10 starting values; contrast-tuned on real screens) ---
+// --- palette (Nocturne design language; values from nocturne-styles.css) ---
+//
+// The ground is a near-neutral blue-grey; surfaces (cards, inputs, expanded
+// panels, dialogs) sit one step lighter. Hierarchy is size and space, not
+// weight; the single blurple accent appears as a line/glow, never a flood —
+// buttons are outlined, not filled (see the button helpers below).
 
-const DARK_WINDOW: Color32 = Color32::from_rgb(0x11, 0x13, 0x17);
-const DARK_PANEL: Color32 = Color32::from_rgb(0x16, 0x18, 0x1D);
-const DARK_HAIRLINE: Color32 = Color32::from_rgb(0x26, 0x28, 0x2F);
-const DARK_TEXT: Color32 = Color32::from_rgb(0xE6, 0xE7, 0xEC);
-const DARK_TEXT_STRONG: Color32 = Color32::from_rgb(0xF5, 0xF6, 0xFA);
-const DARK_TEXT_WEAK: Color32 = Color32::from_rgb(0x9E, 0xA0, 0xAA);
-/// Interactive accent: links, focus, selection (dark).
-const DARK_ACCENT: Color32 = Color32::from_rgb(0x7C, 0x7F, 0xF2);
-/// Accent as a fill behind [`ON_ACCENT`] text (nav pill, primary button):
-/// deeper than [`DARK_ACCENT`] so white text keeps >= 4.5:1.
-const DARK_ACCENT_FILL: Color32 = Color32::from_rgb(0x4F, 0x52, 0xC8);
+/// Ground `--color-bg`: top bar, footer, content — the whole window base.
+const DARK_WINDOW: Color32 = Color32::from_rgb(0x16, 0x18, 0x26);
+/// Content region; the same ground — panels are separated by hairline rules,
+/// not a tonal step.
+const DARK_PANEL: Color32 = DARK_WINDOW;
+/// `--color-surface`: cards, inputs, expanded detail panels, dialogs.
+const DARK_SURFACE: Color32 = Color32::from_rgb(0x23, 0x25, 0x32);
+/// Box outlines / control borders (neutral-800, the shadow-sm edge).
+const DARK_HAIRLINE: Color32 = Color32::from_rgb(0x3F, 0x42, 0x4D);
+/// A brighter hairline on hover/press (neutral-700, the shadow-md edge).
+const DARK_HAIRLINE_STRONG: Color32 = Color32::from_rgb(0x59, 0x5D, 0x6C);
+/// `--color-text`.
+const DARK_TEXT: Color32 = Color32::from_rgb(0xE9, 0xE9, 0xED);
+/// neutral-100.
+const DARK_TEXT_STRONG: Color32 = Color32::from_rgb(0xF3, 0xF5, 0xFE);
+/// Muted text (neutral-500) — the design's ~50% text step, solid so it clears
+/// WCAG AA on both ground and surface.
+const DARK_TEXT_WEAK: Color32 = Color32::from_rgb(0x93, 0x97, 0xAB);
+/// Interactive accent `--color-accent`: links, focus, selection, outlined
+/// primary buttons, active nav.
+const DARK_ACCENT: Color32 = Color32::from_rgb(0x91, 0x84, 0xD9);
+/// A solid accent fill for the rare non-text accent surface (progress fill):
+/// accent-700, deep enough that white text keeps >= 4.5:1.
+const DARK_ACCENT_FILL: Color32 = Color32::from_rgb(0x5D, 0x52, 0x94);
+/// Subtle neutral tint used as the resting hover fill (≈ the surface step).
+const DARK_FILL_HOVER: Color32 = Color32::from_rgb(0x23, 0x25, 0x32);
+const DARK_FILL_PRESS: Color32 = Color32::from_rgb(0x2B, 0x2E, 0x3C);
 
-const LIGHT_WINDOW: Color32 = Color32::from_rgb(0xFA, 0xFA, 0xFC);
-const LIGHT_PANEL: Color32 = Color32::from_rgb(0xFF, 0xFF, 0xFF);
-const LIGHT_HAIRLINE: Color32 = Color32::from_rgb(0xE4, 0xE4, 0xEA);
-const LIGHT_TEXT: Color32 = Color32::from_rgb(0x1C, 0x1E, 0x24);
-const LIGHT_TEXT_STRONG: Color32 = Color32::from_rgb(0x0C, 0x0D, 0x10);
-const LIGHT_TEXT_WEAK: Color32 = Color32::from_rgb(0x63, 0x65, 0x70);
-const LIGHT_ACCENT: Color32 = Color32::from_rgb(0x5B, 0x5B, 0xD6);
+// Light theme derives from the same OKLCH ramps (neutral / accent).
+const LIGHT_WINDOW: Color32 = Color32::from_rgb(0xF3, 0xF5, 0xFE); // neutral-100
+const LIGHT_PANEL: Color32 = LIGHT_WINDOW;
+const LIGHT_SURFACE: Color32 = Color32::from_rgb(0xFF, 0xFF, 0xFF);
+const LIGHT_HAIRLINE: Color32 = Color32::from_rgb(0xCF, 0xD3, 0xE5); // neutral-300
+const LIGHT_HAIRLINE_STRONG: Color32 = Color32::from_rgb(0xB2, 0xB6, 0xCA); // neutral-400
+const LIGHT_TEXT: Color32 = Color32::from_rgb(0x29, 0x2B, 0x31); // neutral-900
+const LIGHT_TEXT_STRONG: Color32 = Color32::from_rgb(0x16, 0x18, 0x26);
+const LIGHT_TEXT_WEAK: Color32 = Color32::from_rgb(0x59, 0x5D, 0x6C); // neutral-700
+const LIGHT_ACCENT: Color32 = Color32::from_rgb(0x5D, 0x52, 0x94); // accent-700
 const LIGHT_ACCENT_FILL: Color32 = LIGHT_ACCENT;
+const LIGHT_FILL_HOVER: Color32 = Color32::from_rgb(0xE4, 0xE7, 0xF5); // neutral-200
+const LIGHT_FILL_PRESS: Color32 = Color32::from_rgb(0xCF, 0xD3, 0xE5); // neutral-300
 
-/// Text/icon color on top of an accent fill.
-pub const ON_ACCENT: Color32 = Color32::WHITE;
-/// Semantic colors, shared by both themes; always paired with an icon or
-/// label (guardrails §3), never the sole carrier of a state.
-pub const DANGER: Color32 = Color32::from_rgb(0xE5, 0x48, 0x4D);
-/// Fill behind [`ON_ACCENT`] text on destructive buttons: deeper than
-/// [`DANGER`] (an icon/stroke color) so white text keeps >= 4.5:1.
-pub const DANGER_FILL: Color32 = Color32::from_rgb(0xC6, 0x2A, 0x30);
-pub const SUCCESS: Color32 = Color32::from_rgb(0x30, 0xA4, 0x6C);
-pub const WARNING: Color32 = Color32::from_rgb(0xF5, 0xA5, 0x24);
+/// Accent ramp stops used by name (the update banner, tags).
+pub const ACCENT_200: Color32 = Color32::from_rgb(0xE7, 0xE5, 0xFE);
+pub const ACCENT_800: Color32 = Color32::from_rgb(0x42, 0x3A, 0x6A);
+pub const ACCENT_900: Color32 = Color32::from_rgb(0x2B, 0x27, 0x41);
+
+/// Semantic colors (harmonized in OKLCH), shared by both themes; always
+/// paired with an icon or label (guardrails §3), never the sole carrier of a
+/// state. danger oklch(0.68 0.15 15), success oklch(0.72 0.12 155),
+/// warning oklch(0.78 0.13 75).
+pub const DANGER: Color32 = Color32::from_rgb(0xE7, 0x6A, 0x78);
+pub const SUCCESS: Color32 = Color32::from_rgb(0x45, 0xB4, 0x87);
+pub const WARNING: Color32 = Color32::from_rgb(0xD9, 0xA0, 0x40);
 
 /// Tray icon fills (CP5): drawn into RGBA bitmaps, not painted by egui, so
 /// they cannot follow the theme. Mid-tones legible on both light and dark
@@ -89,13 +118,17 @@ pub const TRAY_STOPPED: Color32 = Color32::from_rgb(0x8A, 0x8F, 0x98);
 /// palette is fixed rather than theme-paired. The accent is the tray/brand
 /// purple.
 pub const OVERLAY_ACCENT: Color32 = DARK_ACCENT;
-/// The dark "pill" capsule behind the pulsing circle. Translucent so it
-/// blends over the desktop through the transparent overlay window.
-pub const OVERLAY_PILL_FILL: Color32 = Color32::from_rgba_premultiplied(0x0D, 0x0E, 0x12, 0xE6);
+/// The dark "pill" capsule behind the pulsing circle: near-black translucent
+/// (#101120 @ 92%) so it blends over the desktop through the transparent
+/// overlay window. Stored premultiplied.
+pub const OVERLAY_PILL_FILL: Color32 = Color32::from_rgba_premultiplied(0x0F, 0x10, 0x1D, 0xEB);
 /// A hairline rim on the pill so it stays legible on same-tone backgrounds.
 pub const OVERLAY_PILL_STROKE: Color32 = Color32::from_rgba_premultiplied(0x2E, 0x30, 0x3B, 0x80);
+/// The pill's "Listening…" label sits in neutral-200.
+pub const OVERLAY_TEXT: Color32 = Color32::from_rgb(0xE4, 0xE7, 0xF5);
 
-/// The one non-built-in text style (16 px Inter Medium).
+/// The section-head text style (15 px Inter Medium — Nocturne heads are
+/// medium, never bolder; hierarchy is size and space).
 pub fn subheading() -> TextStyle {
     TextStyle::Name("Subheading".into())
 }
@@ -116,13 +149,84 @@ pub fn accent(visuals: &Visuals) -> Color32 {
     }
 }
 
-/// Fill for the selected nav pill and the (at most one) primary button.
+/// A solid accent fill (progress bars, meter "good" band): the rare place a
+/// filled accent surface is wanted. Buttons never use it — they are outlined.
 pub fn accent_fill(visuals: &Visuals) -> Color32 {
     if visuals.dark_mode {
         DARK_ACCENT_FILL
     } else {
         LIGHT_ACCENT_FILL
     }
+}
+
+/// `--color-surface`: cards, inputs, expanded detail panels, dialogs — one
+/// step lighter than the ground.
+pub fn surface(visuals: &Visuals) -> Color32 {
+    if visuals.dark_mode {
+        DARK_SURFACE
+    } else {
+        LIGHT_SURFACE
+    }
+}
+
+/// The translucent divider used by the fading rules (text at 16% alpha).
+pub fn divider(visuals: &Visuals) -> Color32 {
+    let base = visuals.text_color();
+    Color32::from_rgba_unmultiplied(base.r(), base.g(), base.b(), 41)
+}
+
+/// A Nocturne signature: a 1px separator that fades to transparent over its
+/// last 48px at each end (or a third of its width, whichever is smaller).
+/// Used under every list row (history, dictionary, invocations). Allocates a
+/// full-width, `gap`-tall strip and paints the rule centered in it.
+pub fn fading_rule(ui: &mut Ui, gap: f32) {
+    let width = ui.available_width();
+    let (rect, _) = ui.allocate_exact_size(Vec2::new(width, gap.max(1.0)), Sense::hover());
+    paint_fading_rule(ui, rect);
+}
+
+/// Paint the fading rule centered in `rect` (the row strip), without
+/// allocating — for callers that already own the strip's geometry.
+pub fn paint_fading_rule(ui: &Ui, rect: Rect) {
+    let color = divider(ui.visuals());
+    let fade = 48.0_f32.min(rect.width() / 3.0);
+    let y = rect.center().y.round();
+    let (l, r) = (rect.left(), rect.right());
+    let clear = Color32::TRANSPARENT;
+    let stops = [(l, clear), (l + fade, color), (r - fade, color), (r, clear)];
+    let mut mesh = Mesh::default();
+    let vert = |x: f32, y: f32, c: Color32| Vertex {
+        pos: Pos2::new(x, y),
+        uv: WHITE_UV,
+        color: c,
+    };
+    for pair in stops.windows(2) {
+        let (x0, c0) = pair[0];
+        let (x1, c1) = pair[1];
+        let base = mesh.vertices.len() as u32;
+        mesh.vertices.push(vert(x0, y - 0.5, c0));
+        mesh.vertices.push(vert(x1, y - 0.5, c1));
+        mesh.vertices.push(vert(x1, y + 0.5, c1));
+        mesh.vertices.push(vert(x0, y + 0.5, c0));
+        mesh.indices
+            .extend_from_slice(&[base, base + 1, base + 2, base, base + 2, base + 3]);
+    }
+    ui.painter().add(mesh);
+}
+
+/// An outlined "primary" button: accent border + accent text, transparent
+/// fill (the Nocturne rule — buttons are outlined, never flooded). Hover adds
+/// the quiet neutral tint from the widget visuals; focus is the accent ring.
+pub fn primary_button(visuals: &Visuals, text: impl Into<String>) -> egui::Button<'static> {
+    let accent = accent(visuals);
+    egui::Button::new(RichText::new(text.into()).color(accent)).stroke(Stroke::new(1.0, accent))
+}
+
+/// An outlined destructive button: danger text, danger-at-~50% border, no
+/// fill. Used for confirm actions and "Reset stats" / "Delete".
+pub fn danger_button(text: impl Into<String>) -> egui::Button<'static> {
+    egui::Button::new(RichText::new(text.into()).color(DANGER))
+        .stroke(Stroke::new(1.0, DANGER.gamma_multiply(0.5)))
 }
 
 /// Install fonts, type scale, spacing, and both theme palettes. Called once
@@ -199,17 +303,19 @@ fn font_definitions() -> FontDefinitions {
     fonts
 }
 
-/// The type scale (spec §3.10). Secondary text uses `weak_text_color`,
-/// never an ad-hoc smaller size.
+/// The Nocturne type scale. Body 15px Inter Regular; page titles 24px and
+/// section heads 15px both in Inter Medium (never bolder). Secondary text
+/// uses `weak_text_color`, never an ad-hoc smaller size. Mono (transcripts,
+/// latency, terms, triggers) is JetBrains Mono 13px.
 fn text_styles() -> BTreeMap<TextStyle, FontId> {
     BTreeMap::from([
-        (TextStyle::Heading, FontId::new(22.0, semibold())),
-        (subheading(), FontId::new(16.0, medium())),
-        (TextStyle::Body, FontId::new(14.0, FontFamily::Proportional)),
+        (TextStyle::Heading, FontId::new(24.0, medium())),
+        (subheading(), FontId::new(15.0, medium())),
+        (TextStyle::Body, FontId::new(15.0, FontFamily::Proportional)),
         (TextStyle::Button, FontId::new(14.0, medium())),
         (
             TextStyle::Small,
-            FontId::new(11.5, FontFamily::Proportional),
+            FontId::new(12.0, FontFamily::Proportional),
         ),
         (
             TextStyle::Monospace,
@@ -218,14 +324,15 @@ fn text_styles() -> BTreeMap<TextStyle, FontId> {
     ])
 }
 
-/// 4 px base grid; comfortable uniform targets.
+/// Compact 0.7× density (Nocturne spacing scale). Buttons are outlined, so a
+/// snug button padding keeps the border tight to the label.
 fn spacing(spacing: &mut egui::style::Spacing) {
-    spacing.item_spacing = Vec2::new(8.0, 10.0);
-    spacing.button_padding = Vec2::new(14.0, 7.0);
-    spacing.window_margin = Margin::same(16);
-    spacing.menu_margin = Margin::same(16);
+    spacing.item_spacing = Vec2::new(8.0, 8.0);
+    spacing.button_padding = Vec2::new(12.0, 6.0);
+    spacing.window_margin = Margin::same(14);
+    spacing.menu_margin = Margin::same(14);
     spacing.indent = 18.0;
-    spacing.interact_size.y = 30.0;
+    spacing.interact_size.y = 28.0;
 }
 
 struct Palette {
@@ -234,10 +341,11 @@ struct Palette {
     text_weak: Color32,
     window: Color32,
     panel: Color32,
+    surface: Color32,
     hairline: Color32,
     hairline_strong: Color32,
-    /// Widget resting / hovered / pressed fills (quiet buttons).
-    fill_rest: Color32,
+    /// Hovered / pressed fills (the quiet neutral tint; resting is
+    /// transparent so buttons read as outlines on the ground).
     fill_hover: Color32,
     fill_press: Color32,
     accent: Color32,
@@ -246,55 +354,52 @@ struct Palette {
 
 fn build_visuals(base: Visuals, p: &Palette) -> Visuals {
     let hairline = Stroke::new(1.0, p.hairline);
+    let hairline_strong = Stroke::new(1.0, p.hairline_strong);
     let widget = |bg: Color32, fg: Color32, bg_stroke: Stroke| WidgetVisuals {
         bg_fill: bg,
         weak_bg_fill: bg,
         bg_stroke,
         fg_stroke: Stroke::new(1.0, fg),
-        corner_radius: CornerRadius::same(6),
+        corner_radius: CornerRadius::same(8),
         expansion: 0.0,
     };
     Visuals {
         weak_text_color: Some(p.text_weak),
         widgets: Widgets {
             noninteractive: widget(p.panel, p.text, hairline),
-            inactive: widget(p.fill_rest, p.text, hairline),
-            hovered: widget(
-                p.fill_hover,
-                p.text_strong,
-                Stroke::new(1.0, p.hairline_strong),
-            ),
-            active: widget(
-                p.fill_press,
-                p.text_strong,
-                Stroke::new(1.0, p.hairline_strong),
-            ),
-            open: widget(p.fill_rest, p.text, hairline),
+            // Resting buttons are outline-only (transparent fill, hairline
+            // border) — the Nocturne look.
+            inactive: widget(Color32::TRANSPARENT, p.text, hairline),
+            hovered: widget(p.fill_hover, p.text_strong, hairline_strong),
+            active: widget(p.fill_press, p.text_strong, hairline_strong),
+            open: widget(p.fill_hover, p.text, hairline),
         },
         selection: Selection {
-            bg_fill: p.accent.gamma_multiply(0.35),
+            bg_fill: p.accent.gamma_multiply(0.30),
             // Doubles as the visible focus ring (2 px accent, guardrails §3).
             stroke: Stroke::new(2.0, p.accent),
         },
         hyperlink_color: p.accent,
-        faint_bg_color: p.fill_rest,
-        extreme_bg_color: p.window,
+        // Cards / group panels / table stripes pick up the surface step.
+        faint_bg_color: p.surface,
+        // Text inputs sit on the surface fill.
+        extreme_bg_color: p.surface,
         warn_fg_color: WARNING,
         error_fg_color: DANGER,
-        window_corner_radius: CornerRadius::same(10),
+        window_corner_radius: CornerRadius::same(14),
         window_shadow: Shadow {
-            offset: [0, 6],
-            blur: 20,
+            offset: [0, 16],
+            blur: 40,
             spread: 0,
             color: Color32::from_black_alpha(p.shadow_alpha),
         },
         window_fill: p.window,
-        window_stroke: hairline,
+        window_stroke: hairline_strong,
         menu_corner_radius: CornerRadius::same(8),
         panel_fill: p.panel,
         popup_shadow: Shadow {
-            offset: [0, 4],
-            blur: 12,
+            offset: [0, 6],
+            blur: 18,
             spread: 0,
             color: Color32::from_black_alpha(p.shadow_alpha),
         },
@@ -311,13 +416,13 @@ fn dark_visuals() -> Visuals {
             text_weak: DARK_TEXT_WEAK,
             window: DARK_WINDOW,
             panel: DARK_PANEL,
+            surface: DARK_SURFACE,
             hairline: DARK_HAIRLINE,
-            hairline_strong: Color32::from_rgb(0x33, 0x36, 0x3F),
-            fill_rest: Color32::from_rgb(0x1C, 0x1E, 0x24),
-            fill_hover: Color32::from_rgb(0x23, 0x26, 0x30),
-            fill_press: Color32::from_rgb(0x2A, 0x2D, 0x38),
+            hairline_strong: DARK_HAIRLINE_STRONG,
+            fill_hover: DARK_FILL_HOVER,
+            fill_press: DARK_FILL_PRESS,
             accent: DARK_ACCENT,
-            shadow_alpha: 96,
+            shadow_alpha: 166,
         },
     )
 }
@@ -331,13 +436,13 @@ fn light_visuals() -> Visuals {
             text_weak: LIGHT_TEXT_WEAK,
             window: LIGHT_WINDOW,
             panel: LIGHT_PANEL,
+            surface: LIGHT_SURFACE,
             hairline: LIGHT_HAIRLINE,
-            hairline_strong: Color32::from_rgb(0xD4, 0xD4, 0xDE),
-            fill_rest: Color32::from_rgb(0xF2, 0xF2, 0xF6),
-            fill_hover: Color32::from_rgb(0xEA, 0xEA, 0xF0),
-            fill_press: Color32::from_rgb(0xE2, 0xE2, 0xEA),
+            hairline_strong: LIGHT_HAIRLINE_STRONG,
+            fill_hover: LIGHT_FILL_HOVER,
+            fill_press: LIGHT_FILL_PRESS,
             accent: LIGHT_ACCENT,
-            shadow_alpha: 28,
+            shadow_alpha: 40,
         },
     )
 }
@@ -390,29 +495,28 @@ mod tests {
 
     #[test]
     fn accent_surfaces_meet_contrast_requirements() {
-        // Text on the accent fill is body-size: 4.5:1. The bare accent is a
-        // non-text indicator (focus ring, links get underline affordance):
-        // 3:1 against both surfaces.
+        // The accent is a non-text indicator (focus ring, outlined-button
+        // border, active-tab underline; links carry an underline affordance):
+        // it must clear 3:1 against the ground so the line is always visible.
+        // White on the solid accent_fill (used behind progress fills) keeps a
+        // body-text margin in case a label ever lands there.
         for (label, fill, accent, window) in [
             ("dark", DARK_ACCENT_FILL, DARK_ACCENT, DARK_WINDOW),
             ("light", LIGHT_ACCENT_FILL, LIGHT_ACCENT, LIGHT_WINDOW),
         ] {
-            let on_fill = contrast(ON_ACCENT, fill);
+            let on_fill = contrast(Color32::WHITE, fill);
             let ring = contrast(accent, window);
-            assert!(
-                on_fill >= 4.5,
-                "{label} ON_ACCENT on accent fill: {on_fill:.2}"
-            );
+            assert!(on_fill >= 4.5, "{label} white on accent fill: {on_fill:.2}");
             assert!(ring >= 3.0, "{label} accent on window: {ring:.2}");
         }
     }
 
     #[test]
-    fn danger_fill_carries_readable_text() {
-        // The destructive confirm button paints ON_ACCENT text on
-        // DANGER_FILL; body-size text needs 4.5:1.
-        let ratio = contrast(ON_ACCENT, DANGER_FILL);
-        assert!(ratio >= 4.5, "ON_ACCENT on DANGER_FILL: {ratio:.2}");
+    fn danger_reads_on_surface() {
+        // The destructive confirm/reset buttons are outlined — danger text on
+        // the surface fill. Keep that label legible (body size, 4.5:1).
+        let ratio = contrast(DANGER, DARK_SURFACE);
+        assert!(ratio >= 4.5, "DANGER on surface: {ratio:.2}");
     }
 
     #[test]
@@ -432,13 +536,13 @@ mod tests {
     fn type_scale_matches_the_spec() {
         let styles = text_styles();
         assert_eq!(styles.len(), 6);
-        assert_eq!(styles[&TextStyle::Heading].size, 22.0);
-        assert_eq!(styles[&TextStyle::Heading].family, semibold());
-        assert_eq!(styles[&subheading()].size, 16.0);
+        assert_eq!(styles[&TextStyle::Heading].size, 24.0);
+        assert_eq!(styles[&TextStyle::Heading].family, medium());
+        assert_eq!(styles[&subheading()].size, 15.0);
         assert_eq!(styles[&subheading()].family, medium());
-        assert_eq!(styles[&TextStyle::Body].size, 14.0);
+        assert_eq!(styles[&TextStyle::Body].size, 15.0);
         assert_eq!(styles[&TextStyle::Button].family, medium());
-        assert_eq!(styles[&TextStyle::Small].size, 11.5);
+        assert_eq!(styles[&TextStyle::Small].size, 12.0);
         assert_eq!(styles[&TextStyle::Monospace].size, 13.0);
         assert_eq!(styles[&TextStyle::Monospace].family, FontFamily::Monospace);
     }
@@ -472,7 +576,8 @@ mod tests {
         assert!(dark.dark_mode);
         assert_eq!(dark.window_fill, DARK_WINDOW);
         assert_eq!(dark.panel_fill, DARK_PANEL);
-        assert_eq!(dark.window_stroke.color, DARK_HAIRLINE);
+        assert_eq!(dark.window_stroke.color, DARK_HAIRLINE_STRONG);
+        assert_eq!(dark.extreme_bg_color, DARK_SURFACE);
         assert_eq!(dark.hyperlink_color, DARK_ACCENT);
 
         let light = light_visuals();

@@ -179,7 +179,7 @@ impl HistoryPage {
                         "{}  Search dictations",
                         theme::icons::MAGNIFYING_GLASS
                     ))
-                    .desired_width(240.0),
+                    .desired_width(270.0),
             );
             if self.focus_search {
                 response.request_focus();
@@ -225,8 +225,9 @@ impl HistoryPage {
                 for entry in &self.entries {
                     let day = format::day_label(entry.ts_ms, now_ms, &self.tz);
                     if last_day.as_deref() != Some(day.as_str()) {
-                        ui.add_space(if last_day.is_some() { 16.0 } else { 2.0 });
-                        ui.label(RichText::new(&day).text_style(theme::subheading()).weak());
+                        ui.add_space(if last_day.is_some() { 18.0 } else { 2.0 });
+                        // Uppercase micro-heading, muted (Nocturne day group).
+                        ui.label(RichText::new(day.to_uppercase()).small().weak());
                         ui.add_space(2.0);
                         last_day = Some(day);
                     }

@@ -261,7 +261,9 @@ fn spawn_detached(exe: &Path) -> Result<(), UpdateError> {
 
 #[cfg(not(windows))]
 fn spawn_detached(exe: &Path) -> Result<(), UpdateError> {
-    std::process::Command::new(exe).arg(RELAUNCHED_FLAG).spawn()?;
+    std::process::Command::new(exe)
+        .arg(RELAUNCHED_FLAG)
+        .spawn()?;
     Ok(())
 }
 

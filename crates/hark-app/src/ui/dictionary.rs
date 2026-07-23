@@ -4,6 +4,7 @@
 //! correct-by-construction baseline). The caller owns persistence.
 
 use crate::theme;
+use crate::ui::widgets;
 use egui::{Key, RichText, TextEdit, Ui};
 
 pub struct DictionaryPage {
@@ -51,7 +52,10 @@ impl DictionaryPage {
             );
             let entered = response.lost_focus() && ui.input(|i| i.key_pressed(Key::Enter));
             let clicked = ui
-                .add_enabled(!self.add.trim().is_empty(), egui::Button::new("Add"))
+                .add_enabled(
+                    !self.add.trim().is_empty(),
+                    theme::primary_button(ui.visuals(), "Add"),
+                )
                 .clicked();
             if entered || clicked {
                 if add_term(terms, &self.add) {
@@ -74,17 +78,12 @@ impl DictionaryPage {
         ui.add_space(8.0);
 
         if terms.is_empty() {
-            ui.add_space(32.0);
-            ui.vertical_centered(|ui| {
-                ui.label(
-                    RichText::new(theme::icons::BOOK_OPEN)
-                        .size(40.0)
-                        .color(ui.visuals().weak_text_color()),
-                );
-                ui.add_space(6.0);
-                ui.label(RichText::new("No dictionary terms yet.").text_style(theme::subheading()));
-                ui.label(RichText::new("Add names and terms your provider keeps missing.").weak());
-            });
+            widgets::empty_state(
+                ui,
+                theme::icons::BOOK_OPEN,
+                "No dictionary terms yet.",
+                "Add names and terms your provider keeps missing.",
+            );
             return changed;
         }
 
@@ -131,6 +130,8 @@ impl DictionaryPage {
                     delete = Some(index);
                 }
             });
+            // Nocturne fading rule under each term row.
+            theme::fading_rule(ui, 6.0);
         }
         if let Some(index) = delete {
             terms.remove(index);

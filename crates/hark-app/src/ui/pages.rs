@@ -4,7 +4,6 @@
 
 use crate::pipeline::PipelineController;
 use crate::storage::StorageHandle;
-use crate::theme;
 use crate::ui::dictionary::DictionaryPage;
 use crate::ui::history::HistoryPage;
 use crate::ui::invocations::InvocationsPage;
@@ -35,16 +34,6 @@ impl Page {
         }
     }
 
-    pub fn icon(self) -> &'static str {
-        match self {
-            Page::History => theme::icons::CLOCK_COUNTER_CLOCKWISE,
-            Page::Dictionary => theme::icons::BOOK_OPEN,
-            Page::Invocations => theme::icons::LIGHTNING,
-            Page::Stats => theme::icons::CHART_BAR,
-            Page::Settings => theme::icons::GEAR,
-        }
-    }
-
     fn description(self) -> &'static str {
         match self {
             Page::History => "Your dictations, newest first. Everything stays on this device.",
@@ -66,11 +55,12 @@ pub struct Views {
     pub stats: StatsPage,
 }
 
-/// Content column widths (spec §3.11): narrow for forms, wider for lists.
+/// Content column widths (Nocturne): the settings form narrows to 620px, the
+/// list/detail pages run to 820px.
 fn max_width(page: Page) -> f32 {
     match page {
-        Page::Settings => 560.0,
-        _ => 720.0,
+        Page::Settings => 620.0,
+        _ => 820.0,
     }
 }
 

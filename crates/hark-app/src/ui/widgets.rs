@@ -52,11 +52,20 @@ impl Confirm {
     pub fn show(&mut self, ui: &Ui, id_salt: &str) -> Option<bool> {
         let mut outcome = None;
         let modal = Modal::new(Id::new(("confirm", id_salt))).show(ui.ctx(), |ui| {
-            ui.set_max_width(360.0);
-            ui.label(RichText::new(&self.title).text_style(theme::subheading()));
+            ui.set_max_width(400.0);
+            ui.label(
+                RichText::new(&self.title)
+                    .text_style(theme::subheading())
+                    .size(18.0),
+            );
+            ui.add_space(2.0);
             ui.label(&self.body);
-            ui.add_space(6.0);
-            ui.horizontal(|ui| {
+            ui.add_space(8.0);
+            // Right-aligned actions: secondary Cancel + danger-outlined confirm.
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                if ui.add(theme::danger_button(&self.action)).clicked() {
+                    outcome = Some(true);
+                }
                 let cancel = ui.button("Cancel");
                 if self.focus_cancel {
                     cancel.request_focus();
@@ -64,12 +73,6 @@ impl Confirm {
                 }
                 if cancel.clicked() {
                     outcome = Some(false);
-                }
-                let confirm =
-                    egui::Button::new(RichText::new(&self.action).color(theme::ON_ACCENT))
-                        .fill(theme::DANGER_FILL);
-                if ui.add(confirm).clicked() {
-                    outcome = Some(true);
                 }
             });
             if ui.input(|i| i.key_pressed(Key::Escape)) {

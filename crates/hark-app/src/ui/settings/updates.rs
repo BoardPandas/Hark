@@ -133,8 +133,7 @@ fn status(ui: &mut Ui, icon: &str, color: egui::Color32, text: &str) {
 }
 
 fn accent_button(ui: &Ui, text: &str) -> egui::Button<'static> {
-    egui::Button::new(RichText::new(text.to_string()).color(theme::ON_ACCENT))
-        .fill(theme::accent_fill(ui.visuals()))
+    theme::primary_button(ui.visuals(), text)
 }
 
 /// Release notes as plain text in a bounded scroller (GitHub bodies are

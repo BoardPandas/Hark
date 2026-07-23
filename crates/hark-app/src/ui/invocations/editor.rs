@@ -104,7 +104,7 @@ impl Draft {
                 ui.horizontal(|ui| {
                     let saveable = problem.is_none() && !self.expansion.is_empty();
                     if ui
-                        .add_enabled(saveable, egui::Button::new("Save"))
+                        .add_enabled(saveable, theme::primary_button(ui.visuals(), "Save"))
                         .clicked()
                     {
                         outcome = Outcome::Saved(
@@ -122,7 +122,10 @@ impl Draft {
                     if let Some(index) = self.index {
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                             if ui
-                                .button(RichText::new(format!("{}  Delete", theme::icons::TRASH)))
+                                .add(theme::danger_button(format!(
+                                    "{}  Delete",
+                                    theme::icons::TRASH
+                                )))
                                 .clicked()
                             {
                                 outcome = Outcome::Deleted(index);

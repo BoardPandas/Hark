@@ -7,7 +7,7 @@ use crate::pipeline::PipelineStatus;
 use crate::theme;
 use hark_config::{LocalMode, Settings};
 
-use egui::{Frame, Margin, Panel, RichText, Sides, Ui};
+use egui::{Frame, Margin, Panel, RichText, Sense, Sides, Ui, Vec2};
 
 /// Render the footer. Returns true when the user clicked the "Open
 /// Settings" jump on a key-related problem.
@@ -51,17 +51,20 @@ fn state_side(ui: &mut Ui, status: &PipelineStatus, settings: &Settings) -> bool
             );
         }
         PipelineStatus::Recording => {
-            icon_label(ui, theme::icons::WAVEFORM, theme::DANGER, "Recording");
+            pulsing_dot(ui, theme::DANGER);
+            ui.add(egui::Label::new(RichText::new("Recording").small()).truncate());
         }
         PipelineStatus::Processing => {
-            icon_label(ui, theme::icons::CIRCLE_NOTCH, accent, "Processing");
+            spinner(ui, accent);
+            ui.add(egui::Label::new(RichText::new("Processing").small()).truncate());
         }
         PipelineStatus::LoadingModel => {
-            icon_label(
-                ui,
-                theme::icons::CIRCLE_NOTCH,
-                accent,
-                "Loading the on-device model\u{2026}",
+            spinner(ui, accent);
+            ui.add(
+                egui::Label::new(
+                    RichText::new("Loading the on-device model\u{2026}").small(),
+                )
+                .truncate(),
             );
         }
         PipelineStatus::Errored {
@@ -102,6 +105,24 @@ fn state_side(ui: &mut Ui, status: &PipelineStatus, settings: &Settings) -> bool
 fn icon_label(ui: &mut Ui, icon: &str, icon_color: egui::Color32, text: &str) -> egui::Response {
     ui.label(RichText::new(icon).color(icon_color));
     ui.add(egui::Label::new(RichText::new(text).small()).truncate())
+}
+
+/// A small filled dot that breathes, for the Recording state (the design's
+/// pulsing 10px danger mark; the label still carries the state for AA).
+fn pulsing_dot(ui: &mut Ui, color: egui::Color32) {
+    let (rect, _) = ui.allocate_exact_size(Vec2::splat(10.0), Sense::hover());
+    let t = ui.input(|i| i.time) as f32;
+    let pulse = 0.55 + 0.45 * (t * std::f32::consts::TAU * 0.8).sin().abs();
+    ui.painter()
+        .circle_filled(rect.center(), 4.0, color.gamma_multiply(pulse));
+    // Keep the breath alive even if nothing else asks for a repaint.
+    ui.ctx()
+        .request_repaint_after(std::time::Duration::from_millis(33));
+}
+
+/// A spinning circle-notch for the Processing / model-loading states.
+fn spinner(ui: &mut Ui, color: egui::Color32) {
+    ui.add(egui::Spinner::new().size(13.0).color(color));
 }
 
 fn settings_jump(ui: &mut Ui) -> bool {

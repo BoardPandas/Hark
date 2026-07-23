@@ -4,6 +4,14 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.21.0] - 2026-07-23
+
+### Changed
+- **A quieter, more compact new look — "Nocturne."** The whole window has been restyled: a near-neutral blue-grey ground, a single blurple accent used as a line or glow rather than a flood, and hairline separators under every list row that fade to transparent at their ends. Text is lighter-weight throughout — headings and section titles are medium, never bold, so the hierarchy comes from size and space instead of heaviness.
+- **The left sidebar is now a slim top navigation bar.** The wordmark and the page tabs (History · Dictionary · Invocations · Stats) sit on the left; Settings and the version caption sit on the right. The active tab is marked by an accent underline. Every page, feature, and behavior is exactly where it was — this is a reskin and a shell rearrangement, not a change to what Hark does.
+- **Buttons are now outlined instead of filled.** Primary actions carry an accent border and accent text; destructive actions (Clear all, Reset stats, Remove key, Delete) are outlined in red and still go through the same confirm dialogs. The confirm and destructive copy is unchanged.
+- **The recording pill now reads "Listening…" beside its pulsing dot,** and the status footer shows a breathing dot while recording and a spinner while processing.
+
 ## [0.20.1] - 2026-07-23
 
 ### Fixed

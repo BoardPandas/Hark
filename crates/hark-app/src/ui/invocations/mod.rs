@@ -58,7 +58,10 @@ impl InvocationsPage {
         ui.add_space(8.0);
 
         if ui
-            .button(format!("{}  New invocation", theme::icons::LIGHTNING))
+            .add(theme::primary_button(
+                ui.visuals(),
+                format!("{}  New invocation", theme::icons::LIGHTNING),
+            ))
             .clicked()
         {
             self.draft = Some(Draft::new_entry());
@@ -138,7 +141,7 @@ impl InvocationsPage {
                             }
                         });
                     });
-                    ui.separator();
+                    theme::fading_rule(ui, 8.0);
                 }
             });
 

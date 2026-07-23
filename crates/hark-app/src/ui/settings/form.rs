@@ -257,7 +257,8 @@ fn input_meter(ui: &mut Ui, peak: f32) {
     // enough of the bar to be readable, which is the end that matters here.
     ui.add(
         egui::ProgressBar::new(peak.clamp(0.0, 1.0).sqrt())
-            .desired_width(220.0)
+            .desired_width(240.0)
+            .desired_height(6.0)
             .fill(color),
     );
     ui.label(RichText::new(note).small().weak());
@@ -291,22 +292,30 @@ pub fn hotkey_section(
     }
 
     if capture.is_recording() {
-        egui::Frame::group(ui.style()).show(ui, |ui| {
-            let held = capture.held_display();
-            if held.is_empty() {
-                ui.label(RichText::new("Press and hold your shortcut keys...").strong());
-            } else {
-                ui.label(RichText::new(held).strong());
-            }
-            ui.label(
-                RichText::new(
-                    "Release to set. Modifier keys (Ctrl, Shift, Alt, Win), CapsLock, \
-                     and F1..F24 only.",
-                )
-                .small()
-                .weak(),
-            );
-        });
+        egui::Frame::default()
+            .fill(theme::surface(ui.visuals()))
+            .stroke(ui.visuals().widgets.noninteractive.bg_stroke)
+            .corner_radius(8)
+            .inner_margin(egui::Margin::symmetric(14, 11))
+            .show(ui, |ui| {
+                let held = capture.held_display();
+                if held.is_empty() {
+                    ui.label(
+                        RichText::new("Press and hold your shortcut keys...")
+                            .text_style(theme::subheading()),
+                    );
+                } else {
+                    ui.label(RichText::new(held).text_style(theme::subheading()));
+                }
+                ui.label(
+                    RichText::new(
+                        "Release to set. Modifier keys (Ctrl, Shift, Alt, Win), CapsLock, \
+                         and F1..F24 only.",
+                    )
+                    .small()
+                    .weak(),
+                );
+            });
         if ui.button("Cancel").clicked() {
             if let CaptureTransition::Ended = capture.cancel() {
                 transition = CaptureTransition::Ended;

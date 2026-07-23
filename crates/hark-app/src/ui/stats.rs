@@ -5,7 +5,7 @@
 use crate::storage::{StorageCmd, StorageHandle};
 use crate::theme;
 use crate::ui::{format, widgets};
-use egui::{Color32, CornerRadius, Frame, Margin, ProgressBar, RichText, Ui};
+use egui::{CornerRadius, Frame, Margin, ProgressBar, RichText, Ui};
 use hark_store::Stats;
 use jiff::tz::TimeZone;
 
@@ -83,11 +83,9 @@ impl StatsPage {
         );
 
         ui.add_space(16.0);
-        // Quiet danger button; the confirm names what survives (§3.3
+        // Danger-outlined button; the confirm names what survives (§3.3
         // independence rule: reset never touches history entries).
-        let reset = egui::Button::new(RichText::new("Reset stats").color(theme::DANGER))
-            .fill(Color32::TRANSPARENT);
-        if ui.add(reset).clicked() {
+        if ui.add(theme::danger_button("Reset stats")).clicked() {
             self.confirm = Some(widgets::Confirm::new(
                 "Reset stats?",
                 "Sets every counter to zero and restarts the since-date. \
@@ -150,7 +148,7 @@ fn gate(ui: &mut Ui, dictations: i64) {
 /// release-to-inject (derived from the migration-002 sum).
 fn cards(ui: &mut Ui, stats: &Stats) {
     let gap = ui.spacing().item_spacing.x;
-    let width = ((ui.available_width() - gap) / 2.0).clamp(140.0, 320.0);
+    let width = ((ui.available_width() - gap) / 2.0).clamp(140.0, 340.0);
     ui.horizontal(|ui| {
         card(
             ui,
@@ -188,10 +186,14 @@ fn card(ui: &mut Ui, width: f32, value: &str, label: &str, mono: bool) {
         .inner_margin(Margin::same(14))
         .show(ui, |ui| {
             ui.set_width(width - 28.0);
+            // Big value: Inter Medium 26px, or JetBrains Mono 23px for the
+            // latency figure (§3.10 copy voice).
             let value = if mono {
-                RichText::new(value).monospace().size(20.0)
+                RichText::new(value).monospace().size(23.0)
             } else {
-                RichText::new(value).text_style(egui::TextStyle::Heading)
+                RichText::new(value)
+                    .text_style(theme::subheading())
+                    .size(26.0)
             };
             ui.label(value);
             ui.label(RichText::new(label).small().weak());

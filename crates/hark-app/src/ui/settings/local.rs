@@ -74,26 +74,31 @@ fn card(ui: &mut Ui, draft: &mut Settings, download: &mut ModelDownload) {
     let spec = download.spec();
     let status = download.status();
 
-    egui::Frame::group(ui.style()).show(ui, |ui| {
-        ui.horizontal_wrapped(|ui| {
-            ui.label(RichText::new(spec.display_name).strong());
+    egui::Frame::default()
+        .fill(theme::surface(ui.visuals()))
+        .stroke(ui.visuals().widgets.noninteractive.bg_stroke)
+        .corner_radius(8)
+        .inner_margin(egui::Margin::symmetric(14, 12))
+        .show(ui, |ui| {
+            ui.horizontal_wrapped(|ui| {
+                ui.label(RichText::new(spec.display_name).monospace());
+                ui.label(
+                    RichText::new(format!("· {}", format_bytes(spec.total_bytes())))
+                        .small()
+                        .weak(),
+                );
+            });
+
+            state_line(ui, download, status);
+            controls(ui, draft, download, status);
+
+            ui.add_space(2.0);
             ui.label(
-                RichText::new(format!("· {}", format_bytes(spec.total_bytes())))
+                RichText::new(format!("Model weights: {}", spec.licence))
                     .small()
                     .weak(),
             );
         });
-
-        state_line(ui, download, status);
-        controls(ui, draft, download, status);
-
-        ui.add_space(2.0);
-        ui.label(
-            RichText::new(format!("Model weights: {}", spec.licence))
-                .small()
-                .weak(),
-        );
-    });
 }
 
 /// One status line, always icon + text so state is never carried by color
@@ -167,9 +172,7 @@ fn controls(ui: &mut Ui, draft: &mut Settings, download: &mut ModelDownload, sta
                 ModelStatus::Partial { .. } => "Resume download",
                 ModelStatus::NotDownloaded => "Download",
             };
-            let button = egui::Button::new(RichText::new(label).color(theme::ON_ACCENT))
-                .fill(theme::accent_fill(ui.visuals()));
-            if ui.add(button).clicked() {
+            if ui.add(theme::primary_button(ui.visuals(), label)).clicked() {
                 download.start(ui.ctx());
             }
             if status != ModelStatus::NotDownloaded

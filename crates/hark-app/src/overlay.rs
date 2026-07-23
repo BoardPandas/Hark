@@ -31,12 +31,12 @@ use std::time::Duration;
 
 /// Logical size of the overlay window. Larger than the pill so the pulse's
 /// soft glow has room to bloom without being clipped.
-const WINDOW: egui::Vec2 = egui::vec2(140.0, 60.0);
-/// The dark capsule inside the window.
-const PILL: egui::Vec2 = egui::vec2(112.0, 40.0);
+const WINDOW: egui::Vec2 = egui::vec2(220.0, 64.0);
+/// The dark capsule inside the window: dot + "Listening…" label.
+const PILL: egui::Vec2 = egui::vec2(158.0, 38.0);
 /// Circle radius at rest and the extra radius at a full-scale pulse.
-const CIRCLE_BASE: f32 = 7.5;
-const CIRCLE_PULSE: f32 = 7.5;
+const CIRCLE_BASE: f32 = 6.5;
+const CIRCLE_PULSE: f32 = 6.5;
 /// Fraction of the screen height to float above the bottom edge.
 const BOTTOM_MARGIN_FRAC: f32 = 0.09;
 /// A gentle idle "breathing" so the dot is alive even in silence.
@@ -219,18 +219,29 @@ fn paint(ui: &mut egui::Ui, meter: &LevelMeter) {
 
     let accent = theme::OVERLAY_ACCENT;
     let radius = CIRCLE_BASE + pulse * CIRCLE_PULSE;
+    // The dot sits at the pill's left; the label follows it.
+    let dot = egui::pos2(pill.left() + 22.0, center.y);
 
     // A soft glow: two translucent rings that bloom with the pulse.
     for (scale, base_alpha) in [(2.1_f32, 26.0_f32), (1.5, 44.0)] {
         let alpha = (base_alpha * pulse) as u8;
         if alpha > 0 {
             painter.circle_filled(
-                center,
+                dot,
                 radius * scale,
                 egui::Color32::from_rgba_unmultiplied(accent.r(), accent.g(), accent.b(), alpha),
             );
         }
     }
     // The core dot.
-    painter.circle_filled(center, radius, accent);
+    painter.circle_filled(dot, radius, accent);
+
+    // "Listening…" in neutral-200, to the right of the dot.
+    painter.text(
+        egui::pos2(dot.x + 18.0, center.y),
+        egui::Align2::LEFT_CENTER,
+        "Listening\u{2026}",
+        egui::FontId::proportional(13.0),
+        theme::OVERLAY_TEXT,
+    );
 }
