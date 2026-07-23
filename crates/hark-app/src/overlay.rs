@@ -40,11 +40,14 @@ use hark_pipeline::LevelMeter;
 use std::sync::Arc;
 use std::time::Duration;
 
-/// Logical size of the overlay window. Larger than the pill so the pulse's
-/// soft glow has room to bloom without being clipped.
-const WINDOW: egui::Vec2 = egui::vec2(220.0, 64.0);
-/// The dark capsule inside the window: dot + "Listening…" label.
-const PILL: egui::Vec2 = egui::vec2(158.0, 38.0);
+/// Logical size of the overlay window. The window *is* the capsule now: it is
+/// filled edge to edge with the pill and, on Windows, clipped to that rounded
+/// shape by the OS (`clip_to_capsule`). Per-pixel window transparency does not
+/// work there with the glow backend — a larger transparent window renders an
+/// opaque box (black, or white once the framebuffer has alpha) around the
+/// pill instead of the desktop — so we stop relying on it and cut the window
+/// to the pill's outline instead. The pulse glow is clipped to the capsule.
+const WINDOW: egui::Vec2 = egui::vec2(160.0, 40.0);
 /// Circle radius at rest and the extra radius at a full-scale pulse.
 const CIRCLE_BASE: f32 = 6.5;
 const CIRCLE_PULSE: f32 = 6.5;
@@ -192,11 +195,74 @@ fn work_area_position(zoom: f32) -> Option<egui::Pos2> {
     ))
 }
 
+/// Clip the overlay's OS window to the pill's capsule outline.
+///
+/// The window is drawn edge to edge as an opaque capsule; this cuts the actual
+/// window to that shape so the corners outside it are not part of the window at
+/// all. That sidesteps window transparency entirely — which is broken here (see
+/// [`WINDOW`]) — so no opaque margin can show, and clicks outside the pill fall
+/// through to the app underneath instead of being swallowed.
+///
+/// Idempotent per window: we cache the last handle+size we clipped, so this
+/// runs once per dictation's fresh window (and again only if its size or DPI
+/// changes), not every frame.
+#[cfg(windows)]
+fn clip_to_capsule() {
+    use std::cell::Cell;
+    use windows::core::{w, PCWSTR};
+    use windows::Win32::Foundation::RECT;
+    use windows::Win32::Graphics::Gdi::{CreateRoundRectRgn, SetWindowRgn};
+    use windows::Win32::UI::WindowsAndMessaging::{FindWindowW, GetClientRect};
+
+    thread_local! {
+        // (HWND as isize, width_px, height_px) of the last window we clipped.
+        // A fresh dictation is a new window (new handle), which re-triggers.
+        static LAST: Cell<(isize, i32, i32)> = const { Cell::new((0, 0, 0)) };
+    }
+
+    // The overlay is the only window titled "Hark recording" (the main window
+    // is "Hark"), and single-instance guarantees one Hark process.
+    // SAFETY: plain Win32 getters; the handle is validated before use and the
+    // RECT out-param is a fully initialized local.
+    let hwnd = match unsafe { FindWindowW(PCWSTR::null(), w!("Hark recording")) } {
+        Ok(hwnd) if !hwnd.is_invalid() => hwnd,
+        _ => return,
+    };
+    let mut rc = RECT::default();
+    if unsafe { GetClientRect(hwnd, &mut rc) }.is_err() {
+        return;
+    }
+    let (wpx, hpx) = (rc.right - rc.left, rc.bottom - rc.top);
+    if wpx <= 0 || hpx <= 0 {
+        return;
+    }
+
+    let key = (hwnd.0 as isize, wpx, hpx);
+    if LAST.with(|last| last.get()) == key {
+        return;
+    }
+
+    // Inset the region 1px so its hard (unantialiased) edge lands on solid pill
+    // pixels, clipping off the soft edge that would otherwise composite to a
+    // bright fringe where window transparency does not work. A full-height
+    // corner ellipse makes the ends semicircular — a capsule.
+    let region = unsafe { CreateRoundRectRgn(1, 1, wpx - 1, hpx - 1, hpx, hpx) };
+    if region.0.is_null() {
+        return;
+    }
+    // SetWindowRgn takes ownership of the region on success; do not free it.
+    if unsafe { SetWindowRgn(hwnd, Some(region), true) } != 0 {
+        LAST.with(|last| last.set(key));
+    }
+}
+
 /// Draw one frame of the pill + pulsing circle, and schedule the next frame.
 fn paint(ui: &mut egui::Ui, meter: &LevelMeter) {
     let ctx = ui.ctx();
     #[cfg(windows)]
     reposition(ctx);
+    #[cfg(windows)]
+    clip_to_capsule();
     // Keep the pulse animating while the parent window sleeps. ~60 fps is
     // plenty for a breathing dot and stays light during a short hold.
     ctx.request_repaint_after(Duration::from_millis(16));
@@ -215,14 +281,16 @@ fn paint(ui: &mut egui::Ui, meter: &LevelMeter) {
     let pulse = (amp * 0.9 + breath * 0.12).clamp(0.0, 1.0);
 
     let painter = ui.painter();
-    let center = ui.max_rect().center();
+    let rect = ui.max_rect();
+    let center = rect.center();
 
-    // The dark capsule.
-    let pill = egui::Rect::from_center_size(center, PILL);
-    let corner = egui::CornerRadius::same((PILL.y / 2.0) as u8);
-    painter.rect_filled(pill, corner, theme::OVERLAY_PILL_FILL);
+    // The capsule fills the whole window. On Windows the OS clips the window
+    // to this shape (`clip_to_capsule`); on macOS the window is transparent
+    // outside it. Either way there is no opaque margin around the pill.
+    let corner = egui::CornerRadius::same((rect.height() / 2.0) as u8);
+    painter.rect_filled(rect, corner, theme::OVERLAY_PILL_FILL);
     painter.rect_stroke(
-        pill,
+        rect,
         corner,
         egui::Stroke::new(1.0, theme::OVERLAY_PILL_STROKE),
         egui::StrokeKind::Inside,
@@ -230,8 +298,8 @@ fn paint(ui: &mut egui::Ui, meter: &LevelMeter) {
 
     let accent = theme::OVERLAY_ACCENT;
     let radius = CIRCLE_BASE + pulse * CIRCLE_PULSE;
-    // The dot sits at the pill's left; the label follows it.
-    let dot = egui::pos2(pill.left() + 22.0, center.y);
+    // The dot sits at the capsule's left; the label follows it.
+    let dot = egui::pos2(rect.left() + 22.0, center.y);
 
     // A soft glow: two translucent rings that bloom with the pulse.
     for (scale, base_alpha) in [(2.1_f32, 26.0_f32), (1.5, 44.0)] {

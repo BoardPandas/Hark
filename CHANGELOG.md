@@ -4,6 +4,11 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.21.3] - 2026-07-23
+
+### Fixed
+- **The "Listening…" pill really floats free now — no box of any colour around it.** The earlier attempts (0.21.1, 0.21.2) could not make the overlay window's background see-through on Windows, so a rectangle kept showing behind the pill. Instead of fighting window transparency, Hark now cuts the overlay window down to the pill's exact rounded shape, so there is no background left to show. Clicks outside the pill also pass straight through to the app beneath it.
+
 ## [0.21.2] - 2026-07-23
 
 ### Fixed
