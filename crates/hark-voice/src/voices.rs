@@ -13,13 +13,29 @@ pub enum Voice {
     Clean,
     Professional,
     Casual,
+    Notes,
+    Concise,
+    Direct,
+    Plain,
+    Pirate,
     Custom,
 }
 
 impl Voice {
     /// Every valid name, in display order (the CLI's error message and the
     /// config docs both derive from this).
-    pub const NAMES: [&'static str; 5] = ["verbatim", "clean", "professional", "casual", "custom"];
+    pub const NAMES: [&'static str; 10] = [
+        "verbatim",
+        "clean",
+        "professional",
+        "casual",
+        "notes",
+        "concise",
+        "direct",
+        "plain",
+        "pirate",
+        "custom",
+    ];
 
     pub fn name(self) -> &'static str {
         match self {
@@ -27,6 +43,11 @@ impl Voice {
             Voice::Clean => "clean",
             Voice::Professional => "professional",
             Voice::Casual => "casual",
+            Voice::Notes => "notes",
+            Voice::Concise => "concise",
+            Voice::Direct => "direct",
+            Voice::Plain => "plain",
+            Voice::Pirate => "pirate",
             Voice::Custom => "custom",
         }
     }
@@ -61,6 +82,11 @@ impl FromStr for Voice {
             "clean" => Ok(Voice::Clean),
             "professional" => Ok(Voice::Professional),
             "casual" => Ok(Voice::Casual),
+            "notes" => Ok(Voice::Notes),
+            "concise" => Ok(Voice::Concise),
+            "direct" => Ok(Voice::Direct),
+            "plain" => Ok(Voice::Plain),
+            "pirate" => Ok(Voice::Pirate),
             "custom" => Ok(Voice::Custom),
             _ => Err(UnknownVoice(s.trim().to_string())),
         }
@@ -116,6 +142,13 @@ fn budgeted_terms<'a>(present: &[&'a str]) -> Vec<&'a str> {
 pub const RETURN_ONLY_CLAUSE: &str =
     "Return only the rewritten text, with no commentary and no surrounding quotes.";
 
+/// Appended to every built-in voice prompt (never to Custom). Keeps the cleanup
+/// model from emitting em/en dashes, which read as machine-generated and are a
+/// nuisance to retype; pure substitution, so it costs nothing against the
+/// over-expansion guard.
+pub const PUNCTUATION_CLAUSE: &str = "Do not use em dashes or en dashes. Use a comma, a period, \
+     or a plain hyphen instead.";
+
 /// Appended to every built-in voice prompt (never to Custom, which is the
 /// user's own text). Split out from the per-voice instructions because the
 /// length rule is identical for all of them and is the one clause that most
@@ -141,6 +174,31 @@ const PROFESSIONAL_INSTRUCTION: &str = "Rewrite the transcript below in a polish
 const CASUAL_INSTRUCTION: &str = "Rewrite the transcript below in a relaxed, casual \
      conversational register. Adjust word choice only, and fix filler words and false starts \
      while keeping it informal. Keep the meaning.";
+
+const NOTES_INSTRUCTION: &str = "Rewrite the transcript below as concise first-person work \
+     notes, the way a technician logs a ticket. Use short declarative sentences or fragments \
+     and past tense, and drop conversational filler and pleasantries. Fix filler words and \
+     false starts. Keep every name, number, and technical detail exactly, and keep the meaning.";
+
+const CONCISE_INSTRUCTION: &str = "Rewrite the transcript below to be tighter and less \
+     repetitive. Remove redundancy, restatements, and filler while keeping the speaker's own \
+     wording and every fact. Do not add anything or change the meaning.";
+
+const DIRECT_INSTRUCTION: &str = "Rewrite the transcript below to be direct and to the point. \
+     Lead with the main point, cut hedging and warm-up phrases, and fix filler words and false \
+     starts. Keep the facts and the meaning.";
+
+const PLAIN_INSTRUCTION: &str = "Rewrite the transcript below in plain, courteous language for \
+     a non-technical reader. Keep it clear and neutral and fix filler words and false starts, \
+     but do not add explanations, definitions, or context the speaker did not give. Keep the \
+     meaning and all specifics.";
+
+// Novelty voice, revealed only through the Settings unlock. Kept length-matched
+// so the shared over-expansion guard does not discard its rewrites.
+const PIRATE_INSTRUCTION: &str = "Rewrite the transcript below in the voice of a jolly pirate. \
+     Swap in pirate diction (aye, arr, matey, ye, be) and a little nautical color, but keep it \
+     readable and keep every name, number, and fact intact. Match the original length and do \
+     not add new sentences or ideas.";
 
 /// Absolute slack allowed on top of `max_ratio`, in words. Without it the
 /// ratio alone is unusably tight on short utterances, where a legitimate tidy
@@ -178,14 +236,22 @@ pub fn system_prompt(voice: Voice, custom_prompt: &str, present_terms: &[&str]) 
         Voice::Clean => CLEAN_INSTRUCTION,
         Voice::Professional => PROFESSIONAL_INSTRUCTION,
         Voice::Casual => CASUAL_INSTRUCTION,
+        Voice::Notes => NOTES_INSTRUCTION,
+        Voice::Concise => CONCISE_INSTRUCTION,
+        Voice::Direct => DIRECT_INSTRUCTION,
+        Voice::Plain => PLAIN_INSTRUCTION,
+        Voice::Pirate => PIRATE_INSTRUCTION,
         Voice::Custom => custom_prompt,
     };
     let mut prompt = instruction.to_string();
     // Custom is the escape hatch: a user who writes "turn this into an email"
-    // means it, so neither the clause nor `over_expanded` applies there.
+    // means it, so neither the length/punctuation clauses nor `over_expanded`
+    // apply there.
     if voice != Voice::Custom {
         prompt.push(' ');
         prompt.push_str(LENGTH_DISCIPLINE_CLAUSE);
+        prompt.push(' ');
+        prompt.push_str(PUNCTUATION_CLAUSE);
     }
     let kept = budgeted_terms(present_terms);
     if !kept.is_empty() {

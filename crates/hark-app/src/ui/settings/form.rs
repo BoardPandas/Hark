@@ -5,7 +5,7 @@
 
 use super::capture::{CaptureTransition, HotkeyCapture};
 use crate::theme;
-use egui::{CollapsingHeader, Context, DragValue, RichText, TextEdit, Ui};
+use egui::{CollapsingHeader, Context, DragValue, Label, RichText, Sense, TextEdit, Ui};
 use hark_config::{Provider, ProviderKind, Settings, VoiceName};
 
 /// String buffers behind optional config fields (empty = unset) plus the
@@ -356,22 +356,53 @@ pub fn hotkey_section(
     transition
 }
 
-/// Every selectable voice, in display order. Shared with the tray menu's
-/// radio group, so the two pickers can never drift apart.
-pub(crate) const VOICES: [VoiceName; 5] = [
+/// Every publicly selectable voice, in display order. Shared with the tray
+/// menu's radio group, so the two pickers can never drift apart. Secret voices
+/// (see [`SECRET_VOICES`]) are deliberately excluded so they never surface in
+/// the tray.
+pub(crate) const VOICES: [VoiceName; 9] = [
     VoiceName::Verbatim,
     VoiceName::Clean,
     VoiceName::Professional,
     VoiceName::Casual,
+    VoiceName::Notes,
+    VoiceName::Concise,
+    VoiceName::Direct,
+    VoiceName::Plain,
     VoiceName::Custom,
 ];
 
-pub fn voice_section(ui: &mut Ui, draft: &mut Settings) {
-    subhead(ui, "Voice");
+/// Voices revealed only once the heading unlock is triggered.
+pub(crate) const SECRET_VOICES: [VoiceName; 1] = [VoiceName::Pirate];
+
+/// Heading clicks needed to reveal [`SECRET_VOICES`] in the dropdown.
+const SECRET_UNLOCK_CLICKS: u32 = 11;
+
+/// The voices the settings dropdown offers: always [`VOICES`], plus the secret
+/// set once the click count crosses the threshold or one is already selected
+/// (so a saved secret voice stays visible and re-selectable after a restart).
+pub(crate) fn selectable_voices(clicks: u32, current: VoiceName) -> Vec<VoiceName> {
+    let mut voices = VOICES.to_vec();
+    if clicks >= SECRET_UNLOCK_CLICKS || SECRET_VOICES.contains(&current) {
+        voices.extend(SECRET_VOICES);
+    }
+    voices
+}
+
+pub fn voice_section(ui: &mut Ui, draft: &mut Settings, secret_clicks: &mut u32) {
+    // The heading doubles as a hidden unlock: it looks exactly like every other
+    // subhead but senses clicks. `*secret_clicks` never resets during a session.
+    ui.add_space(8.0);
+    if ui
+        .add(Label::new(RichText::new("Voice").text_style(theme::subheading())).sense(Sense::click()))
+        .clicked()
+    {
+        *secret_clicks = secret_clicks.saturating_add(1);
+    }
     egui::ComboBox::from_id_salt("voice-picker")
         .selected_text(voice_display(draft.voice.default))
         .show_ui(ui, |ui| {
-            for name in VOICES {
+            for name in selectable_voices(*secret_clicks, draft.voice.default) {
                 ui.selectable_value(&mut draft.voice.default, name, voice_display(name));
             }
         });
@@ -394,6 +425,11 @@ pub(crate) fn voice_display(name: VoiceName) -> &'static str {
         VoiceName::Clean => "Clean",
         VoiceName::Professional => "Professional",
         VoiceName::Casual => "Casual",
+        VoiceName::Notes => "Notes",
+        VoiceName::Concise => "Concise",
+        VoiceName::Direct => "Direct",
+        VoiceName::Plain => "Plain",
+        VoiceName::Pirate => "Pirate",
         VoiceName::Custom => "Custom",
     }
 }
@@ -528,9 +564,28 @@ mod tests {
 
     #[test]
     fn every_voice_has_a_display_name_matching_its_config_label() {
-        for name in VOICES {
+        for name in VOICES.into_iter().chain(SECRET_VOICES) {
             assert_eq!(voice_display(name).to_lowercase(), name.label());
         }
+    }
+
+    #[test]
+    fn secret_voices_are_hidden_until_unlocked_then_stay_visible_if_selected() {
+        // Locked: only the public set, and Pirate is not in it.
+        let locked = selectable_voices(0, VoiceName::Clean);
+        assert_eq!(locked, VOICES.to_vec());
+        assert!(!locked.contains(&VoiceName::Pirate));
+
+        // One click short of the threshold is still locked.
+        assert!(!selectable_voices(SECRET_UNLOCK_CLICKS - 1, VoiceName::Clean)
+            .contains(&VoiceName::Pirate));
+
+        // At the threshold the secret voices appear.
+        assert!(selectable_voices(SECRET_UNLOCK_CLICKS, VoiceName::Clean).contains(&VoiceName::Pirate));
+
+        // Already-selected secret voice stays offered even with no clicks (a
+        // saved Pirate config must remain re-selectable after a restart).
+        assert!(selectable_voices(0, VoiceName::Pirate).contains(&VoiceName::Pirate));
     }
 
     #[test]

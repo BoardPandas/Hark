@@ -2,7 +2,7 @@
 
 use hark_voice::{
     over_expanded, present_terms, skips_cleanup, system_prompt, Voice, LENGTH_DISCIPLINE_CLAUSE,
-    RETURN_ONLY_CLAUSE,
+    PUNCTUATION_CLAUSE, RETURN_ONLY_CLAUSE,
 };
 use std::str::FromStr;
 
@@ -63,6 +63,40 @@ fn each_voice_template_carries_its_instruction_and_the_closing_clause() {
             voice.name()
         );
     }
+}
+
+#[test]
+fn every_built_in_voice_builds_a_disciplined_prompt() {
+    // Covers all voices by name, so a newly added built-in is exercised the
+    // moment it lands in `Voice::NAMES` without editing this test.
+    for name in Voice::NAMES {
+        let voice = Voice::from_str(name).unwrap();
+        if matches!(voice, Voice::Verbatim | Voice::Custom) {
+            continue;
+        }
+        let prompt = system_prompt(voice, "", &[]).expect("built-in voice builds a prompt");
+        assert!(
+            prompt.contains(LENGTH_DISCIPLINE_CLAUSE),
+            "{name} is missing the length clause"
+        );
+        assert!(
+            prompt.contains(PUNCTUATION_CLAUSE),
+            "{name} is missing the punctuation clause"
+        );
+        assert!(
+            prompt.ends_with(RETURN_ONLY_CLAUSE),
+            "{name} must end with the return-only clause"
+        );
+    }
+}
+
+#[test]
+fn custom_voice_gets_neither_shared_clause() {
+    // The escape hatch stays untouched: no length discipline, no punctuation
+    // rule imposed on the user's own prompt.
+    let prompt = system_prompt(Voice::Custom, "Rewrite as a haiku.", &[]).unwrap();
+    assert!(!prompt.contains(LENGTH_DISCIPLINE_CLAUSE));
+    assert!(!prompt.contains(PUNCTUATION_CLAUSE));
 }
 
 #[test]

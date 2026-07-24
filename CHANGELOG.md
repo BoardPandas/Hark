@@ -4,6 +4,14 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.22.0] - 2026-07-24
+
+### Added
+- **Four more cleanup voices.** Alongside Clean, Professional, and Casual, the Voice picker now offers: **Notes**, which turns what you said into terse first-person work notes the way you'd log a ticket; **Concise**, which tightens rambling and cuts repetition while keeping your wording and every fact; **Direct**, which leads with the point and drops hedging and warm-up; and **Plain**, which puts things in clear, neutral language for a non-technical reader without adding explanation you didn't give. Like the existing voices, each one edits what you said — it never pads a short remark into a paragraph — and short dictations still skip cleanup entirely.
+
+### Changed
+- **Cleanup voices no longer produce em or en dashes.** Every built-in voice — Clean and Professional included — now asks the model to use a comma, period, or plain hyphen instead of the long dashes that read as machine-written and are a nuisance to retype. The custom voice is left alone, since it follows your own prompt.
+
 ## [0.21.3] - 2026-07-23
 
 ### Fixed

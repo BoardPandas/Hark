@@ -45,6 +45,9 @@ pub struct SettingsPage {
     /// On-device model download state. Lives here rather than in `HarkApp`
     /// because nothing outside Settings drives it.
     download: ModelDownload,
+    /// Session-scoped click tally on the Voice heading; unlocks the hidden
+    /// voices once it crosses the threshold. Intentionally not persisted.
+    voice_secret_clicks: u32,
 }
 
 impl SettingsPage {
@@ -69,6 +72,7 @@ impl SettingsPage {
                 hark_local_stt::find(&settings.local_stt.model)
                     .unwrap_or(&hark_local_stt::PARAKEET_V3_INT8),
             ),
+            voice_secret_clicks: 0,
         }
     }
 
@@ -127,7 +131,7 @@ impl SettingsPage {
             self.comms_default = hark_audio::communications_default_device();
         }
         local::section(ui, &mut self.draft, &mut self.download);
-        form::voice_section(ui, &mut self.draft);
+        form::voice_section(ui, &mut self.draft, &mut self.voice_secret_clicks);
         cleanup::section(
             ui,
             &mut self.draft,

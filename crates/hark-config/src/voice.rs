@@ -18,6 +18,11 @@ pub enum VoiceName {
     Clean,
     Professional,
     Casual,
+    Notes,
+    Concise,
+    Direct,
+    Plain,
+    Pirate,
     Custom,
 }
 
@@ -29,6 +34,11 @@ impl VoiceName {
             VoiceName::Clean => "clean",
             VoiceName::Professional => "professional",
             VoiceName::Casual => "casual",
+            VoiceName::Notes => "notes",
+            VoiceName::Concise => "concise",
+            VoiceName::Direct => "direct",
+            VoiceName::Plain => "plain",
+            VoiceName::Pirate => "pirate",
             VoiceName::Custom => "custom",
         }
     }

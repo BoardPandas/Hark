@@ -149,6 +149,11 @@ fn effective_voice(name: hark_config::VoiceName) -> hark_voice::Voice {
         hark_config::VoiceName::Clean => hark_voice::Voice::Clean,
         hark_config::VoiceName::Professional => hark_voice::Voice::Professional,
         hark_config::VoiceName::Casual => hark_voice::Voice::Casual,
+        hark_config::VoiceName::Notes => hark_voice::Voice::Notes,
+        hark_config::VoiceName::Concise => hark_voice::Voice::Concise,
+        hark_config::VoiceName::Direct => hark_voice::Voice::Direct,
+        hark_config::VoiceName::Plain => hark_voice::Voice::Plain,
+        hark_config::VoiceName::Pirate => hark_voice::Voice::Pirate,
         hark_config::VoiceName::Custom => hark_voice::Voice::Custom,
     }
 }
