@@ -473,6 +473,20 @@ pub fn behavior_section(ui: &mut Ui, draft: &mut Settings) {
             );
 
             ui.add_space(4.0);
+            ui.checkbox(
+                &mut draft.output.strip_single_word_period,
+                "Drop the trailing period on single words",
+            );
+            ui.label(
+                RichText::new(
+                    "When you dictate just one word, inject it without the trailing period a \
+                     provider or cleanup voice adds.",
+                )
+                .small()
+                .weak(),
+            );
+
+            ui.add_space(4.0);
             ui.horizontal(|ui| {
                 ui.label("Theme");
                 let mut preference = ui.ctx().options(|o| o.theme_preference);

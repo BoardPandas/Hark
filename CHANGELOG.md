@@ -4,6 +4,11 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.23.0] - 2026-07-24
+
+### Added
+- **Single-word dictations can skip the trailing period.** When you say just one word, Hark now injects it without the period the speech provider (or a cleanup voice) tacks on — so "Hello." becomes "Hello". It's on by default and can be turned off under Settings → Behavior ("Drop the trailing period on single words"). Multi-word dictations, and one-word answers that end in "?" or "!", are left exactly as they were.
+
 ## [0.22.0] - 2026-07-24
 
 ### Added

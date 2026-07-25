@@ -373,6 +373,7 @@ pub fn run(
         prewarm_url,
         client,
         stt_model: provider_cfg.model.clone(),
+        strip_single_word_period: settings.output.strip_single_word_period,
         events,
     };
     let worker = std::thread::Builder::new()

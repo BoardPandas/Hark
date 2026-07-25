@@ -64,6 +64,10 @@ pub(crate) struct Worker {
     /// STT model label, for the dictation record (the provider label comes
     /// from the adapter itself).
     pub stt_model: String,
+    /// Drop the trailing period on a single-word dictation before injecting
+    /// (see [`strip_single_word_period`]). Off leaves the text exactly as the
+    /// provider/cleanup produced it.
+    pub strip_single_word_period: bool,
     /// Advisory events toward the UI; every send is `let _ =` best-effort.
     pub events: Sender<PipelineEvent>,
 }
@@ -227,7 +231,14 @@ fn dictate(worker: &mut Worker, down_abs: u64, up_abs: u64, state: PipelineState
     // whole protection -- see `expanded_text` for why it must be control
     // flow and not a prompt clause.
     let plan = worker.cleanup.as_ref().filter(|_| expanded.fired.is_none());
-    let cleaned = cleaned_text(plan, &worker.corrector, expanded.text);
+    let mut cleaned = cleaned_text(plan, &worker.corrector, expanded.text);
+    // A single spoken word is almost never a sentence, so the trailing period
+    // the provider or a cleanup voice adds is noise. Gated on the setting, and
+    // never applied to a fired invocation: its canned text is authored
+    // verbatim (a one-token expansion like "Ph.D." must keep its dot).
+    if worker.strip_single_word_period && expanded.fired.is_none() {
+        cleaned.text = strip_single_word_period(&cleaned.text);
+    }
     match hark_inject::inject(&cleaned.text, &worker.inject) {
         Ok(()) => {
             let total_ms = released.elapsed().as_millis() as u64;
@@ -402,6 +413,24 @@ fn corrected_text(corrector: &Corrector, transcript_text: &str) -> String {
     text
 }
 
+/// Drop a trailing period from a single-word utterance ("Hello." -> "Hello").
+/// Pure (the testable seam). Only a single `.` is removed, and only when a
+/// word is left after it: multi-word text, other sentence punctuation (`?` and
+/// `!` can be exactly what a lone word meant), and a bare "." are all returned
+/// unchanged. Surrounding whitespace is trimmed only on the strip path, where
+/// a lone word never carries meaningful spacing.
+fn strip_single_word_period(text: &str) -> String {
+    let trimmed = text.trim();
+    if trimmed.split_whitespace().count() == 1 {
+        if let Some(stripped) = trimmed.strip_suffix('.') {
+            if !stripped.is_empty() {
+                return stripped.to_string();
+            }
+        }
+    }
+    text.to_string()
+}
+
 /// Binds one dictation's audio to whichever engines this worker has, so the
 /// cloud/local policy in [`crate::local`] can stay pure and testable.
 struct Engines<'a> {
@@ -567,6 +596,30 @@ mod tests {
     fn empty_dictionary_leaves_the_transcript_untouched() {
         let corrector = Corrector::new(&[]);
         assert_eq!(corrected_text(&corrector, "as it was"), "as it was");
+    }
+
+    // --- single-word period stripping (pure seam) ---
+
+    #[test]
+    fn a_single_word_loses_its_trailing_period() {
+        assert_eq!(strip_single_word_period("Hello."), "Hello");
+        assert_eq!(strip_single_word_period("yes"), "yes");
+        assert_eq!(strip_single_word_period("42."), "42");
+        // Trimmed only on the strip path; a lone word carries no real spacing.
+        assert_eq!(strip_single_word_period("  Okay.  "), "Okay");
+    }
+
+    #[test]
+    fn multi_word_and_other_endings_are_left_alone() {
+        // More than one word is a sentence; its period stays.
+        assert_eq!(strip_single_word_period("we shipped it."), "we shipped it.");
+        // Only '.' is touched: a lone word may actually have meant the query.
+        assert_eq!(strip_single_word_period("What?"), "What?");
+        assert_eq!(strip_single_word_period("Stop!"), "Stop!");
+        // No trailing period, nothing to do (and a mid-word dot is not one).
+        assert_eq!(strip_single_word_period("3.14"), "3.14");
+        // A word must remain: a bare period is returned as-is, never emptied.
+        assert_eq!(strip_single_word_period("."), ".");
     }
 
     // --- the cleanup pass (scripted MockCleaner, pattern: MockProvider) ---
