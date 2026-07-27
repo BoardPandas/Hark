@@ -34,6 +34,17 @@
 //! transparency. The overlay only exists while the push-to-talk chord is
 //! held and never activates, so the small bottom-centre rect briefly
 //! swallowing a click matters far less than a broken-looking box.
+//!
+//! `with_decorations(false)` is not enough on Windows, either. winit keeps
+//! `WS_CAPTION | WS_BORDER | WS_SYSMENU` on every window it creates ("required
+//! styles to properly support common window functionality like aero snap") and
+//! hides the frame only by overriding `WM_NCCALCSIZE` — an override it declines
+//! whenever `wParam` is `FALSE`. Setting a window region (`shape_to_capsule`)
+//! takes the window off DWM's frame path, and the still-present caption styles
+//! then get drawn the classic way: minimise/maximise/close buttons painted over
+//! the top-right of the pill. So `strip_frame_styles` removes those styles
+//! outright, which is also what stops the pill being an independently closable
+//! window instead of a transient cue.
 
 use crate::theme;
 use hark_pipeline::LevelMeter;
@@ -195,19 +206,23 @@ fn work_area_position(zoom: f32) -> Option<egui::Pos2> {
     ))
 }
 
-/// Clip the overlay's OS window to the pill's capsule outline.
+/// Turn the overlay's OS window into a real borderless capsule: strip the frame
+/// styles winit leaves on it, then clip the window to the pill's outline.
 ///
-/// The window is drawn edge to edge as an opaque capsule; this cuts the actual
-/// window to that shape so the corners outside it are not part of the window at
-/// all. That sidesteps window transparency entirely — which is broken here (see
-/// [`WINDOW`]) — so no opaque margin can show, and clicks outside the pill fall
-/// through to the app underneath instead of being swallowed.
+/// The window is drawn edge to edge as an opaque capsule; the region cuts the
+/// actual window to that shape so the corners outside it are not part of the
+/// window at all. That sidesteps window transparency entirely — which is broken
+/// here (see [`WINDOW`]) — so no opaque margin can show, and clicks outside the
+/// pill fall through to the app underneath instead of being swallowed.
 ///
-/// Idempotent per window: we cache the last handle+size we clipped, so this
-/// runs once per dictation's fresh window (and again only if its size or DPI
-/// changes), not every frame.
+/// The region is idempotent per window: we cache the last handle+size we
+/// clipped, so it runs once per dictation's fresh window (and again only if its
+/// size or DPI changes), not every frame. `strip_frame_styles` reports whether
+/// it just restyled the window, which is exactly the "this handle is a window we
+/// have not shaped yet" signal — needed because Windows recycles HWND values, so
+/// a fresh window can otherwise match the cached key and never get its region.
 #[cfg(windows)]
-fn clip_to_capsule() {
+fn shape_to_capsule() {
     use std::cell::Cell;
     use windows::core::{w, PCWSTR};
     use windows::Win32::Foundation::RECT;
@@ -228,6 +243,10 @@ fn clip_to_capsule() {
         Ok(hwnd) if !hwnd.is_invalid() => hwnd,
         _ => return,
     };
+    // Before the region: a framed window that then gets a region is precisely
+    // the combination that makes Windows draw the caption buttons by hand.
+    let restyled = strip_frame_styles(hwnd);
+
     let mut rc = RECT::default();
     if unsafe { GetClientRect(hwnd, &mut rc) }.is_err() {
         return;
@@ -238,7 +257,7 @@ fn clip_to_capsule() {
     }
 
     let key = (hwnd.0 as isize, wpx, hpx);
-    if LAST.with(|last| last.get()) == key {
+    if !restyled && LAST.with(|last| last.get()) == key {
         return;
     }
 
@@ -256,16 +275,90 @@ fn clip_to_capsule() {
     }
 }
 
+/// Remove the caption/border/system-menu styles winit leaves on an
+/// "undecorated" window, making the overlay a plain `WS_POPUP`. Returns whether
+/// anything actually changed — true exactly once per freshly created window.
+///
+/// winit does not undecorate by style: it keeps `WS_CAPTION | WS_BORDER |
+/// WS_SYSMENU` (plus the min/max boxes) on every window and hides the frame in
+/// its `WM_NCCALCSIZE` handler, which forwards to `DefWindowProc` whenever
+/// `wParam` is `FALSE`. Left in place, those styles are what let Windows paint
+/// minimise/maximise/close buttons across the top of the pill once the window
+/// has a region, and what make the pill a window the user can close on its own —
+/// neither of which a transient recording cue should ever be.
+///
+/// `SWP_NOACTIVATE` is load-bearing: injection targets the previously focused
+/// app, so nothing here may hand the overlay focus.
+#[cfg(windows)]
+fn strip_frame_styles(hwnd: windows::Win32::Foundation::HWND) -> bool {
+    use windows::Win32::UI::WindowsAndMessaging::{
+        GetWindowLongPtrW, SetWindowLongPtrW, SetWindowPos, GWL_EXSTYLE, GWL_STYLE,
+        SWP_FRAMECHANGED, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOOWNERZORDER, SWP_NOSIZE, SWP_NOZORDER,
+        WS_BORDER, WS_CAPTION, WS_DLGFRAME, WS_EX_CLIENTEDGE, WS_EX_DLGMODALFRAME,
+        WS_EX_WINDOWEDGE, WS_MAXIMIZEBOX, WS_MINIMIZEBOX, WS_POPUP, WS_SYSMENU, WS_THICKFRAME,
+    };
+
+    let framed = (WS_CAPTION.0
+        | WS_BORDER.0
+        | WS_DLGFRAME.0
+        | WS_SYSMENU.0
+        | WS_THICKFRAME.0
+        | WS_MINIMIZEBOX.0
+        | WS_MAXIMIZEBOX.0) as isize;
+    let framed_ex = (WS_EX_WINDOWEDGE.0 | WS_EX_CLIENTEDGE.0 | WS_EX_DLGMODALFRAME.0) as isize;
+
+    // SAFETY: plain Win32 style getters/setters on a handle already validated by
+    // the caller. Neither call has an out-param.
+    let style = unsafe { GetWindowLongPtrW(hwnd, GWL_STYLE) };
+    let ex_style = unsafe { GetWindowLongPtrW(hwnd, GWL_EXSTYLE) };
+    let want = (style & !framed) | WS_POPUP.0 as isize;
+    let want_ex = ex_style & !framed_ex;
+    if style == want && ex_style == want_ex {
+        return false;
+    }
+
+    unsafe {
+        SetWindowLongPtrW(hwnd, GWL_STYLE, want);
+        SetWindowLongPtrW(hwnd, GWL_EXSTYLE, want_ex);
+        // A style change is only honoured once the frame is recalculated, and
+        // SetWindowPos is the documented way to ask for that.
+        let _ = SetWindowPos(
+            hwnd,
+            None,
+            0,
+            0,
+            0,
+            0,
+            SWP_FRAMECHANGED
+                | SWP_NOMOVE
+                | SWP_NOSIZE
+                | SWP_NOZORDER
+                | SWP_NOOWNERZORDER
+                | SWP_NOACTIVATE,
+        );
+    }
+    true
+}
+
 /// Draw one frame of the pill + pulsing circle, and schedule the next frame.
 fn paint(ui: &mut egui::Ui, meter: &LevelMeter) {
     let ctx = ui.ctx();
     #[cfg(windows)]
     reposition(ctx);
     #[cfg(windows)]
-    clip_to_capsule();
+    shape_to_capsule();
     // Keep the pulse animating while the parent window sleeps. ~60 fps is
     // plenty for a breathing dot and stays light during a short hold.
     ctx.request_repaint_after(Duration::from_millis(16));
+    // And keep the PARENT ticking, because only a parent pass can retire this
+    // window: egui tears a deferred viewport down at the end of the pass that
+    // stopped registering it, and the repaint above runs this viewport, not
+    // that one. Without this the pill outlives its dictation whenever the
+    // parent's wake-up does not arrive — an always-on-top window with no
+    // remaining owner, which is the shape of "a pill that never goes away".
+    // 10 Hz is a safety net, not the path: the pipeline's own status events
+    // already wake the parent immediately when the chord is released.
+    ctx.request_repaint_after_for(Duration::from_millis(100), egui::ViewportId::ROOT);
 
     let time = ui.input(|i| i.time) as f32;
 

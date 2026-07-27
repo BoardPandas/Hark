@@ -4,6 +4,12 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.23.1] - 2026-07-26
+
+### Fixed
+- **The "Listening…" pill no longer has window buttons on it.** Since 0.21.3 cut the overlay down to the pill's shape, Windows had been painting maximise and close buttons across the top of it — the pill was still technically a normal window underneath, and reshaping it made Windows draw its title-bar controls the old-fashioned way. The overlay is now a genuinely frameless window, so there is nothing on it but the dot and the label.
+- **The pill can no longer be left floating on screen after a dictation.** The overlay is meant to exist only while you hold the dictation key, but it was possible for it to be left behind — visible, on top of everything, and only dismissable by closing it — because the main window, which is what decides whether the pill should still be there, could go to sleep without re-checking. The pill now keeps the main window checking ten times a second for as long as it is up, so it always retires with the dictation that raised it.
+
 ## [0.23.0] - 2026-07-24
 
 ### Added
