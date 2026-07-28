@@ -16,12 +16,16 @@
 //! entry -- and it is tokenized by the same code that will later have to match
 //! it.
 
-use egui::{self, text::CCursor, Label, Rect, Response, RichText, Sense, Ui};
+use egui::{self, text::CCursor, Label, Rect, RichText, Sense, Ui};
 use std::ops::Range;
 
 /// Which widget owns the current selection, and where the drag began and ended.
-/// Anchor and head are character indices and may be in either order; a
-/// right-to-left drag is normalized at snap time.
+///
+/// Both are character indices, and the two are **not** interchangeable:
+/// `anchor` is where the button went down and `head` is where the pointer is
+/// now, so a right-to-left drag has `anchor > head`. `snap_to_tokens` relies on
+/// that direction — the anchor is inclusive of the word it lands on, the head
+/// is not.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Selection {
     owner: egui::Id,
@@ -57,14 +61,18 @@ pub fn selectable_text(
         .layout_in_ui(ui);
     let id = response.id;
 
-    let char_at = |response: &Response| {
-        response
-            .interact_pointer_pos()
-            .map(|p| galley.cursor_from_pos(p - galley_pos).index.0)
-    };
+    let char_at = |pos| galley.cursor_from_pos(pos - galley_pos).index.0;
 
     if response.drag_started() || response.clicked() {
-        if let Some(c) = char_at(&response) {
+        // The anchor comes from `press_origin`, NOT `interact_pointer_pos`:
+        // the latter is the pointer's *current* position, and `drag_started`
+        // only fires once egui's drag threshold has been crossed, so by then
+        // the pointer has already travelled several pixels in the drag
+        // direction. Anchoring there starts the selection past the character
+        // the user actually pressed on, which is why the first word of a drag
+        // used to fall out of the highlight.
+        let press = ui.input(|i| i.pointer.press_origin());
+        if let Some(c) = press.or(response.interact_pointer_pos()).map(char_at) {
             *state = Some(Selection {
                 owner: id,
                 anchor: c,
@@ -72,7 +80,8 @@ pub fn selectable_text(
             });
         }
     } else if response.dragged() {
-        if let Some(c) = char_at(&response) {
+        // The head is the live position, which is exactly what's wanted here.
+        if let Some(c) = response.interact_pointer_pos().map(char_at) {
             if let Some(sel) = state.as_mut().filter(|s| s.owned_by(id)) {
                 sel.head = c;
             }

@@ -4,6 +4,11 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.27.1] - 2026-07-28
+
+### Fixed
+- **Selecting transcript text no longer drops the word you started on.** Dragging from "Al" across to "Drazi" highlighted only "Drazi", and dragging left from "Drazi" highlighted only "Al" — the word you grabbed first was the one that fell out. Two causes: the press was being recorded a few pixels after you actually pressed, and starting flush against a word's edge counted as not touching it. Pressing anywhere on a word now grabs that word, in either drag direction.
+
 ## [0.27.0] - 2026-07-28
 
 ### Added

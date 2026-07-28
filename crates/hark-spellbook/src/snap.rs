@@ -19,42 +19,52 @@
 use crate::tokenize::tokenize;
 use std::ops::Range;
 
-/// Expand `chars` outward to cover every token it touches.
+/// Expand a drag outward to cover every token it touches.
 ///
-/// `chars` is a half-open range of character indices into `text`, in either
-/// order (a right-to-left drag is normalized). The result is a character range
-/// that begins at the start of the first token touched and ends at the end of
-/// the last, with punctuation and whitespace at the edges excluded — the
-/// tokenizer already keeps those outside token spans.
+/// `chars` carries the gesture's direction, not a normalized span:
+/// `chars.start` is the **anchor** (where the button went down) and
+/// `chars.end` is the **head** (where the pointer is now). A right-to-left
+/// drag therefore arrives with `start > end`, and that is meaningful — the two
+/// ends are not interchangeable:
 ///
-/// A zero-width range (a click, not a drag) snaps to the token it sits in or
-/// against, so clicking a word selects that word.
+/// - The **anchor is inclusive**. Pressing anywhere on a word, including flush
+///   against either edge of it, grabs that word. A character boundary is a
+///   zero-width position between two glyphs, so "press on the l of Al" lands
+///   on the boundary *after* the l as often as the one before it; treating
+///   that as "did not touch Al" is what made the first word of a drag
+///   disappear, and it read as the word being impossible to grab.
+/// - The **head is exclusive**, the ordinary selection rule. Dragging through
+///   the space after a word stops at that space rather than swallowing the
+///   next word.
 ///
-/// Returns `None` when the selection touches no token at all: an empty range,
-/// or one covering only whitespace and punctuation. There is nothing to add to
-/// the Spellbook in that case, and the caller should leave its button disabled
-/// rather than offer an entry made of spaces.
+/// A zero-width range (a click, not a drag) is just an anchor, so clicking a
+/// word selects that word.
+///
+/// Punctuation and whitespace at the edges are excluded — the tokenizer
+/// already keeps those outside token spans.
+///
+/// Returns `None` when the gesture touches no token at all: empty text, or a
+/// drag that lies wholly inside a run of whitespace or punctuation without
+/// meeting a word. There is nothing to add to the Spellbook in that case, and
+/// the caller should leave its button disabled rather than offer an entry made
+/// of spaces.
 pub fn snap_to_tokens(text: &str, chars: Range<usize>) -> Option<Range<usize>> {
-    let (from, to) = if chars.start <= chars.end {
-        (chars.start, chars.end)
+    let anchor_byte = byte_of_char(text, chars.start)?;
+    let head_byte = byte_of_char(text, chars.end)?;
+    let (from, to) = if anchor_byte <= head_byte {
+        (anchor_byte, head_byte)
     } else {
-        (chars.end, chars.start)
+        (head_byte, anchor_byte)
     };
-    let start_byte = byte_of_char(text, from)?;
-    let end_byte = byte_of_char(text, to)?;
 
     let tokens = tokenize(text);
-    // Half-open overlap, except that a zero-width selection has no interior to
-    // overlap with -- it is a caret, and a caret resting on either edge of a
-    // word still means that word.
     let touched: Vec<_> = tokens
         .iter()
         .filter(|t| {
-            if start_byte == end_byte {
-                t.start <= start_byte && start_byte <= t.end
-            } else {
-                t.start < end_byte && start_byte < t.end
-            }
+            // Grabbed at the anchor (inclusive of both edges) ...
+            (t.start <= anchor_byte && anchor_byte <= t.end)
+                // ... or genuinely overlapped by the swept span (half-open).
+                || (t.start < to && from < t.end)
         })
         .collect();
 
@@ -154,11 +164,55 @@ mod tests {
         assert_eq!(snapped_text(HISTORY, s.end..s.start), Some("Al Drazi"));
     }
 
+    // --- the three gestures reported broken on Windows against 0.27.0 ---
+    //
+    // In all three the *first* word of the drag vanished, because a press
+    // lands on a character boundary and the boundary flush against a word's
+    // edge was being read as "did not touch that word". Named for the gesture,
+    // since that is how they will be re-tested by hand.
+
     #[test]
-    fn a_selection_of_only_whitespace_yields_nothing() {
-        // Between "cast" and "the": a caret in a gap has no word to mean.
-        let gap = sel(HISTORY, " the").start;
-        assert_eq!(snapped_text(HISTORY, gap..gap + 1), None);
+    fn dragging_rightward_from_inside_the_first_word_keeps_it() {
+        // Press on the "l" of "Al" -- landing on the boundary AFTER it, which
+        // is the common case -- and drag right into "Drazi". "Al" must survive.
+        let anchor = sel(HISTORY, " Drazi").start; // boundary just after "Al"
+        let head = sel(HISTORY, "zi comm").start;
+        assert_eq!(snapped_text(HISTORY, anchor..head), Some("Al Drazi"));
+    }
+
+    #[test]
+    fn dragging_leftward_from_the_start_of_a_word_keeps_it() {
+        // Press on the "D" of "Drazi", landing on the boundary before it, and
+        // drag left across "Al". "Drazi" must survive.
+        let anchor = sel(HISTORY, "Drazi").start;
+        let head = sel(HISTORY, "Al Drazi").start;
+        assert_eq!(snapped_text(HISTORY, anchor..head), Some("Al Drazi"));
+    }
+
+    #[test]
+    fn dragging_leftward_from_inside_the_last_word_keeps_both() {
+        // The gesture that already worked; it must keep working.
+        let anchor = sel(HISTORY, "zi comm").start;
+        let head = sel(HISTORY, "l Drazi").start;
+        assert_eq!(snapped_text(HISTORY, anchor..head), Some("Al Drazi"));
+    }
+
+    #[test]
+    fn a_press_flush_against_a_word_grabs_that_word() {
+        // The deliberate consequence of an inclusive anchor: starting a drag
+        // hard against a word's edge counts as grabbing it. Sub-glyph
+        // precision is not something a drag can be asked for.
+        let flush = sel(HISTORY, " the").start; // boundary right after "cast"
+        assert_eq!(snapped_text(HISTORY, flush..flush + 1), Some("cast"));
+    }
+
+    #[test]
+    fn a_drag_inside_a_run_of_whitespace_still_yields_nothing() {
+        // Forgiveness at the edges must not become "any gesture selects
+        // something": inside a gap, touching no word, there is nothing to add.
+        let text = "alpha     beta";
+        let mid = 7; // well inside the run of spaces
+        assert_eq!(snapped_text(text, mid..mid + 2), None);
     }
 
     #[test]
