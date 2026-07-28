@@ -138,7 +138,7 @@ fn worker_loop(
             Ok(changed) => {
                 if changed {
                     generation.fetch_add(1, Ordering::Release);
-                    ctx.request_repaint();
+                    crate::app::wake_ui(&ctx);
                 }
             }
             // Log labels and causes only; a failed history write must never

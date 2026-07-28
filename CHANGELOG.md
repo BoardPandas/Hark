@@ -4,6 +4,14 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.30.0] - 2026-07-28
+
+### Fixed
+- **The "Listening…" pill no longer stays on screen after a dictation finishes.** On the first dictation after Hark started — while its window was still tucked away in the tray — the pill stayed up and the tray icon stayed red long after the text had been injected, until you clicked the tray to shake it loose. Hark's background threads were tapping the *pill* on the shoulder instead of the main window, so the window never woke up to notice the dictation had ended. Every background wake-up now names the main window explicitly.
+
+### Added
+- **Hark keeps a log file.** Released builds have no console, so anything Hark had to say about a problem was lost. It now writes `hark.log` next to your history database (`%APPDATA%\hark\hark.log`), rotating at 2 MB with one backup kept. It records timings, counts, and setting names only — never your API key, your audio, or anything you dictated — so it is safe to attach to a bug report.
+
 ## [0.29.1] - 2026-07-28
 
 ### Fixed

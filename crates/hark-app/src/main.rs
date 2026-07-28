@@ -31,8 +31,12 @@ use std::time::{Duration, Instant};
 const RELAUNCH_LOCK_WAIT: Duration = Duration::from_secs(5);
 const RELAUNCH_LOCK_POLL: Duration = Duration::from_millis(100);
 
+/// Rotate the log once it passes this; one backup is kept, so the logs cost at
+/// most twice this on disk.
+const LOG_MAX_BYTES: u64 = 2 * 1024 * 1024;
+
 fn main() -> eframe::Result {
-    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
+    init_logging();
 
     // The autostart entry launches Hark with `--hidden` (hark-autostart). The
     // window already starts hidden into the tray, so this is informational
@@ -111,6 +115,54 @@ fn main() -> eframe::Result {
         options,
         Box::new(|cc| Ok(Box::new(app::HarkApp::new(cc)))),
     )
+}
+
+/// Send logs somewhere a user can actually find them.
+///
+/// A release build is `windows_subsystem = "windows"`: it has no console, so
+/// env_logger's stderr goes nowhere and every log line the app writes is lost —
+/// which is exactly what turns a "sometimes it gets stuck" report into a
+/// guessing game. Release builds therefore log to a file next to the history
+/// database; debug builds keep the console. The log is safe to share by
+/// construction: this codebase logs lengths, counts, millis, and config labels
+/// only — never key material, audio, or transcript text.
+fn init_logging() {
+    let mut builder =
+        env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info"));
+    // Debug keeps stderr so `cargo run` still prints; release has no console.
+    if !cfg!(debug_assertions) {
+        if let Some(file) = open_log_file() {
+            builder.target(env_logger::Target::Pipe(Box::new(file)));
+        }
+    }
+    builder.init();
+    if let Some(path) = log_path() {
+        log::info!("log file: {}", path.display());
+    }
+}
+
+fn log_path() -> Option<std::path::PathBuf> {
+    hark_config::default_data_dir().map(|dir| dir.join("hark.log"))
+}
+
+/// Open the log for appending, rotating first if the old one has grown past
+/// [`LOG_MAX_BYTES`]. Every failure here returns `None` and leaves logging on
+/// stderr: not being able to write a log must never stop the app starting.
+fn open_log_file() -> Option<std::fs::File> {
+    let path = log_path()?;
+    if let Some(dir) = path.parent() {
+        std::fs::create_dir_all(dir).ok()?;
+    }
+    if std::fs::metadata(&path).is_ok_and(|m| m.len() > LOG_MAX_BYTES) {
+        // One backup, replaced each rotation. A failed rename just means this
+        // run keeps appending to a slightly oversized log.
+        let _ = std::fs::rename(&path, path.with_extension("log.1"));
+    }
+    std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&path)
+        .ok()
 }
 
 /// Claim the single-instance lock. A normal launch tries once and reports the

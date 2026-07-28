@@ -168,7 +168,7 @@ fn spawn_pumps(ctx: egui::Context) -> Receiver<TrayAction> {
                 if menu_tx.send(action).is_err() {
                     break;
                 }
-                menu_ctx.request_repaint();
+                crate::app::wake_ui(&menu_ctx);
             }
         })
         .expect("spawning the tray menu pump cannot fail");
@@ -182,7 +182,7 @@ fn spawn_pumps(ctx: egui::Context) -> Receiver<TrayAction> {
                 if tx.send(TrayAction::ShowWindow).is_err() {
                     break;
                 }
-                ctx.request_repaint();
+                crate::app::wake_ui(&ctx);
             }
         })
         .expect("spawning the tray icon pump cannot fail");

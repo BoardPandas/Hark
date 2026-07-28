@@ -143,7 +143,7 @@ fn spawn(settings: Settings, ctx: egui::Context) -> Receiver<TestReport> {
         .spawn(move || {
             let report = execute(&settings);
             let _ = tx.send(report);
-            ctx.request_repaint();
+            crate::app::wake_ui(&ctx);
         })
         .expect("spawning the test-connection thread cannot fail");
     rx

@@ -109,7 +109,7 @@ impl HarkApp {
         // A hidden window is not guaranteed a natural first frame; one
         // explicit repaint makes `logic` run (creating the tray, placing and
         // showing the window) even if the window never shows.
-        cc.egui_ctx.request_repaint();
+        wake_ui(&cc.egui_ctx);
 
         // Opt-in (default on): one background check at startup surfaces a
         // banner if a newer release exists. Runs on a worker thread.
@@ -269,7 +269,7 @@ fn start_activation_listener(
         // when it runs, or the repaint drains nothing and the request is lost
         // until something else happens to wake the app.
         if tx.send(()).is_ok() {
-            ctx.request_repaint();
+            wake_ui(&ctx);
         }
     }) {
         Ok(listener) => (Some(rx), Some(listener)),
@@ -278,6 +278,24 @@ fn start_activation_listener(
             (None, None)
         }
     }
+}
+
+/// Wake the UI from a worker thread. Every background thread that sends into
+/// the UI must call this, never `Context::request_repaint()`.
+///
+/// `request_repaint()` is `request_repaint_of(viewport_id())`, and
+/// `viewport_id()` is *whichever viewport is mid-pass right now* — meaningless
+/// from another thread, and during a dictation actively wrong: the recording
+/// pill is a second viewport repainting at ~60 fps, so the pipeline event that
+/// ENDS a dictation asks for a repaint of the pill. eframe then discards it as
+/// outdated (the pill's pass counter has already moved on), and the request is
+/// gone. Nothing wakes the main window, and only a root pass drains pipeline
+/// events, updates the tray, and unregisters the overlay — which is how a
+/// finished dictation left the pill on screen and the tray red until a tray
+/// click forced a pass. Only the root viewport runs `App::logic`, so the root
+/// is what "wake the UI" means everywhere in this crate.
+pub(crate) fn wake_ui(ctx: &egui::Context) {
+    ctx.request_repaint_of(egui::ViewportId::ROOT);
 }
 
 fn show_window(ctx: &egui::Context) {

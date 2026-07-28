@@ -128,7 +128,7 @@ impl Updater {
                 let result =
                     hark_update::check(&client, CURRENT_VERSION).map_err(|e| e.to_string());
                 let _ = tx.send(Msg::Checked(result));
-                ctx.request_repaint();
+                crate::app::wake_ui(&ctx);
             })
             .expect("spawning the update-check thread cannot fail");
         self.phase = Phase::Checking;
@@ -164,7 +164,7 @@ impl Updater {
                 })()
                 .map_err(|e: hark_update::UpdateError| e.to_string());
                 let _ = tx.send(Msg::Installed(result));
-                ctx.request_repaint();
+                crate::app::wake_ui(&ctx);
             })
             .expect("spawning the update-install thread cannot fail");
         self.phase = Phase::Installing(release);

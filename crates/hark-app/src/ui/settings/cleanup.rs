@@ -237,7 +237,7 @@ fn spawn(settings: Settings, voice: VoiceName, ctx: egui::Context) -> Receiver<O
                 Err("No cleanup provider resolves from these settings.".to_string())
             });
             let _ = tx.send(Outcome { voice, result });
-            ctx.request_repaint();
+            crate::app::wake_ui(&ctx);
         })
         .expect("spawning the cleanup-test thread cannot fail");
     rx

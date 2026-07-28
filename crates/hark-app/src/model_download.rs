@@ -119,13 +119,13 @@ impl ModelDownload {
                     let _ = tx.send(Msg::Progress(p.done_bytes, p.total_bytes));
                     // Wake the UI thread; the downloader already throttles
                     // these to ~10/s so this cannot become a repaint storm.
-                    ctx.request_repaint();
+                    crate::app::wake_ui(&ctx);
                 };
                 let result =
                     hark_local_stt::download(spec, &dir, &client, &cancel, &mut on_progress)
                         .map_err(|e| e.to_string());
                 let _ = tx.send(Msg::Finished(result));
-                ctx.request_repaint();
+                crate::app::wake_ui(&ctx);
             })
             .expect("spawning the download thread cannot fail");
     }

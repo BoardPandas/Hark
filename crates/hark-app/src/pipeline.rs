@@ -165,8 +165,30 @@ impl PipelineController {
             if matches!(event, PipelineEvent::Injected(_)) {
                 self.injected += 1;
             }
-            self.status = next_status(event);
+            let next = next_status(event);
+            // One line per transition (labels only, no detail text). This is
+            // the UI half of a dictation in the log: if the pipeline's own
+            // lines are there and these are not, the window never ran a pass
+            // to notice — the shape of a stranded recording overlay.
+            if next != self.status {
+                log::info!("status: {} -> {}", label(&self.status), label(&next));
+            }
+            self.status = next;
         }
+    }
+}
+
+/// Variant name only: the detail strings belong to the UI, and the pipeline
+/// already logs its own causes.
+fn label(status: &PipelineStatus) -> &'static str {
+    match status {
+        PipelineStatus::Idle => "idle",
+        PipelineStatus::Recording => "recording",
+        PipelineStatus::Processing => "processing",
+        PipelineStatus::LoadingModel => "loading-model",
+        PipelineStatus::Errored { .. } => "errored",
+        PipelineStatus::Hint { .. } => "hint",
+        PipelineStatus::Stopped { .. } => "stopped",
     }
 }
 
@@ -235,7 +257,7 @@ fn spawn_repaint_pump(
                 if tx.send(event).is_err() {
                     break;
                 }
-                ctx.request_repaint();
+                crate::app::wake_ui(&ctx);
             }
         })
         .expect("spawning the event pump thread cannot fail");

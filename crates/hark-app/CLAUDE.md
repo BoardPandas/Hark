@@ -13,9 +13,14 @@ dictation pipeline on worker threads via `PipelineController`. Root
 - Panels are the unified `egui::Panel` (`Panel::left("id")`, `::bottom`,
   `.exact_size`); `SidePanel`/`TopBottomPanel` and `show_inside` are gone or
   deprecated in 0.35. `CentralPanel::default().show(ui, ..)` last.
-- Cross-thread UI wake-up is `egui::Context::request_repaint()` from the
-  sending thread (see `pipeline::spawn_repaint_pump`). Never poll or sleep
-  on the UI thread; idle CPU stays near zero.
+- Cross-thread UI wake-up is **`app::wake_ui(&ctx)`**, never
+  `Context::request_repaint()`. The latter is
+  `request_repaint_of(viewport_id())`, and `viewport_id()` is whichever
+  viewport is mid-pass — from a worker thread that is a race, and during a
+  dictation the recording pill (a second viewport, ~60 fps) wins it, so
+  eframe discards the request as outdated and the main window never wakes.
+  Only the root viewport runs `App::logic`. Never poll or sleep on the UI
+  thread; idle CPU stays near zero.
 - **`persist_window` is off and must stay off.** eframe's auto-save runs at
   the end of *whichever* viewport just painted and writes that viewport's
   geometry under the root window's key, so the recording pill kept being

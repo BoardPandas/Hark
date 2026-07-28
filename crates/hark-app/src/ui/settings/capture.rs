@@ -48,7 +48,7 @@ impl Recording {
                     if ui_tx.send(edge).is_err() {
                         break;
                     }
-                    ctx.request_repaint();
+                    crate::app::wake_ui(&ctx);
                 }
             })
             .expect("spawning the capture pump thread cannot fail");
