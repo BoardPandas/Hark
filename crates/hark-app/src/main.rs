@@ -49,9 +49,20 @@ fn main() -> eframe::Result {
     let _instance_guard = match acquire_instance(relaunched) {
         Ok(Some(guard)) => Some(guard),
         Ok(None) => {
-            // Autostart plus a manual launch is the common way here. Exiting
-            // quietly leaves the running instance untouched in the tray.
-            log::info!("startup: another Hark instance is already running; exiting");
+            // Autostart plus a manual launch is the common way here. Before
+            // exiting, ask the running instance to show itself: a user who
+            // clicked the Start menu entry or the shortcut is asking to *see*
+            // Hark, and an app that answers a launch with nothing at all reads
+            // as broken. The two exceptions are launches that never wanted a
+            // window in the first place: the updater's relaunch (a silent
+            // handover) and the autostart entry's `--hidden`.
+            let activate = !relaunched && !launched_hidden;
+            log::info!("startup: another Hark instance is already running (activate={activate})");
+            if activate {
+                if let Err(e) = hark_single_instance::signal_existing() {
+                    log::warn!("startup: could not activate the running instance ({e})");
+                }
+            }
             return Ok(());
         }
         // Fail open: a guard that can block startup is worse than the double

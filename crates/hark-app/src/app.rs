@@ -14,6 +14,7 @@ use crate::ui::{pages, settings, shell};
 use crate::update::Updater;
 use crate::{storage, theme, tray};
 use hark_config::{Settings, VoiceName};
+use std::sync::mpsc::{self, Receiver};
 
 pub struct HarkApp {
     /// The persisted model; only a settings Save (or dictionary edit)
@@ -39,6 +40,16 @@ pub struct HarkApp {
     /// Update check/self-update state, shared by the startup banner and the
     /// Settings section.
     updater: Updater,
+    /// Declared before `activations` on purpose (same reasoning as
+    /// `pipeline`/`storage`): fields drop in order, so the listener thread is
+    /// stopped and joined before the channel it sends on goes away.
+    _activation_listener: Option<hark_single_instance::ActivationListener>,
+    /// Activation requests from later launches (Start menu, shortcut, taskbar)
+    /// that found this instance already running. The listener thread only
+    /// sends and wakes the loop; showing the window happens here, on the main
+    /// thread. `None` if the listener could not start, which costs activation
+    /// and nothing else.
+    activations: Option<Receiver<()>>,
 }
 
 impl HarkApp {
@@ -101,6 +112,11 @@ impl HarkApp {
             updater.start_check(&cc.egui_ctx);
         }
 
+        // Same shape as the tray and pipeline pumps: a thread that owns the
+        // blocking wait, a channel into the UI, and one repaint per event so a
+        // hidden, idle window actually wakes up to drain it.
+        let (activations, listener) = start_activation_listener(&cc.egui_ctx);
+
         HarkApp {
             settings,
             pipeline,
@@ -112,6 +128,8 @@ impl HarkApp {
             page,
             views,
             updater,
+            _activation_listener: listener,
+            activations,
         }
     }
 
@@ -181,6 +199,21 @@ impl HarkApp {
         }
     }
 
+    /// A second launch asked us to surface. Land on History: someone who
+    /// re-opens a running dictation app wants to see what it captured, and it
+    /// matches where a healthy startup already lands.
+    fn handle_activations(&mut self, ctx: &egui::Context) {
+        let Some(rx) = &self.activations else { return };
+        // Drain fully: several impatient clicks collapse into one show, and
+        // leaving any queued would re-show the window on later frames.
+        if rx.try_iter().count() == 0 {
+            return;
+        }
+        log::info!("activated by a second launch; showing the window");
+        self.page = pages::Page::History;
+        show_window(ctx);
+    }
+
     /// Close = hide once the tray exists (Quit lives in the tray menu).
     /// With no tray, or after Quit, the close request passes through and
     /// `run_native` returns.
@@ -208,6 +241,33 @@ impl HarkApp {
         if let Some(meter) = self.pipeline.level_meter() {
             let monitor = ctx.input(|i| i.viewport().monitor_size);
             crate::overlay::show(ctx, meter, monitor);
+        }
+    }
+}
+
+/// Start the activation listener, or log why not. Failure is not fatal: Hark
+/// keeps running and only loses the ability to be re-opened from a shortcut,
+/// so a hard error here would trade a minor annoyance for a dead app.
+fn start_activation_listener(
+    ctx: &egui::Context,
+) -> (
+    Option<Receiver<()>>,
+    Option<hark_single_instance::ActivationListener>,
+) {
+    let (tx, rx) = mpsc::channel();
+    let ctx = ctx.clone();
+    match hark_single_instance::listen(move || {
+        // Send first, then wake: the loop must find the event already queued
+        // when it runs, or the repaint drains nothing and the request is lost
+        // until something else happens to wake the app.
+        if tx.send(()).is_ok() {
+            ctx.request_repaint();
+        }
+    }) {
+        Ok(listener) => (Some(rx), Some(listener)),
+        Err(e) => {
+            log::warn!("activation listener not started ({e}); a second launch will exit quietly");
+            (None, None)
         }
     }
 }
@@ -276,6 +336,7 @@ impl eframe::App for HarkApp {
         self.pipeline.drain_events();
         self.updater.poll();
         self.handle_tray_actions(ctx);
+        self.handle_activations(ctx);
         self.handle_close(ctx);
         self.show_recording_overlay(ctx);
         if let Some(tray) = &mut self.tray {

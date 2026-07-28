@@ -18,14 +18,51 @@
 //! Callers **fail open**: if the check itself errors, start anyway. A guard
 //! that can refuse to launch the app is a worse bug than the double instance
 //! it prevents.
+//!
+//! # Activation
+//!
+//! Refusing to start is only half the job. Launching Hark from the Start menu
+//! (or its shortcut, or the taskbar) while it already runs in the tray must
+//! surface the *running* window, not exit silently — silence is
+//! indistinguishable from a broken app. So the losing process signals the
+//! winner over a second named OS object before it exits, and the winner shows
+//! its window:
+//!
+//! - **Windows:** an auto-reset named event, `SetEvent` from the loser and a
+//!   blocking `WaitForSingleObject` thread in the winner. Same `Local\`
+//!   session scoping as the mutex.
+//! - **Unix (macOS):** a Unix-domain socket next to the lock file; one
+//!   accepted connection is one activation.
+//!
+//! Activation is best-effort in both directions: a failed signal only costs
+//! the user a second click, so it is logged and never fatal.
 
+use std::time::{Duration, Instant};
 use thiserror::Error;
+
+/// How long [`signal_existing`] retries when the activation object does not
+/// exist yet. The winner claims the mutex before it starts listening, so a
+/// launch that lands in that window would otherwise find nothing to signal.
+const SIGNAL_WAIT: Duration = Duration::from_secs(2);
+const SIGNAL_POLL: Duration = Duration::from_millis(100);
 
 #[derive(Debug, Error)]
 pub enum Error {
     #[cfg(windows)]
     #[error("cannot create the instance mutex: {0}")]
     Mutex(#[source] windows::core::Error),
+    #[cfg(windows)]
+    #[error("cannot create the activation event: {0}")]
+    Event(#[source] windows::core::Error),
+    #[cfg(unix)]
+    #[error("cannot listen for activation on {path}: {source}")]
+    ActivationSocket {
+        path: std::path::PathBuf,
+        #[source]
+        source: std::io::Error,
+    },
+    #[error("no running instance answered the activation signal")]
+    NoListener,
     #[cfg(unix)]
     #[error("no per-user data directory to hold the lock file")]
     NoDataDir,
@@ -68,18 +105,74 @@ pub fn acquire() -> Result<Option<InstanceGuard>, Error> {
     Ok(imp::acquire()?.map(InstanceGuard))
 }
 
+/// Proof that this process is listening for activation requests.
+///
+/// Like [`InstanceGuard`], it must be bound to a live variable: dropping it
+/// stops the listener (and, on Unix, removes the socket), after which a second
+/// launch has nothing to signal and exits silently again.
+#[must_use = "binding to `_` drops the listener immediately and stops activation"]
+pub struct ActivationListener(
+    #[allow(dead_code)] // Held purely for its `Drop`.
+    imp::Listener,
+);
+
+/// Start listening for activation requests from later launches.
+///
+/// `on_activate` runs on a background thread, once per request, for the life
+/// of the listener — so it must do only what is safe off the main thread. The
+/// UI's callback sends on a channel and wakes the event loop; it never touches
+/// the window directly (the macOS main-thread rule).
+///
+/// Only the process holding the [`InstanceGuard`] may call this: two listeners
+/// on one name would split activations between them.
+pub fn listen(on_activate: impl FnMut() + Send + 'static) -> Result<ActivationListener, Error> {
+    Ok(ActivationListener(imp::listen(Box::new(on_activate))?))
+}
+
+/// Ask the already-running instance to show its window, then exit.
+///
+/// Called by the losing process after [`acquire`] returns `Ok(None)`. Retries
+/// for [`SIGNAL_WAIT`] because the winner claims the mutex before it starts
+/// listening; `Err(Error::NoListener)` means it never answered, which is worth
+/// a log line but is not otherwise actionable.
+pub fn signal_existing() -> Result<(), Error> {
+    let deadline = Instant::now() + SIGNAL_WAIT;
+    loop {
+        if imp::signal()? {
+            return Ok(());
+        }
+        if Instant::now() >= deadline {
+            return Err(Error::NoListener);
+        }
+        std::thread::sleep(SIGNAL_POLL);
+    }
+}
+
 #[cfg(windows)]
 mod imp {
     use super::Error;
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::Arc;
+    use std::thread::JoinHandle;
     use windows::core::HSTRING;
-    use windows::Win32::Foundation::{CloseHandle, GetLastError, ERROR_ALREADY_EXISTS, HANDLE};
-    use windows::Win32::System::Threading::CreateMutexW;
+    use windows::Win32::Foundation::{
+        CloseHandle, GetLastError, ERROR_ALREADY_EXISTS, HANDLE, WAIT_OBJECT_0,
+    };
+    use windows::Win32::System::Threading::{
+        CreateEventW, CreateMutexW, OpenEventW, SetEvent, WaitForSingleObject, EVENT_MODIFY_STATE,
+        INFINITE,
+    };
 
     /// `Local\` scopes the object to the logon session (see module docs). The
     /// GUID makes the name collision-proof against unrelated software and is
     /// **permanent**: changing it silently disables the guard for anyone
     /// running a mixed pair of versions during an upgrade.
     const MUTEX_NAME: &str = r"Local\Hark-SingleInstance-9F2A7C41-6B3E-4D58-B0A9-2E7C5D1F84B6";
+
+    /// The activation event, scoped and permanent for the same reasons as
+    /// [`MUTEX_NAME`]: a version that renames it cannot be activated by (or
+    /// activate) the version it is replacing.
+    const EVENT_NAME: &str = r"Local\Hark-Activate-1D4B8E07-3A6F-42C9-9E51-7B0C86D2A3F4";
 
     /// Owns the mutex handle; the named object lives as long as any handle to
     /// it is open, so closing this is what frees the name for the next launch.
@@ -118,6 +211,107 @@ mod imp {
         Ok(Some(guard))
     }
 
+    /// Owns the event handle and the waiting thread. `Drop` signals the event
+    /// one last time with `stopping` set, so the thread wakes, sees the flag,
+    /// and returns instead of parking in `INFINITE` forever.
+    pub(super) struct Listener {
+        event: HANDLE,
+        stopping: Arc<AtomicBool>,
+        thread: Option<JoinHandle<()>>,
+    }
+
+    // HANDLE is a raw pointer, so it is not Send by default. A kernel handle is
+    // process-wide and every API used on it here is thread-safe, which is
+    // exactly what the auto-derive cannot know.
+    unsafe impl Send for Listener {}
+
+    impl Drop for Listener {
+        fn drop(&mut self) {
+            self.stopping.store(true, Ordering::SeqCst);
+            unsafe {
+                let _ = SetEvent(self.event);
+            }
+            if let Some(thread) = self.thread.take() {
+                let _ = thread.join();
+            }
+            unsafe {
+                let _ = CloseHandle(self.event);
+            }
+        }
+    }
+
+    pub(super) fn listen(mut on_activate: Box<dyn FnMut() + Send>) -> Result<Listener, Error> {
+        // Auto-reset (`bmanualreset: false`): each wait consumes exactly one
+        // signal, so two launches in quick succession are two activations. A
+        // signal raised while nobody is waiting stays latched, so an activation
+        // sent between two waits is never lost.
+        let event = unsafe { CreateEventW(None, false, false, &HSTRING::from(EVENT_NAME)) }
+            .map_err(Error::Event)?;
+
+        let stopping = Arc::new(AtomicBool::new(false));
+        let thread_stopping = Arc::clone(&stopping);
+        // The handle is copied into the thread deliberately: `Drop` closes it
+        // only after joining, so it cannot be used after close.
+        let thread_event = SendHandle(event);
+        let thread = std::thread::Builder::new()
+            .name("hark-activation".into())
+            .spawn(move || {
+                // Read through a method, never by destructuring: edition 2021
+                // captures the *fields* a closure touches, so `let
+                // SendHandle(event) = thread_event` would capture the bare
+                // (non-Send) HANDLE and fail to compile.
+                let event = thread_event.get();
+                loop {
+                    if unsafe { WaitForSingleObject(event, INFINITE) } != WAIT_OBJECT_0 {
+                        // The wait itself failed, which cannot be retried into
+                        // working; leaving the loop parks activation rather
+                        // than spinning a core on the same error.
+                        return;
+                    }
+                    if thread_stopping.load(Ordering::SeqCst) {
+                        return;
+                    }
+                    on_activate();
+                }
+            })
+            .map_err(|_| Error::NoListener)?;
+
+        Ok(Listener {
+            event,
+            stopping,
+            thread: Some(thread),
+        })
+    }
+
+    /// Moves a handle into the listener thread. Same reasoning as the `Send`
+    /// impl on `Listener`; a named wrapper keeps the unsafety at one line.
+    struct SendHandle(HANDLE);
+    unsafe impl Send for SendHandle {}
+
+    impl SendHandle {
+        fn get(&self) -> HANDLE {
+            self.0
+        }
+    }
+
+    /// `Ok(false)` when no instance is listening yet, which the caller retries.
+    pub(super) fn signal() -> Result<bool, Error> {
+        // A failure here is overwhelmingly ERROR_FILE_NOT_FOUND ("not listening
+        // yet"), which is a retry, not an error; a genuinely broken open would
+        // fail the same way on every poll and end as NoListener.
+        let Ok(event) =
+            (unsafe { OpenEventW(EVENT_MODIFY_STATE, false, &HSTRING::from(EVENT_NAME)) })
+        else {
+            return Ok(false);
+        };
+        let set = unsafe { SetEvent(event) };
+        unsafe {
+            let _ = CloseHandle(event);
+        }
+        set.map_err(Error::Event)?;
+        Ok(true)
+    }
+
     #[cfg(test)]
     mod tests {
         use super::*;
@@ -143,9 +337,14 @@ mod imp {
     use super::Error;
     use std::fs::{File, OpenOptions};
     use std::os::fd::AsRawFd;
-    use std::path::Path;
+    use std::os::unix::net::{UnixListener, UnixStream};
+    use std::path::{Path, PathBuf};
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::Arc;
+    use std::thread::JoinHandle;
 
     const LOCK_FILE: &str = "instance.lock";
+    const ACTIVATION_SOCKET: &str = "activate.sock";
 
     /// Owns the open fd. `flock` locks belong to the open file description,
     /// so the lock lives exactly as long as this `File` — including through a
@@ -194,6 +393,84 @@ mod imp {
         }
     }
 
+    /// Owns the accept thread and the socket path. `Drop` unlinks the socket
+    /// and connects to itself once, so the blocking `accept` wakes and sees
+    /// `stopping`.
+    pub(super) struct Listener {
+        path: PathBuf,
+        stopping: Arc<AtomicBool>,
+        thread: Option<JoinHandle<()>>,
+    }
+
+    impl Drop for Listener {
+        fn drop(&mut self) {
+            self.stopping.store(true, Ordering::SeqCst);
+            let _ = UnixStream::connect(&self.path);
+            if let Some(thread) = self.thread.take() {
+                let _ = thread.join();
+            }
+            // Unlike the lock file, the socket must go: a leftover path makes
+            // `bind` fail on the next launch, and unlinking is safe because
+            // only the instance holding the flock ever gets here.
+            let _ = std::fs::remove_file(&self.path);
+        }
+    }
+
+    pub(super) fn listen(on_activate: Box<dyn FnMut() + Send>) -> Result<Listener, Error> {
+        let dir = hark_config::default_data_dir().ok_or(Error::NoDataDir)?;
+        listen_at(&dir.join(ACTIVATION_SOCKET), on_activate)
+    }
+
+    fn listen_at(path: &Path, mut on_activate: Box<dyn FnMut() + Send>) -> Result<Listener, Error> {
+        let err = |source| Error::ActivationSocket {
+            path: path.to_path_buf(),
+            source,
+        };
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent).map_err(err)?;
+        }
+        // A socket left by a crashed instance would fail `bind` with EADDRINUSE
+        // forever. Removing it is safe here and only here: the caller holds the
+        // single-instance lock, so no live Hark is listening on it.
+        let _ = std::fs::remove_file(path);
+        let listener = UnixListener::bind(path).map_err(err)?;
+
+        let stopping = Arc::new(AtomicBool::new(false));
+        let thread_stopping = Arc::clone(&stopping);
+        let thread = std::thread::Builder::new()
+            .name("hark-activation".into())
+            .spawn(move || {
+                for stream in listener.incoming() {
+                    if thread_stopping.load(Ordering::SeqCst) {
+                        return;
+                    }
+                    // One connection is one activation; the peer sends nothing,
+                    // so there is no payload to read.
+                    if stream.is_ok() {
+                        on_activate();
+                    }
+                }
+            })
+            .map_err(|_| Error::NoListener)?;
+
+        Ok(Listener {
+            path: path.to_path_buf(),
+            stopping,
+            thread: Some(thread),
+        })
+    }
+
+    pub(super) fn signal() -> Result<bool, Error> {
+        let dir = hark_config::default_data_dir().ok_or(Error::NoDataDir)?;
+        Ok(signal_at(&dir.join(ACTIVATION_SOCKET)))
+    }
+
+    /// False when nothing is listening (no socket, or a stale one with no
+    /// accepting peer), which the caller retries.
+    fn signal_at(path: &Path) -> bool {
+        UnixStream::connect(path).is_ok()
+    }
+
     #[cfg(test)]
     mod tests {
         use super::*;
@@ -216,6 +493,65 @@ mod imp {
                 acquire_at(&path).expect("third acquire").is_some(),
                 "releasing the guard must free the lock for the next launch"
             );
+        }
+
+        /// Blocks until `count` activations arrive, so the test never sleeps on
+        /// a fixed duration (the accept thread's timing is not ours to assume).
+        fn wait_for(rx: &std::sync::mpsc::Receiver<()>, count: usize) {
+            for i in 0..count {
+                rx.recv_timeout(std::time::Duration::from_secs(5))
+                    .unwrap_or_else(|_| panic!("activation {} never arrived", i + 1));
+            }
+        }
+
+        #[test]
+        fn each_signal_delivers_one_activation() {
+            let dir = tempfile::tempdir().expect("tempdir");
+            let path = dir.path().join(ACTIVATION_SOCKET);
+            let (tx, rx) = std::sync::mpsc::channel();
+
+            let listener =
+                listen_at(&path, Box::new(move || tx.send(()).unwrap())).expect("listen");
+            assert!(signal_at(&path), "first signal must reach the listener");
+            assert!(signal_at(&path), "a second launch signals again");
+            wait_for(&rx, 2);
+            drop(listener);
+        }
+
+        #[test]
+        fn signalling_with_no_listener_reports_false() {
+            let dir = tempfile::tempdir().expect("tempdir");
+            assert!(!signal_at(&dir.path().join(ACTIVATION_SOCKET)));
+        }
+
+        #[test]
+        fn a_stale_socket_does_not_block_the_next_listener() {
+            // What a hard-killed Hark leaves behind: the path exists, nothing
+            // is accepting on it. The next launch must still be able to bind.
+            let dir = tempfile::tempdir().expect("tempdir");
+            let path = dir.path().join(ACTIVATION_SOCKET);
+            drop(UnixListener::bind(&path).expect("stale socket"));
+            assert!(path.exists(), "the stale socket must outlive its listener");
+
+            let (tx, rx) = std::sync::mpsc::channel();
+            let listener = listen_at(&path, Box::new(move || tx.send(()).unwrap()))
+                .expect("a stale socket must not block bind");
+            assert!(signal_at(&path));
+            wait_for(&rx, 1);
+            drop(listener);
+        }
+
+        #[test]
+        fn dropping_the_listener_removes_the_socket_and_stops_activation() {
+            let dir = tempfile::tempdir().expect("tempdir");
+            let path = dir.path().join(ACTIVATION_SOCKET);
+            let (tx, _rx) = std::sync::mpsc::channel();
+
+            let listener =
+                listen_at(&path, Box::new(move || tx.send(()).unwrap())).expect("listen");
+            drop(listener);
+            assert!(!path.exists(), "Drop must unlink the socket");
+            assert!(!signal_at(&path), "a dropped listener answers nothing");
         }
 
         #[test]

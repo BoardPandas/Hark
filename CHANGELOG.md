@@ -4,6 +4,11 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.25.0] - 2026-07-28
+
+### Fixed
+- **Opening Hark while it's already running now brings up the window instead of doing nothing.** Launching Hark from the Start menu, its shortcut, or the taskbar while it sat in the tray appeared to do nothing at all — Hark correctly refused to start a second copy, but never told the copy already running to show itself. It now surfaces the running window on the History tab, and still never starts a second instance. Launch-at-login and the updater's restart are unaffected: those are meant to be silent, and stay that way.
+
 ## [0.24.0] - 2026-07-27
 
 ### Added
