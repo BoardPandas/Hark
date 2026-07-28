@@ -349,7 +349,8 @@ mod tests {
 
         // The same pair on the spellbook's unchanged 0.85 path still fires,
         // which is what makes this a threshold test and not a spelling test.
-        let (corrected, n) = crate::Corrector::new(&["granted".to_string()]).correct("grantor");
+        let (corrected, n) =
+            crate::Corrector::from_terms(&["granted".to_string()]).correct("grantor");
         assert_eq!((corrected.as_str(), n), ("granted", 1));
     }
 

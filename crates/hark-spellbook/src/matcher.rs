@@ -87,6 +87,45 @@ pub(crate) fn build_entries(dm: &DoubleMetaphone, terms: &[String]) -> Vec<TermE
     entries
 }
 
+/// Precompute alias entries: every alias becomes a match window that splices
+/// in its entry's canonical term.
+///
+/// Every word is forced down the exact-only path (`codes: None`), which is the
+/// whole point of an alias. It exists precisely for pairs the phonetic matcher
+/// will not reach — a proper noun split into unrelated words, or a provider
+/// emitting a real English word, where the phonetic pass is deliberately
+/// conservative. Giving aliases phonetic reach would re-import the fuzziness
+/// they were added to bypass, and would make an alias for a common word
+/// dangerous well beyond the word the user typed.
+///
+/// Sorted longest-first like [`build_entries`], so a longer alias wins an
+/// overlap with a shorter one.
+pub(crate) fn build_alias_entries(entries: &[(String, Vec<String>)]) -> Vec<TermEntry> {
+    let mut aliases: Vec<TermEntry> = entries
+        .iter()
+        .flat_map(|(term, aliases)| {
+            aliases.iter().filter_map(move |alias| {
+                let words: Vec<TermWord> = tokenize(alias)
+                    .into_iter()
+                    .map(|t| TermWord {
+                        lower: t.lower,
+                        codes: None,
+                    })
+                    .collect();
+                if words.is_empty() {
+                    return None;
+                }
+                Some(TermEntry {
+                    canonical: term.clone(),
+                    words,
+                })
+            })
+        })
+        .collect();
+    aliases.sort_by_key(|e| std::cmp::Reverse(e.word_count()));
+    aliases
+}
+
 fn term_word(dm: &DoubleMetaphone, lower: String) -> TermWord {
     let phonetic_eligible = lower.chars().count() >= 4 && lower.chars().all(|c| c.is_alphabetic());
     let codes = if phonetic_eligible {

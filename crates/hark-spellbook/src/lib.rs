@@ -34,18 +34,34 @@ use rphonetic::DoubleMetaphone;
 /// dictation on the hot path.
 pub struct Corrector {
     dm: DoubleMetaphone,
+    /// Exact alias windows, applied before `entries`.
+    aliases: Vec<TermEntry>,
     entries: Vec<TermEntry>,
 }
 
 impl Corrector {
     /// Precomputes phonetic codes per term word at construction; call once
     /// at startup, not per dictation.
-    pub fn new(terms: &[String]) -> Corrector {
+    ///
+    /// Each entry is `(canonical term, aliases)`. Aliases are misheard
+    /// spellings corrected to the term outright; pass an empty vec for a plain
+    /// term. Tuples rather than a config type keep this crate free of
+    /// `hark-config`, the same way [`Expander::new`] takes its triggers.
+    pub fn new(entries: &[(String, Vec<String>)]) -> Corrector {
         let dm = DoubleMetaphone::default();
+        let terms: Vec<String> = entries.iter().map(|(term, _)| term.clone()).collect();
         Corrector {
             dm,
-            entries: matcher::build_entries(&dm, terms),
+            aliases: matcher::build_alias_entries(entries),
+            entries: matcher::build_entries(&dm, &terms),
         }
+    }
+
+    /// A corrector with no aliases, from canonical terms alone.
+    pub fn from_terms(terms: &[String]) -> Corrector {
+        let entries: Vec<(String, Vec<String>)> =
+            terms.iter().map(|t| (t.clone(), Vec::new())).collect();
+        Corrector::new(&entries)
     }
 
     /// Returns the corrected text and the number of replacements made.
@@ -54,7 +70,7 @@ impl Corrector {
     /// degrades to returning the input span unchanged. A "no match" outcome
     /// means "left as transcribed", not "verified correct".
     pub fn correct(&self, text: &str) -> (String, usize) {
-        if self.entries.is_empty() || text.is_empty() {
+        if (self.entries.is_empty() && self.aliases.is_empty()) || text.is_empty() {
             return (text.to_string(), 0);
         }
         let tokens = tokenize::tokenize(text);
@@ -71,7 +87,56 @@ impl Corrector {
         let mut consumed = vec![false; tokens.len()];
         let mut splices: Vec<(usize, usize, &str)> = Vec::new();
         let mut replacements = 0;
-        for entry in &self.entries {
+
+        // Aliases first, and they share `consumed` with the phonetic pass that
+        // follows, so an alias match takes those tokens off the table. That
+        // ordering is the contract: an alias is an explicit instruction from
+        // the user, and explicit intent outranks inference. Without it a
+        // phonetic entry could claim the span first and produce a different
+        // canonical term than the one the alias names.
+        for pass in [&self.aliases, &self.entries] {
+            self.apply_pass(
+                pass,
+                text,
+                &tokens,
+                &token_codes,
+                &mut consumed,
+                &mut splices,
+                &mut replacements,
+            );
+        }
+
+        if splices.is_empty() {
+            return (text.to_string(), 0);
+        }
+
+        splices.sort_unstable_by_key(|&(start, _, _)| start);
+        let mut out = String::with_capacity(text.len() + 16);
+        let mut cursor = 0;
+        for (start, end, canonical) in splices {
+            out.push_str(&text[cursor..start]);
+            out.push_str(canonical);
+            cursor = end;
+        }
+        out.push_str(&text[cursor..]);
+        (out, replacements)
+    }
+
+    /// One matching pass over `pass_entries`, consuming tokens it claims.
+    /// Shared by the alias and phonetic passes so the two can never drift in
+    /// how they splice, count, or skip already-canonical spans.
+    #[allow(clippy::too_many_arguments)]
+    fn apply_pass<'a>(
+        &self,
+        pass_entries: &'a [TermEntry],
+        text: &str,
+        tokens: &[tokenize::Token],
+        token_codes: &[matcher::Codes],
+        consumed: &mut [bool],
+        splices: &mut Vec<(usize, usize, &'a str)>,
+        replacements: &mut usize,
+    ) {
+        for entry in pass_entries {
             let n = entry.word_count();
             if n == 0 || n > tokens.len() {
                 continue;
@@ -94,24 +159,10 @@ impl Corrector {
                 // but splice nothing and count nothing.
                 if text[start..end] != entry.canonical {
                     splices.push((start, end, &entry.canonical));
-                    replacements += 1;
+                    *replacements += 1;
                 }
             }
         }
-        if splices.is_empty() {
-            return (text.to_string(), 0);
-        }
-
-        splices.sort_unstable_by_key(|&(start, _, _)| start);
-        let mut out = String::with_capacity(text.len() + 16);
-        let mut cursor = 0;
-        for (start, end, canonical) in splices {
-            out.push_str(&text[cursor..start]);
-            out.push_str(canonical);
-            cursor = end;
-        }
-        out.push_str(&text[cursor..]);
-        (out, replacements)
     }
 }
 
@@ -122,7 +173,108 @@ mod tests {
 
     fn corrector(terms: &[&str]) -> Corrector {
         let owned: Vec<String> = terms.iter().map(|t| t.to_string()).collect();
+        Corrector::from_terms(&owned)
+    }
+
+    /// A corrector from (term, aliases) pairs.
+    fn with_aliases(entries: &[(&str, &[&str])]) -> Corrector {
+        let owned: Vec<(String, Vec<String>)> = entries
+            .iter()
+            .map(|(term, aliases)| {
+                (
+                    term.to_string(),
+                    aliases.iter().map(|a| a.to_string()).collect(),
+                )
+            })
+            .collect();
         Corrector::new(&owned)
+    }
+
+    // --- aliases: the explicit override for pairs the phonetic pass misses ---
+
+    #[test]
+    fn a_multi_word_alias_is_replaced_by_its_canonical_term() {
+        // The motivating pair. Two spoken words become one canonical word,
+        // which is exactly the shape no single phonetic window can reach.
+        let c = with_aliases(&[("Eldrazi", &["Al Drazi"])]);
+        let (out, n) = c.correct("I cast the Al Drazi commander");
+        assert_eq!(out, "I cast the Eldrazi commander");
+        assert_eq!(n, 1);
+    }
+
+    #[test]
+    fn alias_matching_is_case_insensitive_and_keeps_the_terms_casing() {
+        let c = with_aliases(&[("Eldrazi", &["Al Drazi"])]);
+        let (out, _) = c.correct("summon AL DRAZI now");
+        assert_eq!(out, "summon Eldrazi now");
+    }
+
+    #[test]
+    fn an_alias_is_exact_and_does_not_match_merely_similar_text() {
+        // The counterpart to the phonetic pass: aliases buy precision, so they
+        // must not acquire fuzziness through the back door.
+        let c = with_aliases(&[("Eldrazi", &["Al Drazi"])]);
+        let (out, n) = c.correct("the Al Drazzi commander");
+        assert_eq!(out, "the Al Drazzi commander");
+        assert_eq!(n, 0);
+    }
+
+    #[test]
+    fn an_alias_beats_a_phonetic_entry_competing_for_the_same_span() {
+        // "Modero" would phonetically claim "Madera"; the alias says that span
+        // is Eldrazi. Explicit user intent has to win, or aliases are advisory.
+        let c = with_aliases(&[("Modero", &[]), ("Eldrazi", &["Madera"])]);
+        let (out, n) = c.correct("deploy Madera tonight");
+        assert_eq!(out, "deploy Eldrazi tonight");
+        assert_eq!(n, 1);
+    }
+
+    #[test]
+    fn an_alias_reaches_a_real_english_word_the_phonetic_pass_refuses() {
+        // A provider emitting a legitimate word is the case the phonetic pass
+        // is deliberately conservative about; the alias is the escape hatch.
+        let plain = corrector(&["Hark"]);
+        assert_eq!(plain.correct("park the car").1, 0);
+
+        let c = with_aliases(&[("Hark", &["park"])]);
+        let (out, n) = c.correct("park the car");
+        assert_eq!(out, "Hark the car");
+        assert_eq!(n, 1);
+    }
+
+    #[test]
+    fn a_longer_alias_wins_the_overlap_with_a_shorter_one() {
+        let c = with_aliases(&[
+            ("Modero Cloud", &["motto row cloud"]),
+            ("Modero", &["motto row"]),
+        ]);
+        let (out, _) = c.correct("we host on motto row cloud today");
+        assert_eq!(out, "we host on Modero Cloud today");
+    }
+
+    #[test]
+    fn text_already_matching_the_canonical_term_is_left_alone() {
+        let c = with_aliases(&[("Eldrazi", &["Al Drazi"])]);
+        let (out, n) = c.correct("the Eldrazi commander");
+        assert_eq!(out, "the Eldrazi commander");
+        assert_eq!(n, 0);
+    }
+
+    #[test]
+    fn aliases_work_with_no_canonical_phonetic_entries_at_all() {
+        // An entry whose term is unencodable still has to honour its aliases.
+        let c = with_aliases(&[("R2", &["are two"])]);
+        let (out, n) = c.correct("the are two unit");
+        assert_eq!(out, "the R2 unit");
+        assert_eq!(n, 1);
+    }
+
+    #[test]
+    fn blank_and_untokenizable_aliases_are_dropped_not_matched() {
+        let c = with_aliases(&[("Eldrazi", &["", "   ", "..."])]);
+        let (out, n) = c.correct("nothing to see here");
+        assert_eq!(out, "nothing to see here");
+        assert_eq!(n, 0);
     }
 
     #[test]

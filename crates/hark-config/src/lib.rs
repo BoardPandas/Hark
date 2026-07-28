@@ -23,11 +23,16 @@ use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use thiserror::Error;
 
-/// Current config schema version, stamped into every saved file. Bump only
-/// on a breaking schema change; the first bump must ship the
-/// backup-then-migrate flow (BP `versioned-config-migration-backup`:
-/// back up as `config.toml.v{version}.bak`, map fields explicitly, persist).
-pub const CONFIG_VERSION: u32 = 1;
+/// Current config schema version, stamped into every saved file.
+///
+/// Bumped to 2 in 0.29.0, when `[spellbook] terms = [...]` became
+/// `[[spellbook.entries]]` with aliases. That bump ships the flow BP
+/// `versioned-config-migration-backup` prescribes and this comment has
+/// promised since version 1: back up as `config.toml.v{version}.bak` *before*
+/// any mutation, map fields explicitly, stamp the new version, persist
+/// immediately. Retired fields stay deserializable so old files still parse
+/// for the migration to read.
+pub const CONFIG_VERSION: u32 = 2;
 
 #[derive(Debug, Error)]
 pub enum ConfigError {
@@ -218,15 +223,85 @@ impl Default for Inject {
     }
 }
 
+/// One spellbook entry: the canonical spelling, plus any misheard spellings
+/// that should be corrected to it outright.
+///
+/// `aliases` exist because the phonetic corrector has a hard edge — Double
+/// Metaphone equality confirmed by Jaro-Winkler — and two common failures fall
+/// outside it: proper nouns split into unrelated words, and providers emitting
+/// a legitimate English word (where the corrector is deliberately conservative,
+/// and should stay that way). An alias is the explicit override for exactly
+/// those cases, matched before the phonetic pass.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+#[serde(default)]
+pub struct SpellbookEntry {
+    /// The correct spelling. This is what gets injected, and what goes to the
+    /// provider as a biasing hint.
+    pub term: String,
+    /// Misheard spellings corrected to `term` on an exact (normalized) match.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub aliases: Vec<String>,
+}
+
+impl SpellbookEntry {
+    /// A bare canonical term with no aliases — what every pre-0.29.0 entry was.
+    pub fn new(term: impl Into<String>) -> Self {
+        SpellbookEntry {
+            term: term.into(),
+            aliases: Vec::new(),
+        }
+    }
+}
+
 /// The `[spellbook]` section. Named `[dictionary]` before 0.26.0; the alias on
 /// the `Settings` field keeps those files loading (see `Settings::spellbook`).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 #[serde(default)]
 pub struct Spellbook {
-    /// Canonical terms: phonetic post-correction targets and the source for
-    /// provider biasing. The alias keeps pre-Phase-2 config files working.
-    #[serde(alias = "bias_terms")]
-    pub terms: Vec<String>,
+    /// Retired in schema 2, kept deserializable on purpose (BP
+    /// `versioned-config-migration-backup`: old files must still parse for the
+    /// migration to have something to read). `migrate` folds these into
+    /// `entries` and empties this, after which it never serializes again.
+    #[serde(
+        rename = "terms",
+        alias = "bias_terms",
+        skip_serializing_if = "Vec::is_empty"
+    )]
+    pub legacy_terms: Vec<String>,
+    /// The real store since schema 2.
+    #[serde(rename = "entries", skip_serializing_if = "Vec::is_empty")]
+    pub entries: Vec<SpellbookEntry>,
+}
+
+impl Spellbook {
+    /// Canonical spellings, in entry order: the phonetic corrector's targets
+    /// and the source for provider biasing. Aliases are deliberately absent —
+    /// they are misspellings, and hinting a provider toward them would teach it
+    /// to produce the very text we correct away.
+    pub fn terms(&self) -> Vec<String> {
+        self.entries.iter().map(|e| e.term.clone()).collect()
+    }
+
+    /// `(term, aliases)` pairs in the shape `hark_spellbook::Corrector::new`
+    /// takes. Lives here so the mapping exists once rather than at every call
+    /// site, and so hark-spellbook stays free of a config dependency.
+    pub fn corrector_entries(&self) -> Vec<(String, Vec<String>)> {
+        self.entries
+            .iter()
+            .map(|e| (e.term.clone(), e.aliases.clone()))
+            .collect()
+    }
+
+    /// Fold retired `terms` into `entries`. Idempotent, and it never clobbers:
+    /// a hand-written file carrying both shapes keeps its entries and gains
+    /// only the legacy terms that are not already present.
+    fn migrate(&mut self) {
+        for term in std::mem::take(&mut self.legacy_terms) {
+            if !self.entries.iter().any(|e| e.term == term) {
+                self.entries.push(SpellbookEntry::new(term));
+            }
+        }
+    }
 }
 
 /// The `[history]` section: local capture + retention. Content capture and
@@ -364,21 +439,85 @@ impl Settings {
     /// Parse settings from TOML text. Unknown keys are tolerated (forward
     /// compatibility); missing keys take defaults; the result is validated.
     pub fn from_toml(text: &str) -> Result<Settings, ConfigError> {
-        let settings: Settings = toml::from_str(text)?;
+        let mut settings: Settings = toml::from_str(text)?;
+        // Before validation: the rest of the app must never see a half-migrated
+        // model, and `version` is stamped to current so a later save cannot
+        // re-trigger the migration.
+        settings.spellbook.migrate();
+        // Only ever bump *up*. A stamp from the future belongs to a file some
+        // newer Hark wrote; stamping it down here would make this build claim
+        // authorship of a schema it does not understand, and the next save
+        // would quietly downgrade the user's file.
+        if settings.version < CONFIG_VERSION {
+            settings.version = CONFIG_VERSION;
+        }
         settings.validate()?;
         Ok(settings)
     }
 
-    /// Load settings from a file. A missing file is not an error: it yields
-    /// the defaults (first-run onboarding is Phase 4).
+    /// Load settings from a file, migrating an older schema in place.
+    ///
+    /// A missing file is not an error: it yields the defaults (first-run
+    /// onboarding is Phase 4).
+    ///
+    /// When the file predates [`CONFIG_VERSION`], the on-disk copy is backed
+    /// up and rewritten in the new shape before this returns, so the migration
+    /// happens once rather than on every launch. Both writes are best-effort:
+    /// the returned settings are correct either way, and a config directory
+    /// that cannot be written is not a reason to refuse to start.
+    ///
+    /// **If the backup cannot be written, the file is left alone.** The backup
+    /// is what makes a bad mapping recoverable, so migrating without one would
+    /// trade the user's only copy for a convenience.
     pub fn load(path: &Path) -> Result<Settings, ConfigError> {
         match std::fs::read_to_string(path) {
-            Ok(text) => Settings::from_toml(&text),
+            Ok(text) => {
+                let from_version = Settings::version_of(&text);
+                let settings = Settings::from_toml(&text)?;
+                if from_version < CONFIG_VERSION {
+                    settings.persist_migration(path, &text, from_version);
+                }
+                Ok(settings)
+            }
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(Settings::default()),
             Err(e) => Err(ConfigError::Io {
                 path: path.display().to_string(),
                 source: e,
             }),
+        }
+    }
+
+    /// The `version` stamp as written, before defaulting. Read from the raw
+    /// text rather than the parsed struct because a file predating the stamp
+    /// deserializes to the *current* value, which would hide the very
+    /// migration this needs to detect.
+    fn version_of(text: &str) -> u32 {
+        text.parse::<toml::Table>()
+            .ok()
+            .and_then(|t| t.get("version").and_then(toml::Value::as_integer))
+            .and_then(|v| u32::try_from(v).ok())
+            .unwrap_or(0)
+    }
+
+    /// Back up the pre-migration text, then rewrite the file in the new shape.
+    /// Best-effort by design; see [`Settings::load`].
+    fn persist_migration(&self, path: &Path, original: &str, from_version: u32) {
+        // Version-stamped so repeated migrations never overwrite each other's
+        // backups, unlike a single `.bak`.
+        let backup = path.with_extension(format!("toml.v{from_version}.bak"));
+        if let Err(e) = std::fs::write(&backup, original) {
+            log::warn!(
+                "config schema v{from_version} -> v{CONFIG_VERSION}: backup failed ({e}); \
+                 leaving the file as-is and migrating in memory only"
+            );
+            return;
+        }
+        match self.save(path) {
+            Ok(()) => log::info!(
+                "config migrated from schema v{from_version} to v{CONFIG_VERSION}; \
+                 previous file kept alongside it"
+            ),
+            Err(e) => log::warn!("config schema migration could not be saved ({e})"),
         }
     }
 
@@ -527,7 +666,7 @@ mod tests {
         assert_eq!(s.audio.tail_ms, 150);
         assert_eq!(s.audio.max_hold_s, 120);
         assert_eq!(s.inject.strategy, InjectStrategy::Clipboard);
-        assert!(s.spellbook.terms.is_empty());
+        assert!(s.spellbook.terms().is_empty());
     }
 
     #[test]
@@ -563,7 +702,7 @@ mod tests {
         // Untouched keys keep their defaults.
         assert_eq!(s.audio.preroll_ms, 300);
         assert_eq!(s.inject.strategy, InjectStrategy::Type);
-        assert_eq!(s.spellbook.terms, vec!["Hark", "Levenshtein"]);
+        assert_eq!(s.spellbook.terms(), vec!["Hark", "Levenshtein"]);
     }
 
     #[test]
@@ -572,7 +711,7 @@ mod tests {
         // keep them loading forever.
         let s = Settings::from_toml("[spellbook]\nbias_terms = [\"Modero\"]")
             .expect("legacy key parses");
-        assert_eq!(s.spellbook.terms, vec!["Modero"]);
+        assert_eq!(s.spellbook.terms(), vec!["Modero"]);
     }
 
     #[test]
@@ -582,7 +721,135 @@ mod tests {
         // one outcome a rename must never produce.
         let s = Settings::from_toml("[dictionary]\nterms = [\"Eldrazi\"]")
             .expect("legacy section parses");
-        assert_eq!(s.spellbook.terms, vec!["Eldrazi"]);
+        assert_eq!(s.spellbook.terms(), vec!["Eldrazi"]);
+    }
+
+    // --- schema v1 -> v2: flat terms become entries with aliases ---
+
+    #[test]
+    fn v1_flat_terms_become_entries_in_order() {
+        let s = Settings::from_toml("[spellbook]\nterms = [\"Hark\", \"Eldrazi\"]")
+            .expect("v1 shape parses");
+        assert_eq!(s.spellbook.terms(), vec!["Hark", "Eldrazi"]);
+        assert!(
+            s.spellbook.entries.iter().all(|e| e.aliases.is_empty()),
+            "a migrated term has no aliases to invent"
+        );
+        assert!(
+            s.spellbook.legacy_terms.is_empty(),
+            "the retired field must be drained, or it migrates again every load"
+        );
+    }
+
+    #[test]
+    fn v2_entries_with_aliases_round_trip() {
+        let text = "[[spellbook.entries]]\nterm = \"Eldrazi\"\naliases = [\"Al Drazi\"]";
+        let s = Settings::from_toml(text).expect("v2 shape parses");
+        assert_eq!(s.spellbook.entries[0].term, "Eldrazi");
+        assert_eq!(s.spellbook.entries[0].aliases, vec!["Al Drazi"]);
+
+        let out = s.to_toml().expect("serializes");
+        let again = Settings::from_toml(&out).expect("re-parses");
+        assert_eq!(again.spellbook, s.spellbook);
+    }
+
+    #[test]
+    fn migration_is_idempotent_and_never_clobbers_existing_entries() {
+        // A hand-edited file carrying both shapes: the entry wins, and only
+        // genuinely new legacy terms are appended.
+        let text = "[spellbook]\nterms = [\"Eldrazi\", \"Hark\"]\n\
+                    [[spellbook.entries]]\nterm = \"Eldrazi\"\naliases = [\"Al Drazi\"]";
+        let s = Settings::from_toml(text).expect("mixed shape parses");
+        assert_eq!(s.spellbook.terms(), vec!["Eldrazi", "Hark"]);
+        assert_eq!(
+            s.spellbook.entries[0].aliases,
+            vec!["Al Drazi"],
+            "the existing entry's aliases must survive the fold"
+        );
+
+        // Loading the saved result again changes nothing.
+        let out = s.to_toml().expect("serializes");
+        assert_eq!(Settings::from_toml(&out).unwrap().spellbook, s.spellbook);
+    }
+
+    #[test]
+    fn a_saved_file_no_longer_carries_the_retired_terms_key() {
+        let s = Settings::from_toml("[spellbook]\nterms = [\"Eldrazi\"]").unwrap();
+        let out = s.to_toml().expect("serializes");
+        assert!(out.contains("[[spellbook.entries]]"), "{out}");
+        assert!(
+            !out.contains("terms = ["),
+            "the retired key must not be written back: {out}"
+        );
+        assert!(
+            out.contains(&format!("version = {CONFIG_VERSION}")),
+            "{out}"
+        );
+    }
+
+    #[test]
+    fn loading_a_v1_file_backs_it_up_and_rewrites_it_once() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("config.toml");
+        let original = "version = 1\n[spellbook]\nterms = [\"Eldrazi\"]\n";
+        std::fs::write(&path, original).expect("seed v1 config");
+
+        let s = Settings::load(&path).expect("loads");
+        assert_eq!(s.spellbook.terms(), vec!["Eldrazi"]);
+
+        // The backup is version-stamped and holds the file exactly as it was:
+        // that is what makes a bad mapping recoverable.
+        let backup = dir.path().join("config.toml.v1.bak");
+        assert_eq!(
+            std::fs::read_to_string(&backup).expect("backup written"),
+            original
+        );
+
+        // The file itself is rewritten in the new shape, so the migration runs
+        // once rather than on every launch.
+        let migrated = std::fs::read_to_string(&path).expect("config still readable");
+        assert!(migrated.contains("[[spellbook.entries]]"), "{migrated}");
+        assert!(
+            migrated.contains(&format!("version = {CONFIG_VERSION}")),
+            "{migrated}"
+        );
+
+        // A second load is a no-op: no v2 backup appears.
+        Settings::load(&path).expect("loads again");
+        assert!(
+            !dir.path().join("config.toml.v2.bak").exists(),
+            "an already-current file must not be migrated again"
+        );
+    }
+
+    #[test]
+    fn a_current_file_is_never_touched_on_load() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("config.toml");
+        let current = Settings::default();
+        current.save(&path).expect("save");
+        let before = std::fs::read_to_string(&path).expect("read");
+
+        Settings::load(&path).expect("loads");
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), before);
+        assert!(!dir.path().join("config.toml.v1.bak").exists());
+        assert!(!dir.path().join("config.toml.v2.bak").exists());
+    }
+
+    #[test]
+    fn an_unstamped_file_is_treated_as_pre_v1_and_migrated() {
+        // Files predating the version stamp deserialize to the current value,
+        // so the stamp has to be read from the raw text or the migration is
+        // invisible.
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("config.toml");
+        std::fs::write(&path, "[spellbook]\nterms = [\"Eldrazi\"]\n").expect("seed");
+
+        Settings::load(&path).expect("loads");
+        assert!(
+            dir.path().join("config.toml.v0.bak").exists(),
+            "an unstamped file must still be backed up before rewriting"
+        );
     }
 
     #[test]
@@ -593,7 +860,10 @@ mod tests {
         let s = Settings::from_toml("[dictionary]\nbias_terms = [\"Eldrazi\"]")
             .expect("legacy section parses");
         let out = toml::to_string_pretty(&s).expect("serializes");
-        assert!(out.contains("[spellbook]"), "must save under the new name");
+        assert!(
+            out.contains("[[spellbook.entries]]"),
+            "must save under the new name: {out}"
+        );
         assert!(
             !out.contains("[dictionary]"),
             "must not re-emit the old name"
@@ -663,8 +933,16 @@ mod tests {
             "pre-stamp files are current-generation files"
         );
 
+        // An older stamp is migrated up: after `from_toml` the in-memory model
+        // really is current-generation.
         let s = Settings::from_toml("version = 1").expect("explicit stamp parses");
-        assert_eq!(s.version, 1);
+        assert_eq!(s.version, CONFIG_VERSION);
+
+        // A newer stamp is left alone. Two Hark versions sharing one config is
+        // the case that matters: the older build must not relabel the file.
+        let future = CONFIG_VERSION + 5;
+        let s = Settings::from_toml(&format!("version = {future}")).expect("future stamp parses");
+        assert_eq!(s.version, future, "a future schema stamp must survive");
     }
 
     #[test]
@@ -770,7 +1048,7 @@ mod tests {
     fn to_toml_stamps_the_version_and_omits_none_fields() {
         let text = Settings::default().to_toml().expect("defaults serialize");
         assert!(
-            text.contains("version = 1"),
+            text.contains(&format!("version = {CONFIG_VERSION}")),
             "saved files are self-describing: {text}"
         );
         assert!(
@@ -790,7 +1068,7 @@ mod tests {
         s.provider.kind = ProviderKind::Groq;
         s.provider.model = Some("whisper-large-v3".to_string());
         s.hotkey.ptt_key = "RCtrl".to_string();
-        s.spellbook.terms = vec!["Hark".to_string(), "Modero".to_string()];
+        s.spellbook.entries = vec![SpellbookEntry::new("Hark"), SpellbookEntry::new("Modero")];
         s.history.capture = false;
         s.history.max_entries = 250;
         s.voice.default = VoiceName::Professional;
@@ -815,7 +1093,7 @@ mod tests {
         assert_eq!(loaded.provider.model.as_deref(), Some("whisper-large-v3"));
         assert_eq!(loaded.provider.base_url, None);
         assert_eq!(loaded.hotkey.ptt_key, "RCtrl");
-        assert_eq!(loaded.spellbook.terms, vec!["Hark", "Modero"]);
+        assert_eq!(loaded.spellbook.terms(), vec!["Hark", "Modero"]);
         assert!(!loaded.history.capture);
         assert_eq!(loaded.history.max_entries, 250);
         assert_eq!(loaded.voice.default, VoiceName::Professional);
@@ -861,13 +1139,14 @@ mod tests {
     }
 
     #[test]
-    fn legacy_bias_terms_saves_back_as_terms() {
-        // A config loaded through the legacy alias serializes under the
-        // canonical key, quietly upgrading the file on the next save.
+    fn legacy_bias_terms_migrate_into_entries() {
+        // The oldest shape of all (pre-Phase-2 `bias_terms`) still has to reach
+        // the current model, through both renames in one hop.
         let s = Settings::from_toml("[spellbook]\nbias_terms = [\"Modero\"]")
             .expect("legacy key parses");
+        assert_eq!(s.spellbook.terms(), vec!["Modero"]);
         let text = s.to_toml().expect("serializes");
-        assert!(text.contains("terms"), "{text}");
+        assert!(text.contains("[[spellbook.entries]]"), "{text}");
         assert!(!text.contains("bias_terms"), "{text}");
     }
 

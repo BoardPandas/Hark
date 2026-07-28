@@ -128,7 +128,7 @@ fn spellbook(
     pipeline: &mut PipelineController,
     views: &mut Views,
 ) {
-    if views.spellbook.show(ui, &mut settings.spellbook.terms) {
+    if views.spellbook.show(ui, &mut settings.spellbook.entries) {
         views
             .spellbook
             .set_notice(settings::save_to_disk(settings).err());

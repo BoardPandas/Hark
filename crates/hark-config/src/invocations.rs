@@ -87,7 +87,7 @@ mod tests {
         )
         .expect("a config predating [invocations] must load");
         assert!(s.invocations.entries.is_empty());
-        assert_eq!(s.spellbook.terms, vec!["Modero"]);
+        assert_eq!(s.spellbook.terms(), vec!["Modero"]);
     }
 
     #[test]

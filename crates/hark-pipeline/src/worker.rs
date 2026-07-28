@@ -585,7 +585,7 @@ mod tests {
         let p = MockProvider::new(vec![MockProvider::ok(
             "tell vosburg the madero build is green",
         )]);
-        let corrector = Corrector::new(&["Vossburg".to_string(), "Modero".to_string()]);
+        let corrector = Corrector::from_terms(&["Vossburg".to_string(), "Modero".to_string()]);
 
         let transcript = transcribe_with_retry(&p, b"wav").unwrap();
         let text = corrected_text(&corrector, &transcript.text);
@@ -820,7 +820,7 @@ mod tests {
     /// the canned text if spellbook pass 2 ever ran over it. It must not.
     #[test]
     fn a_fired_invocation_never_calls_the_cleaner() {
-        let corrector = Corrector::new(&["Forj".to_string()]);
+        let corrector = Corrector::from_terms(&["Forj".to_string()]);
         let expander = expander("access granted", CANNED, hark_spellbook::Scope::Utterance);
         // Shaped like `Worker::cleanup` so the branch below is the real one.
         let cleanup = Some(MockCleaner::plan(vec![], 0));
@@ -873,7 +873,7 @@ mod tests {
 
     #[test]
     fn terms_mangled_by_the_model_are_repaired_by_pass_2() {
-        let corrector = Corrector::new(&["Vossburg".to_string(), "Modero".to_string()]);
+        let corrector = Corrector::from_terms(&["Vossburg".to_string(), "Modero".to_string()]);
         // The mock "model" re-mangles both spellbook terms.
         let plan = MockCleaner::plan(
             vec![MockCleaner::ok("Tell vosburg the madero build is green.")],

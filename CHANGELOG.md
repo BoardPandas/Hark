@@ -4,6 +4,15 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.29.0] - 2026-07-28
+
+### Added
+- **Spellbook entries can now fix a specific misheard spelling.** Alongside the term itself, an entry can carry the exact wrong spellings Hark keeps producing — so "Al Drazi" becomes "Eldrazi" even when the two are too far apart to sound alike. Tick **Advanced** on the add row, or click the alias count on any existing entry. Adding from a history selection now fills this in for you: the misheard text is kept as the spelling to correct, and you type only the correct one.
+- **A warning when a correction would fire too often.** If you enter an everyday word as a misheard spelling, Hark says so — it would trigger every time you said it. It's advice, not a veto.
+
+### Changed
+- **Your config file is upgraded to the new spellbook format on first launch.** The old copy is kept beside it as `config.toml.v1.bak`, untouched, so nothing is lost. Existing terms carry over exactly as they were, and files written by an older Hark still load.
+
 ## [0.28.0] - 2026-07-28
 
 ### Added

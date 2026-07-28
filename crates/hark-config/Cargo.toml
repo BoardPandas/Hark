@@ -10,6 +10,9 @@ description = "Hark settings: TOML load/save with defaults (provider, model, bas
 serde = { version = "1", features = ["derive"] }
 toml = "1"
 thiserror = "2"
+# Schema migration is the only thing here that reports: it happens once, off
+# any hot path, and a silent rewrite of the user's config would be worse.
+log = "0.4"
 
 [dev-dependencies]
 tempfile = "3"

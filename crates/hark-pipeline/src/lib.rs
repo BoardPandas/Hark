@@ -99,7 +99,7 @@ pub fn provider_config(
         base_url,
         model: settings.provider.resolved_model(),
         api_key,
-        bias_terms: settings.spellbook.terms.clone(),
+        bias_terms: settings.spellbook.terms(),
         // No settings path selects the fused adapter yet: the Gemini prototype
         // is driven by its spike, not by the app.
         cleanup_instruction: None,
@@ -207,7 +207,7 @@ fn build_cleanup(
         reasoning_effort: resolved.reasoning_effort.clone(),
         voice,
         custom_prompt: settings.voice.custom_prompt.clone(),
-        spellbook_terms: settings.spellbook.terms.clone(),
+        spellbook_terms: settings.spellbook.terms(),
     };
     let adapter = match hark_voice::openai_compatible::OpenAiCompatibleChat::new(&config, client) {
         Ok(a) => a,
@@ -368,7 +368,7 @@ pub fn run(
         provider,
         cloud_label: provider_cfg.label.clone(),
         local,
-        corrector: hark_spellbook::Corrector::new(&settings.spellbook.terms),
+        corrector: hark_spellbook::Corrector::new(&settings.spellbook.corrector_entries()),
         expander: build_expander(&settings.invocations),
         cleanup,
         prewarm_url,
