@@ -4,10 +4,10 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## [Unreleased]
+## [0.27.0] - 2026-07-28
 
-_Planning only — no user-facing change. Spellbook learning plan refined
-(`tasks/2026-07-28-plan-spellbook-suggestions.md`)._
+### Added
+- **Preview: you can now select words in a history entry's raw transcript, and the selection snaps to whole words.** Expand a history entry and drag across the raw transcript — if you clip the edges, Hark widens the highlight to the words you meant, and a single click selects the word under it. Punctuation and quotes are left out, hyphenated words stay whole. For now it only shows you what it *would* add to the Spellbook; the button that actually adds it comes next. This is a first step toward correcting misheard names by pointing at them instead of typing them.
 
 ## [0.26.0] - 2026-07-28
 

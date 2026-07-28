@@ -14,6 +14,7 @@ mod row;
 
 use crate::storage::{StorageCmd, StorageHandle};
 use crate::theme;
+use crate::ui::selectable::Selection;
 use crate::ui::{format, widgets};
 use egui::{Align, Color32, Key, Layout, Modifiers, RichText, ScrollArea, TextEdit, Ui};
 use hark_store::{Entry, StoreError};
@@ -43,6 +44,10 @@ pub struct HistoryPage {
     confirm: Option<widgets::Confirm>,
     focus_search: bool,
     tz: TimeZone,
+    /// The one live text selection across the whole list (Slice 0 spike):
+    /// selecting in a second row must retire the first, so the page owns it
+    /// rather than each row.
+    selection: Option<Selection>,
 }
 
 impl HistoryPage {
@@ -60,6 +65,7 @@ impl HistoryPage {
             confirm: None,
             focus_search: false,
             tz: TimeZone::system(),
+            selection: None,
         }
     }
 
@@ -233,7 +239,15 @@ impl HistoryPage {
                     }
                     let expanded = self.expanded == Some(entry.id);
                     let copied = self.copied == Some(entry.id);
-                    if let Some(a) = row::show(ui, entry, expanded, copied, now_ms, &self.tz) {
+                    if let Some(a) = row::show(
+                        ui,
+                        entry,
+                        expanded,
+                        copied,
+                        now_ms,
+                        &self.tz,
+                        &mut self.selection,
+                    ) {
                         action = Some(a);
                     }
                 }

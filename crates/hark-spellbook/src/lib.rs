@@ -17,11 +17,13 @@
 
 mod expander;
 mod matcher;
+mod snap;
 mod tokenize;
 
 pub use expander::{
     normalized_phrase, phrase_word_count, Expander, Expansion, Scope, MIN_TRIGGER_WORDS,
 };
+pub use snap::{snap_to_tokens, snapped_text};
 
 use matcher::TermEntry;
 use rphonetic::DoubleMetaphone;

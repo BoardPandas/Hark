@@ -4,6 +4,7 @@
 
 use crate::theme;
 use crate::ui::format;
+use crate::ui::selectable::{selectable_text, Selection};
 use egui::{Align, Frame, Id, Label, Layout, Margin, RichText, Sense, Ui};
 use hark_store::Entry;
 use jiff::tz::TimeZone;
@@ -33,6 +34,7 @@ pub fn show(
     copied: bool,
     now_ms: i64,
     tz: &TimeZone,
+    selection: &mut Option<Selection>,
 ) -> Option<Action> {
     let mut action = None;
     ui.horizontal(|ui| {
@@ -81,7 +83,7 @@ pub fn show(
         });
     });
     if expanded {
-        details(ui, entry, tz);
+        details(ui, entry, tz, selection);
     }
     // The Nocturne signature: a 1px rule fading to transparent at both ends,
     // in an 8px strip that gives each row its breathing room.
@@ -92,7 +94,7 @@ pub fn show(
 /// Expanded detail (a surface panel): the raw transcript exactly as the
 /// provider returned it, the timing breakdown, and the full timestamp with
 /// the provider label (disappointing output must have an obvious cause).
-fn details(ui: &mut Ui, entry: &Entry, tz: &TimeZone) {
+fn details(ui: &mut Ui, entry: &Entry, tz: &TimeZone, selection: &mut Option<Selection>) {
     ui.add_space(4.0);
     Frame::default()
         .fill(theme::surface(ui.visuals()))
@@ -123,7 +125,19 @@ fn details(ui: &mut Ui, entry: &Entry, tz: &TimeZone) {
                 ui.add_space(2.0);
             }
             ui.label(RichText::new("RAW TRANSCRIPT").size(10.5).weak());
-            ui.label(RichText::new(entry.raw_text.trim()).monospace());
+            // Slice 0 spike: the raw transcript is selectable, and the live
+            // selection snaps to whole spellbook tokens. The readout below is
+            // the spike's visible proof; Slice 1 replaces it with an Add
+            // button in the row's action cluster.
+            let raw = entry.raw_text.trim();
+            let snapped = selectable_text(ui, raw, RichText::new(raw).monospace(), selection);
+            if let Some(term) = snapped.and_then(|r| hark_spellbook::snapped_text(raw, r)) {
+                ui.label(
+                    RichText::new(format!("Would add: {term}"))
+                        .small()
+                        .color(theme::accent(ui.visuals())),
+                );
+            }
             ui.add_space(4.0);
             ui.label(RichText::new(timing_line(entry)).monospace().small());
             ui.label(
