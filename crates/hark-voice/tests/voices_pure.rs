@@ -91,6 +91,24 @@ fn every_built_in_voice_builds_a_disciplined_prompt() {
 }
 
 #[test]
+fn grammar_voice_forbids_rewriting() {
+    // Grammar is the one built-in that may not change wording at all, so the
+    // no-rewrite half of its instruction is the part worth pinning.
+    let prompt = system_prompt(Voice::Grammar, "", &[]).expect("grammar builds a prompt");
+    for marker in [
+        "Correct the grammar",
+        "Do not rewrite, rephrase, or restructure",
+        "exact words and word order",
+        "synonym",
+    ] {
+        assert!(
+            prompt.contains(marker),
+            "grammar prompt is missing {marker:?}"
+        );
+    }
+}
+
+#[test]
 fn custom_voice_gets_neither_shared_clause() {
     // The escape hatch stays untouched: no length discipline, no punctuation
     // rule imposed on the user's own prompt.

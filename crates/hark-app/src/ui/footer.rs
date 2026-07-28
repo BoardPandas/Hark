@@ -61,10 +61,8 @@ fn state_side(ui: &mut Ui, status: &PipelineStatus, settings: &Settings) -> bool
         PipelineStatus::LoadingModel => {
             spinner(ui, accent);
             ui.add(
-                egui::Label::new(
-                    RichText::new("Loading the on-device model\u{2026}").small(),
-                )
-                .truncate(),
+                egui::Label::new(RichText::new("Loading the on-device model\u{2026}").small())
+                    .truncate(),
             );
         }
         PipelineStatus::Errored {

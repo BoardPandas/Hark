@@ -15,6 +15,7 @@ use serde::{Deserialize, Serialize};
 #[serde(rename_all = "kebab-case")]
 pub enum VoiceName {
     Verbatim,
+    Grammar,
     Clean,
     Professional,
     Casual,
@@ -31,6 +32,7 @@ impl VoiceName {
     pub fn label(self) -> &'static str {
         match self {
             VoiceName::Verbatim => "verbatim",
+            VoiceName::Grammar => "grammar",
             VoiceName::Clean => "clean",
             VoiceName::Professional => "professional",
             VoiceName::Casual => "casual",

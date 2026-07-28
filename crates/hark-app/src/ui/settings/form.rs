@@ -360,8 +360,9 @@ pub fn hotkey_section(
 /// menu's radio group, so the two pickers can never drift apart. Secret voices
 /// (see [`SECRET_VOICES`]) are deliberately excluded so they never surface in
 /// the tray.
-pub(crate) const VOICES: [VoiceName; 9] = [
+pub(crate) const VOICES: [VoiceName; 10] = [
     VoiceName::Verbatim,
+    VoiceName::Grammar,
     VoiceName::Clean,
     VoiceName::Professional,
     VoiceName::Casual,
@@ -394,7 +395,10 @@ pub fn voice_section(ui: &mut Ui, draft: &mut Settings, secret_clicks: &mut u32)
     // subhead but senses clicks. `*secret_clicks` never resets during a session.
     ui.add_space(8.0);
     if ui
-        .add(Label::new(RichText::new("Voice").text_style(theme::subheading())).sense(Sense::click()))
+        .add(
+            Label::new(RichText::new("Voice").text_style(theme::subheading()))
+                .sense(Sense::click()),
+        )
         .clicked()
     {
         *secret_clicks = secret_clicks.saturating_add(1);
@@ -422,6 +426,7 @@ pub fn voice_section(ui: &mut Ui, draft: &mut Settings, secret_clicks: &mut u32)
 pub(crate) fn voice_display(name: VoiceName) -> &'static str {
     match name {
         VoiceName::Verbatim => "Verbatim",
+        VoiceName::Grammar => "Grammar",
         VoiceName::Clean => "Clean",
         VoiceName::Professional => "Professional",
         VoiceName::Casual => "Casual",
@@ -591,11 +596,15 @@ mod tests {
         assert!(!locked.contains(&VoiceName::Pirate));
 
         // One click short of the threshold is still locked.
-        assert!(!selectable_voices(SECRET_UNLOCK_CLICKS - 1, VoiceName::Clean)
-            .contains(&VoiceName::Pirate));
+        assert!(
+            !selectable_voices(SECRET_UNLOCK_CLICKS - 1, VoiceName::Clean)
+                .contains(&VoiceName::Pirate)
+        );
 
         // At the threshold the secret voices appear.
-        assert!(selectable_voices(SECRET_UNLOCK_CLICKS, VoiceName::Clean).contains(&VoiceName::Pirate));
+        assert!(
+            selectable_voices(SECRET_UNLOCK_CLICKS, VoiceName::Clean).contains(&VoiceName::Pirate)
+        );
 
         // Already-selected secret voice stays offered even with no clicks (a
         // saved Pirate config must remain re-selectable after a restart).

@@ -10,6 +10,7 @@ use std::str::FromStr;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Voice {
     Verbatim,
+    Grammar,
     Clean,
     Professional,
     Casual,
@@ -24,8 +25,9 @@ pub enum Voice {
 impl Voice {
     /// Every valid name, in display order (the CLI's error message and the
     /// config docs both derive from this).
-    pub const NAMES: [&'static str; 10] = [
+    pub const NAMES: [&'static str; 11] = [
         "verbatim",
+        "grammar",
         "clean",
         "professional",
         "casual",
@@ -40,6 +42,7 @@ impl Voice {
     pub fn name(self) -> &'static str {
         match self {
             Voice::Verbatim => "verbatim",
+            Voice::Grammar => "grammar",
             Voice::Clean => "clean",
             Voice::Professional => "professional",
             Voice::Casual => "casual",
@@ -79,6 +82,7 @@ impl FromStr for Voice {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s.trim().to_ascii_lowercase().as_str() {
             "verbatim" => Ok(Voice::Verbatim),
+            "grammar" => Ok(Voice::Grammar),
             "clean" => Ok(Voice::Clean),
             "professional" => Ok(Voice::Professional),
             "casual" => Ok(Voice::Casual),
@@ -163,6 +167,17 @@ pub const LENGTH_DISCIPLINE_CLAUSE: &str = "You are editing a spoken transcript,
      speaker did not say, and never expand a short remark into a paragraph or a list. If the \
      transcript is already clean, return it unchanged.";
 
+// The lightest built-in: a proofreader, not an editor. Every other voice is
+// allowed to change wording; this one is not, so the instruction spends its
+// words on what must NOT change rather than on what to fix.
+const GRAMMAR_INSTRUCTION: &str = "Correct the grammar of the transcript below and change nothing \
+     else. Fix grammatical errors (verb tense, subject-verb agreement, plurals, articles, \
+     pronoun case), misspellings, punctuation, and capitalization. Do not rewrite, rephrase, or \
+     restructure anything: keep the speaker's exact words and word order, keep every sentence as \
+     its own sentence without merging or splitting, and never swap a word for a synonym or a more \
+     formal equivalent. Leave informal phrasing, filler words, and repetition exactly as spoken. \
+     If a sentence is already grammatical, return it untouched.";
+
 const CLEAN_INSTRUCTION: &str = "Rewrite the transcript below. Fix punctuation, capitalization, \
      filler words (um, uh, you know), false starts, and repeated words. Keep the speaker's own \
      wording, meaning, and tone.";
@@ -233,6 +248,7 @@ pub fn over_expanded(input: &str, output: &str, max_ratio: f32) -> bool {
 pub fn system_prompt(voice: Voice, custom_prompt: &str, present_terms: &[&str]) -> Option<String> {
     let instruction = match voice {
         Voice::Verbatim => return None,
+        Voice::Grammar => GRAMMAR_INSTRUCTION,
         Voice::Clean => CLEAN_INSTRUCTION,
         Voice::Professional => PROFESSIONAL_INSTRUCTION,
         Voice::Casual => CASUAL_INSTRUCTION,

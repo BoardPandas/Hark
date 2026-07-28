@@ -4,6 +4,11 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.24.0] - 2026-07-27
+
+### Added
+- **A Grammar voice that only fixes grammar.** Every other voice is free to reword what you said; this one isn't. Grammar corrects verb tense, agreement, plurals, articles, pronouns, spelling, punctuation, and capitalization, and leaves everything else exactly as spoken — same words, same word order, same sentence boundaries, no synonym swaps, no tidied-up filler. Pick it in Settings → Voice or from the tray, between Verbatim and Clean.
+
 ## [0.23.1] - 2026-07-26
 
 ### Fixed

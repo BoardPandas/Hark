@@ -146,6 +146,7 @@ fn build_expander(invocations: &hark_config::Invocations) -> hark_dictionary::Ex
 fn effective_voice(name: hark_config::VoiceName) -> hark_voice::Voice {
     match name {
         hark_config::VoiceName::Verbatim => hark_voice::Voice::Verbatim,
+        hark_config::VoiceName::Grammar => hark_voice::Voice::Grammar,
         hark_config::VoiceName::Clean => hark_voice::Voice::Clean,
         hark_config::VoiceName::Professional => hark_voice::Voice::Professional,
         hark_config::VoiceName::Casual => hark_voice::Voice::Casual,
