@@ -12,7 +12,7 @@ use crate::ui::spellbook::SpellbookPage;
 use crate::ui::stats::StatsPage;
 use crate::ui::{pages, settings, shell};
 use crate::update::Updater;
-use crate::{storage, theme, tray};
+use crate::{storage, theme, tray, window_state};
 use hark_config::{Settings, VoiceName};
 use std::sync::mpsc::{self, Receiver};
 
@@ -50,6 +50,12 @@ pub struct HarkApp {
     /// thread. `None` if the listener could not start, which costs activation
     /// and nothing else.
     activations: Option<Receiver<()>>,
+    /// Where the window opens: restored on the first `logic` pass, tracked
+    /// from the root viewport, persisted by `save`.
+    window: window_state::Memory,
+    /// Set when startup found something worth showing the window for
+    /// (onboarding, a stopped pipeline); consumed by the first `logic` pass.
+    show_at_startup: bool,
 }
 
 impl HarkApp {
@@ -96,13 +102,13 @@ impl HarkApp {
         // The window starts hidden (main.rs) and shows only when it has
         // something to say: onboarding or a stopped pipeline. A running
         // pipeline keeps the app in the tray, the daemon shape it is meant
-        // to have.
-        if !pipeline.is_running() {
-            show_window(&cc.egui_ctx);
-        }
+        // to have. Showing waits for the first `logic` pass so the restored
+        // geometry is applied first — viewport commands run in the order they
+        // were queued, and made-visible-then-resized is a visible flash.
+        let show_at_startup = !pipeline.is_running();
         // A hidden window is not guaranteed a natural first frame; one
-        // explicit repaint makes `logic` run (creating the tray, flushing
-        // the visibility command above) even if the window never shows.
+        // explicit repaint makes `logic` run (creating the tray, placing and
+        // showing the window) even if the window never shows.
         cc.egui_ctx.request_repaint();
 
         // Opt-in (default on): one background check at startup surfaces a
@@ -130,6 +136,8 @@ impl HarkApp {
             updater,
             _activation_listener: listener,
             activations,
+            window: window_state::Memory::load(cc.storage),
+            show_at_startup,
         }
     }
 
@@ -332,6 +340,13 @@ fn open_storage(ctx: &egui::Context) -> (Option<storage::StorageHandle>, Option<
 
 impl eframe::App for HarkApp {
     fn logic(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        // `logic` runs for the root viewport only (the recording overlay paints
+        // through its own callback), so this is the one place that sees the
+        // main window's geometry and nothing else's.
+        self.window.tick(ctx);
+        if std::mem::take(&mut self.show_at_startup) {
+            show_window(ctx);
+        }
         self.ensure_tray(ctx);
         self.pipeline.drain_events();
         self.updater.poll();
@@ -346,6 +361,13 @@ impl eframe::App for HarkApp {
                 self.settings.voice.default,
             );
         }
+    }
+
+    /// Called by eframe's auto-save and once more on a clean exit. It can fire
+    /// during ANY viewport's frame, which is exactly why the geometry written
+    /// here is the cached root one rather than whatever is painting.
+    fn save(&mut self, storage: &mut dyn eframe::Storage) {
+        self.window.save(storage);
     }
 
     // clear_color is transparent so the recording overlay's borderless

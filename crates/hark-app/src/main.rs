@@ -19,6 +19,7 @@ mod theme;
 mod tray;
 mod ui;
 mod update;
+mod window_state;
 
 use std::time::{Duration, Instant};
 
@@ -76,8 +77,10 @@ fn main() -> eframe::Result {
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_title("Hark")
-            .with_inner_size([960.0, 640.0])
-            .with_min_inner_size([720.0, 480.0])
+            // First-launch geometry only: a remembered size and position are
+            // applied on the first frame instead (`window_state`).
+            .with_inner_size(window_state::DEFAULT_SIZE)
+            .with_min_inner_size(window_state::MIN_SIZE)
             // Launch hidden: when a key resolves the app lives in the tray
             // (CP5); `HarkApp::new` shows the window only when it needs
             // attention (onboarding, config error, stopped pipeline).
@@ -91,6 +94,16 @@ fn main() -> eframe::Result {
             // main window itself stays opaque: its panels fully paint it (see
             // `HarkApp::clear_color`), so a transparent clear is invisible here.
             .with_transparent(true),
+        // eframe's own window persistence is unusable for an app with a second
+        // viewport. Its auto-save runs at the end of ANY viewport's paint and
+        // stores *that* viewport's geometry under the root window's key — so
+        // every dictation that outlived the auto-save interval saved the 160x40
+        // recording pill as "the Hark window", and the next launch restored a
+        // window barely bigger than its own title bar (`min_inner_size` does not
+        // rescue it: eframe only clamps a restored size to 64x64). We keep the
+        // geometry ourselves instead, from the root viewport only
+        // (`window_state`), and eframe still persists egui memory as before.
+        persist_window: false,
         ..Default::default()
     };
     eframe::run_native(

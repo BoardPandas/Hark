@@ -14,22 +14,36 @@
 //! - We always CallNextHookEx: Hark observes keys, it never swallows them.
 //!   (Holding Ctrl+Win marks the Win press as "used in a chord", so the
 //!   Start menu does not fire on release; no swallowing needed.)
+//! - A hook does NOT see every release. Releases that happen on another
+//!   desktop (lock screen, UAC, Ctrl+Alt+Del), across a sleep/resume, or
+//!   after Windows quietly unhooks a callback that ran long simply never
+//!   arrive — and one lost release wedges the tracker engaged forever: the
+//!   recording never ends, the overlay pill never goes away, and no later
+//!   press produces an edge either. So while (and only while) a chord is
+//!   held, a thread timer polls the real key state and heals the difference
+//!   (`watchdog_tick`).
 
 use crate::edges::{CaptureEvent, ChordTracker, PttChord, PttEvent, PttKeyCode};
 use crate::{HotkeyError, ListenerHandle};
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::sync::mpsc::{self, Sender};
 use windows::Win32::Foundation::{LPARAM, LRESULT, WPARAM};
 use windows::Win32::System::Threading::GetCurrentThreadId;
 use windows::Win32::UI::Input::KeyboardAndMouse::{
-    VIRTUAL_KEY, VK_CAPITAL, VK_F1, VK_F24, VK_LCONTROL, VK_LMENU, VK_LSHIFT, VK_LWIN, VK_RCONTROL,
-    VK_RMENU, VK_RSHIFT, VK_RWIN,
+    GetAsyncKeyState, VIRTUAL_KEY, VK_CAPITAL, VK_F1, VK_F24, VK_LCONTROL, VK_LMENU, VK_LSHIFT,
+    VK_LWIN, VK_RCONTROL, VK_RMENU, VK_RSHIFT, VK_RWIN,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
-    CallNextHookEx, DispatchMessageW, GetMessageW, PostQuitMessage, PostThreadMessageW,
-    SetWindowsHookExW, TranslateMessage, UnhookWindowsHookEx, KBDLLHOOKSTRUCT, LLKHF_INJECTED,
-    LLKHF_UP, MSG, WH_KEYBOARD_LL, WM_QUIT,
+    CallNextHookEx, DispatchMessageW, GetMessageW, KillTimer, PostQuitMessage, PostThreadMessageW,
+    SetTimer, SetWindowsHookExW, TranslateMessage, UnhookWindowsHookEx, KBDLLHOOKSTRUCT,
+    LLKHF_INJECTED, LLKHF_UP, MSG, WH_KEYBOARD_LL, WM_QUIT, WM_TIMER,
 };
+
+/// How often the watchdog re-checks that the held chord is really still held.
+/// Only runs between engage and disengage, so an idle Hark posts no timers at
+/// all. Short enough that a lost release costs a fraction of a second of
+/// trailing audio, long enough to be free (a handful of key-state reads).
+const WATCHDOG_MS: u32 = 250;
 
 /// Map a Win32 virtual-key code to a chord-capable key. Pure; unit-tested.
 fn vk_to_key(vk: u32) -> Option<PttKeyCode> {
@@ -52,6 +66,33 @@ fn vk_to_key(vk: u32) -> Option<PttKeyCode> {
     Some(key)
 }
 
+/// The inverse of [`vk_to_key`], for asking Windows whether a chord key is
+/// physically down. Round-trip unit-tested against `vk_to_key`.
+fn key_to_vk(key: PttKeyCode) -> VIRTUAL_KEY {
+    match key {
+        PttKeyCode::LCtrl => VK_LCONTROL,
+        PttKeyCode::RCtrl => VK_RCONTROL,
+        PttKeyCode::LShift => VK_LSHIFT,
+        PttKeyCode::RShift => VK_RSHIFT,
+        PttKeyCode::LAlt => VK_LMENU,
+        PttKeyCode::RAlt => VK_RMENU,
+        PttKeyCode::LWin => VK_LWIN,
+        PttKeyCode::RWin => VK_RWIN,
+        PttKeyCode::CapsLock => VK_CAPITAL,
+        // Chords only ever carry F1..=F24 (parse and capture both enforce it);
+        // clamping keeps a bogus index inside the F-key block regardless.
+        PttKeyCode::F(n) => VIRTUAL_KEY(VK_F1.0 + u16::from(n.clamp(1, 24)) - 1),
+    }
+}
+
+/// Is this key physically held right now? `GetAsyncKeyState`'s high bit is the
+/// physical state (its low bit is the CapsLock-style toggle, which we ignore).
+fn physically_down(key: PttKeyCode) -> bool {
+    // SAFETY: a pure getter over a virtual-key code, no out-params.
+    let state = unsafe { GetAsyncKeyState(i32::from(key_to_vk(key).0)) };
+    (state as u16) & 0x8000 != 0
+}
+
 /// Per-hook-thread state. The LL hook callback carries no user pointer, but
 /// it always runs on the installing thread, so thread-local state is exact.
 /// The same hook serves push-to-talk (resolved chord edges) and the settings
@@ -68,6 +109,53 @@ enum HookState {
 
 thread_local! {
     static HOOK_STATE: RefCell<Option<HookState>> = const { RefCell::new(None) };
+    /// Id of the live watchdog timer, or 0 when the chord is not held.
+    static WATCHDOG: Cell<usize> = const { Cell::new(0) };
+}
+
+/// Arm the watchdog for the duration of a hold, or disarm it. Idempotent, and
+/// called only from the hook thread (which owns the timer and its queue).
+fn set_watchdog(armed: bool) {
+    let id = WATCHDOG.with(|w| w.get());
+    // SAFETY (both arms): thread timers, created and destroyed on this thread.
+    // A null window handle posts WM_TIMER to this thread's own queue.
+    if armed && id == 0 {
+        let id = unsafe { SetTimer(None, 0, WATCHDOG_MS, None) };
+        if id == 0 {
+            log::warn!("push-to-talk watchdog timer could not be created");
+        }
+        WATCHDOG.with(|w| w.set(id));
+    } else if !armed && id != 0 {
+        if let Err(e) = unsafe { KillTimer(None, id) } {
+            log::warn!("push-to-talk watchdog timer could not be stopped: {e}");
+        }
+        WATCHDOG.with(|w| w.set(0));
+    }
+}
+
+/// One watchdog poll: if the chord the tracker thinks is held is no longer
+/// physically down, the release event went missing — emit it ourselves so the
+/// recording ends. Cheap by construction: a few key-state reads, and only
+/// while a chord is engaged.
+fn watchdog_tick() {
+    let mut disconnected = false;
+    let mut healed = false;
+    HOOK_STATE.with(|state| {
+        if let Some(HookState::Ptt { tracker, tx }) = state.borrow_mut().as_mut() {
+            if let Some(event) = tracker.resync_released(physically_down) {
+                log::warn!("push-to-talk release never arrived; ending the recording");
+                disconnected = tx.send(event).is_err();
+                healed = true;
+            }
+        }
+    });
+    if healed {
+        set_watchdog(false);
+    }
+    if disconnected {
+        // Same contract as the hook callback: no receiver, no reason to hook.
+        unsafe { PostQuitMessage(0) };
+    }
 }
 
 unsafe extern "system" fn keyboard_hook(code: i32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
@@ -83,9 +171,18 @@ unsafe extern "system" fn keyboard_hook(code: i32, wparam: WPARAM, lparam: LPARA
                     // or the record UI closed): shut this hook down rather than
                     // hooking keys forever.
                     let disconnected = match s {
-                        HookState::Ptt { tracker, tx } => tracker
-                            .on_event(key, down, injected)
-                            .is_some_and(|event| tx.send(event).is_err()),
+                        HookState::Ptt { tracker, tx } => {
+                            match tracker.on_event(key, down, injected) {
+                                Some(event) => {
+                                    // The watchdog exists only for the span of
+                                    // a hold: armed on engage, disarmed on the
+                                    // release that ends it.
+                                    set_watchdog(event == PttEvent::Down);
+                                    tx.send(event).is_err()
+                                }
+                                None => false,
+                            }
+                        }
                         HookState::Capture { tx } => {
                             // Injected input (our own synthesized Ctrl+V) must
                             // never land in a recorded shortcut.
@@ -150,11 +247,20 @@ fn spawn_hook(thread_name: &str, hook_state: HookState) -> Result<ListenerHandle
             // are delivered only while this loop runs.
             let mut msg = MSG::default();
             while unsafe { GetMessageW(&mut msg, None, 0, 0) }.as_bool() {
+                // The watchdog runs from the pump itself: a thread timer has
+                // no window, so DispatchMessageW would drop WM_TIMER on the
+                // floor. It does not violate "the pump IS the hook" — the tick
+                // is a handful of key-state reads that never blocks.
+                if msg.message == WM_TIMER {
+                    watchdog_tick();
+                    continue;
+                }
                 unsafe {
                     let _ = TranslateMessage(&msg);
                     DispatchMessageW(&msg);
                 }
             }
+            set_watchdog(false);
 
             unsafe {
                 if let Err(e) = UnhookWindowsHookEx(hook) {
@@ -205,6 +311,29 @@ mod tests {
         assert_eq!(vk_to_key(0x70), Some(PttKeyCode::F(1)));
         assert_eq!(vk_to_key(0x7C), Some(PttKeyCode::F(13)));
         assert_eq!(vk_to_key(0x87), Some(PttKeyCode::F(24)));
+    }
+
+    #[test]
+    fn vk_mapping_round_trips_for_every_chord_key() {
+        // The watchdog polls `key_to_vk`; a mismatch would report the wrong
+        // key as up and cut a live dictation short.
+        let keys = [
+            PttKeyCode::LCtrl,
+            PttKeyCode::RCtrl,
+            PttKeyCode::LShift,
+            PttKeyCode::RShift,
+            PttKeyCode::LAlt,
+            PttKeyCode::RAlt,
+            PttKeyCode::LWin,
+            PttKeyCode::RWin,
+            PttKeyCode::CapsLock,
+            PttKeyCode::F(1),
+            PttKeyCode::F(13),
+            PttKeyCode::F(24),
+        ];
+        for key in keys {
+            assert_eq!(vk_to_key(u32::from(key_to_vk(key).0)), Some(key), "{key}");
+        }
     }
 
     #[test]

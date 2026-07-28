@@ -16,6 +16,13 @@ dictation pipeline on worker threads via `PipelineController`. Root
 - Cross-thread UI wake-up is `egui::Context::request_repaint()` from the
   sending thread (see `pipeline::spawn_repaint_pump`). Never poll or sleep
   on the UI thread; idle CPU stays near zero.
+- **`persist_window` is off and must stay off.** eframe's auto-save runs at
+  the end of *whichever* viewport just painted and writes that viewport's
+  geometry under the root window's key, so the recording pill kept being
+  saved as "the Hark window" (a 160x40 main window on the next launch).
+  Window geometry lives in `window_state.rs`, captured in `App::logic` —
+  which runs for the root viewport only — and applied on the first pass,
+  before the window is shown.
 
 ## Design system discipline
 

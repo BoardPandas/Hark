@@ -13,6 +13,18 @@
 - **Keep the callback lean.** Windows silently removes low-level hooks that
   exceed `LowLevelHooksTimeout`: map the VK, feed the tracker, send, return.
   Never block, never do I/O in the callback.
+- **A hook does not see every release, so the tracker is polled while a chord
+  is held.** Releases on another desktop (lock screen, UAC, Ctrl+Alt+Del),
+  across a sleep/resume, or after Windows quietly unhooks a slow callback never
+  arrive, and one lost release wedges the tracker `engaged` forever: the
+  recording never ends, the pill never goes away, and no later press produces
+  an edge either. A `SetTimer` thread timer, armed only between engage and
+  disengage, calls `ChordTracker::resync_released` (`GetAsyncKeyState`) and
+  emits `PttEvent::UpMissed`. It runs inline in the pump — a thread timer has
+  no window, so `DispatchMessageW` would drop `WM_TIMER` — and must stay a
+  handful of key-state reads: the pump is still the hook's lifeline.
+- **Heal releases only, never presses.** Synthesizing a press from a poll would
+  let a chord the user was already holding start a dictation nobody asked for.
 - **Observe, never swallow.** Always `CallNextHookEx`. The Ctrl+Win default
   chord needs no swallowing: Windows marks a Win press "used in a chord"
   when another key goes down while it is held, so the Start menu does not

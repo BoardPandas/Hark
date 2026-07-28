@@ -98,6 +98,22 @@ pub(crate) fn run(mut worker: Worker, rx: Receiver<PttEvent>) {
         let ev = match event {
             PttEvent::Down => Event::PttDown { at_abs },
             PttEvent::Up => Event::PttUp { at_abs },
+            // A release the hook never saw (hark-hotkey's watchdog found the
+            // keys up). Within the maximum hold it is an ordinary release: the
+            // watchdog polls fast enough that only a moment of trailing audio
+            // is added. Past it, the release could be minutes old — the user
+            // walked away, or the machine slept mid-hold — and "transcribe the
+            // last two minutes of the room, then paste it wherever the cursor
+            // now is" is the one outcome worth refusing outright.
+            PttEvent::UpMissed if abandoned_hold(&worker, state, at_abs) => {
+                log::warn!("missing release past the maximum hold; recording discarded");
+                let _ = worker.events.send(PipelineEvent::Failed {
+                    stage: FailStage::Abandoned,
+                    detail: "the chord's release was never delivered".to_string(),
+                });
+                Event::Aborted
+            }
+            PttEvent::UpMissed => Event::PttUp { at_abs },
         };
         let (next, action) = advance(state, ev);
         // Surface the two UI-visible edges: capture started, request in
@@ -112,6 +128,18 @@ pub(crate) fn run(mut worker: Worker, rx: Receiver<PttEvent>) {
         }
     }
     log::debug!("ptt channel closed; pipeline worker exiting");
+}
+
+/// Has this recording already outlived the longest hold the window math will
+/// keep (`max_hold_s`)? Only asked of a release the hook never delivered: past
+/// that point the assembled clip would be a truncated tail of room noise, not
+/// the user's dictation, so there is nothing worth transcribing or injecting.
+fn abandoned_hold(worker: &Worker, state: PipelineState, at_abs: u64) -> bool {
+    let PipelineState::Recording { down_abs } = state else {
+        return false;
+    };
+    let max_hold = worker.window.max_hold_s as u64 * worker.sample_rate as u64;
+    at_abs.saturating_sub(down_abs) > max_hold
 }
 
 /// Warm the connection pool so the first dictation skips the 0.4-0.9 s

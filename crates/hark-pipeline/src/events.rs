@@ -60,6 +60,11 @@ pub enum FailStage {
     EmptyTranscript,
     /// Injection into the focused app failed.
     Inject,
+    /// The chord's release was never delivered and the hold had already run
+    /// past the maximum, so the recording was thrown away instead of
+    /// transcribed. Informational: nothing is broken, and the audio after the
+    /// user actually let go is whatever the room was doing.
+    Abandoned,
 }
 
 /// What the pipeline tells the UI. Events are advisory: emitting one never

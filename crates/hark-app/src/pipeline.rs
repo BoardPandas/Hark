@@ -182,7 +182,12 @@ fn next_status(event: PipelineEvent) -> PipelineStatus {
         PipelineEvent::Failed { stage, detail } => match stage {
             // A tap on the chord is the user's own doing and needs no reply;
             // an empty transcript means the provider heard nothing to write.
-            FailStage::GatedTooShort | FailStage::EmptyTranscript => PipelineStatus::Idle,
+            // A recording whose release went missing was already thrown away
+            // by the pipeline; the footer's job is simply to stop saying
+            // "Recording" and go back to waiting for the chord.
+            FailStage::GatedTooShort | FailStage::EmptyTranscript | FailStage::Abandoned => {
+                PipelineStatus::Idle
+            }
             // But "we captured nothing loud enough to be speech" is worth
             // saying, with the way to fix it one click away: the usual cause
             // is the wrong input device selected, or one turned down.
@@ -275,8 +280,12 @@ mod tests {
     }
 
     #[test]
-    fn misfires_and_empty_transcripts_return_to_idle_not_error() {
-        for stage in [FailStage::GatedTooShort, FailStage::EmptyTranscript] {
+    fn informational_endings_return_to_idle_not_error() {
+        for stage in [
+            FailStage::GatedTooShort,
+            FailStage::EmptyTranscript,
+            FailStage::Abandoned,
+        ] {
             let s = next_status(PipelineEvent::Failed {
                 stage,
                 detail: "informational".to_string(),

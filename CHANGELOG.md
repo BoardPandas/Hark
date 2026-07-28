@@ -4,6 +4,12 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.29.1] - 2026-07-28
+
+### Fixed
+- **Hark no longer opens as a tiny window.** After a dictation, Hark had been quietly saving the little recording pill's size and position as the main window's, so the next launch — usually the first one after a reboot — opened a window barely bigger than its own title bar. Hark now remembers only the real window, and a saved size that came from the old bug is ignored: it opens at its normal size, centred, and stays where you last put it. If that spot belonged to a monitor you no longer have, it opens centred instead of off-screen.
+- **The "Listening…" pill can no longer get stuck on screen.** If the release of your push-to-talk keys never reached Hark — it happens when you let go at the lock screen, over a UAC prompt, or across a sleep — Hark kept recording forever: the pill stayed up, and pressing the keys again did nothing. Hark now notices within a fraction of a second that the keys are no longer held and ends the recording itself. A recording abandoned that long (past the two-minute maximum hold) is thrown away rather than transcribed, so a stuck session can never paste minutes of room noise at your cursor.
+
 ## [0.29.0] - 2026-07-28
 
 ### Added

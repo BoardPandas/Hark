@@ -144,6 +144,13 @@ fn parse_key(name: &str) -> Option<PttKeyCode> {
 pub enum PttEvent {
     Down,
     Up,
+    /// The chord is no longer physically held, but the release event itself
+    /// never arrived: [`ChordTracker::resync_released`] found the keys up.
+    /// Same meaning as `Up` for the state machine, but the moment of release
+    /// is unknown — it can be anywhere between the last poll and the press —
+    /// so the pipeline treats an over-long one as abandoned rather than
+    /// injecting whatever the room said after the user let go.
+    UpMissed,
 }
 
 /// The chord state machine. Feed every raw key event the platform hook sees;
@@ -192,6 +199,46 @@ impl ChordTracker {
             }
             _ => None,
         }
+    }
+
+    /// Reconcile the tracker with the keyboard's real state while the chord is
+    /// engaged, and emit the release that never arrived.
+    ///
+    /// The tracker only ever learns about a release from a hook callback, and
+    /// a low-level hook does not see every one: releases on another desktop
+    /// (lock screen, UAC, Ctrl+Alt+Del), across a sleep/resume, or after
+    /// Windows quietly unhooks a callback that ran long, all go missing. One
+    /// lost release is not one lost dictation — it wedges the tracker
+    /// `engaged` forever, so the recording never ends, the overlay never goes
+    /// away, and no later press produces an edge either (the members it needs
+    /// are already marked down). This is the way out: ask the platform which
+    /// chord keys are *actually* held and heal the difference.
+    ///
+    /// Release-only on purpose. A missing press is harmless (nothing started),
+    /// while synthesizing one from a poll would let a chord the user had
+    /// already been holding before the hook existed start a dictation nobody
+    /// asked for.
+    pub fn resync_released(
+        &mut self,
+        mut physically_down: impl FnMut(PttKeyCode) -> bool,
+    ) -> Option<PttEvent> {
+        if !self.engaged {
+            return None;
+        }
+        let mut released = false;
+        for (idx, key) in self.chord.keys.iter().enumerate() {
+            if self.member_down[idx] && !physically_down(*key) {
+                self.member_down[idx] = false;
+                released = true;
+            }
+        }
+        if !released {
+            return None;
+        }
+        // Engaged means every member was down, so any member now up breaks
+        // the chord — the same "first release wins" rule `on_event` applies.
+        self.engaged = false;
+        Some(PttEvent::UpMissed)
     }
 }
 
@@ -381,6 +428,68 @@ mod tests {
             t.on_event(PttKeyCode::LWin, true, false),
             Some(PttEvent::Down)
         );
+    }
+
+    #[test]
+    fn resync_emits_the_release_the_hook_never_delivered() {
+        let mut t = ChordTracker::new(chord("LCtrl+LWin"));
+        t.on_event(PttKeyCode::LCtrl, true, false);
+        assert_eq!(
+            t.on_event(PttKeyCode::LWin, true, false),
+            Some(PttEvent::Down)
+        );
+        // The user let go on the lock screen, so no release ever arrived.
+        assert_eq!(t.resync_released(|_| false), Some(PttEvent::UpMissed));
+        // Once healed the tracker is idle again: a second poll adds nothing,
+        // and the next press engages normally rather than being swallowed as
+        // a duplicate.
+        assert_eq!(t.resync_released(|_| false), None);
+        assert_eq!(t.on_event(PttKeyCode::LCtrl, true, false), None);
+        assert_eq!(
+            t.on_event(PttKeyCode::LWin, true, false),
+            Some(PttEvent::Down)
+        );
+    }
+
+    #[test]
+    fn resync_leaves_a_chord_that_is_really_held_alone() {
+        let mut t = ChordTracker::new(chord("LCtrl+LWin"));
+        t.on_event(PttKeyCode::LCtrl, true, false);
+        t.on_event(PttKeyCode::LWin, true, false);
+        // Polled mid-hold, every 250 ms, for as long as the user talks.
+        for _ in 0..8 {
+            assert_eq!(t.resync_released(|_| true), None);
+        }
+        // The real release still produces the normal edge.
+        assert_eq!(
+            t.on_event(PttKeyCode::LWin, false, false),
+            Some(PttEvent::Up)
+        );
+    }
+
+    #[test]
+    fn resync_never_starts_a_dictation() {
+        // Keys held before the chord was ever tracked (or a press whose event
+        // went missing) must not engage from a poll alone.
+        let mut t = ChordTracker::new(chord("LCtrl+LWin"));
+        assert_eq!(t.resync_released(|_| true), None);
+        assert_eq!(t.resync_released(|_| false), None);
+        // One member down is not the chord either.
+        t.on_event(PttKeyCode::LCtrl, true, false);
+        assert_eq!(t.resync_released(|_| true), None);
+    }
+
+    #[test]
+    fn resync_after_a_normal_release_is_silent() {
+        let mut t = ChordTracker::new(chord("LCtrl+LWin"));
+        t.on_event(PttKeyCode::LCtrl, true, false);
+        t.on_event(PttKeyCode::LWin, true, false);
+        assert_eq!(
+            t.on_event(PttKeyCode::LCtrl, false, false),
+            Some(PttEvent::Up)
+        );
+        // The other member is still physically down; no second edge.
+        assert_eq!(t.resync_released(|k| k == PttKeyCode::LWin), None);
     }
 
     #[test]
