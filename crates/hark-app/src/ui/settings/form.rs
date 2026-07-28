@@ -549,7 +549,7 @@ pub fn privacy_section(ui: &mut Ui, draft: &mut Settings) {
                 RichText::new(
                     "Audio goes to your STT provider on every dictation. Text goes to \
                      your cleanup provider on non-Verbatim voices. History, stats, and \
-                     the dictionary never leave this device.",
+                     the spellbook never leave this device.",
                 )
                 .small()
                 .weak(),

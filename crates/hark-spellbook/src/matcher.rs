@@ -16,7 +16,7 @@ use rphonetic::{DoubleMetaphone, Encoder};
 /// config only if real usage demands it.
 ///
 /// Callers pass their own threshold to [`window_matches`] because the two
-/// consumers carry different blast radii: a dictionary false positive
+/// consumers carry different blast radii: a spellbook false positive
 /// corrupts one word, an invocation false positive pastes a paragraph.
 pub(crate) const JW_CONFIRM_THRESHOLD: f64 = 0.85;
 
@@ -40,10 +40,10 @@ struct TermWord {
     codes: Option<Codes>,
 }
 
-/// One dictionary term, precomputed for matching.
+/// One spellbook term, precomputed for matching.
 pub(crate) struct TermEntry {
     /// The replacement text, verbatim: canonical spelling includes its own
-    /// casing, and that is the point of the dictionary.
+    /// casing, and that is the point of the spellbook.
     pub canonical: String,
     words: Vec<TermWord>,
 }

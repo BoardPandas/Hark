@@ -1,7 +1,7 @@
 # Handoff: Hark UI Redesign (Nocturne)
 
 ## Overview
-A full redesign of the Hark desktop app's main window (History, Dictionary, Invocations, Stats, Settings), plus the update banner and the recording overlay pill, restyled on the **Nocturne** design language: a quiet, compact dark UI — near-neutral blue-grey ground, Inter at medium weight, 8px radii, a single blurple accent used as a line/glow (never a flood), and hairline rules that fade to transparent at their ends.
+A full redesign of the Hark desktop app's main window (History, Spellbook, Invocations, Stats, Settings), plus the update banner and the recording overlay pill, restyled on the **Nocturne** design language: a quiet, compact dark UI — near-neutral blue-grey ground, Inter at medium weight, 8px radii, a single blurple accent used as a line/glow (never a flood), and hairline rules that fade to transparent at their ends.
 
 The headline structural change: **the left sidebar is replaced by a slim top navigation bar** (wordmark + page tabs left, Settings + version right). Everything else keeps the current app's feature set 1:1.
 
@@ -27,12 +27,12 @@ From `nocturne-styles.css` (`:root`):
 - Shadows: sm = 1px #3f424d edge; md = 1px #595d6c edge + 0 6px 18px rgba(0,0,0,.55).
 - **Buttons are outlined, never filled**: primary = 1px accent border, accent text, transparent bg; hover = accent at 12% fill; secondary = divider border; ghost = accent text, no border. Disabled = 45% opacity.
 - Focus: 2px accent outline, offset 2px. Selection: accent at 30%.
-- Signature rule treatment: separators are 1px gradients fading to transparent over the last 48px on each side — used under every list row (history, dictionary, invocations).
+- Signature rule treatment: separators are 1px gradients fading to transparent over the last 48px on each side — used under every list row (history, spellbook, invocations).
 
 ## Screens / Views
 
 ### Shell (all pages)
-- **Top bar** (~40px, border-bottom 1px divider, padding 9px 20px): accent mic glyph (17px, Phosphor `microphone`) + "Hark" wordmark (Inter 500, 17px); then tabs History · Dictionary · Invocations · Stats (14px, padding 5px 11px). Active tab: accent text + 2px accent underline (inset shadow / bottom border). Inactive hover: text tint. Right side: outlined "Settings" button with gear icon (active state = accent border + accent text), then version caption `v0.20.0` (11.5px, 40% text).
+- **Top bar** (~40px, border-bottom 1px divider, padding 9px 20px): accent mic glyph (17px, Phosphor `microphone`) + "Hark" wordmark (Inter 500, 17px); then tabs History · Spellbook · Invocations · Stats (14px, padding 5px 11px). Active tab: accent text + 2px accent underline (inset shadow / bottom border). Inactive hover: text tint. Right side: outlined "Settings" button with gear icon (active state = accent border + accent text), then version caption `v0.20.0` (11.5px, 40% text).
 - **Content**: single scroll area, column max-width 820px (Settings section narrows to 620px), padding 26px 36px. Page header = title (24px) + one-line description (14px, 55% text) — same descriptions as today.
 - **Status footer** (bottom, 1px top divider, padding 6px 16px, 12.5px): left = state icon + label; right = provider line (45% text). States: Idle = mic icon (45% text) + "Listening for LCtrl+LWin"; Recording = pulsing 10px danger dot + "Recording"; Processing = spinning circle-notch (accent) + "Processing"; No key = key icon (warning) + "No STT key yet." + ghost "Open Settings" jump. Provider line logic unchanged from `footer.rs` (`on-device · parakeet-tdt-0.6b-v3-int8 · cleanup gemini-3.5-flash-lite` etc.).
 - **Update banner** (below top bar when visible): bg accent-900 `#2b2741`, bottom border accent-800, 13px accent-200 text "Hark v0.21.0 is available.", ghost "Details" (jumps to Settings), outlined-primary "Install", dismiss ✕ at far right.
@@ -46,10 +46,10 @@ From `nocturne-styles.css` (`:root`):
 - "Show more" secondary button, centered, pages by 8 (real app: 100).
 - Empty states (icon 36–38px at 50% + title + hint, centered): no storage / zero dictations ("Dictations appear here. / Hold LCtrl+LWin and speak…") / zero matches.
 
-### Dictionary
+### Spellbook
 - Description lines (as today), then pinned add row: 280px input "Add a term" + outlined-primary "Add" (disabled empty; Enter adds and keeps focus; trims + dedupes).
 - Rows: term in mono 13.5px, click-to-edit in place (Enter/blur commits — empty or duplicate reverts; Esc cancels), trash icon button right; fading rule below each row.
-- Empty state: book-open icon, "No dictionary terms yet."
+- Empty state: book-open icon, "No spellbook terms yet."
 
 ### Invocations
 - Description paragraph (verbatim), outlined-primary "⚡ New invocation".
@@ -85,7 +85,7 @@ Borderless always-on-top capsule, bottom-center ~72px above screen bottom: near-
 ## Interactions & Behavior
 - Nav switches pages instantly; open invocation editor closes on nav.
 - History: search resets paging; row click toggles expand (one max, Esc collapses unless a dialog owns Esc); copy shows fading "Copied"; deletes are immediate; Clear all behind confirm naming the count.
-- Dictionary and Invocations persist immediately in the real app (pipeline restart); the invocation editor commits only on Save.
+- Spellbook and Invocations persist immediately in the real app (pipeline restart); the invocation editor commits only on Save.
 - All destructive actions (Clear all, Reset stats, Remove key) go through the confirm dialog; confirm buttons name the action ("Delete 12 entries", "Reset stats", "Remove key").
 - State is never carried by color alone — every status pairs an icon/mark with copy (WCAG AA is pinned by tests in `theme.rs`; keep those tests passing with the new palette).
 

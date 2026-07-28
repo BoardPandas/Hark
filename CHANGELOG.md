@@ -4,6 +4,11 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.26.0] - 2026-07-28
+
+### Changed
+- **The Dictionary is now the Spellbook.** Same feature, same terms, new name — the tab, the settings copy, and the config section all follow. Your existing terms carry over untouched and there is nothing to do: Hark still reads the old `[dictionary]` section from your config file and rewrites it as `[spellbook]` the next time it saves.
+
 ## [0.25.0] - 2026-07-28
 
 ### Fixed

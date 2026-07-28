@@ -50,7 +50,7 @@ One page per major subsystem of the dictation pipeline and the desktop shell.
 | [AUDIO_CAPTURE.md](features/AUDIO_CAPTURE.md) | The cpal ring buffer with pre-roll and tail, silence trimming, and the native push-to-talk key hooks. |
 | [TRANSCRIPTION.md](features/TRANSCRIPTION.md) | The `SttProvider` trait, the OpenAI-compatible and Deepgram adapters, WAV encoding, and biasing. |
 | [ON_DEVICE_STT.md](features/ON_DEVICE_STT.md) | Opt-in local Parakeet model: download manager, the cloud/local fallback policy, and the `local-engine` build feature. |
-| [DICTIONARY.md](features/DICTIONARY.md) | Phonetic post-correction of transcripts plus per-provider biasing term generation. |
+| [SPELLBOOK.md](features/SPELLBOOK.md) | Phonetic post-correction of transcripts plus per-provider biasing term generation. |
 | [INVOCATIONS.md](features/INVOCATIONS.md) | User-authored trigger phrases that inject canned text verbatim, skipping the cleanup pass. |
 | [VOICE_CLEANUP.md](features/VOICE_CLEANUP.md) | Voice presets and the optional BYOK LLM cleanup pass over the raw transcript. |
 | [TEXT_INJECTION.md](features/TEXT_INJECTION.md) | Clipboard stash-set-paste-restore injection with an enigo keystroke fallback. |

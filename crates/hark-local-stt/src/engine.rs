@@ -6,7 +6,7 @@
 //!
 //! **Decoding is always `greedy_search`.** `modified_beam_search` with
 //! hotwords is the open sherpa-onnx #3267 hallucination bug; we never need it
-//! because `hark-dictionary`'s phonetic pass corrects local transcripts
+//! because `hark-spellbook`'s phonetic pass corrects local transcripts
 //! exactly as it corrects cloud ones.
 
 use crate::error::LocalSttError;

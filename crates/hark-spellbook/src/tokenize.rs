@@ -3,7 +3,7 @@
 //! A token is the comparable core of a word. Leading/trailing punctuation
 //! is never part of the span, so replacement (splicing canonical text over
 //! core spans) preserves it without any reattachment step. Interior hyphens
-//! split a chunk into separate tokens so hyphen-split dictionary terms
+//! split a chunk into separate tokens so hyphen-split spellbook terms
 //! ("hark-stt") match both "hark stt" and "hark-stt" with one window size.
 
 /// One comparable word from the transcript: the byte span of its core in

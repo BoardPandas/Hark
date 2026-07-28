@@ -5,7 +5,7 @@ default; nothing is downloaded, loaded, or linked into the hot path until the
 user asks for it.
 
 Related: [Transcription](TRANSCRIPTION.md) (the BYOK cloud path this falls back
-from), [Dictionary](DICTIONARY.md) (the phonetic pass that corrects local
+from), [Spellbook](SPELLBOOK.md) (the phonetic pass that corrects local
 output the same way it corrects cloud output).
 
 ## Why it exists
@@ -51,7 +51,7 @@ check per file.
 
 `greedy_search` is not a tuning choice. `modified_beam_search` with hotwords is
 the open [sherpa-onnx #3267](https://github.com/k2-fsa/sherpa-onnx/issues/3267)
-hallucination bug; Hark never needs it because the dictionary's phonetic
+hallucination bug; Hark never needs it because the spellbook's phonetic
 post-correction already handles term biasing, provider-agnostically.
 
 v3 is the latest revision and costs ~0.27 pp of English accuracy against the

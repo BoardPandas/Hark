@@ -227,7 +227,7 @@ pub(super) fn cleanup_test(
             reasoning_effort: resolved.reasoning_effort.clone(),
             voice,
             custom_prompt: settings.voice.custom_prompt.clone(),
-            dictionary_terms: settings.dictionary.terms.clone(),
+            spellbook_terms: settings.spellbook.terms.clone(),
         };
         let client = hark_stt::shared_client().map_err(|e| e.to_string())?;
         use hark_voice::CleanupProvider as _;

@@ -4,10 +4,10 @@
 
 use crate::pipeline::PipelineController;
 use crate::storage::StorageHandle;
-use crate::ui::dictionary::DictionaryPage;
 use crate::ui::history::HistoryPage;
 use crate::ui::invocations::InvocationsPage;
 use crate::ui::settings::{self, SettingsPage};
+use crate::ui::spellbook::SpellbookPage;
 use crate::ui::stats::StatsPage;
 use crate::update::Updater;
 use hark_config::Settings;
@@ -17,7 +17,7 @@ use egui::{RichText, Ui};
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum Page {
     History,
-    Dictionary,
+    Spellbook,
     Invocations,
     Stats,
     Settings,
@@ -27,7 +27,7 @@ impl Page {
     pub fn label(self) -> &'static str {
         match self {
             Page::History => "History",
-            Page::Dictionary => "Dictionary",
+            Page::Spellbook => "Spellbook",
             Page::Invocations => "Invocations",
             Page::Stats => "Stats",
             Page::Settings => "Settings",
@@ -37,7 +37,7 @@ impl Page {
     fn description(self) -> &'static str {
         match self {
             Page::History => "Your dictations, newest first. Everything stays on this device.",
-            Page::Dictionary => "Names and terms your STT provider keeps missing.",
+            Page::Spellbook => "Names and terms your STT provider keeps missing.",
             Page::Invocations => "Say a phrase, type a block of text you wrote.",
             Page::Stats => "Lifetime dictation figures. They survive a history clear.",
             Page::Settings => "Provider, key, hotkey, and voice.",
@@ -49,7 +49,7 @@ impl Page {
 /// stays readable as pages accumulate.
 pub struct Views {
     pub settings: SettingsPage,
-    pub dictionary: DictionaryPage,
+    pub spellbook: SpellbookPage,
     pub invocations: InvocationsPage,
     pub history: HistoryPage,
     pub stats: StatsPage,
@@ -90,7 +90,7 @@ pub fn show(
                         .history
                         .show(ui, storage, storage_error, &settings.hotkey.ptt_key)
                 }
-                Page::Dictionary => dictionary(ui, settings, pipeline, views),
+                Page::Spellbook => spellbook(ui, settings, pipeline, views),
                 Page::Invocations => invocations(ui, settings, pipeline, views),
                 Page::Stats => views.stats.show(ui, storage, storage_error),
                 Page::Settings => {
@@ -108,27 +108,27 @@ pub fn show(
     });
 }
 
-/// Dictionary edits persist immediately and restart the pipeline (bias
+/// Spellbook edits persist immediately and restart the pipeline (bias
 /// terms are baked in at start). The settings draft mirrors the change so a
 /// later Save does not resurrect deleted terms.
-fn dictionary(
+fn spellbook(
     ui: &mut Ui,
     settings: &mut Settings,
     pipeline: &mut PipelineController,
     views: &mut Views,
 ) {
-    if views.dictionary.show(ui, &mut settings.dictionary.terms) {
+    if views.spellbook.show(ui, &mut settings.spellbook.terms) {
         views
-            .dictionary
+            .spellbook
             .set_notice(settings::save_to_disk(settings).err());
         pipeline.start(settings, ui.ctx());
-        views.settings.draft.dictionary = settings.dictionary.clone();
+        views.settings.draft.spellbook = settings.spellbook.clone();
     }
 }
 
 /// Invocation edits persist immediately and restart the pipeline (the
 /// trigger matcher is built at pipeline start). Same four obligations as
-/// `dictionary`, in the same order.
+/// `spellbook`, in the same order.
 fn invocations(
     ui: &mut Ui,
     settings: &mut Settings,

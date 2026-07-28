@@ -1,6 +1,6 @@
 ---
 name: hark-phonetic-correction-crates
-description: rphonetic + strsim crate choice, versions, and matching algorithm shape for the dictionary phonetic post-correction pass (hot path, no tokio)
+description: rphonetic + strsim crate choice, versions, and matching algorithm shape for the spellbook phonetic post-correction pass (hot path, no tokio)
 metadata:
   type: project
 ---
@@ -13,7 +13,7 @@ before injection, target <10ms for <100 words / <200 dict terms, single-threaded
   Use `DoubleMetaphone` (`encode`/`encode_alternate`/`double_metaphone` -> `DoubleMetaphoneResult`
   with primary+alternate codes). Also ships Metaphone, Soundex, RefinedSoundex, Caverphone1/2,
   Cologne, Nysiis, Phonex, Daitch-Mokotoff, Match Rating Approach, Beider-Morse. Avoid Beider-Morse
-  here: it's heavyweight and needs external config/data files, overkill for a <200-term dictionary.
+  here: it's heavyweight and needs external config/data files, overkill for a <200-term spellbook.
 - `strsim = "0.11.1"` (MIT, published 2024-04-02 but the strsim-rs GitHub repo is still active,
   last commit 2025-11-27; 0.11.1 API is stable so no new release was needed). Use `jaro_winkler`
   and/or `normalized_levenshtein` as the edit-distance confirmation guard after a phonetic-code
@@ -26,27 +26,27 @@ before injection, target <10ms for <100 words / <200 dict terms, single-threaded
 NVIDIA SpellMapper n-gram retrieval):**
 1. Tokenize transcript preserving original casing/punctuation spans (need this to reinsert
    punctuation and match case of the replacement).
-2. For each dictionary term, note its word count (1..N). Build an n-gram sliding window over
+2. For each spellbook term, note its word count (1..N). Build an n-gram sliding window over
    transcript tokens matching that word count (so multi-word terms like "hark stt" or names with
    two words are checked as a phrase, not token-by-token).
 3. For each window, phonetic-encode the window's words (Double Metaphone primary, and check
-   alternate too) and compare against the dictionary term's precomputed phonetic code(s).
+   alternate too) and compare against the spellbook term's precomputed phonetic code(s).
 4. On phonetic-code match, apply an edit-distance confirmation guard (e.g.
    `jaro_winkler(window_lowercased, term_lowercased) >= 0.85`, tune per length) before accepting
    the replacement — phonetic-only matching has too high a false-positive rate, especially on
    short words.
-5. Replace matched span with the canonical dictionary spelling, preserving the original token's
+5. Replace matched span with the canonical spellbook spelling, preserving the original token's
    leading/trailing punctuation and matching capitalization style (all-caps, Title Case, or
    lowercase) of the matched span.
 
 **Pitfalls for Lessons Learned:**
 - Double Metaphone codes are default max-length 4 (`DoubleMetaphone::new(Option<usize>)` to
   change); very short words (<=3 letters) produce short/degenerate codes with high collision
-  rates — apply a minimum-length gate (e.g. skip phonetic matching for dictionary terms or
+  rates — apply a minimum-length gate (e.g. skip phonetic matching for spellbook terms or
   transcript words under 4 characters, or require exact/near-exact string match instead) rather
   than trusting the phonetic code alone. No authoritative source quantified the collision rate;
   this is a design inference from the algorithm's fixed short code length, not the community's
-  documented literature — validate empirically against Hark's actual dictionary terms during
+  documented literature — validate empirically against Hark's actual spellbook terms during
   implementation.
 - rphonetic docs do not explicitly document behavior for empty strings or non-ASCII/Unicode
   input; the Cologne example (`cologne.encode("müller")`) shows UTF-8 input is accepted without

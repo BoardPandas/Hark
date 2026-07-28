@@ -1,4 +1,4 @@
-//! The dictionary editor (spec §3.11): pinned add field (Enter adds),
+//! The spellbook editor (spec §3.11): pinned add field (Enter adds),
 //! inline edit, per-row delete. Every change persists immediately and
 //! restarts the pipeline (bias terms are baked in at start; restart is the
 //! correct-by-construction baseline). The caller owns persistence.
@@ -7,7 +7,7 @@ use crate::theme;
 use crate::ui::widgets;
 use egui::{Key, RichText, TextEdit, Ui};
 
-pub struct DictionaryPage {
+pub struct SpellbookPage {
     add: String,
     /// In-progress row edit: (index, buffer). At most one at a time.
     edit: Option<(usize, String)>,
@@ -16,9 +16,9 @@ pub struct DictionaryPage {
     notice: Option<String>,
 }
 
-impl DictionaryPage {
+impl SpellbookPage {
     pub fn new() -> Self {
-        DictionaryPage {
+        SpellbookPage {
             add: String::new(),
             edit: None,
             edit_needs_focus: false,
@@ -81,7 +81,7 @@ impl DictionaryPage {
             widgets::empty_state(
                 ui,
                 theme::icons::BOOK_OPEN,
-                "No dictionary terms yet.",
+                "No spellbook terms yet.",
                 "Add names and terms your provider keeps missing.",
             );
             return changed;

@@ -17,7 +17,7 @@ use hark_voice::openai_compatible::{CleanupConfig, OpenAiCompatibleChat};
 use hark_voice::{over_expanded, system_prompt, CleanupProvider, Voice};
 use std::time::{Duration, Instant};
 
-/// Dictionary-ish terms spoken in the fixture, shared with the STT spike.
+/// Spellbook-ish terms spoken in the fixture, shared with the STT spike.
 const BIAS_TERMS: [&str; 2] = ["Hark", "Levenshtein"];
 const AB_TERM: &str = "Levenshtein";
 /// The ratio the app ships with; the guardrail verdict below uses it.
@@ -74,7 +74,7 @@ fn main() {
     let model = env_nonempty("GEMINI_MODEL").unwrap_or_else(|| DEFAULT_MODEL.into());
     let base_url = env_nonempty("GEMINI_BASE_URL").unwrap_or_else(|| DEFAULT_BASE_URL.into());
 
-    // The fused call has no outgoing text to subset the dictionary against —
+    // The fused call has no outgoing text to subset the spellbook against —
     // the transcript does not exist yet — so every term is treated as present.
     // Two-hop cleanup can subset; the fused prompt is therefore slightly larger.
     let all_terms: Vec<&str> = bias.iter().map(String::as_str).collect();
@@ -267,7 +267,7 @@ fn main() {
                 reasoning_effort: None,
                 voice: Voice::Clean,
                 custom_prompt: String::new(),
-                dictionary_terms: bias.clone(),
+                spellbook_terms: bias.clone(),
             };
             let stt = build(&stt_config, client.clone());
             let cleanup = OpenAiCompatibleChat::new(&cleanup_config, client.clone());

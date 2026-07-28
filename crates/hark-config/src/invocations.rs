@@ -7,13 +7,13 @@
 //!
 //! There is deliberately **no `validate` rule** here. Hard-rejecting a bad
 //! phrase would make a hand-edited config unloadable and strand the user
-//! with no UI to fix it; instead `hark_dictionary::Expander` skips entries
+//! with no UI to fix it; instead `hark_spellbook::Expander` skips entries
 //! that cannot arm, and the Invocations page explains each one per row.
 
 use serde::{Deserialize, Serialize};
 
 /// Where in a dictation a trigger is allowed to fire. Mirrors
-/// `hark_dictionary::Scope` (the parallel-enums pattern this crate already
+/// `hark_spellbook::Scope` (the parallel-enums pattern this crate already
 /// uses for provider and voice taxonomies); the pipeline maps between them.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "kebab-case")]
@@ -81,13 +81,13 @@ mod tests {
             [provider]
             kind = "groq"
 
-            [dictionary]
+            [spellbook]
             terms = ["Modero"]
             "#,
         )
         .expect("a config predating [invocations] must load");
         assert!(s.invocations.entries.is_empty());
-        assert_eq!(s.dictionary.terms, vec!["Modero"]);
+        assert_eq!(s.spellbook.terms, vec!["Modero"]);
     }
 
     #[test]

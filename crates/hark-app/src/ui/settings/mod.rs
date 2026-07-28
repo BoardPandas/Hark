@@ -271,7 +271,7 @@ impl SettingsPage {
     }
 }
 
-/// Persist settings to the OS config path. Shared with the dictionary
+/// Persist settings to the OS config path. Shared with the spellbook
 /// editor, which saves per change instead of behind a Save button.
 pub(crate) fn save_to_disk(settings: &Settings) -> Result<(), String> {
     let Some(path) = hark_config::default_config_path() else {

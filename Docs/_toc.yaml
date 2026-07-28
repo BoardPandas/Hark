@@ -407,54 +407,54 @@ pages:
         diagram_types: []
     related_pages:
       - hark_02_architecture
-      - hark_08_dictionary
+      - hark_08_spellbook
       - hark_09_voice_cleanup
 
-  - id: hark_08_dictionary
-    title: "Dictionary"
+  - id: hark_08_spellbook
+    title: "Spellbook"
     folder: "features"
-    filename: "DICTIONARY.md"
+    filename: "SPELLBOOK.md"
     description: "Phonetic post-correction of transcripts plus per-provider biasing term generation."
     category: feature
     source_files:
-      - "crates/hark-dictionary/src/lib.rs"
-      - "crates/hark-dictionary/src/matcher.rs"
-      - "crates/hark-dictionary/src/tokenize.rs"
+      - "crates/hark-spellbook/src/lib.rs"
+      - "crates/hark-spellbook/src/matcher.rs"
+      - "crates/hark-spellbook/src/tokenize.rs"
     sections:
-      - id: hark_08_dictionary_overview
+      - id: hark_08_spellbook_overview
         title: "Overview"
         autogen: true
         diagrams_needed: true
         diagram_types: ["flowchart"]
-      - id: hark_08_dictionary_matcher
+      - id: hark_08_spellbook_matcher
         title: "Phonetic Matcher"
         autogen: true
         source_files:
-          - "crates/hark-dictionary/src/matcher.rs"
+          - "crates/hark-spellbook/src/matcher.rs"
         diagrams_needed: false
         diagram_types: []
-      - id: hark_08_dictionary_tokenize
+      - id: hark_08_spellbook_tokenize
         title: "Tokenization"
         autogen: true
         source_files:
-          - "crates/hark-dictionary/src/tokenize.rs"
+          - "crates/hark-spellbook/src/tokenize.rs"
         diagrams_needed: false
         diagram_types: []
-      - id: hark_08_dictionary_biasing
+      - id: hark_08_spellbook_biasing
         title: "Provider Biasing"
         autogen: true
         source_files:
-          - "crates/hark-dictionary/src/lib.rs"
+          - "crates/hark-spellbook/src/lib.rs"
         diagrams_needed: false
         diagram_types: []
-      - id: hark_08_dictionary_api
+      - id: hark_08_spellbook_api
         title: "Public API"
         autogen: true
         source_files:
-          - "crates/hark-dictionary/src/lib.rs"
+          - "crates/hark-spellbook/src/lib.rs"
         diagrams_needed: false
         diagram_types: []
-      - id: hark_08_dictionary_edge
+      - id: hark_08_spellbook_edge
         title: "Edge Cases"
         autogen: true
         diagrams_needed: false
@@ -472,7 +472,7 @@ pages:
     description: "User-authored trigger phrases that inject canned text verbatim, skipping the cleanup pass."
     category: feature
     source_files:
-      - "crates/hark-dictionary/src/expander.rs"
+      - "crates/hark-spellbook/src/expander.rs"
       - "crates/hark-config/src/invocations.rs"
       - "crates/hark-pipeline/src/worker.rs"
       - "crates/hark-app/src/ui/invocations/mod.rs"
@@ -487,7 +487,7 @@ pages:
         title: "Trigger Matching and Scope"
         autogen: true
         source_files:
-          - "crates/hark-dictionary/src/expander.rs"
+          - "crates/hark-spellbook/src/expander.rs"
         diagrams_needed: false
         diagram_types: []
       - id: hark_08b_invocations_cleanup
@@ -518,7 +518,7 @@ pages:
         diagrams_needed: false
         diagram_types: []
     related_pages:
-      - hark_08_dictionary
+      - hark_08_spellbook
       - hark_09_voice_cleanup
       - hark_12_desktop_ui
 
@@ -569,7 +569,7 @@ pages:
         diagram_types: []
     related_pages:
       - hark_07_transcription
-      - hark_08_dictionary
+      - hark_08_spellbook
       - hark_04_configuration
 
   - id: hark_10_text_injection

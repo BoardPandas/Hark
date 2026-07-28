@@ -99,7 +99,7 @@ pub fn provider_config(
         base_url,
         model: settings.provider.resolved_model(),
         api_key,
-        bias_terms: settings.dictionary.terms.clone(),
+        bias_terms: settings.spellbook.terms.clone(),
         // No settings path selects the fused adapter yet: the Gemini prototype
         // is driven by its spike, not by the app.
         cleanup_instruction: None,
@@ -114,25 +114,25 @@ pub fn provider_config(
 /// the single owner (LL-G `architecture/transient-cache-without-drift`).
 /// Entries that cannot arm are skipped by the expander itself; only the
 /// counts are logged, never a phrase or an expansion.
-fn build_expander(invocations: &hark_config::Invocations) -> hark_dictionary::Expander {
-    let entries: Vec<(String, String, hark_dictionary::Scope)> = invocations
+fn build_expander(invocations: &hark_config::Invocations) -> hark_spellbook::Expander {
+    let entries: Vec<(String, String, hark_spellbook::Scope)> = invocations
         .entries
         .iter()
         .map(|i| {
             let scope = match i.scope {
-                hark_config::Scope::Utterance => hark_dictionary::Scope::Utterance,
-                hark_config::Scope::Anywhere => hark_dictionary::Scope::Anywhere,
+                hark_config::Scope::Utterance => hark_spellbook::Scope::Utterance,
+                hark_config::Scope::Anywhere => hark_spellbook::Scope::Anywhere,
             };
             (i.phrase.clone(), i.expansion.clone(), scope)
         })
         .collect();
-    let expander = hark_dictionary::Expander::new(&entries);
+    let expander = hark_spellbook::Expander::new(&entries);
     if expander.skipped() > 0 {
         log::warn!(
             "{} invocation(s) will not fire (need {}+ words, a non-empty expansion, \
              and a trigger no earlier entry already uses); {} armed",
             expander.skipped(),
-            hark_dictionary::MIN_TRIGGER_WORDS,
+            hark_spellbook::MIN_TRIGGER_WORDS,
             expander.armed()
         );
     } else if expander.armed() > 0 {
@@ -207,7 +207,7 @@ fn build_cleanup(
         reasoning_effort: resolved.reasoning_effort.clone(),
         voice,
         custom_prompt: settings.voice.custom_prompt.clone(),
-        dictionary_terms: settings.dictionary.terms.clone(),
+        spellbook_terms: settings.spellbook.terms.clone(),
     };
     let adapter = match hark_voice::openai_compatible::OpenAiCompatibleChat::new(&config, client) {
         Ok(a) => a,
@@ -368,7 +368,7 @@ pub fn run(
         provider,
         cloud_label: provider_cfg.label.clone(),
         local,
-        corrector: hark_dictionary::Corrector::new(&settings.dictionary.terms),
+        corrector: hark_spellbook::Corrector::new(&settings.spellbook.terms),
         expander: build_expander(&settings.invocations),
         cleanup,
         prewarm_url,
@@ -436,8 +436,8 @@ mod tests {
     }
 
     #[test]
-    fn dictionary_terms_feed_provider_bias_terms() {
-        let s = settings_from("[dictionary]\nterms = [\"Hark\", \"Levenshtein\"]");
+    fn spellbook_terms_feed_provider_bias_terms() {
+        let s = settings_from("[spellbook]\nterms = [\"Hark\", \"Levenshtein\"]");
         let cfg = provider_config(&s, "K".to_string()).unwrap();
         assert_eq!(cfg.bias_terms, vec!["Hark", "Levenshtein"]);
     }
@@ -486,7 +486,7 @@ mod tests {
     #[test]
     fn openai_stt_inherits_into_a_cleanup_plan_without_keychain() {
         let s = settings_from(
-            "[provider]\nkind = \"openai\"\n[voice]\nskip_below_words = 3\n[dictionary]\nterms = [\"Hark\"]",
+            "[provider]\nkind = \"openai\"\n[voice]\nskip_below_words = 3\n[spellbook]\nterms = [\"Hark\"]",
         );
         let plan = build_cleanup(&s, client(), "STT-KEY").expect("inherit path builds a plan");
         assert_eq!(plan.voice, hark_voice::Voice::Clean);

@@ -1,10 +1,10 @@
 //! Phonetic post-correction: after the STT provider returns a transcript,
-//! find spans that *sound like* a dictionary term but are spelled wrong and
+//! find spans that *sound like* a spellbook term but are spelled wrong and
 //! replace them with the canonical spelling, before injection.
 //!
 //! Pure text processing, no I/O, no async. Runs on the pipeline worker
 //! thread inside the release-to-inject latency budget (target: well under
-//! 10 ms for a 100-word utterance against a 200-term dictionary).
+//! 10 ms for a 100-word utterance against a 200-term spellbook).
 //!
 //! Matching is Double Metaphone code equality confirmed by a Jaro-Winkler
 //! score, with exact-only fallbacks for words the phonetic algorithm cannot
@@ -124,7 +124,7 @@ mod tests {
     }
 
     #[test]
-    fn identity_when_dictionary_is_empty() {
+    fn identity_when_spellbook_is_empty() {
         let (out, n) = corrector(&[]).correct("hello, world");
         assert_eq!(out, "hello, world");
         assert_eq!(n, 0);
@@ -352,7 +352,7 @@ mod tests {
 
     #[test]
     fn rphonetic_matches_vowel_variant_misspellings() {
-        // The property the whole dictionary rests on: ASR vowel swaps do
+        // The property the whole spellbook rests on: ASR vowel swaps do
         // not change the Double Metaphone code.
         let dm = DoubleMetaphone::default();
         assert_eq!(dm.encode("modero"), dm.encode("madero"));

@@ -1,5 +1,5 @@
 //! Hark voice layer: optional BYOK cleanup of the corrected transcript before
-//! injection. After STT and dictionary correction, one low-temperature
+//! injection. After STT and spellbook correction, one low-temperature
 //! chat-completions call rewrites the transcript in the user's chosen voice;
 //! Verbatim never calls, short utterances skip via a word-count gate, and
 //! every failure is fail-open (the uncleaned transcript always injects).

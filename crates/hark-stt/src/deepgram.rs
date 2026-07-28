@@ -1,6 +1,6 @@
 //! The Deepgram adapter: `POST {base_url}/v1/listen` with `Token` auth and a
 //! raw `audio/wav` body. Earns its own adapter because `keyterm` biasing
-//! (nova-3+) maps directly onto Hark's dictionary feature.
+//! (nova-3+) maps directly onto Hark's spellbook feature.
 
 use crate::error::{error_for_status, error_for_transport, truncate_snippet, SttError};
 use crate::openai_compatible::retry_after_secs;

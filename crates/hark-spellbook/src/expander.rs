@@ -15,13 +15,13 @@ use crate::matcher::{self, Codes, TermEntry};
 use crate::tokenize;
 
 /// Jaro-Winkler confirmation threshold for invocation triggers, deliberately
-/// tighter than the dictionary's 0.85.
+/// tighter than the spellbook's 0.85.
 ///
-/// A dictionary false positive corrupts one word; an invocation false
+/// A spellbook false positive corrupts one word; an invocation false
 /// positive pastes a whole paragraph the user did not ask for. The recall
 /// cost is small (a genuine trigger is a phrase the user chose and says on
 /// purpose), and the fix for a stubborn one is free: matching runs *after*
-/// dictionary pass 1, so adding the word to the Dictionary repairs the
+/// spellbook pass 1, so adding the word to the Spellbook repairs the
 /// transcript before the trigger is ever compared.
 const INVOCATION_JW_THRESHOLD: f64 = 0.90;
 
@@ -326,8 +326,8 @@ mod tests {
     // --- the tightened confirm threshold
 
     /// Permanent guard against a future session "unifying the matchers" back
-    /// down to the dictionary's 0.85. The pair below is chosen so the two
-    /// thresholds actually disagree: the dictionary would replace it, the
+    /// down to the spellbook's 0.85. The pair below is chosen so the two
+    /// thresholds actually disagree: the spellbook would replace it, the
     /// invocation must not.
     #[test]
     fn phonetic_near_miss_below_0_90_never_fires() {
@@ -347,7 +347,7 @@ mod tests {
         assert_eq!(out.text, "access grantor", "0.90 must reject it");
         assert_eq!(out.fired, None);
 
-        // The same pair on the dictionary's unchanged 0.85 path still fires,
+        // The same pair on the spellbook's unchanged 0.85 path still fires,
         // which is what makes this a threshold test and not a spelling test.
         let (corrected, n) = crate::Corrector::new(&["granted".to_string()]).correct("grantor");
         assert_eq!((corrected.as_str(), n), ("granted", 1));

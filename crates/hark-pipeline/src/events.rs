@@ -12,7 +12,7 @@
 pub struct DictationRecord {
     /// The raw STT transcript, exactly as the provider returned it.
     pub raw_text: String,
-    /// The injected text (after dictionary passes and optional cleanup).
+    /// The injected text (after spellbook passes and optional cleanup).
     pub final_text: String,
     /// Voice label that actually ran ("verbatim" when cleanup was off or
     /// degraded), for display next to the entry.

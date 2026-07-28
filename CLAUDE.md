@@ -1,6 +1,6 @@
 # Hark — Project Rules
 
-Hark is a single-user, **push-to-talk voice dictation desktop app** for Windows + macOS, written in **Rust**. Hold a key, speak, release; polished English text is injected at the cursor in any app. Transcription is **BYOK cloud** (the user's own STT provider key, multi-provider adapters); history, stats, and the dictionary are local-only; cleanup is optional and uses the user's own LLM key. (Pivoted from on-device STT on 2026-07-15; see `tasks/plan-repo.md`.)
+Hark is a single-user, **push-to-talk voice dictation desktop app** for Windows + macOS, written in **Rust**. Hold a key, speak, release; polished English text is injected at the cursor in any app. Transcription is **BYOK cloud** (the user's own STT provider key, multi-provider adapters); history, stats, and the spellbook are local-only; cleanup is optional and uses the user's own LLM key. (Pivoted from on-device STT on 2026-07-15; see `tasks/plan-repo.md`.)
 
 > This is a **native desktop app**. There is no web frontend, server, database service, auth service, or hosting platform. The template reference `.claude/references/infrastructure.md` (Northflank/Cloudflare/Better Auth/Postgres/Redis) **does not apply to Hark** — ignore it.
 
@@ -13,12 +13,12 @@ Hark is a single-user, **push-to-talk voice dictation desktop app** for Windows 
 | Push-to-talk | Native low-level key hooks: **CGEventTap (macOS), `WH_KEYBOARD_LL` (Windows)** — NOT the `global-hotkey` crate |
 | STT | **BYOK cloud via an `SttProvider` trait**: OpenAI-compatible `/audio/transcriptions` adapter (OpenAI, Groq) + Deepgram nova-3 adapter (`keyterm` biasing). No local model |
 | STT transport | `reqwest` 0.13 blocking + multipart + rustls on pipeline worker threads; one long-lived `Client`; **no global tokio runtime** |
-| Dictionary | Phonetic post-correction (primary, provider-agnostic) + per-provider biasing (OpenAI/Groq `prompt`, Deepgram `keyterm`) |
-| Invocations | Trigger phrase → canned text (`hark_dictionary::Expander`); same guarded matcher as the dictionary at a **0.90** confirm threshold vs 0.85. A fired invocation **must** skip cleanup — control flow, never a prompt clause |
+| Spellbook | Phonetic post-correction (primary, provider-agnostic) + per-provider biasing (OpenAI/Groq `prompt`, Deepgram `keyterm`) |
+| Invocations | Trigger phrase → canned text (`hark_spellbook::Expander`); same guarded matcher as the spellbook at a **0.90** confirm threshold vs 0.85. A fired invocation **must** skip cleanup — control flow, never a prompt clause |
 | Voices / cleanup | BYOK OpenAI-compatible endpoint (optional); one low-temp call |
 | Injection | Clipboard paste (stash → set → paste → restore); `enigo` fallback |
 | Tray + window | `tray-icon` + `eframe`/`egui` (native, no webview) |
-| Storage | `rusqlite` (history + stats); TOML (settings + dictionary); `keyring` (BYOK key in OS keychain) |
+| Storage | `rusqlite` (history + stats); TOML (settings + spellbook); `keyring` (BYOK key in OS keychain) |
 
 Full rationale and phases: [`tasks/plan-repo.md`](tasks/plan-repo.md). UI/latency/accessibility SLA: [`.claude/references/design-guardrails.md`](.claude/references/design-guardrails.md). Tools: [`.claude/references/tools.md`](.claude/references/tools.md).
 

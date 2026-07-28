@@ -27,7 +27,7 @@ pub const TOTAL_TIMEOUT_MS: u64 = 15_000;
 /// by the caller (the dominant share of release-to-inject latency).
 pub struct Transcript {
     /// The verbatim transcript, always present. Stays the ground truth even
-    /// when `cleaned` is populated: dictionary correction and the cleanup
+    /// when `cleaned` is populated: spellbook correction and the cleanup
     /// expansion guard both need the un-rewritten text.
     pub text: String,
     /// Populated only by fused adapters (Gemini), which return the cleaned

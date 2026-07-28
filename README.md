@@ -1,16 +1,16 @@
 # Hark
 
-A lean, system-wide, push-to-talk voice dictation tool for **Windows** and **macOS**. Hold a key, speak, release — polished English text is injected at your cursor in any app. Transcription is **bring-your-own-key cloud** (you supply your own speech-to-text provider key); history, stats, the dictionary, and your invocations stay local on your machine; cleanup is optional and uses your own LLM key.
+A lean, system-wide, push-to-talk voice dictation tool for **Windows** and **macOS**. Hold a key, speak, release — polished English text is injected at your cursor in any app. Transcription is **bring-your-own-key cloud** (you supply your own speech-to-text provider key); history, stats, the spellbook, and your invocations stay local on your machine; cleanup is optional and uses your own LLM key.
 
 > Wispr Flow-style dictation, scoped to one user, English-only, and local-first.
 
 ## Design principles
 
 - **Speed is the product.** All perceived latency lives in the release-to-inject window; everything is structured to keep it small.
-- **Local-first where it counts.** History, stats, and the dictionary are local-only and never leave your machine. Transcription goes to the speech-to-text provider *you* choose, under *your* key; the optional cleanup pass uses your LLM key. No Hark-operated servers, ever.
+- **Local-first where it counts.** History, stats, and the spellbook are local-only and never leave your machine. Transcription goes to the speech-to-text provider *you* choose, under *your* key; the optional cleanup pass uses your LLM key. No Hark-operated servers, ever.
 - **Lean.** No webview, no browser tab, no JS toolchain. A single Rust process: an always-on tray daemon plus a native window opened on demand.
 - **English done well.** Accuracy over language breadth.
-- **Data, not code, for anything you tune.** The dictionary and voice presets are config, so editing them never touches the pipeline.
+- **Data, not code, for anything you tune.** The spellbook and voice presets are config, so editing them never touches the pipeline.
 
 ## Tech stack
 
@@ -23,12 +23,12 @@ Desktop app — **no web infrastructure** (no server, database service, auth, or
 | Push-to-talk | Native low-level key hooks: CGEventTap (macOS), `WH_KEYBOARD_LL` (Windows) |
 | STT | BYOK cloud via an `SttProvider` trait: OpenAI-compatible `/audio/transcriptions` adapter (OpenAI, Groq) + Deepgram nova-3 adapter |
 | STT transport | `reqwest` blocking + multipart + rustls on worker threads; one long-lived client, no global tokio |
-| Dictionary | Phonetic post-correction (primary, provider-agnostic) + per-provider biasing (OpenAI/Groq `prompt`, Deepgram `keyterm`) |
+| Spellbook | Phonetic post-correction (primary, provider-agnostic) + per-provider biasing (OpenAI/Groq `prompt`, Deepgram `keyterm`) |
 | Invocations | Trigger phrase → canned text, matched by the same guarded phonetic matcher at a tighter confirm threshold; injected verbatim, cleanup skipped |
 | Cleanup / voices | Bring-your-own-key, OpenAI-compatible chat endpoint (optional) |
 | Injection | Clipboard paste, `enigo` keystroke fallback |
 | Tray + UI | `tray-icon` + `eframe`/`egui` (native, no webview) |
-| Storage | `rusqlite` (history + stats), TOML (settings + dictionary) |
+| Storage | `rusqlite` (history + stats), TOML (settings + spellbook) |
 | Key storage | `keyring` → macOS Keychain / Windows Credential Manager |
 
 See [`tasks/plan-repo.md`](tasks/plan-repo.md) for the full rationale and the current-as-of-2026-07-15 research corrections.
@@ -44,7 +44,7 @@ key up  ─────▶ append ~150 ms tail
        one HTTPS POST to your STT provider  ◀── biasing terms (prompt / keyterm)
        (reused keep-alive client, at most one retry on timeout)
               │
-              ▼  phonetic post-correction against dictionary
+              ▼  phonetic post-correction against spellbook
               │
               ▼  invocation trigger matched? ── yes ─▶ inject canned text verbatim
               │ no                                     (cleanup skipped entirely)
@@ -52,7 +52,7 @@ key up  ─────▶ append ~150 ms tail
         voice == Verbatim? ── yes ─▶ inject raw transcript
               │ no
               ▼
-     single BYOK LLM call (low temp): voice template + dictionary terms + transcript
+     single BYOK LLM call (low temp): voice template + spellbook terms + transcript
               │
               ▼  inject via clipboard paste (stash → set → paste → restore)
               │
@@ -109,17 +109,17 @@ crates/
   hark-hotkey/       # native push-to-talk key hooks (WH_KEYBOARD_LL / CGEventTap)
   hark-audio/        # cpal ring buffer, pre-roll + tail
   hark-stt/          # SttProvider trait + adapters (OpenAI-compatible, Deepgram)
-  hark-dictionary/   # phonetic post-correction, invocation trigger matching,
+  hark-spellbook/   # phonetic post-correction, invocation trigger matching,
                      #   and per-provider biasing terms
   hark-voice/        # voice presets + BYOK cleanup adapter
   hark-inject/       # clipboard paste + enigo fallback
   hark-pipeline/     # release-to-inject orchestration across worker threads
   hark-store/        # rusqlite (history + stats)
-  hark-config/       # TOML settings + dictionary load/save
+  hark-config/       # TOML settings + spellbook load/save
   hark-keychain/     # keyring wrapper (BYOK key in the OS keychain)
   hark-autostart/    # launch-at-login (Windows registry / macOS login item)
   hark-update/       # in-app update checker + Windows self-update
-config/              # default config.toml + dictionary
+config/              # default config.toml + spellbook
 ```
 
 ## Configuration
@@ -128,21 +128,21 @@ No web env vars. Settings and secrets live in OS-standard locations:
 
 | Item | Location |
 |---|---|
-| `config.toml` (hotkey, default voice, BYOK provider/model, dictionary, invocations, capture toggle, retention cap) | OS config dir (`~/Library/Application Support/Hark/`, `%APPDATA%\Hark\`) |
+| `config.toml` (hotkey, default voice, BYOK provider/model, spellbook, invocations, capture toggle, retention cap) | OS config dir (`~/Library/Application Support/Hark/`, `%APPDATA%\Hark\`) |
 | `hark.db` (history + stats) | OS data dir |
 | BYOK API key | OS keychain — never written to `config.toml` |
 
 ## Development phases
 
 - **Phase 1 — Foundation:** core loop, Verbatim only. Native hotkey, ring buffer, one STT provider call, clipboard injection. Prove latency + hotkey reliability on both OSes. Spike the `SttProvider` adapter ↔ multipart upload ↔ release-to-inject timing first.
-- **Phase 2 — Dictionary:** phonetic post-correction (primary, provider-agnostic) + per-provider biasing (`prompt` / `keyterm`).
+- **Phase 2 — Spellbook:** phonetic post-correction (primary, provider-agnostic) + per-provider biasing (`prompt` / `keyterm`).
 - **Phase 3 — Voice layer + BYOK:** OpenAI-compatible adapter, keychain key storage, voice presets, tray selector (Clean default).
 - **Phase 4 — Settings/history UI + storage:** SQLite, retention pruning, lifetime stats, egui window.
 - **Phase 5 — Ship:** processing indicator, packaging + notarization/signing, first-run permissions, launch-at-login, single-instance guard.
 
 ## Privacy
 
-- Audio is sent to **your chosen** speech-to-text provider under **your own key** to be transcribed; nothing goes to any Hark-operated server. History, stats, and the dictionary stay local and are never transmitted.
+- Audio is sent to **your chosen** speech-to-text provider under **your own key** to be transcribed; nothing goes to any Hark-operated server. History, stats, and the spellbook stay local and are never transmitted.
 - Any non-Verbatim voice additionally sends the transcript to **your chosen** LLM provider for cleanup — surfaced honestly in the UI, with the selected model always visible.
 - The SQLite file is plaintext on disk (normal for a local single-user tool); delete-one, clear-all, disable-capture, and a retention cap are provided. Lifetime stats survive history clears and have a separate reset control.
 

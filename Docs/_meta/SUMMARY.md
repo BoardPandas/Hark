@@ -19,7 +19,7 @@
 | core/DATA_STORAGE.md | 6 | 80 | 1 |
 | features/AUDIO_CAPTURE.md | 6 | 94 | 1 |
 | features/TRANSCRIPTION.md | 6 | 92 | 1 |
-| features/DICTIONARY.md | 6 | 71 | 1 |
+| features/SPELLBOOK.md | 6 | 71 | 1 |
 | features/VOICE_CLEANUP.md | 5 | 66 | 1 |
 | features/TEXT_INJECTION.md | 5 | 55 | 1 |
 | features/UPDATES_AND_AUTOSTART.md | 5 | 72 | 1 |
@@ -44,7 +44,7 @@ All 13 workspace crates are documented, plus the config, installer, release work
 | `crates/hark-pipeline` | ARCHITECTURE |
 | `crates/hark-audio` + `crates/hark-hotkey` | AUDIO_CAPTURE |
 | `crates/hark-stt` | TRANSCRIPTION |
-| `crates/hark-dictionary` | DICTIONARY |
+| `crates/hark-spellbook` | SPELLBOOK |
 | `crates/hark-voice` | VOICE_CLEANUP |
 | `crates/hark-inject` | TEXT_INJECTION |
 | `crates/hark-config` + `crates/hark-keychain` | CONFIGURATION |
@@ -54,7 +54,7 @@ All 13 workspace crates are documented, plus the config, installer, release work
 
 ### Notes and known gaps
 
-- The DICTIONARY builder found that the biasing/`Dictionary` settings logic it was pointed at does not live in `crates/hark-dictionary` (which only implements the phonetic `Corrector`); it traced the real implementation to `crates/hark-config`, `crates/hark-pipeline`, and `crates/hark-stt` and cited those instead. The page documents the cross-crate split explicitly rather than citing a nonexistent struct.
+- The SPELLBOOK builder found that the biasing/`Spellbook` settings logic it was pointed at does not live in `crates/hark-spellbook` (which only implements the phonetic `Corrector`); it traced the real implementation to `crates/hark-config`, `crates/hark-pipeline`, and `crates/hark-stt` and cited those instead. The page documents the cross-crate split explicitly rather than citing a nonexistent struct.
 - Test files (`crates/*/tests/**`, `examples/**`) are cited where they illustrate observed behavior but are not documented as standalone pages.
 - macOS-specific code paths (CGEventTap hotkey, login item, macOS update link-out) are documented from the current source; several are Windows-first with macOS paths noted where the code marks them incomplete.
 - No API-reference, database-service, auth, or hosting/infra pages exist: Hark is a native single-process desktop app with no web backend.
@@ -79,10 +79,10 @@ Run `/doc-sync update` after code changes to regenerate only the AUTOGEN section
 
 ### Phase B — Source diff
 - Sections regenerated: 6 across 4 existing pages
-  - `hark_12_desktop_ui_overview` — was "four egui pages (History, Dictionary, Stats, Settings)"; now five, with Invocations
+  - `hark_12_desktop_ui_overview` — was "four egui pages (History, Spellbook, Stats, Settings)"; now five, with Invocations
   - `hark_12_desktop_ui_pages` — page table gains the Invocations row plus an Invocations subsection
-  - `hark_08_dictionary_matcher` — `window_matches` now takes the Jaro-Winkler threshold as a parameter; documents the 0.85 vs 0.90 split and `window_similarity`
-  - `hark_08_dictionary_api` — `Expander`, `phrase_word_count`, and `normalized_phrase` added to the public API table
+  - `hark_08_spellbook_matcher` — `window_matches` now takes the Jaro-Winkler threshold as a parameter; documents the 0.85 vs 0.90 split and `window_similarity`
+  - `hark_08_spellbook_api` — `Expander`, `phrase_word_count`, and `normalized_phrase` added to the public API table
   - `hark_04_configuration_schema` — `[[invocations.entries]]` keys, the last-field ordering rule, and the deliberate absence of a `validate` rule
   - `hark_05_data_storage_schema` — migration 003, the `invocation` column, the ER diagram, and the spoken-word stats rule
 - Pages touched: 5 (1 new, 4 edited)

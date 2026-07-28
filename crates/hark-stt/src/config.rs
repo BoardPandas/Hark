@@ -26,7 +26,7 @@ pub struct ProviderConfig {
     pub model: String,
     /// Spike: from env. App: from keyring. Never logged.
     pub api_key: String,
-    /// Dictionary-ish bias terms, mapped per adapter: `prompt` (openai-compatible),
+    /// Spellbook-ish bias terms, mapped per adapter: `prompt` (openai-compatible),
     /// repeated `keyterm` query params (deepgram), or a spelling glossary in the
     /// system instruction (gemini).
     pub bias_terms: Vec<String>,

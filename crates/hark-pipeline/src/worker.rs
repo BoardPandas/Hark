@@ -8,9 +8,9 @@ use crate::retry::should_retry;
 use crate::state::{advance, Action, Event, PipelineState};
 use hark_audio::ring::Consumer;
 use hark_audio::WindowParams;
-use hark_dictionary::{Corrector, Expander, Expansion};
 use hark_hotkey::PttEvent;
 use hark_inject::InjectSettings;
+use hark_spellbook::{Corrector, Expander, Expansion};
 use hark_stt::{SttError, SttProvider, Transcript};
 use hark_voice::{over_expanded, skips_cleanup, CleanupProvider, Voice};
 use std::sync::mpsc::{Receiver, Sender};
@@ -48,13 +48,13 @@ pub(crate) struct Worker {
     pub cloud_label: String,
     /// On-device engine plan; `None` when local STT is off or unavailable.
     pub local: Option<LocalPlan>,
-    /// Dictionary post-correction, built once from the configured terms.
+    /// Spellbook post-correction, built once from the configured terms.
     pub corrector: Corrector,
     /// Invocation expansion, built once from the configured triggers. A
     /// derived artifact: rebuilt from TOML on every pipeline start, never
     /// cached (LL-G `architecture/transient-cache-without-drift`).
     pub expander: Expander,
-    /// Optional voice cleanup between dictionary pass 1 and injection.
+    /// Optional voice cleanup between spellbook pass 1 and injection.
     pub cleanup: Option<CleanupPlan>,
     /// Base URL to pre-warm (DNS + TCP + TLS) before the first dictation.
     pub prewarm_url: String,
@@ -300,10 +300,10 @@ pub(crate) struct CleanupOutcome {
     pub request_ms: Option<u64>,
 }
 
-/// The optional voice-cleanup pass between dictionary pass 1 and injection.
+/// The optional voice-cleanup pass between spellbook pass 1 and injection.
 /// Fail-open at every layer: no plan (Verbatim or degraded), a gated short
 /// utterance, or any cleanup error all inject the pass-1 text unchanged; a
-/// dictation is never lost to the optional feature. Dictionary pass 2 runs
+/// dictation is never lost to the optional feature. Spellbook pass 2 runs
 /// only when cleanup actually rewrote the text, repairing any term the model
 /// re-mangled. Logs counts, millis, and config labels only.
 fn cleaned_text(plan: Option<&CleanupPlan>, corrector: &Corrector, text: String) -> CleanupOutcome {
@@ -360,14 +360,14 @@ fn cleaned_text(plan: Option<&CleanupPlan>, corrector: &Corrector, text: String)
     }
 }
 
-/// The invocation pass, between dictionary pass 1 and cleanup. Pure (the
+/// The invocation pass, between spellbook pass 1 and cleanup. Pure (the
 /// testable seam); logs whether one fired and the millis, never the trigger
 /// phrase or the expansion (both are user content).
 ///
 /// Running after pass 1 is deliberate: pass 1 canonicalizes the *spoken*
 /// words, which can only help a trigger match (matching lowercases both
 /// sides, so casing changes are harmless). The expansion is inserted
-/// afterwards and is therefore never touched by the dictionary.
+/// afterwards and is therefore never touched by the spellbook.
 ///
 /// A caller that sees `fired.is_some()` **must** skip cleanup. That is not a
 /// preference, it is the four failure modes this avoids:
@@ -379,7 +379,7 @@ fn cleaned_text(plan: Option<&CleanupPlan>, corrector: &Corrector, text: String)
 /// 2. A short, free, instant dictation would turn into a billed LLM round
 ///    trip on the release-to-inject path.
 /// 3. No HTTP call at all: no latency, no cost, no failure mode.
-/// 4. Dictionary pass 2 never runs over the expansion, so phonetic
+/// 4. Spellbook pass 2 never runs over the expansion, so phonetic
 ///    post-correction cannot mangle URLs or product names the user typed
 ///    into their own canned text.
 ///
@@ -401,13 +401,13 @@ fn expanded_text(expander: &Expander, text: String) -> Expansion {
     expansion
 }
 
-/// The dictionary pass between transcript and injection. Pure (the testable
+/// The spellbook pass between transcript and injection. Pure (the testable
 /// seam); logs counts and millis only, never transcript text or terms.
 fn corrected_text(corrector: &Corrector, transcript_text: &str) -> String {
     let started = Instant::now();
     let (text, replacements) = corrector.correct(transcript_text);
     log::info!(
-        "dictionary: {replacements} replacements in {} ms",
+        "spellbook: {replacements} replacements in {} ms",
         started.elapsed().as_millis()
     );
     text
@@ -577,7 +577,7 @@ mod tests {
     }
 
     // The worker path from a provider transcript to the text handed to
-    // hark_inject::inject: transcribe (with retry) then the dictionary
+    // hark_inject::inject: transcribe (with retry) then the spellbook
     // pass. Injection itself is I/O, validated on real hardware at CP6.
 
     #[test]
@@ -593,7 +593,7 @@ mod tests {
     }
 
     #[test]
-    fn empty_dictionary_leaves_the_transcript_untouched() {
+    fn empty_spellbook_leaves_the_transcript_untouched() {
         let corrector = Corrector::new(&[]);
         assert_eq!(corrected_text(&corrector, "as it was"), "as it was");
     }
@@ -671,7 +671,7 @@ mod tests {
     }
 
     #[test]
-    fn cleaned_text_is_injected_after_dictionary_pass_2() {
+    fn cleaned_text_is_injected_after_spellbook_pass_2() {
         let corrector = Corrector::new(&[]);
         let plan = MockCleaner::plan(vec![MockCleaner::ok("Cleaned and polished.")], 0);
         let out = cleaned_text(
@@ -798,7 +798,7 @@ mod tests {
 
     // --- invocations: the expansion must never reach the cleanup model ---
 
-    fn expander(phrase: &str, expansion: &str, scope: hark_dictionary::Scope) -> Expander {
+    fn expander(phrase: &str, expansion: &str, scope: hark_spellbook::Scope) -> Expander {
         Expander::new(&[(phrase.to_string(), expansion.to_string(), scope)])
     }
 
@@ -817,11 +817,11 @@ mod tests {
     /// expansion would lose every time).
     ///
     /// The corrector is hostile on purpose: it would rewrite "Forge" inside
-    /// the canned text if dictionary pass 2 ever ran over it. It must not.
+    /// the canned text if spellbook pass 2 ever ran over it. It must not.
     #[test]
     fn a_fired_invocation_never_calls_the_cleaner() {
         let corrector = Corrector::new(&["Forj".to_string()]);
-        let expander = expander("access granted", CANNED, hark_dictionary::Scope::Utterance);
+        let expander = expander("access granted", CANNED, hark_spellbook::Scope::Utterance);
         // Shaped like `Worker::cleanup` so the branch below is the real one.
         let cleanup = Some(MockCleaner::plan(vec![], 0));
 
@@ -846,7 +846,7 @@ mod tests {
     #[test]
     fn no_invocation_leaves_the_cleanup_path_identical() {
         let corrector = Corrector::new(&[]);
-        let expander = expander("access granted", CANNED, hark_dictionary::Scope::Utterance);
+        let expander = expander("access granted", CANNED, hark_spellbook::Scope::Utterance);
         let cleanup = Some(MockCleaner::plan(
             vec![MockCleaner::ok("Cleaned and polished.")],
             0,
@@ -874,7 +874,7 @@ mod tests {
     #[test]
     fn terms_mangled_by_the_model_are_repaired_by_pass_2() {
         let corrector = Corrector::new(&["Vossburg".to_string(), "Modero".to_string()]);
-        // The mock "model" re-mangles both dictionary terms.
+        // The mock "model" re-mangles both spellbook terms.
         let plan = MockCleaner::plan(
             vec![MockCleaner::ok("Tell vosburg the madero build is green.")],
             0,

@@ -1,7 +1,7 @@
 //! The invocation editor: trigger, scope, expansion, and a test panel.
 //!
 //! Commits on an explicit **Save** and never on `lost_focus` the way the
-//! dictionary editor does. Focus is lost by clicking a scrollbar or
+//! spellbook editor does. Focus is lost by clicking a scrollbar or
 //! alt-tabbing, and every commit here runs `save_to_disk` plus a full
 //! `pipeline.start()` -- hook, worker, and capture restart, including a
 //! keychain read. That is far too much to fire by accident, and a
@@ -10,7 +10,7 @@
 use crate::theme;
 use egui::{RichText, TextEdit, Ui};
 use hark_config::{Invocation, Scope};
-use hark_dictionary::{Expander, MIN_TRIGGER_WORDS};
+use hark_spellbook::{Expander, MIN_TRIGGER_WORDS};
 
 /// What the editor did this frame.
 pub enum Outcome {
@@ -226,8 +226,8 @@ impl Draft {
 
         if self.preview_dirty {
             let scope = match self.scope {
-                Scope::Utterance => hark_dictionary::Scope::Utterance,
-                Scope::Anywhere => hark_dictionary::Scope::Anywhere,
+                Scope::Utterance => hark_spellbook::Scope::Utterance,
+                Scope::Anywhere => hark_spellbook::Scope::Anywhere,
             };
             // Expansion stands in as non-empty so the trigger can arm while
             // the user is still writing the text it will type.
@@ -278,16 +278,16 @@ impl Draft {
         if self.phrase.trim().is_empty() {
             return Some("Enter a trigger phrase.".to_string());
         }
-        if hark_dictionary::phrase_word_count(&self.phrase) < MIN_TRIGGER_WORDS {
+        if hark_spellbook::phrase_word_count(&self.phrase) < MIN_TRIGGER_WORDS {
             return Some(
                 "A trigger needs at least two words \u{2014} one-word triggers fire \
                  against ordinary speech."
                     .to_string(),
             );
         }
-        let key = hark_dictionary::normalized_phrase(&self.phrase);
+        let key = hark_spellbook::normalized_phrase(&self.phrase);
         let clashes = entries.iter().enumerate().any(|(i, e)| {
-            Some(i) != self.index && hark_dictionary::normalized_phrase(&e.phrase) == key
+            Some(i) != self.index && hark_spellbook::normalized_phrase(&e.phrase) == key
         });
         clashes.then(|| "Another invocation already uses this trigger.".to_string())
     }

@@ -37,7 +37,7 @@ Rules for Hark's UI and interaction. This is a **native desktop app** (`eframe`/
 
 Hark has no accounts, sign-in, or auth flows. The equivalent trust surface is **honest BYOK privacy**:
 
-- Honestly disclose in-UI that **every dictation sends audio to the user's chosen STT provider**, and that non-Verbatim voices additionally send the transcribed text to the cleanup provider. History, stats, and the dictionary never leave the machine.
+- Honestly disclose in-UI that **every dictation sends audio to the user's chosen STT provider**, and that non-Verbatim voices additionally send the transcribed text to the cleanup provider. History, stats, and the spellbook never leave the machine.
 - Provider API keys are entered once and stored in the **OS keychain**; never shown back in full, never written to `config.toml`.
 - Offline and provider-error states are first-class UI: distinguishable tray states for "no network", "key rejected", and "provider error/timeout". Dictation fails fast and visibly, never silently.
 - Expose **disable-capture**, **delete entry**, **clear all**, and the **retention cap** prominently; make clear that lifetime stats survive a history clear (separate reset control).

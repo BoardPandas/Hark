@@ -21,7 +21,7 @@ hark-audio = { path = "../hark-audio" }
 # The Invocations editor validates triggers with the same tokenizer the
 # matcher uses, so the editor and the pipeline can never disagree about what
 # counts as a word (hyphens split) or about which triggers are duplicates.
-hark-dictionary = { path = "../hark-dictionary" }
+hark-spellbook = { path = "../hark-spellbook" }
 hark-hotkey = { path = "../hark-hotkey" }
 hark-keychain = { path = "../hark-keychain" }
 # Opt-in on-device STT: model catalog, download manager, and (behind the

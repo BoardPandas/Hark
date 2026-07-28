@@ -241,7 +241,7 @@ fn config(voice: Voice) -> CleanupConfig {
         reasoning_effort: Some("minimal".to_string()),
         voice,
         custom_prompt: String::new(),
-        dictionary_terms: vec!["Hark".to_string()],
+        spellbook_terms: vec!["Hark".to_string()],
     }
 }
 

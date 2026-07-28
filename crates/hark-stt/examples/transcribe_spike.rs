@@ -14,7 +14,7 @@ use hark_stt::metrics::{contains_term, divergence_ratio, LatencyTally};
 use hark_stt::{build, shared_client, wav, ProviderConfig, ProviderKind, SttError};
 use std::time::{Duration, Instant};
 
-/// Dictionary-ish terms spoken in the fixture; drive the prompt/keyterm biasing.
+/// Spellbook-ish terms spoken in the fixture; drive the prompt/keyterm biasing.
 const BIAS_TERMS: [&str; 2] = ["Hark", "Levenshtein"];
 /// The uncommon term the keyterm A/B watches for.
 const AB_TERM: &str = "Levenshtein";

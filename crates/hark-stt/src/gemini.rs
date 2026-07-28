@@ -51,7 +51,7 @@ pub fn interactions_url(base_url: &str) -> String {
 }
 
 /// The transcript pair from one fused call. `raw` is the verbatim transcript
-/// (the ground truth the dictionary corrector and `over_expanded` both need);
+/// (the ground truth the spellbook corrector and `over_expanded` both need);
 /// `cleaned` is the same utterance rewritten in the configured voice, and is
 /// `None` when no cleanup instruction was configured.
 #[derive(Debug, Clone, PartialEq, Eq)]

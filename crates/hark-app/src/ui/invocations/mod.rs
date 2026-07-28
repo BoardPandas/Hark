@@ -227,22 +227,22 @@ fn preview(text: &str) -> String {
 
 /// Why the entry at `index` will never fire, or `None` when it is armed.
 ///
-/// Mirrors `hark_dictionary::Expander::new`'s build-time gate, using the
-/// dictionary's own tokenizer so the two can never disagree about what
+/// Mirrors `hark_spellbook::Expander::new`'s build-time gate, using the
+/// spellbook's own tokenizer so the two can never disagree about what
 /// counts as a word (hyphens split: "access-granted" is two words).
 fn skip_reason(entries: &[Invocation], index: usize) -> Option<&'static str> {
     let entry = &entries[index];
-    if hark_dictionary::phrase_word_count(&entry.phrase) < hark_dictionary::MIN_TRIGGER_WORDS {
+    if hark_spellbook::phrase_word_count(&entry.phrase) < hark_spellbook::MIN_TRIGGER_WORDS {
         return Some("Won't fire: a trigger needs at least two words.");
     }
     if entry.expansion.is_empty() {
         return Some("Won't fire: this invocation has no text to type.");
     }
     // First wins, matching the expander. Only a *later* duplicate is dead.
-    let key = hark_dictionary::normalized_phrase(&entry.phrase);
+    let key = hark_spellbook::normalized_phrase(&entry.phrase);
     let shadowed = entries[..index]
         .iter()
-        .any(|e| hark_dictionary::normalized_phrase(&e.phrase) == key);
+        .any(|e| hark_spellbook::normalized_phrase(&e.phrase) == key);
     shadowed.then_some("Won't fire: an earlier invocation already uses this trigger.")
 }
 

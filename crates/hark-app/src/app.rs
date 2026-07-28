@@ -5,10 +5,10 @@
 //! pipeline and storage workers never do.
 
 use crate::pipeline::{PipelineController, PipelineStatus};
-use crate::ui::dictionary::DictionaryPage;
 use crate::ui::history::HistoryPage;
 use crate::ui::invocations::InvocationsPage;
 use crate::ui::settings::SettingsPage;
+use crate::ui::spellbook::SpellbookPage;
 use crate::ui::stats::StatsPage;
 use crate::ui::{pages, settings, shell};
 use crate::update::Updater;
@@ -17,7 +17,7 @@ use hark_config::{Settings, VoiceName};
 use std::sync::mpsc::{self, Receiver};
 
 pub struct HarkApp {
-    /// The persisted model; only a settings Save (or dictionary edit)
+    /// The persisted model; only a settings Save (or spellbook edit)
     /// changes it. The in-progress form draft lives in `views.settings`.
     settings: Settings,
     /// Declared before `storage` on purpose: fields drop in order, so the
@@ -79,7 +79,7 @@ impl HarkApp {
         );
         let views = pages::Views {
             settings: SettingsPage::new(&settings, onboarding),
-            dictionary: DictionaryPage::new(),
+            spellbook: SpellbookPage::new(),
             invocations: InvocationsPage::new(),
             history: HistoryPage::new(),
             stats: StatsPage::new(),
@@ -178,7 +178,7 @@ impl HarkApp {
         }
     }
 
-    /// A tray voice pick behaves like a dictionary edit: persist
+    /// A tray voice pick behaves like a spellbook edit: persist
     /// immediately, restart the pipeline (voices bake in at start), and
     /// mirror the settings draft so a later Save does not resurrect the
     /// old voice.

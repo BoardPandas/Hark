@@ -85,7 +85,7 @@ Sources: [main.rs:11-47](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd
 
 `hark_pipeline::run` builds the shared HTTP client and STT adapter, starts continuous audio capture, spawns the native hotkey listener, and spawns the one long-lived worker thread that turns a captured clip into injected text; the calling thread only blocks until these pieces are up (([lib.rs:220-278](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/crates/hark-pipeline/src/lib.rs#L220-L278))).
 
-The worker's main loop receives push-to-talk edges, advances the pure state machine, and on a completed press/release cycle runs `dictate`, which performs the whole release-to-inject sequence in one function: assemble the audio window, gate on silence/length, encode to WAV, transcribe (with at most one retry), run the dictionary correction pass, optionally run voice cleanup, run the dictionary pass again, and inject (([worker.rs:56-92](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/crates/hark-pipeline/src/worker.rs#L56-L92)), ([worker.rs:111-118](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/crates/hark-pipeline/src/worker.rs#L111-L118))):
+The worker's main loop receives push-to-talk edges, advances the pure state machine, and on a completed press/release cycle runs `dictate`, which performs the whole release-to-inject sequence in one function: assemble the audio window, gate on silence/length, encode to WAV, transcribe (with at most one retry), run the spellbook correction pass, optionally run voice cleanup, run the spellbook pass again, and inject (([worker.rs:56-92](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/crates/hark-pipeline/src/worker.rs#L56-L92)), ([worker.rs:111-118](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/crates/hark-pipeline/src/worker.rs#L111-L118))):
 
 ```rust
 /// One full dictation: assemble -> gate -> encode -> transcribe -> inject.
@@ -104,7 +104,7 @@ sequenceDiagram
     participant Hook as Hotkey Hook
     participant Worker as Pipeline Worker
     participant STT as STT Provider
-    participant Dict as Dictionary Corrector
+    participant Dict as Spellbook Corrector
     participant Voice as Voice Cleanup
     participant Inject as Text Injector
 

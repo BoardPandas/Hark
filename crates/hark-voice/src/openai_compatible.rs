@@ -145,7 +145,7 @@ pub fn retry_after_secs(headers: &reqwest::header::HeaderMap) -> Option<u64> {
 
 /// Everything needed to build one cleanup adapter. The pipeline fills this
 /// from the resolved provider (hark-config) plus the key from hark-keychain
-/// or STT-key reuse. Dictionary terms are user content: they may enter the
+/// or STT-key reuse. Spellbook terms are user content: they may enter the
 /// request body but never logs.
 #[derive(Clone)]
 pub struct CleanupConfig {
@@ -168,9 +168,9 @@ pub struct CleanupConfig {
     pub voice: Voice,
     /// The user's prompt for `Voice::Custom`; ignored otherwise.
     pub custom_prompt: String,
-    /// Dictionary terms; the per-request protected-terms clause subsets
+    /// Spellbook terms; the per-request protected-terms clause subsets
     /// these to the ones present in the outgoing text.
-    pub dictionary_terms: Vec<String>,
+    pub spellbook_terms: Vec<String>,
 }
 
 // Deliberately no Debug derive: a reflexive `{config:?}` in some future log
@@ -184,7 +184,7 @@ impl std::fmt::Debug for CleanupConfig {
             .field("api_key", &"<redacted>")
             .field("voice", &self.voice)
             .field("custom_prompt", &"<user content>")
-            .field("dictionary_terms", &self.dictionary_terms.len())
+            .field("spellbook_terms", &self.spellbook_terms.len())
             .finish()
     }
 }
@@ -203,7 +203,7 @@ pub struct OpenAiCompatibleChat {
     reasoning_effort: Option<String>,
     voice: Voice,
     custom_prompt: String,
-    dictionary_terms: Vec<String>,
+    spellbook_terms: Vec<String>,
 }
 
 impl OpenAiCompatibleChat {
@@ -228,7 +228,7 @@ impl OpenAiCompatibleChat {
             reasoning_effort: config.reasoning_effort.clone(),
             voice: config.voice,
             custom_prompt: config.custom_prompt.clone(),
-            dictionary_terms: config.dictionary_terms.clone(),
+            spellbook_terms: config.spellbook_terms.clone(),
         })
     }
 }
@@ -236,8 +236,8 @@ impl OpenAiCompatibleChat {
 impl CleanupProvider for OpenAiCompatibleChat {
     fn clean(&self, text: &str) -> Result<Cleaned, CleanupError> {
         // Prompt assembly is per-request: the protected-terms clause depends
-        // on which dictionary terms the outgoing text actually contains.
-        let present = present_terms(text, &self.dictionary_terms);
+        // on which spellbook terms the outgoing text actually contains.
+        let present = present_terms(text, &self.spellbook_terms);
         let prompt = system_prompt(self.voice, &self.custom_prompt, &present)
             .expect("non-verbatim voice enforced at construction");
         let body = build_request_body(

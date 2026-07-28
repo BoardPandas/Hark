@@ -218,9 +218,11 @@ impl Default for Inject {
     }
 }
 
+/// The `[spellbook]` section. Named `[dictionary]` before 0.26.0; the alias on
+/// the `Settings` field keeps those files loading (see `Settings::spellbook`).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 #[serde(default)]
-pub struct Dictionary {
+pub struct Spellbook {
     /// Canonical terms: phonetic post-correction targets and the source for
     /// provider biasing. The alias keeps pre-Phase-2 config files working.
     #[serde(alias = "bias_terms")]
@@ -321,7 +323,11 @@ pub struct Settings {
     pub hotkey: Hotkey,
     pub audio: Audio,
     pub inject: Inject,
-    pub dictionary: Dictionary,
+    /// Renamed from `dictionary` in 0.26.0. The alias loads existing config
+    /// files unchanged; the next Save rewrites the section under its new name,
+    /// so the migration is one-way and needs no separate step.
+    #[serde(alias = "dictionary")]
+    pub spellbook: Spellbook,
     pub voice: Voice,
     pub history: History,
     pub updates: Updates,
@@ -342,7 +348,7 @@ impl Default for Settings {
             hotkey: Hotkey::default(),
             audio: Audio::default(),
             inject: Inject::default(),
-            dictionary: Dictionary::default(),
+            spellbook: Spellbook::default(),
             voice: Voice::default(),
             history: History::default(),
             updates: Updates::default(),
@@ -521,7 +527,7 @@ mod tests {
         assert_eq!(s.audio.tail_ms, 150);
         assert_eq!(s.audio.max_hold_s, 120);
         assert_eq!(s.inject.strategy, InjectStrategy::Clipboard);
-        assert!(s.dictionary.terms.is_empty());
+        assert!(s.spellbook.terms.is_empty());
     }
 
     #[test]
@@ -541,7 +547,7 @@ mod tests {
             [inject]
             strategy = "type"
 
-            [dictionary]
+            [spellbook]
             terms = ["Hark", "Levenshtein"]
             "#,
         )
@@ -557,16 +563,41 @@ mod tests {
         // Untouched keys keep their defaults.
         assert_eq!(s.audio.preroll_ms, 300);
         assert_eq!(s.inject.strategy, InjectStrategy::Type);
-        assert_eq!(s.dictionary.terms, vec!["Hark", "Levenshtein"]);
+        assert_eq!(s.spellbook.terms, vec!["Hark", "Levenshtein"]);
     }
 
     #[test]
     fn legacy_bias_terms_key_still_parses_via_alias() {
         // Pre-Phase-2 config files used `bias_terms`; the serde alias must
         // keep them loading forever.
-        let s = Settings::from_toml("[dictionary]\nbias_terms = [\"Modero\"]")
+        let s = Settings::from_toml("[spellbook]\nbias_terms = [\"Modero\"]")
             .expect("legacy key parses");
-        assert_eq!(s.dictionary.terms, vec!["Modero"]);
+        assert_eq!(s.spellbook.terms, vec!["Modero"]);
+    }
+
+    #[test]
+    fn legacy_dictionary_section_still_parses_via_alias() {
+        // The section was `[dictionary]` before 0.26.0. Every existing install
+        // has one, and losing it would silently empty the user's terms -- the
+        // one outcome a rename must never produce.
+        let s = Settings::from_toml("[dictionary]\nterms = [\"Eldrazi\"]")
+            .expect("legacy section parses");
+        assert_eq!(s.spellbook.terms, vec!["Eldrazi"]);
+    }
+
+    #[test]
+    fn legacy_dictionary_section_is_rewritten_under_the_new_name() {
+        // The migration is one-way and implicit: load old, save new. Pinning it
+        // here means a future serde change cannot quietly keep writing the old
+        // section forever.
+        let s = Settings::from_toml("[dictionary]\nbias_terms = [\"Eldrazi\"]")
+            .expect("legacy section parses");
+        let out = toml::to_string_pretty(&s).expect("serializes");
+        assert!(out.contains("[spellbook]"), "must save under the new name");
+        assert!(
+            !out.contains("[dictionary]"),
+            "must not re-emit the old name"
+        );
     }
 
     #[test]
@@ -759,7 +790,7 @@ mod tests {
         s.provider.kind = ProviderKind::Groq;
         s.provider.model = Some("whisper-large-v3".to_string());
         s.hotkey.ptt_key = "RCtrl".to_string();
-        s.dictionary.terms = vec!["Hark".to_string(), "Modero".to_string()];
+        s.spellbook.terms = vec!["Hark".to_string(), "Modero".to_string()];
         s.history.capture = false;
         s.history.max_entries = 250;
         s.voice.default = VoiceName::Professional;
@@ -784,7 +815,7 @@ mod tests {
         assert_eq!(loaded.provider.model.as_deref(), Some("whisper-large-v3"));
         assert_eq!(loaded.provider.base_url, None);
         assert_eq!(loaded.hotkey.ptt_key, "RCtrl");
-        assert_eq!(loaded.dictionary.terms, vec!["Hark", "Modero"]);
+        assert_eq!(loaded.spellbook.terms, vec!["Hark", "Modero"]);
         assert!(!loaded.history.capture);
         assert_eq!(loaded.history.max_entries, 250);
         assert_eq!(loaded.voice.default, VoiceName::Professional);
@@ -833,7 +864,7 @@ mod tests {
     fn legacy_bias_terms_saves_back_as_terms() {
         // A config loaded through the legacy alias serializes under the
         // canonical key, quietly upgrading the file on the next save.
-        let s = Settings::from_toml("[dictionary]\nbias_terms = [\"Modero\"]")
+        let s = Settings::from_toml("[spellbook]\nbias_terms = [\"Modero\"]")
             .expect("legacy key parses");
         let text = s.to_toml().expect("serializes");
         assert!(text.contains("terms"), "{text}");

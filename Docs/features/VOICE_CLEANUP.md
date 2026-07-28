@@ -13,14 +13,14 @@ The following files were used as evidence for this page:
 
 # Voice Cleanup
 
-> **Related Pages**: [Transcription](TRANSCRIPTION.md), [Dictionary](DICTIONARY.md), [Configuration and Secrets](../core/CONFIGURATION.md)
+> **Related Pages**: [Transcription](TRANSCRIPTION.md), [Spellbook](SPELLBOOK.md), [Configuration and Secrets](../core/CONFIGURATION.md)
 
 ---
 
 <!-- BEGIN:AUTOGEN hark_09_voice_cleanup_overview -->
 ## Overview
 
-Voice cleanup is an optional, single BYOK LLM call that rewrites the raw, dictionary-corrected transcript into the user's chosen register before injection ([lib.rs:1-5](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/crates/hark-voice/src/lib.rs#L1-L5)). `Voice::Verbatim` never triggers a call at all: the pipeline short-circuits before a `CleanupProvider` adapter is even constructed ([lib.rs:4](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/crates/hark-voice/src/lib.rs#L4), [openai_compatible.rs:212-220](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/crates/hark-voice/src/openai_compatible.rs#L212-L220)).
+Voice cleanup is an optional, single BYOK LLM call that rewrites the raw, spellbook-corrected transcript into the user's chosen register before injection ([lib.rs:1-5](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/crates/hark-voice/src/lib.rs#L1-L5)). `Voice::Verbatim` never triggers a call at all: the pipeline short-circuits before a `CleanupProvider` adapter is even constructed ([lib.rs:4](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/crates/hark-voice/src/lib.rs#L4), [openai_compatible.rs:212-220](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/crates/hark-voice/src/openai_compatible.rs#L212-L220)).
 
 `hark-voice` follows the same I/O-thin discipline as `hark-stt`: pure, unit-testable request/response functions with a thin `reqwest::blocking` shell on top, run on the pipeline worker thread with no tokio runtime, and no code path that ever logs API keys, prompts, or transcript text ([lib.rs:7-10](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/crates/hark-voice/src/lib.rs#L7-L10)). Cleanup failure is always fail-open: the pipeline injects the uncleaned transcript rather than blocking on a retry, and the adapter deliberately never retries ([openai_compatible.rs:192-195](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/crates/hark-voice/src/openai_compatible.rs#L192-L195)).
 
@@ -57,7 +57,7 @@ Five voices are supported; each maps to a display name and, except for `Verbatim
 Two gates run before any request is built:
 
 - **Word-count gate** (`skips_cleanup`): short utterances (fewer than `min_words` Unicode-whitespace-separated tokens) skip cleanup even for a non-Verbatim voice; `min_words == 0` disables the gate, and an exactly-at-threshold transcript is not skipped ([voices.rs:73-78](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/crates/hark-voice/src/voices.rs#L73-L78)).
-- **Present-terms filter** (`present_terms`): only dictionary terms that actually (case-insensitively) appear in the outgoing text are candidates for the protected-terms clause, keeping the prompt small for the common case ([voices.rs:83-90](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/crates/hark-voice/src/voices.rs#L83-L90)).
+- **Present-terms filter** (`present_terms`): only spellbook terms that actually (case-insensitively) appear in the outgoing text are candidates for the protected-terms clause, keeping the prompt small for the common case ([voices.rs:83-90](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/crates/hark-voice/src/voices.rs#L83-L90)).
 
 ```rust
 // crates/hark-voice/src/voices.rs:131-154
@@ -82,7 +82,7 @@ pub fn system_prompt(voice: Voice, custom_prompt: &str, present_terms: &[&str]) 
 }
 ```
 
-The protected-terms clause is capped at a 400-token budget (chars/4 heuristic, same style as `hark-stt`'s `prompt_from_bias_terms`); terms are kept in dictionary order until the budget would be exceeded, and the first term that would cross it (and everything after) is dropped ([voices.rs:92-113](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/crates/hark-voice/src/voices.rs#L92-L113)). Every prompt, including `Custom`, ends with the shared `RETURN_ONLY_CLAUSE` instructing the model to return only the rewritten text with no commentary or surrounding quotes ([voices.rs:116-117](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/crates/hark-voice/src/voices.rs#L116-L117)).
+The protected-terms clause is capped at a 400-token budget (chars/4 heuristic, same style as `hark-stt`'s `prompt_from_bias_terms`); terms are kept in spellbook order until the budget would be exceeded, and the first term that would cross it (and everything after) is dropped ([voices.rs:92-113](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/crates/hark-voice/src/voices.rs#L92-L113)). Every prompt, including `Custom`, ends with the shared `RETURN_ONLY_CLAUSE` instructing the model to return only the rewritten text with no commentary or surrounding quotes ([voices.rs:116-117](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/crates/hark-voice/src/voices.rs#L116-L117)).
 
 Sources: [voices.rs:1-155](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/crates/hark-voice/src/voices.rs#L1-L155)
 <!-- END:AUTOGEN hark_09_voice_cleanup_voices -->
@@ -106,7 +106,7 @@ Sources: [voices.rs:1-155](https://github.com/BoardPandas/Hark/blob/1c1738716fa4
 | `reasoning_effort` | Serialized only when present; OpenAI GPT-5 family only ([openai_compatible.rs:164-165](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/crates/hark-voice/src/openai_compatible.rs#L164-L165)) |
 | `voice` | The effective voice; `Verbatim` is rejected at construction ([openai_compatible.rs:166-168](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/crates/hark-voice/src/openai_compatible.rs#L166-L168)) |
 | `custom_prompt` | The user's prompt text, used only for `Voice::Custom` ([openai_compatible.rs:169-170](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/crates/hark-voice/src/openai_compatible.rs#L169-L170)) |
-| `dictionary_terms` | Subset to the present-terms clause per request ([openai_compatible.rs:171-173](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/crates/hark-voice/src/openai_compatible.rs#L171-L173)) |
+| `spellbook_terms` | Subset to the present-terms clause per request ([openai_compatible.rs:171-173](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/crates/hark-voice/src/openai_compatible.rs#L171-L173)) |
 
 `CleanupConfig` deliberately has no `Debug` derive; its manual `impl Debug` redacts `api_key` as `"<redacted>"` and `custom_prompt` as `"<user content>"` so a reflexive `{config:?}` in some future log line cannot leak either ([openai_compatible.rs:176-190](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/crates/hark-voice/src/openai_compatible.rs#L176-L190)).
 
@@ -115,7 +115,7 @@ Per call, `clean()` assembles the request fresh (the protected-terms clause depe
 ```rust
 // crates/hark-voice/src/openai_compatible.rs:237-260
 fn clean(&self, text: &str) -> Result<Cleaned, CleanupError> {
-    let present = present_terms(text, &self.dictionary_terms);
+    let present = present_terms(text, &self.spellbook_terms);
     let prompt = system_prompt(self.voice, &self.custom_prompt, &present)
         .expect("non-verbatim voice enforced at construction");
     let body = build_request_body(

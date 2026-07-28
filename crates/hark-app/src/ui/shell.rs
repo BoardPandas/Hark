@@ -101,7 +101,7 @@ fn topbar(ui: &mut Ui, page: &mut pages::Page) {
 
                 for target in [
                     pages::Page::History,
-                    pages::Page::Dictionary,
+                    pages::Page::Spellbook,
                     pages::Page::Invocations,
                     pages::Page::Stats,
                 ] {

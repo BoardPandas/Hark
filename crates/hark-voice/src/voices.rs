@@ -107,8 +107,8 @@ pub fn skips_cleanup(text: &str, min_words: u32) -> bool {
     (text.split_whitespace().count() as u64) < u64::from(min_words)
 }
 
-/// Dictionary terms that actually appear in `text` (case-insensitive
-/// containment), in dictionary order. Keeps the protected-terms clause tiny
+/// Spellbook terms that actually appear in `text` (case-insensitive
+/// containment), in spellbook order. Keeps the protected-terms clause tiny
 /// for the common case: terms the user never spoke stay out of the prompt.
 pub fn present_terms<'a>(text: &str, terms: &'a [String]) -> Vec<&'a str> {
     let haystack = text.to_lowercase();

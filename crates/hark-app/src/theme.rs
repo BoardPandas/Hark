@@ -177,7 +177,7 @@ pub fn divider(visuals: &Visuals) -> Color32 {
 
 /// A Nocturne signature: a 1px separator that fades to transparent over its
 /// last 48px at each end (or a third of its width, whichever is smaller).
-/// Used under every list row (history, dictionary, invocations). Allocates a
+/// Used under every list row (history, spellbook, invocations). Allocates a
 /// full-width, `gap`-tall strip and paints the rule centered in it.
 pub fn fading_rule(ui: &mut Ui, gap: f32) {
     let width = ui.available_width();

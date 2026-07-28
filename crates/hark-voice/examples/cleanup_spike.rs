@@ -28,7 +28,7 @@ use hark_voice::{
 use reqwest::blocking::Client;
 use std::time::{Duration, Instant};
 
-/// Dictionary-ish protected terms; both appear in the long fixture.
+/// Spellbook-ish protected terms; both appear in the long fixture.
 const PROTECTED_TERMS: [&str; 2] = ["Hark", "Levenshtein"];
 
 /// Below the default word gate (5) in production, but the spike rewrites it
@@ -36,7 +36,7 @@ const PROTECTED_TERMS: [&str; 2] = ["Hark", "Levenshtein"];
 const FIXTURE_SHORT: &str = "um okay send it";
 const FIXTURE_MEDIUM: &str = "so um I think we should uh we should probably move the the \
     release to Friday you know because because the installer tests are still uh still flaky";
-const FIXTURE_LONG: &str = "okay so um the way the way hark handles dictionary correction \
+const FIXTURE_LONG: &str = "okay so um the way the way hark handles spellbook correction \
     is is basically a two pass thing right um first we run the the phonetic pass which uses \
     uh levenshtein distance on the on the phonetic codes and then um if the if the model \
     still mangles a term after cleanup we we just run the same pass again on the on the way \
