@@ -4,6 +4,11 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Unreleased]
+
+_Planning only — no user-facing change. Spellbook learning plan refined
+(`tasks/2026-07-28-plan-spellbook-suggestions.md`)._
+
 ## [0.26.0] - 2026-07-28
 
 ### Changed
