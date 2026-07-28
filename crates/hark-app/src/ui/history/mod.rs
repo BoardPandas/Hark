@@ -75,7 +75,7 @@ impl HistoryPage {
         storage: Option<&StorageHandle>,
         unavailable: Option<&str>,
         chord: &str,
-    ) {
+    ) -> Option<String> {
         let Some(storage) = storage else {
             widgets::empty_state(
                 ui,
@@ -83,7 +83,7 @@ impl HistoryPage {
                 "History is unavailable.",
                 unavailable.unwrap_or("The local database could not be opened."),
             );
-            return;
+            return None;
         };
         self.refresh(storage);
 
@@ -95,7 +95,7 @@ impl HistoryPage {
 
         if let Some(error) = &self.fetch_error {
             widgets::empty_state(ui, theme::icons::WARNING, "History cannot be read.", error);
-            return;
+            return None;
         }
         if self.total == 0 {
             widgets::empty_state(
@@ -104,7 +104,7 @@ impl HistoryPage {
                 "Dictations appear here.",
                 &format!("Hold {chord} and speak into any text field."),
             );
-            return;
+            return None;
         }
         if self.matching == 0 {
             widgets::empty_state(
@@ -113,10 +113,10 @@ impl HistoryPage {
                 &format!("No matches for \"{}\".", self.search.trim()),
                 "Search covers both the raw transcript and the final text.",
             );
-            return;
+            return None;
         }
 
-        self.list(ui, storage);
+        let requested_term = self.list(ui, storage);
 
         // Esc collapses the expanded row, unless a modal owns Esc right now.
         if self.confirm.is_none()
@@ -136,6 +136,7 @@ impl HistoryPage {
                 None => {}
             }
         }
+        requested_term
     }
 
     /// Re-query when the cache key moves (a write landed, the search edited,
@@ -221,7 +222,8 @@ impl HistoryPage {
         ui.add_space(4.0);
     }
 
-    fn list(&mut self, ui: &mut Ui, storage: &StorageHandle) {
+    /// Returns a term the user asked to add, propagated from a row.
+    fn list(&mut self, ui: &mut Ui, storage: &StorageHandle) -> Option<String> {
         let now_ms = jiff::Timestamp::now().as_millisecond();
         let mut action = None;
         ScrollArea::vertical()
@@ -239,15 +241,26 @@ impl HistoryPage {
                     }
                     let expanded = self.expanded == Some(entry.id);
                     let copied = self.copied == Some(entry.id);
-                    if let Some(a) = row::show(
-                        ui,
-                        entry,
+                    // Snapped here rather than inside the row because the
+                    // action cluster is laid out above the transcript that
+                    // owns the selection. Owned, so the immutable borrow of
+                    // `self.selection` ends before the row takes it mutably.
+                    let selected: Option<String> = self
+                        .selection
+                        .as_ref()
+                        .filter(|s| s.owned_by(row::selection_id(entry.id)))
+                        .and_then(|s| {
+                            hark_spellbook::snapped_text(entry.raw_text.trim(), s.range())
+                        })
+                        .map(str::to_owned);
+                    let view = row::RowView {
                         expanded,
                         copied,
-                        now_ms,
-                        &self.tz,
-                        &mut self.selection,
-                    ) {
+                        selected: selected.as_deref(),
+                    };
+                    if let Some(a) =
+                        row::show(ui, entry, view, now_ms, &self.tz, &mut self.selection)
+                    {
                         action = Some(a);
                     }
                 }
@@ -260,11 +273,24 @@ impl HistoryPage {
                     });
                 }
             });
-        self.apply(action, ui, storage);
+        self.apply(action, ui, storage)
     }
 
-    fn apply(&mut self, action: Option<row::Action>, ui: &Ui, storage: &StorageHandle) {
+    /// Returns the term the user asked to add, for the caller to hand to the
+    /// Spellbook page (this page owns neither settings nor navigation).
+    fn apply(
+        &mut self,
+        action: Option<row::Action>,
+        ui: &Ui,
+        storage: &StorageHandle,
+    ) -> Option<String> {
         match action {
+            Some(row::Action::AddTerm(term)) => {
+                // The selection has served its purpose; leaving it highlighted
+                // after navigating away reads as still-pending.
+                self.selection = None;
+                return Some(term);
+            }
             Some(row::Action::Toggle(id)) => {
                 self.expanded = if self.expanded == Some(id) {
                     None
@@ -291,6 +317,7 @@ impl HistoryPage {
             }
             None => {}
         }
+        None
     }
 }
 

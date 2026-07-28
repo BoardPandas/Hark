@@ -58,7 +58,7 @@ pub fn show(
         .show(ui, |ui| {
             pages::show(
                 ui,
-                *page,
+                page,
                 settings,
                 pipeline,
                 views,

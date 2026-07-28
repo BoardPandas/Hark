@@ -34,10 +34,16 @@ pub struct Selection {
 }
 
 impl Selection {
-    /// True when this selection belongs to the widget with `id`. One selection
-    /// exists at a time across the whole page, so every row asks.
-    fn owned_by(&self, id: egui::Id) -> bool {
-        self.owner == id
+    /// True when this selection belongs to `key`. One selection exists at a
+    /// time across the whole page, so every row asks.
+    pub fn owned_by(&self, key: egui::Id) -> bool {
+        self.owner == key
+    }
+
+    /// Anchor-to-head, direction preserved: `snap_to_tokens` needs to know
+    /// which end the user grabbed.
+    pub fn range(&self) -> Range<usize> {
+        self.anchor..self.head
     }
 }
 
@@ -49,6 +55,7 @@ impl Selection {
 /// punctuation.
 pub fn selectable_text(
     ui: &mut Ui,
+    key: egui::Id,
     text: &str,
     rich: RichText,
     state: &mut Option<Selection>,
@@ -59,7 +66,11 @@ pub fn selectable_text(
         .selectable(false)
         .sense(Sense::click_and_drag())
         .layout_in_ui(ui);
-    let id = response.id;
+    // Keyed on the caller's stable key, never on `response.id`: widget ids in a
+    // list are positional, so row 3 keeps the same id when a new dictation
+    // shifts a different entry into that slot -- and the live selection would
+    // silently start describing text it was never made against.
+    let id = key;
 
     let char_at = |pos| galley.cursor_from_pos(pos - galley_pos).index.0;
 

@@ -67,7 +67,7 @@ fn max_width(page: Page) -> f32 {
 #[allow(clippy::too_many_arguments)]
 pub fn show(
     ui: &mut Ui,
-    page: Page,
+    page: &mut Page,
     settings: &mut Settings,
     pipeline: &mut PipelineController,
     views: &mut Views,
@@ -75,7 +75,7 @@ pub fn show(
     storage: Option<&StorageHandle>,
     storage_error: Option<&str>,
 ) {
-    let column = max_width(page).min(ui.available_width());
+    let column = max_width(*page).min(ui.available_width());
     let pad = ((ui.available_width() - column) / 2.0).max(0.0);
     ui.horizontal_top(|ui| {
         ui.add_space(pad);
@@ -84,11 +84,22 @@ pub fn show(
             ui.heading(page.label());
             ui.label(RichText::new(page.description()).weak());
             ui.add_space(14.0);
-            match page {
+            match *page {
                 Page::History => {
-                    views
-                        .history
-                        .show(ui, storage, storage_error, &settings.hotkey.ptt_key)
+                    // Adding from a history selection is a two-page gesture:
+                    // the term is captured here and finished in the Spellbook,
+                    // where the user replaces the misheard spelling with the
+                    // right one. Navigating is what the user asked for; it
+                    // does cost their place in the list, which is the known
+                    // trade recorded in the plan.
+                    if let Some(term) =
+                        views
+                            .history
+                            .show(ui, storage, storage_error, &settings.hotkey.ptt_key)
+                    {
+                        views.spellbook.prime_add(term);
+                        *page = Page::Spellbook;
+                    }
                 }
                 Page::Spellbook => spellbook(ui, settings, pipeline, views),
                 Page::Invocations => invocations(ui, settings, pipeline, views),

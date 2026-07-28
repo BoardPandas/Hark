@@ -4,6 +4,11 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.28.0] - 2026-07-28
+
+### Added
+- **Add a Spellbook term by pointing at it in your history.** Expand a dictation, select the misheard name in the raw transcript, and click the book button in the row. Hark takes you to the Spellbook with that text already filled in and selected — type the correct spelling over it and press Add. Only the correct spelling is saved, and a one-click Undo sits next to it in case you added the wrong thing. The selection still snaps to whole words, so you don't have to be precise with the drag.
+
 ## [0.27.1] - 2026-07-28
 
 ### Fixed

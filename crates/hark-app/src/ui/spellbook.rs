@@ -5,6 +5,7 @@
 
 use crate::theme;
 use crate::ui::widgets;
+use egui::text::{CCursor, CCursorRange};
 use egui::{Key, RichText, TextEdit, Ui};
 
 pub struct SpellbookPage {
@@ -14,6 +15,15 @@ pub struct SpellbookPage {
     edit_needs_focus: bool,
     /// Persistence failure surfaced by the caller; sticky until it clears.
     notice: Option<String>,
+    /// The transcript span this add field was primed from, when the user
+    /// arrived by selecting text in History. Drives the explanatory line and
+    /// the one-shot focus/select-all.
+    primed_from: Option<String>,
+    add_needs_focus: bool,
+    /// Last term added this session, offered for one-click undo. Adding from
+    /// History is a two-click gesture, so it must be a one-click mistake to
+    /// unmake or people will not use it freely.
+    last_added: Option<String>,
 }
 
 impl SpellbookPage {
@@ -23,11 +33,30 @@ impl SpellbookPage {
             edit: None,
             edit_needs_focus: false,
             notice: None,
+            primed_from: None,
+            add_needs_focus: false,
+            last_added: None,
         }
     }
 
     pub fn set_notice(&mut self, notice: Option<String>) {
         self.notice = notice;
+    }
+
+    /// Arrive from a History selection: the misheard span becomes the starting
+    /// contents of the add field.
+    ///
+    /// It is a starting point, not the answer. "Al Drazi" is what the provider
+    /// got *wrong*; storing it verbatim would be worse than useless. The field
+    /// is focused with the text selected so the first keystroke replaces it,
+    /// and only the corrected spelling is ever saved. (Keeping the misheard
+    /// form as well is what aliases are for -- a later slice.)
+    pub fn prime_add(&mut self, heard: String) {
+        self.add = heard.clone();
+        self.primed_from = Some(heard);
+        self.add_needs_focus = true;
+        self.last_added = None;
+        self.edit = None;
     }
 
     /// Render. Returns true when `terms` changed (caller persists then).
@@ -43,13 +72,44 @@ impl SpellbookPage {
         );
         ui.add_space(6.0);
 
+        // Arrived from a History selection: say what the prefilled text is, so
+        // nobody saves the misheard spelling by pressing Enter on autopilot.
+        if let Some(heard) = &self.primed_from {
+            ui.horizontal_wrapped(|ui| {
+                ui.label(
+                    RichText::new(theme::icons::LIGHTNING)
+                        .small()
+                        .color(theme::accent(ui.visuals())),
+                );
+                ui.label(
+                    RichText::new(format!(
+                        "Hark heard \u{201C}{heard}\u{201D}. Type the correct spelling and add it.",
+                    ))
+                    .small(),
+                );
+            });
+            ui.add_space(2.0);
+        }
+
         // Pinned add row.
         ui.horizontal(|ui| {
-            let response = ui.add(
-                TextEdit::singleline(&mut self.add)
-                    .hint_text("Add a term")
-                    .desired_width(280.0),
-            );
+            let output = TextEdit::singleline(&mut self.add)
+                .hint_text("Add a term")
+                .desired_width(280.0)
+                .show(ui);
+            let response = output.response;
+            if self.add_needs_focus {
+                self.add_needs_focus = false;
+                response.request_focus();
+                // Select the whole prefill rather than parking a caret at one
+                // end: the text is meant to be replaced, so the first
+                // keystroke should replace it.
+                let mut state = output.state;
+                let all =
+                    CCursorRange::two(CCursor::new(0), CCursor::new(self.add.chars().count()));
+                state.cursor.set_char_range(Some(all));
+                state.store(ui.ctx(), response.id);
+            }
             let entered = response.lost_focus() && ui.input(|i| i.key_pressed(Key::Enter));
             let clicked = ui
                 .add_enabled(
@@ -58,16 +118,42 @@ impl SpellbookPage {
                 )
                 .clicked();
             if entered || clicked {
+                let term = self.add.trim().to_string();
                 if add_term(terms, &self.add) {
                     changed = true;
+                    self.last_added = Some(term);
                 }
                 self.add.clear();
+                self.primed_from = None;
                 if entered {
                     // Keep the flow: Enter adds and the field stays ready.
                     response.request_focus();
                 }
             }
         });
+
+        // One-click undo for the last add, which is the whole safety net for
+        // adding from History: a wrong term corrupts every later dictation
+        // containing that sound, so unmaking it must be cheaper than making it.
+        if let Some(added) = self.last_added.clone() {
+            ui.horizontal_wrapped(|ui| {
+                ui.label(
+                    RichText::new(format!(
+                        "{} Added \u{201C}{added}\u{201D}",
+                        theme::icons::CHECK
+                    ))
+                    .small()
+                    .color(theme::SUCCESS),
+                );
+                if ui.link(RichText::new("Undo").small()).clicked() {
+                    if undo_add(terms, &added) {
+                        changed = true;
+                    }
+                    self.last_added = None;
+                }
+            });
+            ui.add_space(2.0);
+        }
 
         if let Some(error) = &self.notice {
             ui.horizontal_wrapped(|ui| {
@@ -152,6 +238,20 @@ fn add_term(terms: &mut Vec<String>, raw: &str) -> bool {
     true
 }
 
+/// Remove a term the user just added. Matches by value rather than index
+/// because the row order can move underneath the affordance (an edit, a
+/// delete) between the add and the undo. Returns true if something was
+/// removed; a term the user has since deleted by hand is not an error.
+fn undo_add(terms: &mut Vec<String>, added: &str) -> bool {
+    match terms.iter().position(|t| t == added) {
+        Some(index) => {
+            terms.remove(index);
+            true
+        }
+        None => false,
+    }
+}
+
 /// Commit an inline edit: trimmed and unique replaces; empty or duplicate
 /// input reverts (a row is deleted with its button, never by blanking).
 fn commit_edit(terms: &mut [String], index: usize, raw: &str) -> bool {
@@ -178,6 +278,17 @@ mod tests {
         assert!(!add_term(&mut terms, "Hark"));
         assert!(!add_term(&mut terms, "   "));
         assert_eq!(terms.len(), 2);
+    }
+
+    #[test]
+    fn undo_removes_the_added_term_and_tolerates_it_being_gone() {
+        let mut terms = vec!["Hark".to_string(), "Eldrazi".to_string()];
+        assert!(undo_add(&mut terms, "Eldrazi"));
+        assert_eq!(terms, ["Hark"]);
+        // Already removed by hand between the add and the undo: not an error,
+        // and it must not take an unrelated term with it.
+        assert!(!undo_add(&mut terms, "Eldrazi"));
+        assert_eq!(terms, ["Hark"]);
     }
 
     #[test]

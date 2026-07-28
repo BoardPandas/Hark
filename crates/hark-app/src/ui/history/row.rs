@@ -15,6 +15,15 @@ pub enum Action {
     Toggle(i64),
     Copy(i64),
     Delete(i64),
+    /// Hand the selected transcript span to the Spellbook as a starting point.
+    AddTerm(String),
+}
+
+/// Selection key for a row's raw transcript. Keyed on the entry id, not the
+/// widget's positional id: a new dictation shifts entries between rows, and a
+/// live selection must not follow the slot onto different text.
+pub fn selection_id(entry_id: i64) -> Id {
+    Id::new(("history-raw", entry_id))
 }
 
 /// Animation key for a row's "Copied" fade.
@@ -24,18 +33,34 @@ pub fn copied_id(entry_id: i64) -> Id {
 
 /// Preview length: roughly two wrapped lines at the list column width.
 const PREVIEW_CHARS: usize = 160;
-/// Room reserved for the copy/delete buttons and the "Copied" affirmation.
-const ACTIONS_WIDTH: f32 = 96.0;
+/// Room reserved for the add/copy/delete buttons and the "Copied"
+/// affirmation. Three buttons now, not two.
+const ACTIONS_WIDTH: f32 = 128.0;
+
+/// Per-row display state. Grouped because a row renderer accumulates these
+/// faster than a parameter list stays readable.
+pub struct RowView<'a> {
+    pub expanded: bool,
+    pub copied: bool,
+    /// The snapped Spellbook term this row's live selection covers, if any.
+    /// Computed by the page: the action cluster is laid out above the
+    /// transcript that owns the selection, so the row cannot derive it itself.
+    pub selected: Option<&'a str>,
+}
 
 pub fn show(
     ui: &mut Ui,
     entry: &Entry,
-    expanded: bool,
-    copied: bool,
+    view: RowView<'_>,
     now_ms: i64,
     tz: &TimeZone,
     selection: &mut Option<Selection>,
 ) -> Option<Action> {
+    let RowView {
+        expanded,
+        copied,
+        selected,
+    } = view;
     let mut action = None;
     ui.horizontal(|ui| {
         let text_width = (ui.available_width() - ACTIONS_WIDTH).max(120.0);
@@ -58,6 +83,21 @@ pub fn show(
                 .clicked()
             {
                 action = Some(Action::Delete(entry.id));
+            }
+            // Enabled only with a live selection in THIS row's transcript, so
+            // the button explains itself: it is dead until there is something
+            // for it to act on.
+            let add = ui
+                .add_enabled(
+                    selected.is_some(),
+                    egui::Button::new(RichText::new(theme::icons::BOOK_OPEN)),
+                )
+                .on_hover_text(match selected {
+                    Some(term) => format!("Add \u{201C}{term}\u{201D} to your Spellbook"),
+                    None => "Select text in the transcript to add a Spellbook term".to_string(),
+                });
+            if let (true, Some(term)) = (add.clicked(), selected) {
+                action = Some(Action::AddTerm(term.to_string()));
             }
             if ui
                 .button(RichText::new(theme::icons::COPY))
@@ -125,19 +165,25 @@ fn details(ui: &mut Ui, entry: &Entry, tz: &TimeZone, selection: &mut Option<Sel
                 ui.add_space(2.0);
             }
             ui.label(RichText::new("RAW TRANSCRIPT").size(10.5).weak());
-            // Slice 0 spike: the raw transcript is selectable, and the live
-            // selection snaps to whole spellbook tokens. The readout below is
-            // the spike's visible proof; Slice 1 replaces it with an Add
-            // button in the row's action cluster.
+            // Selectable, snapping to whole spellbook tokens. The row's Add
+            // button turns the live selection into a Spellbook term; the
+            // hint below is the only thing that advertises the gesture.
             let raw = entry.raw_text.trim();
-            let snapped = selectable_text(ui, raw, RichText::new(raw).monospace(), selection);
-            if let Some(term) = snapped.and_then(|r| hark_spellbook::snapped_text(raw, r)) {
-                ui.label(
-                    RichText::new(format!("Would add: {term}"))
-                        .small()
-                        .color(theme::accent(ui.visuals())),
-                );
-            }
+            selectable_text(
+                ui,
+                selection_id(entry.id),
+                raw,
+                RichText::new(raw).monospace(),
+                selection,
+            );
+            ui.label(
+                RichText::new(format!(
+                    "Select a misheard name above, then click {} to add it to your Spellbook.",
+                    theme::icons::BOOK_OPEN
+                ))
+                .small()
+                .weak(),
+            );
             ui.add_space(4.0);
             ui.label(RichText::new(timing_line(entry)).monospace().small());
             ui.label(
