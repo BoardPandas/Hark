@@ -11,6 +11,12 @@
 //! registered it animates on its own repaint requests while the parent window
 //! sleeps; dropping the registration on chord release tears the window down.
 //!
+//! That last step is the fragile one, and `wake_parent_window` is what makes it
+//! hold: only a *parent* pass can retire this viewport, the parent is allowed
+//! exactly one outstanding repaint request at a time, and a visible parent
+//! repaints only when the OS delivers a paint. Asking egui again does nothing,
+//! so the parent is kicked at the OS level instead.
+//!
 //! Placement is platform-split on purpose. egui only ever exposes a monitor
 //! *size*, never its origin or its own DPI, which is not enough to position a
 //! window on a multi-monitor desktop; on Windows we therefore ask Win32 for the
@@ -340,6 +346,77 @@ fn strip_frame_styles(hwnd: windows::Win32::Foundation::HWND) -> bool {
     true
 }
 
+/// Make Windows deliver a paint to the main window, ~10 times a second, for as
+/// long as the pill is up.
+///
+/// The `request_repaint_after_for(.., ROOT)` above states that intent but cannot
+/// keep it. egui forwards a repaint request to the backend only when the new
+/// delay is *smaller* than the one already pending for that viewport, and it
+/// clears the pending delay only in that viewport's own `begin_pass`; eframe
+/// deliberately ignores the delay it is handed in `ViewportOutput` and listens
+/// to that one callback. So the main window is allowed exactly one outstanding
+/// repaint at a time, with no retry — and `app::wake_ui` asks for delay zero the
+/// moment a dictation ends, which pins the pending delay at the floor and makes
+/// every later request from here a no-op. Miss that single wake-up and nothing
+/// in the process can ask for another one.
+///
+/// That is survivable only while the window is hidden or minimized, because
+/// eframe paints *those* windows straight from its own loop instead of waiting
+/// on the OS. A visible main window is painted when Windows delivers WM_PAINT
+/// and not otherwise, which is why a stranded pill cleared the instant you
+/// minimised Hark and never before it.
+///
+/// `RDW_INTERNALPAINT` posts that WM_PAINT unconditionally. winit turns it into
+/// `RedrawRequested`, which eframe always answers with a full root pass — drain
+/// the pipeline events, update the tray, stop registering this viewport — so the
+/// pill retires with its dictation even when the scheduled wake-up was lost. It
+/// moves nothing, activates nothing, and repaints a window that is already on
+/// screen. (macOS has the same one-outstanding-repaint shape; its own kick
+/// belongs with the rest of the platform work in CP7.)
+#[cfg(windows)]
+fn wake_parent_window(time: f64) {
+    use std::cell::Cell;
+    use windows::core::{w, PCWSTR};
+    use windows::Win32::Graphics::Gdi::{RedrawWindow, RDW_INTERNALPAINT};
+    use windows::Win32::UI::WindowsAndMessaging::{FindWindowW, GetWindowThreadProcessId};
+
+    thread_local! {
+        /// `i.time` of the last kick: seconds since app start, shared by every
+        /// viewport, so it survives this window being rebuilt per dictation.
+        static LAST: Cell<f64> = const { Cell::new(-1.0) };
+    }
+
+    // 10 Hz, the rate the request above asks for: a stranded pill is gone
+    // before it reads as stuck, and a forced repaint of one window ten times a
+    // second is below noise next to the pill's own 60.
+    if time - LAST.with(|last| last.get()) < 0.1 {
+        return;
+    }
+    LAST.with(|last| last.set(time));
+
+    // SAFETY (whole block): plain Win32 getters plus a repaint request. Both
+    // handles are validated before use, and neither call takes an out-param
+    // (`GetWindowThreadProcessId` is passed `None` for its optional one).
+    unsafe {
+        let (Ok(root), Ok(pill)) = (
+            FindWindowW(PCWSTR::null(), w!("Hark")),
+            FindWindowW(PCWSTR::null(), w!("Hark recording")),
+        ) else {
+            return;
+        };
+        if root.is_invalid() || pill.is_invalid() {
+            return;
+        }
+        // "Hark" is a plain enough title that another app could own one, and
+        // this is the one lookup here that could find a stranger's window. The
+        // real main window shares a thread with the pill we are painting.
+        if GetWindowThreadProcessId(root, None) != GetWindowThreadProcessId(pill, None) {
+            return;
+        }
+        let _ = RedrawWindow(Some(root), None, None, RDW_INTERNALPAINT);
+    }
+}
+
 /// Draw one frame of the pill + pulsing circle, and schedule the next frame.
 fn paint(ui: &mut egui::Ui, meter: &LevelMeter) {
     let ctx = ui.ctx();
@@ -350,6 +427,9 @@ fn paint(ui: &mut egui::Ui, meter: &LevelMeter) {
     // Keep the pulse animating while the parent window sleeps. ~60 fps is
     // plenty for a breathing dot and stays light during a short hold.
     ctx.request_repaint_after(Duration::from_millis(16));
+
+    let time = ui.input(|i| i.time);
+
     // And keep the PARENT ticking, because only a parent pass can retire this
     // window: egui tears a deferred viewport down at the end of the pass that
     // stopped registering it, and the repaint above runs this viewport, not
@@ -359,8 +439,10 @@ fn paint(ui: &mut egui::Ui, meter: &LevelMeter) {
     // 10 Hz is a safety net, not the path: the pipeline's own status events
     // already wake the parent immediately when the chord is released.
     ctx.request_repaint_after_for(Duration::from_millis(100), egui::ViewportId::ROOT);
+    #[cfg(windows)]
+    wake_parent_window(time);
 
-    let time = ui.input(|i| i.time) as f32;
+    let time = time as f32;
 
     // Raw peak (0..=1) is small for normal speech; a square-root curve lifts
     // conversational levels into a visible range without pinning loud peaks.

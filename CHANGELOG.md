@@ -4,6 +4,11 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.30.4] - 2026-07-29
+
+### Fixed
+- **The "Listening…" pill no longer stays on screen when Hark's window is open.** Dictating with the window up left the pill floating and the footer stuck on "Recording" after the text had already been injected — minimising Hark was the only thing that cleared it, which is why the same dictation ended cleanly whenever Hark was tucked away in the tray. Only the main window can retire the pill, and it is allowed just one pending repaint at a time: once the wake-up sent at the end of a dictation went unanswered, nothing left in Hark could ask for another, and a window that is on screen is repainted only when Windows says so. Hark now nudges its own window at the operating-system level ten times a second for as long as the pill is up, so the pill retires with the dictation that raised it whichever way the window is sitting.
+
 ## [0.30.3] - 2026-07-29
 
 ### Removed
