@@ -5,10 +5,11 @@ paths:
   - ".claude/**"
   - "**/Cargo.toml"
   - "rustfmt.toml"
-  - "clippy.toml"
-  - "deny.toml"
-  - "dist-workspace.toml"
-  - "wix/**"
+  - "package.json"
+  - ".cargo/**"
+  - "config/**"
+  - "installer/**"
+  - "scripts/**"
   - ".github/**"
 ---
 

@@ -2,9 +2,7 @@
 description: Enforce LL-G knowledge base check before writing code
 paths:
   - "crates/**"
-  - "src/**"
   - "**/*.rs"
-  - "build.rs"
   - ".claude/scripts/**"
   - "scripts/**"
 ---

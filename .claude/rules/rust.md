@@ -3,7 +3,6 @@ description: Rust + native-desktop conventions and verified gotchas for Hark
 paths:
   - "crates/**"
   - "**/*.rs"
-  - "build.rs"
 ---
 
 # Rust / Desktop Rules (Hark)

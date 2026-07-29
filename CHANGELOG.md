@@ -4,6 +4,11 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.30.1] - 2026-07-29
+
+### Changed
+- **Development tooling only — Hark itself is unchanged in this release.** The formatter, linter, and full test suite now run automatically on every push and pull request, on both Windows and macOS; until now none of that ran until a release was tagged, so a break could sit unnoticed until ship day. A new guard also verifies that the repo's own Claude Code configuration is actually wired up — miswired rules and hooks fail silently, and a rule that can never trigger looks exactly like one that simply hasn't yet. Ten such dead paths were found and fixed, along with a commit check that had been blocking commits without ever showing the reason why.
+
 ## [0.30.0] - 2026-07-28
 
 ### Fixed

@@ -2,6 +2,10 @@
 .claude/settings.local.json
 .claude/research-notes.md
 .claude/agent-memory-local/
+# Isolated agent worktrees: full checkouts carrying their own stale .claude/
+# copies. Git will not track an empty dir, so this only bites once one is
+# populated -- at which point a whole second checkout becomes committable.
+.claude/worktrees/
 
 # Node
 node_modules/

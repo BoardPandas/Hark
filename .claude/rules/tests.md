@@ -2,8 +2,6 @@
 description: Rust testing conventions for Hark
 paths:
   - "**/tests/**"
-  - "**/*_test.rs"
-  - "**/benches/**"
 ---
 
 # Testing Rules (Rust)

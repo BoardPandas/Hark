@@ -1,0 +1,93 @@
+# Continuous integration: the gate for the standards CLAUDE.md calls mandatory.
+#
+# Until this file existed, `release.yml` was the repo's only workflow and it
+# triggers solely on a `v*` tag. Nothing ran fmt, clippy, or the test suite on a
+# push or a PR -- "cargo fmt + cargo clippy --all-targets -- -D warnings must
+# pass" was enforced by prose in CLAUDE.md and nothing else. A rule that matters
+# needs a mechanism, not a paragraph.
+#
+# DELIBERATELY NO TAG TRIGGER. release.yml owns `v*` tags and signs with Azure
+# Trusted Signing over OIDC; the OIDC subject claim is derived from the ref, so
+# workflows that touch tags are kept strictly separate (LL-G github-actions,
+# HIGH: "adding a tag trigger changes the OIDC subject and breaks Azure
+# signing"). CI must never be able to perturb the signing path.
+
+name: CI
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # Fail-fast gate: seconds, no system libraries, no compilation. Runs before the
+  # matrix so a miswired rule or a formatting slip does not burn three runners.
+  gate:
+    name: Wiring + formatting
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+
+      # Rule scoping and hook matchers fail SILENTLY when miswired: a rule with a
+      # dead glob is indistinguishable from one that simply has not triggered.
+      # This guard is the only thing that makes that failure mode observable.
+      # Dependency-free, so there is nothing to install.
+      - name: Claude wiring guard (rule scoping + hook matchers)
+        run: npm run check:claude
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+
+      # Formatting is platform-independent; checking it once is enough.
+      - name: cargo fmt
+        run: cargo fmt --all -- --check
+
+  # Build and test on the platforms Hark actually ships on. ubuntu is
+  # deliberately absent: the workspace does build on Linux (hark-inject carries
+  # an explicit x11rb accommodation for exactly that), but a GitHub ubuntu runner
+  # needs ALSA, X11/xdo, and the whole eframe GTK/wayland dev-header set apt-get
+  # installed first, and Linux is not a ship target. Do not "fix" this by adding
+  # ubuntu-latest without also adding those packages.
+  rust:
+    name: clippy + tests (${{ matrix.os }})
+    needs: gate
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v7
+
+      # No toolchain pin, matching release.yml: the workspace rust-version =
+      # "1.97" floor makes cargo error if a runner's stable ever drifts below it.
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      # v2 is the highest major this action has ever published -- not a stale pin.
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.os }}
+
+      # Verbatim the standard in CLAUDE.md, including --all-targets: without it
+      # cargo skips test targets entirely, so lints in tests go unchecked
+      # (LL-G rust/cargo-check-skips-test-targets).
+      - name: cargo clippy
+        run: cargo clippy --all-targets -- -D warnings
+
+      - name: cargo test
+        run: cargo test --workspace

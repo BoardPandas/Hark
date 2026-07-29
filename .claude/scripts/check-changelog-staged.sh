@@ -71,7 +71,13 @@ staged=$(git diff --cached --name-only 2>/dev/null)
 if echo "$staged" | grep -q "^CHANGELOG.md$"; then
   exit 0
 else
-  echo "BLOCKED: CHANGELOG.md is not staged. Update the changelog and version before committing."
-  echo "(Merge commits are exempt. For a genuinely trivial commit, prefix the command with SKIP_CHANGELOG=1.)"
+  # A blocking hook (exit 2) has its stdout DISCARDED -- only stderr reaches the
+  # agent. On stdout these two lines vanished and the block surfaced as a bare
+  # "hook error: ... No stderr output": no hint to update the changelog, and the
+  # documented SKIP_CHANGELOG hatch was invisible, so the block was unactionable.
+  {
+    echo "BLOCKED: CHANGELOG.md is not staged. Update the changelog and version before committing."
+    echo "(Merge commits are exempt. For a genuinely trivial commit, prefix the command with SKIP_CHANGELOG=1.)"
+  } >&2
   exit 2
 fi

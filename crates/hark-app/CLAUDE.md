@@ -31,6 +31,12 @@ dictation pipeline on worker threads via `PipelineController`. Root
 
 ## Design system discipline
 
+- **The UI / latency / accessibility SLA is
+  [`.claude/references/design-guardrails.md`](../../.claude/references/design-guardrails.md)** —
+  read it before changing panels, tokens, or anything on the release-to-inject
+  path. It is cited here, in the crate file that loads whenever hark-app is
+  touched, because a pointer sitting only in the root `CLAUDE.md` has no
+  trigger and never fires.
 - **Every color, size, spacing, and font token lives in `theme.rs`**; no
   panel sets ad-hoc values inline. New tokens go into `theme.rs` with a
   contrast test when they carry text.

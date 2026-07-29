@@ -2,7 +2,7 @@
 
 Hark is a single-user, **push-to-talk voice dictation desktop app** for Windows + macOS, written in **Rust**. Hold a key, speak, release; polished English text is injected at the cursor in any app. Transcription is **BYOK cloud** (the user's own STT provider key, multi-provider adapters); history, stats, and the spellbook are local-only; cleanup is optional and uses the user's own LLM key. (Pivoted from on-device STT on 2026-07-15; see `tasks/plan-repo.md`.)
 
-> This is a **native desktop app**. There is no web frontend, server, database service, auth service, or hosting platform. The template reference `.claude/references/infrastructure.md` (Northflank/Cloudflare/Better Auth/Postgres/Redis) **does not apply to Hark** — ignore it.
+> This is a **native desktop app**. There is no web frontend, server, database service, auth service, or hosting platform. `.claude/references/infrastructure.md` now says exactly that at the point of use — the template's Northflank/Cloudflare/Better Auth stack was removed from it, not just disclaimed here.
 
 ## Stack
 
@@ -52,7 +52,7 @@ Full detail + citations: `.claude/agent-memory/explorer/hark_cloud_stt_providers
 CLAUDE.md loads top-down: global user → this project file → subfolder. Only relevant files load.
 
 - Root `CLAUDE.md` (this file) — project-wide rules, stack, threading rule, gotchas.
-- Per-crate `crates/<crate>/CLAUDE.md` — only when a crate has distinct conventions (e.g. `hark-ui` egui/main-thread rules, `hark-stt` adapter/key-handling discipline). Create only once the crate exists.
+- Per-crate `crates/<crate>/CLAUDE.md` — only when a crate has distinct conventions (e.g. `hark-app` egui/main-thread rules, `hark-stt` adapter/key-handling discipline). Create only once the crate exists.
 - `.claude/rules/*.md` — path-scoped via `paths:` frontmatter; load only when matching files are touched (Rust source → `rust.md`; tests → `tests.md`).
 
 Keep each file focused and under ~200 lines. Prune after model updates.
