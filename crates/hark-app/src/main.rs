@@ -46,6 +46,10 @@ fn main() -> eframe::Result {
     // The updater relaunches us with this flag; it means an outgoing instance is
     // still shutting down and holding the lock, so wait for it (see below).
     let relaunched = std::env::args().any(|a| a == hark_update::RELAUNCHED_FLAG);
+    // The version first, and on its own line: a log that does not say which
+    // build wrote it cannot answer "is this the fix, or the bug it replaced?",
+    // which is the first question every report about a shipped build raises.
+    log::info!("Hark {}", env!("CARGO_PKG_VERSION"));
     log::info!("startup: launched_hidden={launched_hidden} relaunched={relaunched}");
 
     // Bound to a named variable, not `_`: dropping the guard releases the lock,

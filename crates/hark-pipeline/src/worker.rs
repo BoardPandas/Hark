@@ -13,7 +13,9 @@ use hark_inject::InjectSettings;
 use hark_spellbook::{Corrector, Expander, Expansion};
 use hark_stt::{SttError, SttProvider, Transcript};
 use hark_voice::{over_expanded, skips_cleanup, CleanupProvider, Voice};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{Receiver, Sender};
+use std::sync::Arc;
 use std::time::Instant;
 
 /// The resolved cleanup step: adapter, effective voice, and gate threshold.
@@ -70,6 +72,10 @@ pub(crate) struct Worker {
     pub strip_single_word_period: bool,
     /// Advisory events toward the UI; every send is `let _ =` best-effort.
     pub events: Sender<PipelineEvent>,
+    /// The same "is a dictation capturing" fact as [`PipelineEvent::Recording`],
+    /// published as state so the recording overlay can read it without waiting
+    /// on a UI pass (`PipelineHandle::recording_flag`).
+    pub recording: Arc<AtomicBool>,
 }
 
 /// The one long-lived worker loop. Exits when the hotkey listener drops its
@@ -122,11 +128,22 @@ pub(crate) fn run(mut worker: Worker, rx: Receiver<PttEvent>) {
             let _ = worker.events.send(PipelineEvent::Recording);
         }
         state = next;
+        // Republish the same edge as state, for the overlay. Derived from the
+        // state machine rather than tracked alongside it, so it cannot drift
+        // from what `PipelineEvent::Recording` says: every path out of
+        // Recording — release, abandoned hold, abort — passes through here.
+        worker.recording.store(
+            matches!(state, PipelineState::Recording { .. }),
+            Ordering::Relaxed,
+        );
         if let Action::Dictate { down_abs, up_abs } = action {
             let _ = worker.events.send(PipelineEvent::Processing);
             state = dictate(&mut worker, down_abs, up_abs, state);
         }
     }
+    // The hook is gone; nothing is being captured. Belt and braces for an
+    // overlay that happens to be up as the pipeline is torn down.
+    worker.recording.store(false, Ordering::Relaxed);
     log::debug!("ptt channel closed; pipeline worker exiting");
 }
 

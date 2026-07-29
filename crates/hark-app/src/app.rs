@@ -246,9 +246,12 @@ impl HarkApp {
         if !matches!(self.pipeline.status(), PipelineStatus::Recording) {
             return;
         }
-        if let Some(meter) = self.pipeline.level_meter() {
+        if let (Some(meter), Some(recording)) =
+            (self.pipeline.level_meter(), self.pipeline.recording_flag())
+        {
             let monitor = ctx.input(|i| i.viewport().monitor_size);
-            crate::overlay::show(ctx, meter, monitor);
+            let dictation = self.pipeline.dictation();
+            crate::overlay::show(ctx, meter, recording, dictation, monitor);
         }
     }
 }

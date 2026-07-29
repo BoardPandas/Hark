@@ -4,6 +4,14 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.30.5] - 2026-07-29
+
+### Fixed
+- **The "Listening…" pill really does leave when the dictation ends, with Hark's window open.** 0.30.4 aimed at the right problem and missed: the main window genuinely does fall asleep for seconds at a time while the pill is on screen — a log capture shows it noticing a finished dictation 2.7 seconds after the text had already been injected — but the nudge that release added turned out to be the same call the window system was already making and failing on, so nothing changed. The pill no longer depends on the main window at all. It reads whether a dictation is still capturing straight from the dictation pipeline and takes itself off screen the instant one ends, which also lifts the load that was keeping the main window asleep, so the tray icon and the status footer catch up immediately afterwards.
+
+### Added
+- **The log now names the version that wrote it.** Every `hark.log` starts with a `Hark 0.30.5` line, so a bug report can no longer be ambiguous about whether it describes a fix or the build before it.
+
 ## [0.30.4] - 2026-07-29
 
 ### Fixed

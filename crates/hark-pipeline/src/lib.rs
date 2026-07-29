@@ -23,6 +23,7 @@ use hark_audio::WindowParams;
 use hark_config::Settings;
 use hark_inject::{InjectSettings, Strategy};
 use hark_stt::{ProviderConfig, SttError};
+use std::sync::atomic::AtomicBool;
 use std::sync::mpsc;
 use std::sync::Arc;
 use thiserror::Error;
@@ -51,6 +52,8 @@ pub struct PipelineHandle {
     /// (the recording overlay's audio-reactive pulse); reading it never
     /// touches the audio path.
     level: Arc<LevelMeter>,
+    /// True exactly while a dictation is capturing audio.
+    recording: Arc<AtomicBool>,
     _capture: hark_audio::CaptureHandle,
 }
 
@@ -58,6 +61,22 @@ impl PipelineHandle {
     /// The live input-level meter for UI feedback. Cheap to clone.
     pub fn level_meter(&self) -> Arc<LevelMeter> {
         self.level.clone()
+    }
+
+    /// Whether a dictation is capturing right now — the same fact
+    /// [`PipelineEvent::Recording`] carries, published as state instead of as
+    /// an event.
+    ///
+    /// The event lane is the truth for anything that has to *react* (status,
+    /// tray, history). This exists for the one consumer that must be able to
+    /// read the answer without a UI pass having happened: the recording
+    /// overlay, which is a second OS window painting on its own schedule and
+    /// which must be able to take itself off screen the moment a dictation
+    /// ends, even when the main window has not yet run the pass that would
+    /// retire it. Cheap to clone, relaxed on both ends: like the level meter,
+    /// this is advisory UI state, never ordered against the audio.
+    pub fn recording_flag(&self) -> Arc<AtomicBool> {
+        self.recording.clone()
     }
 }
 
@@ -360,6 +379,7 @@ pub fn run(
     let (ptt_tx, ptt_rx) = mpsc::channel();
     let listener = hark_hotkey::spawn_listener(chord, ptt_tx)?;
 
+    let recording = Arc::new(AtomicBool::new(false));
     let w = worker::Worker {
         consumer,
         sample_rate,
@@ -376,6 +396,7 @@ pub fn run(
         stt_model: provider_cfg.model.clone(),
         strip_single_word_period: settings.output.strip_single_word_period,
         events,
+        recording: recording.clone(),
     };
     let worker = std::thread::Builder::new()
         .name("hark-pipeline-worker".to_string())
@@ -386,6 +407,7 @@ pub fn run(
         listener: Some(listener),
         worker: Some(worker),
         level,
+        recording,
         _capture: capture,
     })
 }
