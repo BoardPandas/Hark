@@ -227,6 +227,7 @@ impl HistoryPage {
         let now_ms = jiff::Timestamp::now().as_millisecond();
         let mut action = None;
         ScrollArea::vertical()
+            .id_salt("history-list")
             .auto_shrink([false, false])
             .show(ui, |ui| {
                 let mut last_day: Option<String> = None;

@@ -4,6 +4,12 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.30.2] - 2026-07-29
+
+### Fixed
+- **A long Spellbook can be scrolled again.** Once your terms filled the window, the rest ran off the bottom edge with no scrollbar and no way to reach them — the only fix was making the window taller. The list now scrolls, with the add row and its messages staying put above it, exactly as History behaves.
+- **Switching tabs no longer drops you partway down the new page.** Every page shared one scroll position, so leaving History scrolled halfway and opening the Spellbook, Invocations, or Settings showed them scrolled to the same spot. Adding a Spellbook term from a history selection hit this every time. Each page now remembers its own position.
+
 ## [0.30.1] - 2026-07-29
 
 ### Changed

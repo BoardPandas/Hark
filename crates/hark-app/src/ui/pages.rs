@@ -107,7 +107,15 @@ pub fn show(
                 Page::Settings => {
                     // Long forms need a scroll container; the sidebar and
                     // footer stay put.
+                    //
+                    // Every page's scroll area is built on *this* Ui, and a
+                    // ScrollArea's id is its parent Ui's id plus its salt --
+                    // so without distinct salts all five share one stored
+                    // offset and a page switch lands scrolled where the
+                    // previous page was. The History -> Spellbook term
+                    // handoff hits that path every time.
                     egui::ScrollArea::vertical()
+                        .id_salt("settings-form")
                         .auto_shrink([false, false])
                         .show(ui, |ui| {
                             ui.set_max_width(column);

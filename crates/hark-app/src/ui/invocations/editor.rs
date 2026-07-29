@@ -68,6 +68,7 @@ impl Draft {
         let mut outcome = Outcome::Open;
 
         egui::ScrollArea::vertical()
+            .id_salt("invocation-editor")
             .auto_shrink([false, false])
             .show(ui, |ui| {
                 ui.label(

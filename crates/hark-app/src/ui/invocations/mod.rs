@@ -94,6 +94,7 @@ impl InvocationsPage {
         let mut edit: Option<usize> = None;
 
         egui::ScrollArea::vertical()
+            .id_salt("invocations-list")
             .auto_shrink([false, false])
             .show(ui, |ui| {
                 for (index, entry) in invocations.entries.iter().enumerate() {

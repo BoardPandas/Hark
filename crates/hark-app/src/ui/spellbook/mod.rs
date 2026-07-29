@@ -229,72 +229,84 @@ impl SpellbookPage {
         changed
     }
 
+    /// The term rows scroll; the add row, the undo affirmation, and the notice
+    /// above them stay pinned, as the toolbar does in History. Plain `show`,
+    /// never `show_rows`: an open alias editor makes rows non-uniform, and
+    /// LL-G `rust/egui-show-rows-uniform-height` is exactly that -- the
+    /// `row_height * count` arithmetic desyncs the scrollbar and shifts rows
+    /// under the cursor.
     fn entry_list(&mut self, ui: &mut Ui, entries: &mut Vec<SpellbookEntry>) -> bool {
         let mut changed = false;
         let mut delete: Option<usize> = None;
-        for index in 0..entries.len() {
-            ui.horizontal(|ui| {
-                if let Some((edit_index, buffer)) = &mut self.edit {
-                    if *edit_index == index {
-                        let response = ui.add(TextEdit::singleline(buffer).desired_width(280.0));
-                        if self.edit_needs_focus {
-                            response.request_focus();
-                            self.edit_needs_focus = false;
+        egui::ScrollArea::vertical()
+            .id_salt("spellbook-list")
+            .auto_shrink([false, false])
+            .show(ui, |ui| {
+                for index in 0..entries.len() {
+                    ui.horizontal(|ui| {
+                        if let Some((edit_index, buffer)) = &mut self.edit {
+                            if *edit_index == index {
+                                let response =
+                                    ui.add(TextEdit::singleline(buffer).desired_width(280.0));
+                                if self.edit_needs_focus {
+                                    response.request_focus();
+                                    self.edit_needs_focus = false;
+                                }
+                                if ui.input(|i| i.key_pressed(Key::Escape)) {
+                                    self.edit = None;
+                                } else if response.lost_focus() {
+                                    let (i, buffer) = self.edit.take().expect("edit is Some here");
+                                    changed |= commit_edit(entries, i, &buffer);
+                                }
+                                return;
+                            }
                         }
-                        if ui.input(|i| i.key_pressed(Key::Escape)) {
-                            self.edit = None;
-                        } else if response.lost_focus() {
-                            let (i, buffer) = self.edit.take().expect("edit is Some here");
-                            changed |= commit_edit(entries, i, &buffer);
+                        // A flat, full-row button: click to edit in place.
+                        if ui
+                            .add(
+                                egui::Button::new(RichText::new(&entries[index].term).monospace())
+                                    .fill(egui::Color32::TRANSPARENT)
+                                    .stroke(egui::Stroke::NONE),
+                            )
+                            .on_hover_text("Click to edit")
+                            .clicked()
+                        {
+                            self.edit = Some((index, entries[index].term.clone()));
+                            self.edit_needs_focus = true;
                         }
-                        return;
+                        if ui
+                            .button(RichText::new(theme::icons::TRASH))
+                            .on_hover_text("Delete term")
+                            .clicked()
+                        {
+                            delete = Some(index);
+                        }
+                        // The alias count is the row's only hint that an entry
+                        // does more than its term suggests; without it aliases
+                        // are invisible until something they caused looks wrong.
+                        let count = entries[index].aliases.len();
+                        let open = self.expanded == Some(index);
+                        let label = match count {
+                            0 => "Advanced".to_string(),
+                            1 => "1 alias".to_string(),
+                            n => format!("{n} aliases"),
+                        };
+                        if ui
+                            .link(RichText::new(label).small().weak())
+                            .on_hover_text("Misheard spellings corrected to this term")
+                            .clicked()
+                        {
+                            self.expanded = (!open).then_some(index);
+                            self.new_alias.clear();
+                        }
+                    });
+                    if self.expanded == Some(index) {
+                        changed |= self.alias_editor(ui, entries, index);
                     }
-                }
-                // A flat, full-row button: click to edit in place.
-                if ui
-                    .add(
-                        egui::Button::new(RichText::new(&entries[index].term).monospace())
-                            .fill(egui::Color32::TRANSPARENT)
-                            .stroke(egui::Stroke::NONE),
-                    )
-                    .on_hover_text("Click to edit")
-                    .clicked()
-                {
-                    self.edit = Some((index, entries[index].term.clone()));
-                    self.edit_needs_focus = true;
-                }
-                if ui
-                    .button(RichText::new(theme::icons::TRASH))
-                    .on_hover_text("Delete term")
-                    .clicked()
-                {
-                    delete = Some(index);
-                }
-                // The alias count is the row's only hint that an entry does
-                // more than its term suggests; without it aliases are invisible
-                // until something they caused looks wrong.
-                let count = entries[index].aliases.len();
-                let open = self.expanded == Some(index);
-                let label = match count {
-                    0 => "Advanced".to_string(),
-                    1 => "1 alias".to_string(),
-                    n => format!("{n} aliases"),
-                };
-                if ui
-                    .link(RichText::new(label).small().weak())
-                    .on_hover_text("Misheard spellings corrected to this term")
-                    .clicked()
-                {
-                    self.expanded = (!open).then_some(index);
-                    self.new_alias.clear();
+                    // Nocturne fading rule under each term row.
+                    theme::fading_rule(ui, 6.0);
                 }
             });
-            if self.expanded == Some(index) {
-                changed |= self.alias_editor(ui, entries, index);
-            }
-            // Nocturne fading rule under each term row.
-            theme::fading_rule(ui, 6.0);
-        }
         if let Some(index) = delete {
             entries.remove(index);
             self.edit = None;
