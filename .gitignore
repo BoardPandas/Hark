@@ -41,6 +41,11 @@ htmlcov/
 
 # Rust (Cargo.lock is intentionally NOT ignored -- commit lockfiles)
 target/
+# One-off `cargo audit` / `cargo outdated` report dumps redirected to the repo
+# root. Root-anchored so the deliberate .cargo/audit.toml config stays tracked.
+/audit_*.txt
+/audit_*.json
+/outdated_*.txt
 
 # Java/Kotlin
 *.class

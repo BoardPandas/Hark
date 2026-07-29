@@ -4,6 +4,11 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.30.3] - 2026-07-29
+
+### Removed
+- **Repository hygiene only — Hark itself is unchanged in this release.** Three scratch files left behind by a one-off dependency audit (`audit_out.json`, `audit_err.txt`, `outdated_full.txt`) had been sitting in the repository root since 0.18.1, where they read as project files rather than the throwaway command output they were. They are gone, and `.gitignore` now catches that shape of file so the next `cargo audit` or `cargo outdated` run cannot commit its output again. The `.cargo/audit.toml` config — which records the reviewed advisory ignores and is deliberately tracked — is unaffected.
+
 ## [0.30.2] - 2026-07-29
 
 ### Fixed
