@@ -3,9 +3,8 @@
 //! else lives in `CollapsingHeader`s. Buffers sync into the draft at
 //! widget-render time, so the draft is always current when Save reads it.
 
-use super::capture::{CaptureTransition, HotkeyCapture};
 use crate::theme;
-use egui::{CollapsingHeader, Context, DragValue, Label, RichText, Sense, TextEdit, Ui};
+use egui::{CollapsingHeader, DragValue, Label, RichText, Sense, TextEdit, Ui};
 use hark_config::{Provider, ProviderKind, Settings, VoiceName};
 
 /// String buffers behind optional config fields (empty = unset) plus the
@@ -49,14 +48,14 @@ pub fn none_if_empty(text: &str) -> Option<String> {
     }
 }
 
-pub(super) fn inline_error(ui: &mut Ui, text: &str) {
+pub(crate) fn inline_error(ui: &mut Ui, text: &str) {
     ui.horizontal(|ui| {
         ui.label(RichText::new(theme::icons::WARNING).color(theme::DANGER));
         ui.label(RichText::new(text).small());
     });
 }
 
-fn subhead(ui: &mut Ui, text: &str) {
+pub(crate) fn subhead(ui: &mut Ui, text: &str) {
     ui.add_space(8.0);
     ui.label(RichText::new(text).text_style(theme::subheading()));
 }
@@ -267,93 +266,6 @@ fn input_meter(ui: &mut Ui, peak: f32) {
     // stops the moment the user leaves Settings.
     ui.ctx()
         .request_repaint_after(std::time::Duration::from_millis(50));
-}
-
-/// Push-to-talk shortcut: a "Record" button captures held keys via the same
-/// low-level hook the pipeline uses (egui's input can't tell L/R modifiers
-/// apart or see the Win key), with the text field kept as a manual fallback.
-/// Returns whether recording started or ended so the page can pause/resume the
-/// pipeline (only one keyboard hook may run at a time).
-pub fn hotkey_section(
-    ui: &mut Ui,
-    draft: &mut Settings,
-    capture: &mut HotkeyCapture,
-    ctx: &Context,
-) -> CaptureTransition {
-    subhead(ui, "Push-to-talk");
-    let mut transition = CaptureTransition::None;
-
-    // A completed chord lands straight in the draft and ends recording; the
-    // idle field below then renders with the new value in the same frame.
-    if capture.is_recording() {
-        if let CaptureTransition::Ended = capture.poll_into(&mut draft.hotkey.ptt_key) {
-            transition = CaptureTransition::Ended;
-        }
-    }
-
-    if capture.is_recording() {
-        egui::Frame::default()
-            .fill(theme::surface(ui.visuals()))
-            .stroke(ui.visuals().widgets.noninteractive.bg_stroke)
-            .corner_radius(8)
-            .inner_margin(egui::Margin::symmetric(14, 11))
-            .show(ui, |ui| {
-                let held = capture.held_display();
-                if held.is_empty() {
-                    ui.label(
-                        RichText::new("Press and hold your shortcut keys...")
-                            .text_style(theme::subheading()),
-                    );
-                } else {
-                    ui.label(RichText::new(held).text_style(theme::subheading()));
-                }
-                ui.label(
-                    RichText::new(
-                        "Release to set. Modifier keys (Ctrl, Shift, Alt, Win), CapsLock, \
-                         and F1..F24 only.",
-                    )
-                    .small()
-                    .weak(),
-                );
-            });
-        if ui.button("Cancel").clicked() {
-            if let CaptureTransition::Ended = capture.cancel() {
-                transition = CaptureTransition::Ended;
-            }
-        }
-        return transition;
-    }
-
-    ui.horizontal(|ui| {
-        ui.add(
-            TextEdit::singleline(&mut draft.hotkey.ptt_key)
-                .hint_text("LCtrl+LWin")
-                .desired_width(160.0),
-        );
-        if ui
-            .button("Record")
-            .on_hover_text("Press the keys you want to hold; Hark captures them")
-            .clicked()
-        {
-            if let CaptureTransition::Started = capture.begin(ctx) {
-                transition = CaptureTransition::Started;
-            }
-        }
-    });
-    if let Some(notice) = capture.notice() {
-        inline_error(ui, notice);
-    }
-    match hark_hotkey::PttChord::parse(&draft.hotkey.ptt_key) {
-        Ok(_) => {
-            ui.label(
-                RichText::new("Hold these keys together to dictate; release to inject.")
-                    .small()
-                    .weak(),
-            );
-        }
-        Err(e) => inline_error(ui, &e.to_string()),
-    }
-    transition
 }
 
 /// Every publicly selectable voice, in display order. Shared with the tray

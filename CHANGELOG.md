@@ -4,6 +4,15 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.31.0] - 2026-07-31
+
+### Fixed
+- **Your shortcut can no longer quietly shrink to a single key.** With a shortcut like Left Ctrl + F12, pressing Left Ctrl on its own could start a dictation — the second key was being ignored. Hark learns which keys are held by watching the keyboard, and it does not see every release: some keyboards report F-key releases under a different key when the Fn layer is involved, and releases that land on the lock screen, a UAC prompt, or across a sleep never arrive at all. One missed release left that key marked as held forever, which left whatever remained of the shortcut acting as the whole thing. Hark now confirms the rest of the shortcut is genuinely still down at the moment it would start a dictation, so a release it never saw costs nothing.
+- **Recording a shortcut no longer risks shutting itself down the instant it starts.** Hark stopped its push-to-talk listener *after* the recorder had already started listening, and the "stop" message is addressed to a listener thread by number — a number Windows is free to hand straight to the recorder that was just created. Hark now stands the listener fully down before the recorder starts. If a recorder is dropped anyway, the prompt says so and offers the typed fallback instead of asking for keys forever, and `hark.log` records every time a keyboard hook is installed, removed, or lost.
+
+### Changed
+- **Setting your push-to-talk shortcut now works the way every other shortcut editor does.** The shortcut is shown as a read-only field you click to change — press and hold the keys you want, let go, and it is set. Typing the chord as text is no longer the default path: it was easy to leave a shortcut that had never been pressed on a real keyboard. It is still one click away, behind "Type it instead", for anyone who wants it. Escape cancels a recording, a "Reset" button restores the shipped Ctrl + Win shortcut, and the shortcut reads as "Left Ctrl + F12" everywhere it is shown rather than "LCtrl+F12".
+
 ## [0.30.5] - 2026-07-29
 
 ### Fixed

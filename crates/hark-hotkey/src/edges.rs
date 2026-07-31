@@ -46,6 +46,26 @@ impl fmt::Display for PttKeyCode {
     }
 }
 
+impl PttKeyCode {
+    /// The name a person reads, as opposed to the config token `Display`
+    /// writes. Config keeps "LCtrl" because it round-trips through TOML; the
+    /// UI shows "Left Ctrl" because that is what the key is called.
+    pub fn label(&self) -> String {
+        match self {
+            PttKeyCode::LCtrl => "Left Ctrl".to_string(),
+            PttKeyCode::RCtrl => "Right Ctrl".to_string(),
+            PttKeyCode::LShift => "Left Shift".to_string(),
+            PttKeyCode::RShift => "Right Shift".to_string(),
+            PttKeyCode::LAlt => "Left Alt".to_string(),
+            PttKeyCode::RAlt => "Right Alt".to_string(),
+            PttKeyCode::LWin => "Left Win".to_string(),
+            PttKeyCode::RWin => "Right Win".to_string(),
+            PttKeyCode::CapsLock => "Caps Lock".to_string(),
+            PttKeyCode::F(n) => format!("F{n}"),
+        }
+    }
+}
+
 #[derive(Debug, Error, PartialEq, Eq)]
 pub enum ChordParseError {
     #[error("push-to-talk chord is empty")]
@@ -100,6 +120,26 @@ impl PttChord {
 
     pub fn keys(&self) -> &[PttKeyCode] {
         &self.keys
+    }
+
+    /// "Left Ctrl + F12" — the form the settings page and the onboarding card
+    /// show. `Display` stays the config form ("LCtrl+F12").
+    pub fn pretty(&self) -> String {
+        self.keys
+            .iter()
+            .map(|k| k.label())
+            .collect::<Vec<_>>()
+            .join(" + ")
+    }
+}
+
+/// Human-readable rendering of a configured chord string, falling back to the
+/// raw text when it does not parse (a hand-edited config.toml). Shared by
+/// every place that shows the user their shortcut.
+pub fn pretty_chord(text: &str) -> String {
+    match PttChord::parse(text) {
+        Ok(chord) => chord.pretty(),
+        Err(_) => text.to_string(),
     }
 }
 
@@ -171,10 +211,37 @@ impl ChordTracker {
         }
     }
 
+    /// Process one raw key event, trusting the tracker's own record of what is
+    /// held. Pure: the platform is never consulted. Production feeds
+    /// [`Self::on_event_verified`] instead; this is the seam the edge-semantics
+    /// tests drive.
+    pub fn on_event(&mut self, key: PttKeyCode, down: bool, injected: bool) -> Option<PttEvent> {
+        self.on_event_verified(key, down, injected, |_| true)
+    }
+
     /// Process one raw key event. `injected` marks synthesized input
     /// (LLKHF_INJECTED on Windows): always ignored, so our own Ctrl+V can
     /// never re-trigger PTT.
-    pub fn on_event(&mut self, key: PttKeyCode, down: bool, injected: bool) -> Option<PttEvent> {
+    ///
+    /// `physically_down` answers "is this key really held right now?" and is
+    /// consulted for the *other* chord members only, and only on a press that
+    /// is about to engage the chord. A hook does not see every release (see
+    /// [`Self::resync_released`]), and while the watchdog heals a lost release
+    /// during a hold, a release lost with the chord already disengaged leaves
+    /// its member stuck `true` with nothing polling — which quietly demotes the
+    /// chord to whichever key is left. With LCtrl+F12 configured and F12's
+    /// release missed, a bare Left Ctrl press then starts a dictation. The
+    /// engage edge is the only place a stale `true` can do harm, and checking
+    /// only there costs at most three key-state reads on the press that starts
+    /// a dictation — nothing on any other key, and never a synthesized press
+    /// (the poll can clear members, never set them).
+    pub fn on_event_verified(
+        &mut self,
+        key: PttKeyCode,
+        down: bool,
+        injected: bool,
+        mut physically_down: impl FnMut(PttKeyCode) -> bool,
+    ) -> Option<PttEvent> {
         if injected {
             return None;
         }
@@ -186,6 +253,18 @@ impl ChordTracker {
             return None;
         }
         self.member_down[idx] = down;
+
+        // About to engage: confirm the members we did not just see pressed are
+        // genuinely still held. Skipped while engaged (the watchdog owns that
+        // window) and on releases (they only ever clear state).
+        if down && !self.engaged && self.member_down.iter().all(|d| *d) {
+            for (i, member) in self.chord.keys.iter().enumerate() {
+                if i != idx && !physically_down(*member) {
+                    log::warn!("chord member {member} was marked held but is up; ignoring");
+                    self.member_down[i] = false;
+                }
+            }
+        }
 
         let all_down = self.member_down.iter().all(|d| *d);
         match (self.engaged, all_down) {
@@ -239,55 +318,6 @@ impl ChordTracker {
         // the chord — the same "first release wins" rule `on_event` applies.
         self.engaged = false;
         Some(PttEvent::UpMissed)
-    }
-}
-
-/// A raw key edge streamed while the settings UI is recording a shortcut.
-/// Unlike `PttEvent` (already-resolved chord engage/disengage), this is one
-/// per chord-capable key press or release, fed to a `CaptureBuffer`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct CaptureEvent {
-    pub key: PttKeyCode,
-    pub down: bool,
-}
-
-/// Builds a chord from a stream of raw capture edges (the "record a shortcut"
-/// UX). The chord is the set of keys held at the instant the FIRST key is
-/// released (the peak), mirroring `ChordTracker`'s engage-on-last-down /
-/// disengage-on-first-up semantics: press the combo, then let go to set it.
-#[derive(Debug, Default)]
-pub struct CaptureBuffer {
-    held: Vec<PttKeyCode>,
-    saw_any: bool,
-}
-
-impl CaptureBuffer {
-    pub fn new() -> CaptureBuffer {
-        CaptureBuffer::default()
-    }
-
-    /// Feed one raw edge. Returns `Some(chord)` once the user completes a
-    /// chord (a release after at least one key was held); `None` while still
-    /// gathering. Duplicates (key auto-repeat) and a 5th simultaneous key are
-    /// ignored, so the result is always 1..=4 distinct keys.
-    pub fn on_event(&mut self, key: PttKeyCode, down: bool) -> Option<PttChord> {
-        if down {
-            self.saw_any = true;
-            if !self.held.contains(&key) && self.held.len() < 4 {
-                self.held.push(key);
-            }
-            None
-        } else if self.saw_any && !self.held.is_empty() {
-            Some(PttChord::from_keys(self.held.clone()))
-        } else {
-            // A stray release before anything was held: keep waiting.
-            None
-        }
-    }
-
-    /// Keys held so far, for a live "LCtrl + LWin" display while recording.
-    pub fn held(&self) -> &[PttKeyCode] {
-        &self.held
     }
 }
 
@@ -492,6 +522,62 @@ mod tests {
         assert_eq!(t.resync_released(|k| k == PttKeyCode::LWin), None);
     }
 
+    /// The bug this guards: a release the hook never saw, with the chord
+    /// already disengaged, leaves that member stuck `true`. Nothing polls in
+    /// that state (the watchdog runs only during a hold), so the chord silently
+    /// becomes a one-key hotkey — press Left Ctrl alone and a dictation starts.
+    #[test]
+    fn a_member_whose_release_was_missed_cannot_engage_the_chord_alone() {
+        let mut t = ChordTracker::new(chord("LCtrl+F12"));
+        t.on_event(PttKeyCode::LCtrl, true, false);
+        assert_eq!(
+            t.on_event(PttKeyCode::F(12), true, false),
+            Some(PttEvent::Down)
+        );
+        // LCtrl's release arrives; F12's never does (an Fn-layer keyboard
+        // reporting the break under a different key, a lock screen, a sleep).
+        assert_eq!(
+            t.on_event(PttKeyCode::LCtrl, false, false),
+            Some(PttEvent::Up)
+        );
+
+        // Later, with nothing physically held, Left Ctrl alone must do nothing.
+        assert_eq!(
+            t.on_event_verified(PttKeyCode::LCtrl, true, false, |_| false),
+            None
+        );
+        // ...and the chord still works normally afterwards: the stale member
+        // was cleared, not left to poison every future press.
+        assert_eq!(
+            t.on_event_verified(PttKeyCode::F(12), true, false, |_| true),
+            Some(PttEvent::Down)
+        );
+    }
+
+    #[test]
+    fn a_genuinely_held_member_still_engages() {
+        let mut t = ChordTracker::new(chord("LCtrl+F12"));
+        // The user really is holding LCtrl when F12 goes down. The key in the
+        // event itself is never polled — a low-level hook runs before the
+        // platform's key state catches up, so F12 may still read as up here.
+        t.on_event_verified(PttKeyCode::LCtrl, true, false, |_| false);
+        assert_eq!(
+            t.on_event_verified(PttKeyCode::F(12), true, false, |k| k == PttKeyCode::LCtrl),
+            Some(PttEvent::Down)
+        );
+    }
+
+    /// The poll may clear members, never set them: a chord the user was already
+    /// holding before Hark started must not launch a dictation on its own.
+    #[test]
+    fn verification_never_manufactures_an_engage() {
+        let mut t = ChordTracker::new(chord("LCtrl+LWin"));
+        assert_eq!(
+            t.on_event_verified(PttKeyCode::LCtrl, true, false, |_| true),
+            None
+        );
+    }
+
     #[test]
     fn stray_release_without_press_is_silent() {
         let mut t = ChordTracker::new(chord("LCtrl+LWin"));
@@ -524,62 +610,5 @@ mod tests {
         let c = PttChord::from_keys(vec![PttKeyCode::LCtrl, PttKeyCode::LWin]);
         assert_eq!(c.to_string(), "LCtrl+LWin");
         assert_eq!(PttChord::parse(&c.to_string()).unwrap(), c);
-    }
-
-    #[test]
-    fn capture_completes_on_first_release_at_the_peak() {
-        let mut b = CaptureBuffer::new();
-        // Press the combo up...
-        assert_eq!(b.on_event(PttKeyCode::LCtrl, true), None);
-        assert_eq!(b.on_event(PttKeyCode::LWin, true), None);
-        assert_eq!(b.held(), &[PttKeyCode::LCtrl, PttKeyCode::LWin]);
-        // ...then the first release sets it, held keys and all.
-        assert_eq!(
-            b.on_event(PttKeyCode::LCtrl, false),
-            Some(chord("LCtrl+LWin"))
-        );
-    }
-
-    #[test]
-    fn capture_records_a_single_key_chord() {
-        let mut b = CaptureBuffer::new();
-        assert_eq!(b.on_event(PttKeyCode::F(13), true), None);
-        assert_eq!(b.on_event(PttKeyCode::F(13), false), Some(chord("F13")));
-    }
-
-    #[test]
-    fn capture_dedupes_auto_repeat_and_caps_at_four() {
-        let mut b = CaptureBuffer::new();
-        b.on_event(PttKeyCode::LCtrl, true);
-        // Windows repeats WM_KEYDOWN while held: no duplicate members.
-        b.on_event(PttKeyCode::LCtrl, true);
-        b.on_event(PttKeyCode::LShift, true);
-        b.on_event(PttKeyCode::LAlt, true);
-        b.on_event(PttKeyCode::LWin, true);
-        // A fifth simultaneous key is ignored (chords support at most four).
-        b.on_event(PttKeyCode::RCtrl, true);
-        assert_eq!(
-            b.held(),
-            &[
-                PttKeyCode::LCtrl,
-                PttKeyCode::LShift,
-                PttKeyCode::LAlt,
-                PttKeyCode::LWin
-            ]
-        );
-        assert_eq!(
-            b.on_event(PttKeyCode::LCtrl, false),
-            Some(chord("LCtrl+LShift+LAlt+LWin"))
-        );
-    }
-
-    #[test]
-    fn capture_ignores_a_release_before_anything_is_held() {
-        let mut b = CaptureBuffer::new();
-        // A key already down when recording began releases first: not a chord.
-        assert_eq!(b.on_event(PttKeyCode::LCtrl, false), None);
-        // Recording then proceeds normally.
-        assert_eq!(b.on_event(PttKeyCode::LWin, true), None);
-        assert_eq!(b.on_event(PttKeyCode::LWin, false), Some(chord("LWin")));
     }
 }

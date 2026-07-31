@@ -6,16 +6,18 @@
 //! (WH_KEYBOARD_LL) implements it now; `hook_mac.rs` (CGEventTap) slots in
 //! behind the same signature in checkpoint 7 without touching the pipeline.
 
+pub mod capture;
 pub mod edges;
 
 #[cfg(windows)]
 mod hook_win;
 
-pub use edges::{
-    CaptureBuffer, CaptureEvent, ChordParseError, ChordTracker, PttChord, PttEvent, PttKeyCode,
-};
+pub use capture::{CaptureBuffer, CaptureEvent};
+pub use edges::{pretty_chord, ChordParseError, ChordTracker, PttChord, PttEvent, PttKeyCode};
 
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::Sender;
+use std::sync::Arc;
 use thiserror::Error;
 
 #[derive(Debug, Error)]
@@ -32,17 +34,41 @@ pub enum HotkeyError {
 pub struct ListenerHandle {
     #[cfg_attr(not(windows), allow(dead_code))]
     thread_id: u32,
+    /// Cleared by the hook thread as its last act. Two things depend on it:
+    /// callers can tell a hook that died on its own from one that is still
+    /// listening, and teardown skips posting to a thread id the OS may already
+    /// have recycled onto somebody else's thread.
+    alive: Arc<AtomicBool>,
     thread: Option<std::thread::JoinHandle<()>>,
+}
+
+impl ListenerHandle {
+    /// Is the hook still installed? False once the hook thread has exited on
+    /// its own — the receiver went away, or the install was torn down by the
+    /// OS. A recording UI that ignores this shows "press your keys..." forever
+    /// against a hook that is no longer listening.
+    pub fn is_alive(&self) -> bool {
+        self.alive.load(Ordering::Acquire)
+    }
 }
 
 impl Drop for ListenerHandle {
     fn drop(&mut self) {
         #[cfg(windows)]
-        hook_win::stop_listener(self.thread_id);
+        if self.alive.load(Ordering::Acquire) {
+            hook_win::stop_listener(self.thread_id);
+        }
         if let Some(t) = self.thread.take() {
             let _ = t.join();
         }
     }
+}
+
+/// Can this platform record a shortcut by watching real key edges? False
+/// wherever [`spawn_capture`] would fail, so the settings UI can offer the
+/// typed fallback instead of a button that only ever reports an error.
+pub fn capture_supported() -> bool {
+    cfg!(windows)
 }
 
 /// Start listening for the chord; edges arrive on `tx`. One listener per

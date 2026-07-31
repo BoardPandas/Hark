@@ -23,10 +23,13 @@
 //!   held, a thread timer polls the real key state and heals the difference
 //!   (`watchdog_tick`).
 
-use crate::edges::{CaptureEvent, ChordTracker, PttChord, PttEvent, PttKeyCode};
+use crate::capture::CaptureEvent;
+use crate::edges::{ChordTracker, PttChord, PttEvent, PttKeyCode};
 use crate::{HotkeyError, ListenerHandle};
 use std::cell::{Cell, RefCell};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Sender};
+use std::sync::Arc;
 use windows::Win32::Foundation::{LPARAM, LRESULT, WPARAM};
 use windows::Win32::System::Threading::GetCurrentThreadId;
 use windows::Win32::UI::Input::KeyboardAndMouse::{
@@ -107,6 +110,16 @@ enum HookState {
     Capture { tx: Sender<CaptureEvent> },
 }
 
+/// Clears the handle's liveness flag on the way out of the hook thread,
+/// including an unwind, so `ListenerHandle::is_alive` is never optimistic.
+struct AliveGuard(Arc<AtomicBool>);
+
+impl Drop for AliveGuard {
+    fn drop(&mut self) {
+        self.0.store(false, Ordering::Release);
+    }
+}
+
 thread_local! {
     static HOOK_STATE: RefCell<Option<HookState>> = const { RefCell::new(None) };
     /// Id of the live watchdog timer, or 0 when the chord is not held.
@@ -172,7 +185,7 @@ unsafe extern "system" fn keyboard_hook(code: i32, wparam: WPARAM, lparam: LPARA
                     // hooking keys forever.
                     let disconnected = match s {
                         HookState::Ptt { tracker, tx } => {
-                            match tracker.on_event(key, down, injected) {
+                            match tracker.on_event_verified(key, down, injected, physically_down) {
                                 Some(event) => {
                                     // The watchdog exists only for the span of
                                     // a hold: armed on engage, disarmed on the
@@ -190,6 +203,7 @@ unsafe extern "system" fn keyboard_hook(code: i32, wparam: WPARAM, lparam: LPARA
                         }
                     };
                     if disconnected {
+                        log::warn!("keyboard hook receiver is gone; stopping the hook");
                         unsafe { PostQuitMessage(0) };
                     }
                 }
@@ -223,10 +237,18 @@ pub(crate) fn spawn_capture(tx: Sender<CaptureEvent>) -> Result<ListenerHandle, 
 /// of the dedicated listener thread.
 fn spawn_hook(thread_name: &str, hook_state: HookState) -> Result<ListenerHandle, HotkeyError> {
     let (ready_tx, ready_rx) = mpsc::sync_channel::<Result<u32, HotkeyError>>(1);
+    let alive = Arc::new(AtomicBool::new(true));
 
+    let name = thread_name.to_string();
+    let thread_alive = alive.clone();
     let thread = std::thread::Builder::new()
         .name(thread_name.to_string())
         .spawn(move || {
+            // Cleared however this thread leaves — a clean WM_QUIT, a lost
+            // receiver, or a panic — so a caller can never mistake a dead hook
+            // for a live one.
+            let _alive = AliveGuard(thread_alive);
+
             HOOK_STATE.with(|state| {
                 *state.borrow_mut() = Some(hook_state);
             });
@@ -237,10 +259,12 @@ fn spawn_hook(thread_name: &str, hook_state: HookState) -> Result<ListenerHandle
                 match unsafe { SetWindowsHookExW(WH_KEYBOARD_LL, Some(keyboard_hook), None, 0) } {
                     Ok(h) => h,
                     Err(e) => {
+                        log::error!("{name}: keyboard hook install failed: {e}");
                         let _ = ready_tx.send(Err(HotkeyError::Install(e.to_string())));
                         return;
                     }
                 };
+            log::info!("{name}: keyboard hook installed");
             let _ = ready_tx.send(Ok(unsafe { GetCurrentThreadId() }));
 
             // The message pump IS the hook's lifeline (spec §12): callbacks
@@ -264,15 +288,17 @@ fn spawn_hook(thread_name: &str, hook_state: HookState) -> Result<ListenerHandle
 
             unsafe {
                 if let Err(e) = UnhookWindowsHookEx(hook) {
-                    log::warn!("unhooking keyboard hook failed: {e}");
+                    log::warn!("{name}: unhooking keyboard hook failed: {e}");
                 }
             }
+            log::info!("{name}: keyboard hook removed");
         })
         .map_err(|e| HotkeyError::Install(format!("cannot spawn hook thread: {e}")))?;
 
     match ready_rx.recv() {
         Ok(Ok(thread_id)) => Ok(ListenerHandle {
             thread_id,
+            alive,
             thread: Some(thread),
         }),
         Ok(Err(e)) => {

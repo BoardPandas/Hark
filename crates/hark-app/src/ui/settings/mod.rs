@@ -8,6 +8,7 @@ pub mod capture;
 pub mod cleanup;
 pub mod form;
 pub mod get_started;
+pub mod hotkey;
 pub mod keys;
 pub mod local;
 pub mod test;
@@ -92,7 +93,11 @@ impl SettingsPage {
             pipeline.is_running(),
             pipeline.injected_count() > 0,
         );
-        if get_started::show(ui, &card_view, &self.draft.hotkey.ptt_key) {
+        if get_started::show(
+            ui,
+            &card_view,
+            &hark_hotkey::pretty_chord(&self.draft.hotkey.ptt_key),
+        ) {
             self.get_started.dismissed = true;
         }
 
@@ -111,11 +116,20 @@ impl SettingsPage {
         // Recording a shortcut installs its own keyboard hook; only one may run
         // at a time, so the pipeline's push-to-talk hook stands down while
         // recording and resumes (with the still-saved chord) when it ends.
+        // Order is load-bearing: stopping the listener posts a quit message to
+        // its thread id, so the capture hook must not exist yet when it lands.
         let ctx = ui.ctx().clone();
-        match form::hotkey_section(ui, &mut self.draft, &mut self.hotkey, &ctx) {
-            capture::CaptureTransition::Started => pipeline.stop(),
-            capture::CaptureTransition::Ended => pipeline.start(saved, &ctx),
-            capture::CaptureTransition::None => {}
+        match hotkey::section(ui, &mut self.draft, &mut self.hotkey) {
+            capture::HotkeyAction::StartRequested => {
+                pipeline.stop();
+                if !self.hotkey.begin(&ctx) {
+                    // Nothing is recording, so leaving the pipeline down would
+                    // silently cost the user dictation over a failed click.
+                    pipeline.start(saved, &ctx);
+                }
+            }
+            capture::HotkeyAction::Ended => pipeline.start(saved, &ctx),
+            capture::HotkeyAction::None => {}
         }
         // The capture stream runs continuously while the pipeline is up, so
         // the meter is live here without starting anything extra.

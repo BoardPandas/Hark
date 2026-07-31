@@ -9,15 +9,19 @@ use egui::Context;
 use hark_hotkey::{CaptureBuffer, CaptureEvent, ListenerHandle};
 use std::sync::mpsc::{self, Receiver};
 
-/// What a render of the hotkey section did to the recording state. The page
-/// reacts by pausing/resuming the pipeline: only one keyboard hook may run at
-/// a time, so the push-to-talk listener stands down while recording.
-pub enum CaptureTransition {
+/// What a render of the hotkey section asks the page to do. The page owns the
+/// pipeline, and the pipeline owns the push-to-talk hook: only one keyboard
+/// hook may run at a time, so the listener stands down while recording.
+pub enum HotkeyAction {
     /// Nothing changed this frame.
     None,
-    /// Recording just began: pause the pipeline's hook.
-    Started,
-    /// Recording just finished or was cancelled: resume the pipeline.
+    /// The user asked to record. The page must stop the pipeline's hook and
+    /// *then* call [`HotkeyCapture::begin`] — never the other way round.
+    /// Teardown posts a quit message to the listener thread's id, and a
+    /// capture hook installed before that message lands can be killed by it
+    /// once Windows recycles the id onto the new thread.
+    StartRequested,
+    /// Recording just finished, was cancelled, or died: resume the pipeline.
     Ended,
 }
 
@@ -25,7 +29,7 @@ pub enum CaptureTransition {
 struct Recording {
     /// Dropping the handle posts WM_QUIT to the hook thread, which unhooks and
     /// exits; the pump then sees its sender drop and exits too.
-    _handle: ListenerHandle,
+    handle: ListenerHandle,
     edges: Receiver<CaptureEvent>,
     buffer: CaptureBuffer,
 }
@@ -54,7 +58,7 @@ impl Recording {
             .expect("spawning the capture pump thread cannot fail");
 
         Ok(Recording {
-            _handle: handle,
+            handle,
             edges: ui_rx,
             buffer: CaptureBuffer::new(),
         })
@@ -79,6 +83,12 @@ pub struct HotkeyCapture {
     recording: Option<Recording>,
     /// Shown until the next action; e.g. "Recording isn't available here yet".
     notice: Option<String>,
+    /// Whether the typed-chord escape hatch is showing. Off by default: the
+    /// recorder is the way to set a shortcut, and a chord typed by hand is a
+    /// string nobody validates against a real keyboard. It exists because a
+    /// recorder that cannot install its hook would otherwise leave no way at
+    /// all to change the shortcut.
+    typing: bool,
 }
 
 impl HotkeyCapture {
@@ -95,45 +105,68 @@ impl HotkeyCapture {
         self.notice.as_deref()
     }
 
-    /// Start recording. Returns `Started` on success; on failure it leaves a
-    /// notice and reports `None` so the pipeline keeps running.
-    pub fn begin(&mut self, ctx: &Context) -> CaptureTransition {
+    /// Is the typed-chord fallback showing? Always true where the platform
+    /// cannot record, so there is never a state with no way to set a shortcut.
+    pub fn typing(&self) -> bool {
+        self.typing || !hark_hotkey::capture_supported()
+    }
+
+    pub fn toggle_typing(&mut self) {
+        self.typing = !self.typing;
+        self.notice = None;
+    }
+
+    /// Start recording. Returns whether it began; on failure it leaves a
+    /// notice and reveals the typed fallback, so the user is never stuck.
+    pub fn begin(&mut self, ctx: &Context) -> bool {
         match Recording::start(ctx) {
             Ok(rec) => {
                 self.recording = Some(rec);
                 self.notice = None;
-                CaptureTransition::Started
+                true
             }
             Err(detail) => {
                 self.notice = Some(format!("Can't record a shortcut here: {detail}"));
-                CaptureTransition::None
+                self.typing = true;
+                false
             }
         }
     }
 
     /// Stop recording without setting a chord.
-    pub fn cancel(&mut self) -> CaptureTransition {
+    pub fn cancel(&mut self) -> HotkeyAction {
         if self.recording.take().is_some() {
-            CaptureTransition::Ended
+            HotkeyAction::Ended
         } else {
-            CaptureTransition::None
+            HotkeyAction::None
         }
     }
 
     /// Drain edges. When the user completes a chord, write it to `target`,
-    /// stop recording, and report `Ended`.
-    pub fn poll_into(&mut self, target: &mut String) -> CaptureTransition {
-        let done = self.recording.as_mut().and_then(|rec| rec.poll());
-        if let Some(chord) = done {
+    /// stop recording, and report `Ended`. A hook that died on its own ends
+    /// recording too, with the reason on screen: the alternative is a prompt
+    /// that asks for keys forever and never answers.
+    pub fn poll_into(&mut self, target: &mut String) -> HotkeyAction {
+        let Some(rec) = self.recording.as_mut() else {
+            return HotkeyAction::None;
+        };
+        if let Some(chord) = rec.poll() {
             *target = chord;
             self.recording = None;
-            CaptureTransition::Ended
-        } else {
-            CaptureTransition::None
+            return HotkeyAction::Ended;
         }
+        if !rec.handle.is_alive() {
+            log::warn!("shortcut recording ended: the keyboard hook stopped on its own");
+            self.notice =
+                Some("Recording stopped: Windows dropped Hark's keyboard hook.".to_string());
+            self.typing = true;
+            self.recording = None;
+            return HotkeyAction::Ended;
+        }
+        HotkeyAction::None
     }
 
-    /// Live "LCtrl + LWin" of the keys held so far, for the recording prompt.
+    /// Live "Left Ctrl + Left Win" of the keys held so far, for the prompt.
     pub fn held_display(&self) -> String {
         let Some(rec) = &self.recording else {
             return String::new();
@@ -141,7 +174,7 @@ impl HotkeyCapture {
         rec.buffer
             .held()
             .iter()
-            .map(|k| k.to_string())
+            .map(|k| k.label())
             .collect::<Vec<_>>()
             .join(" + ")
     }
