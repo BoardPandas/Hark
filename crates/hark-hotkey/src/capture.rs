@@ -92,15 +92,13 @@ impl CaptureBuffer {
             return None;
         }
 
-        let keys = std::mem::take(&mut self.held);
+        let chord = PttChord::from_keys(std::mem::take(&mut self.held));
         self.saw_any = false;
-        if let [only] = keys[..] {
-            if only.is_modifier() {
-                self.rejected = Some(Rejected::LoneModifier(only));
-                return None;
-            }
+        if let Some(only) = chord.lone_modifier() {
+            self.rejected = Some(Rejected::LoneModifier(only));
+            return None;
         }
-        Some(PttChord::from_keys(keys))
+        Some(chord)
     }
 
     /// Keys held so far, for a live "Left Ctrl + F12" display while recording.

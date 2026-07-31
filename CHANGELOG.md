@@ -4,6 +4,11 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.31.3] - 2026-07-31
+
+### Fixed
+- **Typing a lone Ctrl, Shift, Alt or Win as your shortcut now warns you what that does.** The recorder refuses a bare modifier, but "Type it instead" is the escape hatch and accepted anything — so deleting the second key from a typed shortcut left you with a Ctrl that opened the microphone in every app, with nothing on screen to say why. The field now spells out the consequence while still letting you set it if you genuinely mean to.
+
 ## [0.31.2] - 2026-07-31
 
 ### Fixed

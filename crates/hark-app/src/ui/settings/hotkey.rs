@@ -88,13 +88,31 @@ pub fn section(
     if let Some(notice) = capture.notice() {
         inline_error(ui, notice);
     }
+    // The recorder refuses a lone modifier outright, but the typed field has to
+    // allow anything that parses -- it is the escape hatch. It must still say
+    // what a bare Ctrl will do, because the consequence lands in every other app
+    // and the fix has to be made in the one it just broke.
     match hark_hotkey::PttChord::parse(&draft.hotkey.ptt_key) {
-        Ok(_) => {
-            ui.label(
-                RichText::new("Hold these keys together to dictate; release to inject.")
-                    .small()
-                    .weak(),
-            );
+        Ok(chord) => {
+            let (text, color) = match chord.lone_modifier() {
+                Some(key) => (
+                    format!(
+                        "{} on its own starts a dictation every time you press it, in \
+                         every app. Add another key unless you really mean that.",
+                        key.label()
+                    ),
+                    Some(theme::WARNING),
+                ),
+                None => (
+                    "Hold these keys together to dictate; release to inject.".to_string(),
+                    None,
+                ),
+            };
+            let text = RichText::new(text).small();
+            ui.label(match color {
+                Some(c) => text.color(c),
+                None => text.weak(),
+            });
         }
         Err(e) => inline_error(ui, &e.to_string()),
     }

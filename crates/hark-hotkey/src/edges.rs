@@ -140,6 +140,17 @@ impl PttChord {
         &self.keys
     }
 
+    /// The single bare modifier this chord consists of, if that is all it is.
+    /// Push-to-talk on a lone Ctrl/Shift/Alt/Win means every press of that key
+    /// in every app opens the microphone, and it is uniquely miserable to undo
+    /// because the fix has to be made in the app it just broke.
+    pub fn lone_modifier(&self) -> Option<PttKeyCode> {
+        match self.keys[..] {
+            [only] if only.is_modifier() => Some(only),
+            _ => None,
+        }
+    }
+
     /// "Left Ctrl + F12" — the form the settings page and the onboarding card
     /// show. `Display` stays the config form ("LCtrl+F12").
     pub fn pretty(&self) -> String {
