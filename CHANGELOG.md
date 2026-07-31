@@ -4,6 +4,16 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.34.0] - 2026-07-31
+
+### Added
+- **The recorder now tells you what else your shortcut already does.** Hold a combination and, if something well known uses it, Hark says so while you are still holding it — before you let go and set it. 233 shortcuts across Windows itself, Chrome/Edge/Firefox/Vivaldi/Brave, Word, Excel, Outlook, PowerPoint, OneNote, Teams, Slack, Discord, Zoom, VS Code, Windows Terminal, 1Password and the Claude and ChatGPT desktop apps. Your Ctrl+Shift+A example now reads: *"Chrome, Edge, Brave, Vivaldi, Firefox, Teams… use this shortcut too — it opens tab search in Chromium browsers and the add-ons manager in Firefox, accepts an incoming Teams or Zoom call…"*
+- The same note appears under the typed field, so a shortcut typed by hand gets the same warning as one recorded.
+
+### Changed
+- **These are warnings, never refusals.** Hark watches keys without swallowing them, so a shortcut that is spoken for still works — both things simply happen. Every claim that Windows would refuse to hand a shortcut to Hark at all was checked and none of them held up, so nothing new is blocked. The wording says "dictating will do both", because that is what actually happens.
+- Shortcuts that fire even when their app is in the background are called out as such — Discord's mute, Teams' call controls, 1Password's Quick Access — since those are the ones that bite hardest.
+
 ## [0.33.0] - 2026-07-31
 
 ### Added

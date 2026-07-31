@@ -93,17 +93,21 @@ pub fn section(
     // what a bare Ctrl will do, because the consequence lands in every other app
     // and the fix has to be made in the one it just broke.
     match hark_hotkey::PttChord::parse(&draft.hotkey.ptt_key) {
-        Ok(chord) => {
-            let text = RichText::new(match chord.rejection() {
-                Some(why) => why.message(),
-                None => "Hold these keys together to dictate; release to inject.".to_string(),
-            })
-            .small();
-            ui.label(match chord.rejection() {
-                Some(_) => text.color(theme::WARNING),
-                None => text.weak(),
-            });
-        }
+        Ok(chord) => match chord.rejection() {
+            Some(why) => {
+                ui.label(RichText::new(why.message()).small().color(theme::WARNING));
+            }
+            None => {
+                ui.label(
+                    RichText::new("Hold these keys together to dictate; release to inject.")
+                        .small()
+                        .weak(),
+                );
+                if let Some(known) = chord.known_shortcut() {
+                    ui.label(RichText::new(known.message()).small().color(theme::WARNING));
+                }
+            }
+        },
         Err(e) => inline_error(ui, &e.to_string()),
     }
 
@@ -163,6 +167,15 @@ fn recording_box(
                 .small()
                 .weak(),
             );
+            // What the combination already does elsewhere, while it is still
+            // being held. Hark observes keys and never swallows them, so this
+            // is "both things happen", not "this will not work" -- and knowing
+            // it before letting go is the difference between choosing a
+            // shortcut and discovering one.
+            if let Some(known) = capture.held_collision() {
+                ui.add_space(4.0);
+                ui.label(RichText::new(known.message()).small().color(theme::WARNING));
+            }
             // A combination that cannot be a shortcut says why and lets the
             // user try again, rather than silently setting something else or
             // -- as it used to -- silently setting a bare modifier.

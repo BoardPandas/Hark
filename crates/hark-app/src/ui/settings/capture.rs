@@ -248,4 +248,15 @@ impl HotkeyCapture {
     pub fn rejected(&self) -> Option<Rejected> {
         self.recording.as_ref().and_then(|r| r.buffer.rejected())
     }
+
+    /// What else the keys currently held already do, if anything well-known
+    /// does. Live while the user holds them, so they learn the combination is
+    /// spoken for BEFORE they let go and set it.
+    pub fn held_collision(&self) -> Option<&'static hark_hotkey::KnownShortcut> {
+        let held = self.recording.as_ref()?.buffer.held();
+        if held.is_empty() {
+            return None;
+        }
+        hark_hotkey::known::lookup(held)
+    }
 }
