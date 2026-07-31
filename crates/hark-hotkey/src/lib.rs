@@ -12,7 +12,7 @@ pub mod edges;
 #[cfg(windows)]
 mod hook_win;
 
-pub use capture::{CaptureBuffer, CaptureEvent, Rejected};
+pub use capture::{CaptureBuffer, CaptureEvent, HeldScan, Rejected, CHORD_KEYS};
 pub use edges::{pretty_chord, ChordParseError, ChordTracker, PttChord, PttEvent, PttKeyCode};
 
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -43,41 +43,86 @@ pub struct CaptureTap {
     /// Set while the settings UI is recording. Relaxed on both ends: the
     /// worst a stale read can do is forward one edge either side of the flip.
     on: AtomicBool,
-    /// Every edge the hook has forwarded since the tap was armed. The UI shows
-    /// it, so "the hook never saw your keys" and "the hook saw them and the UI
-    /// lost them" are distinguishable on sight instead of by another release.
-    seen: AtomicU64,
-    /// Only the platform hook sends on this; off Windows there is no hook yet.
-    #[cfg_attr(not(windows), allow(dead_code))]
+    /// Edges the hook callback forwarded, and edges the physical-state scanner
+    /// supplied, counted apart. Together they answer the question a single
+    /// total cannot: whether the hook is telling us everything the keyboard is
+    /// actually doing. A recording that only completes because the scanner
+    /// filled gaps is a hook that is dropping events, visible on sight.
+    hook_edges: AtomicU64,
+    polled_edges: AtomicU64,
+    /// The listener thread's liveness, shared so a recorder can tell a hook
+    /// that died from one that is merely quiet.
+    alive: Arc<AtomicBool>,
     tx: Sender<CaptureEvent>,
+}
+
+/// How many key edges each source has contributed to the recording in progress.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct CaptureCounts {
+    pub hook: u64,
+    pub polled: u64,
 }
 
 #[cfg_attr(not(windows), allow(dead_code))]
 impl CaptureTap {
-    pub(crate) fn new(tx: Sender<CaptureEvent>) -> CaptureTap {
+    pub(crate) fn new(tx: Sender<CaptureEvent>, alive: Arc<AtomicBool>) -> CaptureTap {
         CaptureTap {
             on: AtomicBool::new(false),
-            seen: AtomicU64::new(0),
+            hook_edges: AtomicU64::new(0),
+            polled_edges: AtomicU64::new(0),
+            alive,
             tx,
         }
     }
 
-    /// Called from the hook callback. Must stay lean: two relaxed atomics and
-    /// a channel send, no allocation, no I/O, no locks (Windows silently
-    /// removes low-level hooks whose callback overruns `LowLevelHooksTimeout`).
+    /// Called from the hook callback. Must stay lean: a relaxed load, a relaxed
+    /// add and a channel send — no allocation, no I/O, no locks (Windows
+    /// silently removes low-level hooks whose callback overruns
+    /// `LowLevelHooksTimeout`).
+    ///
     /// Returns true when the edge was consumed, so the caller skips the tracker
-    /// and a chord pressed while recording cannot start a dictation.
+    /// and a chord pressed while recording cannot start a dictation. A send
+    /// that fails disarms the tap and returns false: the receiver is gone, and
+    /// a tap left armed against a dead channel would swallow every chord-capable
+    /// key for the rest of the session — push-to-talk silently dead forever.
     pub(crate) fn forward(&self, key: PttKeyCode, down: bool) -> bool {
         if !self.on.load(Ordering::Relaxed) {
             return false;
         }
-        self.seen.fetch_add(1, Ordering::Relaxed);
-        let _ = self.tx.send(CaptureEvent { key, down });
+        self.hook_edges.fetch_add(1, Ordering::Relaxed);
+        if self.tx.send(CaptureEvent { key, down }).is_err() {
+            self.on.store(false, Ordering::Relaxed);
+            return false;
+        }
         true
     }
 
+    /// Called from the scanner thread, never from the hook callback.
+    pub(crate) fn emit_polled(&self, event: CaptureEvent) {
+        self.polled_edges.fetch_add(1, Ordering::Relaxed);
+        let _ = self.tx.send(event);
+    }
+
+    pub(crate) fn armed(&self) -> bool {
+        self.on.load(Ordering::Relaxed)
+    }
+
+    pub fn counts(&self) -> CaptureCounts {
+        CaptureCounts {
+            hook: self.hook_edges.load(Ordering::Relaxed),
+            polled: self.polled_edges.load(Ordering::Relaxed),
+        }
+    }
+
+    /// Total edges seen, for the "N key events seen" readout.
     pub fn edges_seen(&self) -> u64 {
-        self.seen.load(Ordering::Relaxed)
+        let c = self.counts();
+        c.hook + c.polled
+    }
+
+    /// Is the hook that feeds this tap still installed?
+    pub fn is_alive(&self) -> bool {
+        self.alive.load(Ordering::Acquire)
     }
 }
 
@@ -107,28 +152,44 @@ impl ListenerHandle {
         self.alive.load(Ordering::Acquire)
     }
 
-    /// Start forwarding raw key edges instead of feeding the chord tracker.
-    /// The receiver comes back on the first call and is the caller's from then
-    /// on; later calls re-arm the same channel. `None` on a platform with no
-    /// hook, or if the receiver was already taken and dropped.
-    pub fn arm_capture(&mut self) -> Option<(Arc<CaptureTap>, Receiver<CaptureEvent>)> {
+    /// Start forwarding raw key edges to the settings recorder instead of the
+    /// chord tracker, and start the physical-state scanner that backs it up.
+    ///
+    /// The receiver deliberately never leaves this handle. It used to be taken
+    /// on arm and handed back on disarm, which meant a pipeline restart
+    /// mid-recording stored the old, disconnected receiver into the *new*
+    /// listener — after which the edge counter climbed forever and nothing ever
+    /// recorded, with `try_recv` unable to tell Empty from Disconnected.
+    pub fn arm_capture(&self) -> Option<Arc<CaptureTap>> {
         let tap = self.tap.clone()?;
-        let rx = self.capture_rx.take()?;
-        // Stale edges from a previous arm would be attributed to this one, and
-        // a leftover release would complete a "chord" the user never pressed.
+        let rx = self.capture_rx.as_ref()?;
+        // Stale edges from a previous arm would be attributed to this one, and a
+        // leftover release would complete a "chord" the user never pressed.
         while rx.try_recv().is_ok() {}
-        tap.seen.store(0, Ordering::Relaxed);
+        tap.hook_edges.store(0, Ordering::Relaxed);
+        tap.polled_edges.store(0, Ordering::Relaxed);
         tap.on.store(true, Ordering::Relaxed);
-        Some((tap, rx))
+        #[cfg(windows)]
+        hook_win::spawn_scanner(tap.clone());
+        Some(tap)
     }
 
-    /// Stop forwarding; the chord tracker takes the stream back. Giving the
-    /// receiver back keeps the handle re-armable for the next recording.
-    pub fn disarm_capture(&mut self, rx: Receiver<CaptureEvent>) {
+    /// Stop forwarding; the chord tracker takes the stream back and the scanner
+    /// thread retires on its next tick.
+    pub fn disarm_capture(&self) {
         if let Some(tap) = &self.tap {
             tap.on.store(false, Ordering::Relaxed);
         }
-        self.capture_rx = Some(rx);
+    }
+
+    /// Drain whatever either source has produced since the last call.
+    pub fn drain_capture(&self, mut f: impl FnMut(CaptureEvent)) {
+        let Some(rx) = self.capture_rx.as_ref() else {
+            return;
+        };
+        while let Ok(edge) = rx.try_recv() {
+            f(edge);
+        }
     }
 }
 

@@ -164,18 +164,19 @@ impl PipelineController {
     /// Arm the listener's capture tap for the settings recorder. `None` when
     /// the pipeline is stopped (no hook exists to tap); the caller then falls
     /// back to installing a hook of its own.
-    pub fn arm_capture(
-        &mut self,
-    ) -> Option<(
-        Arc<hark_hotkey::CaptureTap>,
-        Receiver<hark_hotkey::CaptureEvent>,
-    )> {
-        self.handle.as_mut()?.arm_capture()
+    pub fn arm_capture(&self) -> Option<Arc<hark_hotkey::CaptureTap>> {
+        self.handle.as_ref()?.arm_capture()
     }
 
-    pub fn disarm_capture(&mut self, rx: Receiver<hark_hotkey::CaptureEvent>) {
-        if let Some(handle) = self.handle.as_mut() {
-            handle.disarm_capture(rx);
+    pub fn disarm_capture(&self) {
+        if let Some(handle) = self.handle.as_ref() {
+            handle.disarm_capture();
+        }
+    }
+
+    pub fn drain_capture(&self, f: impl FnMut(hark_hotkey::CaptureEvent)) {
+        if let Some(handle) = self.handle.as_ref() {
+            handle.drain_capture(f);
         }
     }
 

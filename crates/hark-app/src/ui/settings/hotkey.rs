@@ -184,16 +184,24 @@ fn recording_box(
                         .color(theme::WARNING),
                 );
             }
-            // Keys the hook has actually reported. Shown because "I press keys
-            // and nothing happens" has two very different causes — the hook
-            // never sees them, or it sees them and the chord never lands — and
-            // this is the one number that tells them apart without a log.
-            let seen = capture.edges_seen();
-            if nothing_held && seen > 0 {
+            // Split on purpose. "I press keys and nothing happens" has several
+            // very different causes, and these two numbers separate them on
+            // sight: nothing at all means the keys never reached Hark; hook
+            // events alone means the normal path is healthy; scanner events
+            // filling in means the keyboard hook is dropping edges and the
+            // backstop is carrying the recording.
+            let c = capture.counts();
+            if nothing_held && c.hook + c.polled > 0 {
                 ui.label(
-                    RichText::new(format!("{seen} key events seen"))
-                        .small()
-                        .weak(),
+                    RichText::new(format!(
+                        "{} key events seen ({} from the keyboard hook, {} from the \
+                         key-state scan)",
+                        c.hook + c.polled,
+                        c.hook,
+                        c.polled
+                    ))
+                    .small()
+                    .weak(),
                 );
             }
         });

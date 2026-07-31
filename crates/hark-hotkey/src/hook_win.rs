@@ -23,7 +23,7 @@
 //!   held, a thread timer polls the real key state and heals the difference
 //!   (`watchdog_tick`).
 
-use crate::capture::CaptureEvent;
+use crate::capture::{CaptureEvent, HeldScan};
 use crate::edges::{ChordTracker, PttChord, PttEvent, PttKeyCode};
 use crate::{CaptureTap, HotkeyError, ListenerHandle};
 use std::cell::{Cell, RefCell};
@@ -107,7 +107,10 @@ enum HookState {
     Ptt {
         tracker: ChordTracker,
         tx: Sender<PttEvent>,
-        tap: Arc<CaptureTap>,
+        /// Published once, immediately after the hook installs. A `OnceLock`
+        /// rather than a plain `Arc` only because the tap needs the hook
+        /// thread's liveness flag, which does not exist until the thread does.
+        tap: Arc<std::sync::OnceLock<Arc<CaptureTap>>>,
     },
     /// Recording: forward every non-injected chord-capable key edge.
     Capture { tx: Sender<CaptureEvent> },
@@ -190,7 +193,11 @@ unsafe extern "system" fn keyboard_hook(code: i32, wparam: WPARAM, lparam: LPARA
                         // Recording a shortcut: the raw edge goes to the
                         // settings UI and the tracker is bypassed entirely, so
                         // the chord being recorded cannot also fire a dictation.
-                        HookState::Ptt { tap, .. } if !injected && tap.forward(key, down) => false,
+                        HookState::Ptt { tap, .. }
+                            if !injected && tap.get().is_some_and(|t| t.forward(key, down)) =>
+                        {
+                            false
+                        }
                         HookState::Ptt { tracker, tx, .. } => {
                             match tracker.on_event_verified(key, down, injected, physically_down) {
                                 Some(event) => {
@@ -220,21 +227,64 @@ unsafe extern "system" fn keyboard_hook(code: i32, wparam: WPARAM, lparam: LPARA
     unsafe { CallNextHookEx(None, code, wparam, lparam) }
 }
 
+/// How often the scanner re-reads real key state while a recording is open.
+/// Fast enough that a deliberate tap of a shortcut cannot slip between ticks,
+/// and cheap by construction: 33 `GetAsyncKeyState` reads, each a user-mode
+/// lookup, on a thread that exists only while the settings recorder is up.
+const SCAN_MS: u64 = 15;
+
+/// Watch real key state for as long as the tap is armed, feeding the recorder
+/// the same edges the hook does.
+///
+/// This is the recorder's second source, not its only one, and it is
+/// deliberately NOT wired to `ChordTracker`: the crate rule is heal releases,
+/// never presses, and a press synthesized from a poll would start a dictation
+/// nobody asked for. Nothing here runs in the hook callback — `GetAsyncKeyState`
+/// is documented as not yet reflecting the key that is currently being
+/// delivered, so polling from inside the callback would read stale state.
+///
+/// Retires on the next tick after the tap disarms. Arming again spawns a fresh
+/// one; if that happens inside a tick the two overlap briefly, which is
+/// harmless — duplicate edges are a no-op for `CaptureBuffer`.
+pub(crate) fn spawn_scanner(tap: std::sync::Arc<crate::CaptureTap>) {
+    let spawned = std::thread::Builder::new()
+        .name("hark-hotkey-scan".to_string())
+        .spawn(move || {
+            let mut scan = HeldScan::new(physically_down);
+            while tap.armed() {
+                std::thread::sleep(std::time::Duration::from_millis(SCAN_MS));
+                if !tap.armed() {
+                    break;
+                }
+                scan.tick(physically_down, |event| tap.emit_polled(event));
+            }
+        });
+    if let Err(e) = spawned {
+        // The hook tap still works; the recorder just loses its backstop.
+        log::warn!("could not start the shortcut scanner: {e}");
+    }
+}
+
 /// Install the hook for push-to-talk: resolved chord edges arrive on `tx`.
 pub(crate) fn spawn_listener(
     chord: PttChord,
     tx: Sender<PttEvent>,
 ) -> Result<ListenerHandle, HotkeyError> {
     let (capture_tx, capture_rx) = mpsc::channel();
-    let tap = Arc::new(CaptureTap::new(capture_tx));
+    // The tap needs the hook thread's liveness flag, and the flag is created
+    // inside spawn_hook, so the tap is built from the handle afterwards and
+    // the hook thread reads it through a shared cell set before it can fire.
+    let shared: Arc<std::sync::OnceLock<Arc<CaptureTap>>> = Arc::new(std::sync::OnceLock::new());
     let mut handle = spawn_hook(
         "hark-hotkey",
         HookState::Ptt {
             tracker: ChordTracker::new(chord),
             tx,
-            tap: tap.clone(),
+            tap: shared.clone(),
         },
     )?;
+    let tap = Arc::new(CaptureTap::new(capture_tx, handle.alive.clone()));
+    let _ = shared.set(tap.clone());
     handle.tap = Some(tap);
     handle.capture_rx = Some(capture_rx);
     Ok(handle)
@@ -356,23 +406,11 @@ mod tests {
 
     #[test]
     fn vk_mapping_round_trips_for_every_chord_key() {
-        // The watchdog polls `key_to_vk`; a mismatch would report the wrong
-        // key as up and cut a live dictation short.
-        let keys = [
-            PttKeyCode::LCtrl,
-            PttKeyCode::RCtrl,
-            PttKeyCode::LShift,
-            PttKeyCode::RShift,
-            PttKeyCode::LAlt,
-            PttKeyCode::RAlt,
-            PttKeyCode::LWin,
-            PttKeyCode::RWin,
-            PttKeyCode::CapsLock,
-            PttKeyCode::F(1),
-            PttKeyCode::F(13),
-            PttKeyCode::F(24),
-        ];
-        for key in keys {
+        // Every key in CHORD_KEYS, not a hand-picked dozen: the scanner reads
+        // key_to_vk for all 33 each tick, so a mismatch anywhere would invent a
+        // press or miss a release for that key. The watchdog only ever touched
+        // the handful in a configured chord, which is why 12 used to be enough.
+        for key in crate::capture::CHORD_KEYS {
             assert_eq!(vk_to_key(u32::from(key_to_vk(key).0)), Some(key), "{key}");
         }
     }

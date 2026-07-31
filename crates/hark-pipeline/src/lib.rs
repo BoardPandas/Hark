@@ -61,20 +61,23 @@ impl PipelineHandle {
     /// Hand the settings recorder the listener's raw key stream. The hook stays
     /// exactly where it is — the pipeline is not stopped and no second hook is
     /// installed — so recording rides the code path dictation already proves
-    /// works. `None` if there is no listener to tap.
-    pub fn arm_capture(
-        &mut self,
-    ) -> Option<(
-        std::sync::Arc<hark_hotkey::CaptureTap>,
-        std::sync::mpsc::Receiver<hark_hotkey::CaptureEvent>,
-    )> {
-        self.listener.as_mut()?.arm_capture()
+    /// works, backed up by a scanner that reads real key state. `None` if there
+    /// is no listener to tap.
+    pub fn arm_capture(&self) -> Option<std::sync::Arc<hark_hotkey::CaptureTap>> {
+        self.listener.as_ref()?.arm_capture()
     }
 
     /// Give the stream back to the chord tracker.
-    pub fn disarm_capture(&mut self, rx: std::sync::mpsc::Receiver<hark_hotkey::CaptureEvent>) {
-        if let Some(listener) = self.listener.as_mut() {
-            listener.disarm_capture(rx);
+    pub fn disarm_capture(&self) {
+        if let Some(listener) = self.listener.as_ref() {
+            listener.disarm_capture();
+        }
+    }
+
+    /// Drain the edges either source has produced since the last call.
+    pub fn drain_capture(&self, f: impl FnMut(hark_hotkey::CaptureEvent)) {
+        if let Some(listener) = self.listener.as_ref() {
+            listener.drain_capture(f);
         }
     }
 

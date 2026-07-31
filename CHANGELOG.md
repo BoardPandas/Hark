@@ -4,6 +4,18 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.32.0] - 2026-07-31
+
+### Added
+- **The shortcut recorder now watches your keyboard directly, as well as listening for key events.** Recording used to depend entirely on Windows telling Hark about every key press — and on at least one machine it doesn't. A combination held correctly could be recorded as a single key, because the press of the other one never arrived. Alongside the existing listener, Hark now reads the real state of every key a shortcut can contain, many times a second, for as long as the recorder is open. Either source alone is enough to record your combination, so a dropped key event can no longer turn a combination into a fragment.
+- **The recorder says where its key events came from.** The prompt now reads "N key events seen (X from the keyboard hook, Y from the key-state scan)". If the scan is the one doing the work, Windows is dropping key events — a fact that previously took a log file and a lot of guessing to establish.
+
+### Fixed
+- **Push-to-talk could stop working entirely, silently, after using the recorder.** If the recorder went away while Hark was still routing keys to it, every shortcut key was swallowed from then on — dictation dead for the rest of the session with nothing on screen to say so. Keys now go back to dictation the moment the recorder stops listening, however it stopped.
+- **Recording could break permanently if the pipeline restarted while the recorder was open** (saving settings, storing a key). The recorder was handed back a connection to a listener that no longer existed, and from then on the key counter would climb while nothing ever recorded. The connection now stays with the listener that owns it and is never passed around.
+- **Holding a fifth key no longer ends the recording early.** Shortcuts hold at most four keys, and a fifth was ignored so completely that Hark thought you had let go while you were still holding it — then treated its release as the start of something else, which could turn a perfectly good combination into a rejected single key.
+- **A shortcut can no longer be left waiting forever on a key release that never comes.** The key-state scan notices you have let go even when the release event is lost.
+
 ## [0.31.3] - 2026-07-31
 
 ### Fixed
