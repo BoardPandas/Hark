@@ -9,88 +9,19 @@
 //!   dictation would paste-inject into an infinite PTT loop.
 //! - Keys outside the chord are ignored (we observe, never swallow).
 
+use crate::capture::Rejected;
+use crate::keycode::{parse_key, KeyClass, PttKeyCode};
 use std::fmt;
 use thiserror::Error;
-
-/// A key that can participate in a push-to-talk chord. Deliberately small:
-/// modifiers and function keys hold well; typing keys would fight text entry.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum PttKeyCode {
-    LCtrl,
-    RCtrl,
-    LShift,
-    RShift,
-    LAlt,
-    RAlt,
-    LWin,
-    RWin,
-    CapsLock,
-    /// F1..=F24.
-    F(u8),
-}
-
-impl fmt::Display for PttKeyCode {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            PttKeyCode::LCtrl => write!(f, "LCtrl"),
-            PttKeyCode::RCtrl => write!(f, "RCtrl"),
-            PttKeyCode::LShift => write!(f, "LShift"),
-            PttKeyCode::RShift => write!(f, "RShift"),
-            PttKeyCode::LAlt => write!(f, "LAlt"),
-            PttKeyCode::RAlt => write!(f, "RAlt"),
-            PttKeyCode::LWin => write!(f, "LWin"),
-            PttKeyCode::RWin => write!(f, "RWin"),
-            PttKeyCode::CapsLock => write!(f, "CapsLock"),
-            PttKeyCode::F(n) => write!(f, "F{n}"),
-        }
-    }
-}
-
-impl PttKeyCode {
-    /// Is this a key people hold to modify another? Bare modifiers make poor
-    /// shortcuts on their own: bind push-to-talk to one and every Ctrl press
-    /// in every app starts a dictation. Caps Lock and F1..F24 are fine alone —
-    /// nothing else is competing for them.
-    pub fn is_modifier(&self) -> bool {
-        matches!(
-            self,
-            PttKeyCode::LCtrl
-                | PttKeyCode::RCtrl
-                | PttKeyCode::LShift
-                | PttKeyCode::RShift
-                | PttKeyCode::LAlt
-                | PttKeyCode::RAlt
-                | PttKeyCode::LWin
-                | PttKeyCode::RWin
-        )
-    }
-
-    /// The name a person reads, as opposed to the config token `Display`
-    /// writes. Config keeps "LCtrl" because it round-trips through TOML; the
-    /// UI shows "Left Ctrl" because that is what the key is called.
-    pub fn label(&self) -> String {
-        match self {
-            PttKeyCode::LCtrl => "Left Ctrl".to_string(),
-            PttKeyCode::RCtrl => "Right Ctrl".to_string(),
-            PttKeyCode::LShift => "Left Shift".to_string(),
-            PttKeyCode::RShift => "Right Shift".to_string(),
-            PttKeyCode::LAlt => "Left Alt".to_string(),
-            PttKeyCode::RAlt => "Right Alt".to_string(),
-            PttKeyCode::LWin => "Left Win".to_string(),
-            PttKeyCode::RWin => "Right Win".to_string(),
-            PttKeyCode::CapsLock => "Caps Lock".to_string(),
-            PttKeyCode::F(n) => format!("F{n}"),
-        }
-    }
-}
 
 #[derive(Debug, Error, PartialEq, Eq)]
 pub enum ChordParseError {
     #[error("push-to-talk chord is empty")]
     Empty,
     #[error(
-        "unknown key name \"{0}\" (valid: LCtrl, RCtrl, LShift, RShift, LAlt, RAlt, \
-         LWin, RWin, CapsLock, F1..F24)"
+        "unknown key name \"{0}\" (modifiers LCtrl/RCtrl/LShift/RShift/LAlt/RAlt/\
+         LWin/RWin, F1..F24, letters, digits, arrows, the navigation and numpad \
+         blocks, punctuation, and the lock keys)"
     )]
     UnknownKey(String),
     #[error("chord has {0} keys; at most 4 are supported")]
@@ -140,15 +71,56 @@ impl PttChord {
         &self.keys
     }
 
-    /// The single bare modifier this chord consists of, if that is all it is.
-    /// Push-to-talk on a lone Ctrl/Shift/Alt/Win means every press of that key
-    /// in every app opens the microphone, and it is uniquely miserable to undo
-    /// because the fix has to be made in the app it just broke.
-    pub fn lone_modifier(&self) -> Option<PttKeyCode> {
-        match self.keys[..] {
-            [only] if only.is_modifier() => Some(only),
-            _ => None,
+    /// Why this chord cannot be bound, if it cannot.
+    ///
+    /// Policy, not syntax: [`Self::parse`] stays a pure syntax check, so a
+    /// hand-edited config can never hard-fail startup and leave the user with
+    /// no push-to-talk at all. The recorder refuses these outright; the typed
+    /// field warns and lets the user proceed.
+    ///
+    /// The principle: refuse chords that occur as a byproduct of ordinary
+    /// writing, allow chords that only ever happen on purpose. Ctrl, Alt and
+    /// Win are command modifiers — nobody holds them while writing prose — so
+    /// they lift a chord clear of typing. Shift does not, and that is the
+    /// subtle one: Shift+A is a capital A, Shift+Left selects a character,
+    /// Shift+Enter is a soft line break in every chat box. A chord qualified
+    /// only by Shift fires while the user is simply writing.
+    pub fn rejection(&self) -> Option<Rejected> {
+        if let [only] = self.keys[..] {
+            if only.is_modifier() {
+                return Some(Rejected::LoneModifier(only));
+            }
         }
+        // Hark pastes with Ctrl+V. A chord built on it fights its own
+        // injection — and V only became bindable when the key set opened up.
+        let has_ctrl = self
+            .keys
+            .iter()
+            .any(|k| matches!(k, PttKeyCode::LCtrl | PttKeyCode::RCtrl));
+        if has_ctrl && self.keys.contains(&PttKeyCode::V) {
+            return Some(Rejected::CollidesWithInjection);
+        }
+        if self.keys.iter().any(|k| k.is_command_modifier()) {
+            return None;
+        }
+        // No command modifier, so Shift is the only modifier that can be here,
+        // which is why it is the only one worth naming in the message.
+        let with_shift = self.keys.iter().any(|k| k.is_modifier());
+        if let Some(&key) = self
+            .keys
+            .iter()
+            .find(|k| matches!(k.class(), KeyClass::Typing))
+        {
+            return Some(Rejected::TypesText { key, with_shift });
+        }
+        if let Some(&key) = self
+            .keys
+            .iter()
+            .find(|k| matches!(k.class(), KeyClass::Navigation))
+        {
+            return Some(Rejected::MovesTheCaret { key, with_shift });
+        }
+        None
     }
 
     /// "Left Ctrl + F12" — the form the settings page and the onboarding card
@@ -182,30 +154,6 @@ impl fmt::Display for PttChord {
         }
         Ok(())
     }
-}
-
-fn parse_key(name: &str) -> Option<PttKeyCode> {
-    let lower = name.to_ascii_lowercase();
-    let key = match lower.as_str() {
-        "lctrl" | "lcontrol" => PttKeyCode::LCtrl,
-        "rctrl" | "rcontrol" => PttKeyCode::RCtrl,
-        "lshift" => PttKeyCode::LShift,
-        "rshift" => PttKeyCode::RShift,
-        "lalt" => PttKeyCode::LAlt,
-        "ralt" | "altgr" => PttKeyCode::RAlt,
-        "lwin" | "lcmd" | "lsuper" => PttKeyCode::LWin,
-        "rwin" | "rcmd" | "rsuper" => PttKeyCode::RWin,
-        "capslock" => PttKeyCode::CapsLock,
-        _ => {
-            let n: u8 = lower.strip_prefix('f')?.parse().ok()?;
-            if (1..=24).contains(&n) {
-                PttKeyCode::F(n)
-            } else {
-                return None;
-            }
-        }
-    };
-    Some(key)
 }
 
 /// A push-to-talk edge, sent to the pipeline worker.
@@ -368,7 +316,7 @@ mod tests {
     #[test]
     fn parse_is_case_insensitive_and_whitespace_tolerant() {
         assert_eq!(chord(" lctrl + lwin "), chord("LCtrl+LWin"));
-        assert_eq!(chord("F13").keys(), &[PttKeyCode::F(13)]);
+        assert_eq!(chord("F13").keys(), &[PttKeyCode::F13]);
         assert_eq!(chord("altgr").keys(), &[PttKeyCode::RAlt]);
     }
 
@@ -481,7 +429,7 @@ mod tests {
         let mut t = ChordTracker::new(chord("LCtrl+LWin"));
         t.on_event(PttKeyCode::LCtrl, true, false);
         assert_eq!(t.on_event(PttKeyCode::RShift, true, false), None);
-        assert_eq!(t.on_event(PttKeyCode::F(5), true, false), None);
+        assert_eq!(t.on_event(PttKeyCode::F5, true, false), None);
         // Chord still completes normally afterwards.
         assert_eq!(
             t.on_event(PttKeyCode::LWin, true, false),
@@ -560,7 +508,7 @@ mod tests {
         let mut t = ChordTracker::new(chord("LCtrl+F12"));
         t.on_event(PttKeyCode::LCtrl, true, false);
         assert_eq!(
-            t.on_event(PttKeyCode::F(12), true, false),
+            t.on_event(PttKeyCode::F12, true, false),
             Some(PttEvent::Down)
         );
         // LCtrl's release arrives; F12's never does (an Fn-layer keyboard
@@ -578,7 +526,7 @@ mod tests {
         // ...and the chord still works normally afterwards: the stale member
         // was cleared, not left to poison every future press.
         assert_eq!(
-            t.on_event_verified(PttKeyCode::F(12), true, false, |_| true),
+            t.on_event_verified(PttKeyCode::F12, true, false, |_| true),
             Some(PttEvent::Down)
         );
     }
@@ -591,7 +539,7 @@ mod tests {
         // platform's key state catches up, so F12 may still read as up here.
         t.on_event_verified(PttKeyCode::LCtrl, true, false, |_| false);
         assert_eq!(
-            t.on_event_verified(PttKeyCode::F(12), true, false, |k| k == PttKeyCode::LCtrl),
+            t.on_event_verified(PttKeyCode::F12, true, false, |k| k == PttKeyCode::LCtrl),
             Some(PttEvent::Down)
         );
     }
@@ -632,6 +580,105 @@ mod tests {
             t.on_event(PttKeyCode::LWin, true, false),
             Some(PttEvent::Down)
         );
+    }
+
+    /// Shift is a *typing* modifier: holding it is how you write a capital, so
+    /// it must not lift a chord out of ordinary typing the way Ctrl/Alt/Win do.
+    /// Without this, Shift+A binds dictation to every capital A you type.
+    #[test]
+    fn shift_does_not_qualify_a_typing_chord() {
+        assert!(matches!(
+            chord("LShift+A").rejection(),
+            Some(Rejected::TypesText {
+                key: PttKeyCode::A,
+                with_shift: true
+            })
+        ));
+        assert!(matches!(
+            chord("RShift+Enter").rejection(),
+            Some(Rejected::TypesText {
+                with_shift: true,
+                ..
+            })
+        ));
+        assert!(matches!(
+            chord("LShift+Left").rejection(),
+            Some(Rejected::MovesTheCaret {
+                with_shift: true,
+                ..
+            })
+        ));
+        // ...but Shift with a key nothing competes for is not typing.
+        assert_eq!(chord("LShift+F5").rejection(), None);
+        assert_eq!(chord("LShift+RShift").rejection(), None);
+    }
+
+    #[test]
+    fn a_command_modifier_makes_any_key_bindable() {
+        for text in ["LCtrl+A", "RAlt+Space", "LWin+Left", "LCtrl+LShift+Numpad4"] {
+            assert_eq!(chord(text).rejection(), None, "{text} should be allowed");
+        }
+    }
+
+    #[test]
+    fn bare_typing_and_navigation_keys_are_refused() {
+        for text in ["A", "Space", "Enter", "Tab", "Semicolon", "Numpad4", "5"] {
+            assert!(
+                matches!(chord(text).rejection(), Some(Rejected::TypesText { .. })),
+                "{text} should be refused as typing"
+            );
+        }
+        for text in ["Left", "Home", "PageDown", "Insert"] {
+            assert!(
+                matches!(
+                    chord(text).rejection(),
+                    Some(Rejected::MovesTheCaret { .. })
+                ),
+                "{text} should be refused as navigation"
+            );
+        }
+        // Keys nothing competes for stay bindable alone, as they always were.
+        for text in ["F13", "CapsLock", "NumLock", "ScrollLock"] {
+            assert_eq!(chord(text).rejection(), None, "{text} should be allowed");
+        }
+    }
+
+    /// Hark pastes with Ctrl+V. Binding push-to-talk to it would have the
+    /// dictation fight its own injection -- newly reachable now that V binds.
+    #[test]
+    fn ctrl_v_collides_with_harks_own_paste() {
+        assert_eq!(
+            chord("LCtrl+V").rejection(),
+            Some(Rejected::CollidesWithInjection)
+        );
+        assert_eq!(
+            chord("RCtrl+LShift+V").rejection(),
+            Some(Rejected::CollidesWithInjection)
+        );
+        // Without Ctrl there is no collision.
+        assert_eq!(chord("LAlt+V").rejection(), None);
+    }
+
+    #[test]
+    fn the_shipped_defaults_and_existing_configs_stay_valid() {
+        for text in [
+            "LCtrl+LWin",
+            "LCtrl+F12",
+            "LWin+LCtrl+LShift",
+            "RCtrl",
+            "F13",
+        ] {
+            let c = chord(text);
+            // Round-trips through the config form...
+            assert_eq!(PttChord::parse(&c.to_string()).unwrap(), c, "{text}");
+            // ...and only the lone bare modifier is refused, as before.
+            let expected = if text == "RCtrl" {
+                Some(Rejected::LoneModifier(PttKeyCode::RCtrl))
+            } else {
+                None
+            };
+            assert_eq!(c.rejection(), expected, "{text}");
+        }
     }
 
     #[test]

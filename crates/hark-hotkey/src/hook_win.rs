@@ -24,7 +24,8 @@
 //!   (`watchdog_tick`).
 
 use crate::capture::{CaptureEvent, HeldScan};
-use crate::edges::{ChordTracker, PttChord, PttEvent, PttKeyCode};
+use crate::edges::{ChordTracker, PttChord, PttEvent};
+use crate::keycode::PttKeyCode;
 use crate::{CaptureTap, HotkeyError, ListenerHandle};
 use std::cell::{Cell, RefCell};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -33,14 +34,25 @@ use std::sync::Arc;
 use windows::Win32::Foundation::{LPARAM, LRESULT, WPARAM};
 use windows::Win32::System::Threading::GetCurrentThreadId;
 use windows::Win32::UI::Input::KeyboardAndMouse::{
-    GetAsyncKeyState, VIRTUAL_KEY, VK_CAPITAL, VK_F1, VK_F24, VK_LCONTROL, VK_LMENU, VK_LSHIFT,
-    VK_LWIN, VK_RCONTROL, VK_RMENU, VK_RSHIFT, VK_RWIN,
+    GetAsyncKeyState, VIRTUAL_KEY, VK_0, VK_1, VK_2, VK_3, VK_4, VK_5, VK_6, VK_7, VK_8, VK_9,
+    VK_A, VK_ADD, VK_APPS, VK_B, VK_BACK, VK_C, VK_CAPITAL, VK_D, VK_DECIMAL, VK_DELETE, VK_DIVIDE,
+    VK_DOWN, VK_E, VK_END, VK_F, VK_F1, VK_F10, VK_F11, VK_F12, VK_F13, VK_F14, VK_F15, VK_F16,
+    VK_F17, VK_F18, VK_F19, VK_F2, VK_F20, VK_F21, VK_F22, VK_F23, VK_F24, VK_F3, VK_F4, VK_F5,
+    VK_F6, VK_F7, VK_F8, VK_F9, VK_G, VK_H, VK_HOME, VK_I, VK_INSERT, VK_J, VK_K, VK_L,
+    VK_LCONTROL, VK_LEFT, VK_LMENU, VK_LSHIFT, VK_LWIN, VK_M, VK_MULTIPLY, VK_N, VK_NEXT,
+    VK_NUMLOCK, VK_NUMPAD0, VK_NUMPAD1, VK_NUMPAD2, VK_NUMPAD3, VK_NUMPAD4, VK_NUMPAD5, VK_NUMPAD6,
+    VK_NUMPAD7, VK_NUMPAD8, VK_NUMPAD9, VK_O, VK_OEM_1, VK_OEM_102, VK_OEM_2, VK_OEM_3, VK_OEM_4,
+    VK_OEM_5, VK_OEM_6, VK_OEM_7, VK_OEM_8, VK_OEM_COMMA, VK_OEM_MINUS, VK_OEM_PERIOD, VK_OEM_PLUS,
+    VK_P, VK_PRIOR, VK_Q, VK_R, VK_RCONTROL, VK_RETURN, VK_RIGHT, VK_RMENU, VK_RSHIFT, VK_RWIN,
+    VK_S, VK_SCROLL, VK_SPACE, VK_SUBTRACT, VK_T, VK_TAB, VK_U, VK_UP, VK_V, VK_W, VK_X, VK_Y,
+    VK_Z,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
     CallNextHookEx, DispatchMessageW, GetMessageW, KillTimer, PostQuitMessage, PostThreadMessageW,
     SetTimer, SetWindowsHookExW, TranslateMessage, UnhookWindowsHookEx, KBDLLHOOKSTRUCT,
     LLKHF_INJECTED, LLKHF_UP, MSG, WH_KEYBOARD_LL, WM_QUIT, WM_TIMER,
 };
+use PttKeyCode as K;
 
 /// How often the watchdog re-checks that the held chord is really still held.
 /// Only runs between engage and disengage, so an idle Hark posts no timers at
@@ -48,43 +60,249 @@ use windows::Win32::UI::WindowsAndMessaging::{
 /// trailing audio, long enough to be free (a handful of key-state reads).
 const WATCHDOG_MS: u32 = 250;
 
-/// Map a Win32 virtual-key code to a chord-capable key. Pure; unit-tested.
+/// Map a Win32 virtual-key code to a chord-capable key. Pure; round-trip tested
+/// against [`key_to_vk`] over every key in `ALL_KEYS`.
 fn vk_to_key(vk: u32) -> Option<PttKeyCode> {
     let vk = VIRTUAL_KEY(vk as u16);
-    let f_first = VK_F1.0;
-    let f_last = VK_F24.0;
     let key = match vk {
-        VK_LCONTROL => PttKeyCode::LCtrl,
-        VK_RCONTROL => PttKeyCode::RCtrl,
-        VK_LSHIFT => PttKeyCode::LShift,
-        VK_RSHIFT => PttKeyCode::RShift,
-        VK_LMENU => PttKeyCode::LAlt,
-        VK_RMENU => PttKeyCode::RAlt,
-        VK_LWIN => PttKeyCode::LWin,
-        VK_RWIN => PttKeyCode::RWin,
-        VK_CAPITAL => PttKeyCode::CapsLock,
-        v if (f_first..=f_last).contains(&v.0) => PttKeyCode::F((v.0 - f_first + 1) as u8),
+        VK_LCONTROL => K::LCtrl,
+        VK_RCONTROL => K::RCtrl,
+        VK_LSHIFT => K::LShift,
+        VK_RSHIFT => K::RShift,
+        VK_LMENU => K::LAlt,
+        VK_RMENU => K::RAlt,
+        VK_LWIN => K::LWin,
+        VK_RWIN => K::RWin,
+        VK_CAPITAL => K::CapsLock,
+        VK_NUMLOCK => K::NumLock,
+        VK_SCROLL => K::ScrollLock,
+        VK_APPS => K::Apps,
+        VK_F1 => K::F1,
+        VK_F2 => K::F2,
+        VK_F3 => K::F3,
+        VK_F4 => K::F4,
+        VK_F5 => K::F5,
+        VK_F6 => K::F6,
+        VK_F7 => K::F7,
+        VK_F8 => K::F8,
+        VK_F9 => K::F9,
+        VK_F10 => K::F10,
+        VK_F11 => K::F11,
+        VK_F12 => K::F12,
+        VK_F13 => K::F13,
+        VK_F14 => K::F14,
+        VK_F15 => K::F15,
+        VK_F16 => K::F16,
+        VK_F17 => K::F17,
+        VK_F18 => K::F18,
+        VK_F19 => K::F19,
+        VK_F20 => K::F20,
+        VK_F21 => K::F21,
+        VK_F22 => K::F22,
+        VK_F23 => K::F23,
+        VK_F24 => K::F24,
+        VK_A => K::A,
+        VK_B => K::B,
+        VK_C => K::C,
+        VK_D => K::D,
+        VK_E => K::E,
+        VK_F => K::F,
+        VK_G => K::G,
+        VK_H => K::H,
+        VK_I => K::I,
+        VK_J => K::J,
+        VK_K => K::K,
+        VK_L => K::L,
+        VK_M => K::M,
+        VK_N => K::N,
+        VK_O => K::O,
+        VK_P => K::P,
+        VK_Q => K::Q,
+        VK_R => K::R,
+        VK_S => K::S,
+        VK_T => K::T,
+        VK_U => K::U,
+        VK_V => K::V,
+        VK_W => K::W,
+        VK_X => K::X,
+        VK_Y => K::Y,
+        VK_Z => K::Z,
+        VK_0 => K::Digit0,
+        VK_1 => K::Digit1,
+        VK_2 => K::Digit2,
+        VK_3 => K::Digit3,
+        VK_4 => K::Digit4,
+        VK_5 => K::Digit5,
+        VK_6 => K::Digit6,
+        VK_7 => K::Digit7,
+        VK_8 => K::Digit8,
+        VK_9 => K::Digit9,
+        VK_LEFT => K::Left,
+        VK_RIGHT => K::Right,
+        VK_UP => K::Up,
+        VK_DOWN => K::Down,
+        VK_INSERT => K::Insert,
+        VK_DELETE => K::Delete,
+        VK_HOME => K::Home,
+        VK_END => K::End,
+        VK_PRIOR => K::PageUp,
+        VK_NEXT => K::PageDown,
+        VK_TAB => K::Tab,
+        VK_SPACE => K::Space,
+        VK_RETURN => K::Enter,
+        VK_BACK => K::Backspace,
+        VK_NUMPAD0 => K::Numpad0,
+        VK_NUMPAD1 => K::Numpad1,
+        VK_NUMPAD2 => K::Numpad2,
+        VK_NUMPAD3 => K::Numpad3,
+        VK_NUMPAD4 => K::Numpad4,
+        VK_NUMPAD5 => K::Numpad5,
+        VK_NUMPAD6 => K::Numpad6,
+        VK_NUMPAD7 => K::Numpad7,
+        VK_NUMPAD8 => K::Numpad8,
+        VK_NUMPAD9 => K::Numpad9,
+        VK_ADD => K::NumpadAdd,
+        VK_SUBTRACT => K::NumpadSubtract,
+        VK_MULTIPLY => K::NumpadMultiply,
+        VK_DIVIDE => K::NumpadDivide,
+        VK_DECIMAL => K::NumpadDecimal,
+        VK_OEM_PLUS => K::Equals,
+        VK_OEM_COMMA => K::Comma,
+        VK_OEM_MINUS => K::Minus,
+        VK_OEM_PERIOD => K::Period,
+        VK_OEM_1 => K::Semicolon,
+        VK_OEM_2 => K::Slash,
+        VK_OEM_3 => K::Backtick,
+        VK_OEM_4 => K::LeftBracket,
+        VK_OEM_5 => K::Backslash,
+        VK_OEM_6 => K::RightBracket,
+        VK_OEM_7 => K::Quote,
+        VK_OEM_8 => K::Oem8,
+        VK_OEM_102 => K::Oem102,
         _ => return None,
     };
     Some(key)
 }
 
-/// The inverse of [`vk_to_key`], for asking Windows whether a chord key is
-/// physically down. Round-trip unit-tested against `vk_to_key`.
+/// The inverse of [`vk_to_key`], for asking Windows whether a key is physically
+/// down. Both the 15 ms recording scanner and the push-to-talk watchdog resolve
+/// state through this, so a wrong entry here invents a press or loses a release.
 fn key_to_vk(key: PttKeyCode) -> VIRTUAL_KEY {
     match key {
-        PttKeyCode::LCtrl => VK_LCONTROL,
-        PttKeyCode::RCtrl => VK_RCONTROL,
-        PttKeyCode::LShift => VK_LSHIFT,
-        PttKeyCode::RShift => VK_RSHIFT,
-        PttKeyCode::LAlt => VK_LMENU,
-        PttKeyCode::RAlt => VK_RMENU,
-        PttKeyCode::LWin => VK_LWIN,
-        PttKeyCode::RWin => VK_RWIN,
-        PttKeyCode::CapsLock => VK_CAPITAL,
-        // Chords only ever carry F1..=F24 (parse and capture both enforce it);
-        // clamping keeps a bogus index inside the F-key block regardless.
-        PttKeyCode::F(n) => VIRTUAL_KEY(VK_F1.0 + u16::from(n.clamp(1, 24)) - 1),
+        K::LCtrl => VK_LCONTROL,
+        K::RCtrl => VK_RCONTROL,
+        K::LShift => VK_LSHIFT,
+        K::RShift => VK_RSHIFT,
+        K::LAlt => VK_LMENU,
+        K::RAlt => VK_RMENU,
+        K::LWin => VK_LWIN,
+        K::RWin => VK_RWIN,
+        K::CapsLock => VK_CAPITAL,
+        K::NumLock => VK_NUMLOCK,
+        K::ScrollLock => VK_SCROLL,
+        K::Apps => VK_APPS,
+        K::F1 => VK_F1,
+        K::F2 => VK_F2,
+        K::F3 => VK_F3,
+        K::F4 => VK_F4,
+        K::F5 => VK_F5,
+        K::F6 => VK_F6,
+        K::F7 => VK_F7,
+        K::F8 => VK_F8,
+        K::F9 => VK_F9,
+        K::F10 => VK_F10,
+        K::F11 => VK_F11,
+        K::F12 => VK_F12,
+        K::F13 => VK_F13,
+        K::F14 => VK_F14,
+        K::F15 => VK_F15,
+        K::F16 => VK_F16,
+        K::F17 => VK_F17,
+        K::F18 => VK_F18,
+        K::F19 => VK_F19,
+        K::F20 => VK_F20,
+        K::F21 => VK_F21,
+        K::F22 => VK_F22,
+        K::F23 => VK_F23,
+        K::F24 => VK_F24,
+        K::A => VK_A,
+        K::B => VK_B,
+        K::C => VK_C,
+        K::D => VK_D,
+        K::E => VK_E,
+        K::F => VK_F,
+        K::G => VK_G,
+        K::H => VK_H,
+        K::I => VK_I,
+        K::J => VK_J,
+        K::K => VK_K,
+        K::L => VK_L,
+        K::M => VK_M,
+        K::N => VK_N,
+        K::O => VK_O,
+        K::P => VK_P,
+        K::Q => VK_Q,
+        K::R => VK_R,
+        K::S => VK_S,
+        K::T => VK_T,
+        K::U => VK_U,
+        K::V => VK_V,
+        K::W => VK_W,
+        K::X => VK_X,
+        K::Y => VK_Y,
+        K::Z => VK_Z,
+        K::Digit0 => VK_0,
+        K::Digit1 => VK_1,
+        K::Digit2 => VK_2,
+        K::Digit3 => VK_3,
+        K::Digit4 => VK_4,
+        K::Digit5 => VK_5,
+        K::Digit6 => VK_6,
+        K::Digit7 => VK_7,
+        K::Digit8 => VK_8,
+        K::Digit9 => VK_9,
+        K::Left => VK_LEFT,
+        K::Right => VK_RIGHT,
+        K::Up => VK_UP,
+        K::Down => VK_DOWN,
+        K::Insert => VK_INSERT,
+        K::Delete => VK_DELETE,
+        K::Home => VK_HOME,
+        K::End => VK_END,
+        K::PageUp => VK_PRIOR,
+        K::PageDown => VK_NEXT,
+        K::Tab => VK_TAB,
+        K::Space => VK_SPACE,
+        K::Enter => VK_RETURN,
+        K::Backspace => VK_BACK,
+        K::Numpad0 => VK_NUMPAD0,
+        K::Numpad1 => VK_NUMPAD1,
+        K::Numpad2 => VK_NUMPAD2,
+        K::Numpad3 => VK_NUMPAD3,
+        K::Numpad4 => VK_NUMPAD4,
+        K::Numpad5 => VK_NUMPAD5,
+        K::Numpad6 => VK_NUMPAD6,
+        K::Numpad7 => VK_NUMPAD7,
+        K::Numpad8 => VK_NUMPAD8,
+        K::Numpad9 => VK_NUMPAD9,
+        K::NumpadAdd => VK_ADD,
+        K::NumpadSubtract => VK_SUBTRACT,
+        K::NumpadMultiply => VK_MULTIPLY,
+        K::NumpadDivide => VK_DIVIDE,
+        K::NumpadDecimal => VK_DECIMAL,
+        K::Equals => VK_OEM_PLUS,
+        K::Comma => VK_OEM_COMMA,
+        K::Minus => VK_OEM_MINUS,
+        K::Period => VK_OEM_PERIOD,
+        K::Semicolon => VK_OEM_1,
+        K::Slash => VK_OEM_2,
+        K::Backtick => VK_OEM_3,
+        K::LeftBracket => VK_OEM_4,
+        K::Backslash => VK_OEM_5,
+        K::RightBracket => VK_OEM_6,
+        K::Quote => VK_OEM_7,
+        K::Oem8 => VK_OEM_8,
+        K::Oem102 => VK_OEM_102,
     }
 }
 
@@ -228,9 +446,11 @@ unsafe extern "system" fn keyboard_hook(code: i32, wparam: WPARAM, lparam: LPARA
 }
 
 /// How often the scanner re-reads real key state while a recording is open.
-/// Fast enough that a deliberate tap of a shortcut cannot slip between ticks,
-/// and cheap by construction: 33 `GetAsyncKeyState` reads, each a user-mode
-/// lookup, on a thread that exists only while the settings recorder is up.
+/// Fast enough that a deliberate tap of a shortcut cannot slip between ticks.
+/// Cost is 114 `GetAsyncKeyState` reads per tick; each is a light win32k
+/// transition (~1 us), NOT the user-mode lookup an earlier comment here
+/// claimed, so a tick is on the order of 100 us and the thread exists only
+/// while the settings recorder is open.
 const SCAN_MS: u64 = 15;
 
 /// Watch real key state for as long as the tap is armed, feeding the recorder
@@ -399,9 +619,9 @@ mod tests {
         assert_eq!(vk_to_key(0x5B), Some(PttKeyCode::LWin));
         assert_eq!(vk_to_key(0x5C), Some(PttKeyCode::RWin));
         assert_eq!(vk_to_key(0x14), Some(PttKeyCode::CapsLock));
-        assert_eq!(vk_to_key(0x70), Some(PttKeyCode::F(1)));
-        assert_eq!(vk_to_key(0x7C), Some(PttKeyCode::F(13)));
-        assert_eq!(vk_to_key(0x87), Some(PttKeyCode::F(24)));
+        assert_eq!(vk_to_key(0x70), Some(PttKeyCode::F1));
+        assert_eq!(vk_to_key(0x7C), Some(PttKeyCode::F13));
+        assert_eq!(vk_to_key(0x87), Some(PttKeyCode::F24));
     }
 
     #[test]
@@ -410,7 +630,7 @@ mod tests {
         // key_to_vk for all 33 each tick, so a mismatch anywhere would invent a
         // press or miss a release for that key. The watchdog only ever touched
         // the handful in a configured chord, which is why 12 used to be enough.
-        for key in crate::capture::CHORD_KEYS {
+        for key in crate::keycode::ALL_KEYS {
             assert_eq!(vk_to_key(u32::from(key_to_vk(key).0)), Some(key), "{key}");
         }
     }

@@ -3,7 +3,8 @@
 //! questions — `edges.rs` decides when a *configured* chord engages, this
 //! decides what the user just pressed.
 
-use crate::edges::{PttChord, PttKeyCode};
+use crate::edges::PttChord;
+use crate::keycode::{PttKeyCode, ALL_KEYS};
 
 /// A raw key edge streamed while the settings UI is recording a shortcut.
 /// Unlike `PttEvent` (already-resolved chord engage/disengage), this is one
@@ -13,46 +14,6 @@ pub struct CaptureEvent {
     pub key: PttKeyCode,
     pub down: bool,
 }
-
-/// Every key a chord can contain. The scanner walks this list each tick, and
-/// the round-trip test over `vk_to_key`/`key_to_vk` covers all of it, because
-/// the scanner depends on every one of those mappings rather than the handful
-/// the push-to-talk watchdog happened to use.
-pub const CHORD_KEYS: [PttKeyCode; 33] = [
-    PttKeyCode::LCtrl,
-    PttKeyCode::RCtrl,
-    PttKeyCode::LShift,
-    PttKeyCode::RShift,
-    PttKeyCode::LAlt,
-    PttKeyCode::RAlt,
-    PttKeyCode::LWin,
-    PttKeyCode::RWin,
-    PttKeyCode::CapsLock,
-    PttKeyCode::F(1),
-    PttKeyCode::F(2),
-    PttKeyCode::F(3),
-    PttKeyCode::F(4),
-    PttKeyCode::F(5),
-    PttKeyCode::F(6),
-    PttKeyCode::F(7),
-    PttKeyCode::F(8),
-    PttKeyCode::F(9),
-    PttKeyCode::F(10),
-    PttKeyCode::F(11),
-    PttKeyCode::F(12),
-    PttKeyCode::F(13),
-    PttKeyCode::F(14),
-    PttKeyCode::F(15),
-    PttKeyCode::F(16),
-    PttKeyCode::F(17),
-    PttKeyCode::F(18),
-    PttKeyCode::F(19),
-    PttKeyCode::F(20),
-    PttKeyCode::F(21),
-    PttKeyCode::F(22),
-    PttKeyCode::F(23),
-    PttKeyCode::F(24),
-];
 
 /// Turns periodic snapshots of real key state into the same [`CaptureEvent`]s
 /// the hook emits, so a recorder fed by both cannot be defeated by an edge that
@@ -68,11 +29,12 @@ pub const CHORD_KEYS: [PttKeyCode; 33] = [
 /// tracking), so the two sources need no merging.
 #[derive(Debug, Default)]
 pub struct HeldScan {
-    /// Bit i: `CHORD_KEYS[i]` was down at the last tick.
-    down: u64,
+    /// Bit i: `ALL_KEYS[i]` was down at the last tick. A bitset rather than a
+    /// bool array so a tick is a handful of word operations; 114 keys needs two.
+    down: [u64; 2],
     /// Bit i: held when recording began. Emits nothing until released once, so
     /// a key the user was already holding can never enter a shortcut.
-    stale: u64,
+    stale: [u64; 2],
 }
 
 impl HeldScan {
@@ -81,10 +43,10 @@ impl HeldScan {
     /// before Hark started, so without this the first tick would invent presses
     /// the user never made during this recording.
     pub fn new(mut is_down: impl FnMut(PttKeyCode) -> bool) -> HeldScan {
-        let mut down = 0u64;
-        for (i, key) in CHORD_KEYS.iter().enumerate() {
+        let mut down = [0u64; 2];
+        for (i, key) in ALL_KEYS.iter().enumerate() {
             if is_down(*key) {
-                down |= 1 << i;
+                down[i / 64] |= 1 << (i % 64);
             }
         }
         HeldScan { down, stale: down }
@@ -99,23 +61,23 @@ impl HeldScan {
         mut is_down: impl FnMut(PttKeyCode) -> bool,
         mut emit: impl FnMut(CaptureEvent),
     ) {
-        for (i, key) in CHORD_KEYS.iter().enumerate() {
-            let bit = 1u64 << i;
+        for (i, key) in ALL_KEYS.iter().enumerate() {
+            let (word, bit) = (i / 64, 1u64 << (i % 64));
             let now = is_down(*key);
-            let was = self.down & bit != 0;
+            let was = self.down[word] & bit != 0;
             if now == was {
                 continue;
             }
             if now {
-                self.down |= bit;
+                self.down[word] |= bit;
                 emit(CaptureEvent {
                     key: *key,
                     down: true,
                 });
             } else {
-                self.down &= !bit;
-                if self.stale & bit != 0 {
-                    self.stale &= !bit;
+                self.down[word] &= !bit;
+                if self.stale[word] & bit != 0 {
+                    self.stale[word] &= !bit;
                 } else {
                     emit(CaptureEvent {
                         key: *key,
@@ -131,9 +93,16 @@ impl HeldScan {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Rejected {
     /// A lone Ctrl/Shift/Alt/Win. Binding push-to-talk to a bare modifier means
-    /// every Ctrl press in every app starts a dictation, which is never what
-    /// the user meant and is miserable to undo from inside the app it breaks.
+    /// every press of it in every app opens the microphone, and it is uniquely
+    /// miserable to undo because the fix has to be made in the app it broke.
     LoneModifier(PttKeyCode),
+    /// A key that writes or deletes text, with nothing but Shift to lift it out
+    /// of ordinary typing.
+    TypesText { key: PttKeyCode, with_shift: bool },
+    /// A key that moves the caret or the view, likewise.
+    MovesTheCaret { key: PttKeyCode, with_shift: bool },
+    /// Ctrl+V — the chord Hark itself synthesizes to paste a transcript.
+    CollidesWithInjection,
 }
 
 impl Rejected {
@@ -141,9 +110,47 @@ impl Rejected {
         match self {
             Rejected::LoneModifier(key) => format!(
                 "{} on its own would start a dictation every time you press it. \
-                 Hold it together with another key, or use an F-key or Caps Lock.",
+                 Hold it together with another key, or pick an F-key.",
                 key.label()
             ),
+            Rejected::TypesText {
+                key,
+                with_shift: false,
+            } => format!(
+                "{} types text, and Hark never swallows keys — this would start a \
+                 dictation in the middle of whatever you were writing. Hold Ctrl, Alt \
+                 or Win with it, or pick an F-key.",
+                key.label()
+            ),
+            Rejected::TypesText {
+                key,
+                with_shift: true,
+            } => format!(
+                "Shift + {} is just what you get when you type it, so you would start a \
+                 dictation every time. Shift doesn't count here — you hold it while you \
+                 write. Hold Ctrl, Alt or Win instead, or pick an F-key.",
+                key.label()
+            ),
+            Rejected::MovesTheCaret {
+                key,
+                with_shift: false,
+            } => format!(
+                "{} moves the cursor. You would start a dictation every time you moved \
+                 through your own text. Hold Ctrl, Alt or Win with it, or pick an F-key.",
+                key.label()
+            ),
+            Rejected::MovesTheCaret {
+                key,
+                with_shift: true,
+            } => format!(
+                "Shift + {} selects text. Shift doesn't count here — you hold it while \
+                 you write. Hold Ctrl, Alt or Win instead, or pick an F-key.",
+                key.label()
+            ),
+            Rejected::CollidesWithInjection => "Ctrl+V is how Hark pastes your \
+                 transcript, so a shortcut built on it would fight its own typing. \
+                 Pick another key."
+                .to_string(),
         }
     }
 }
@@ -211,8 +218,8 @@ impl CaptureBuffer {
 
         let chord = PttChord::from_keys(std::mem::take(&mut self.held));
         self.saw_any = false;
-        if let Some(only) = chord.lone_modifier() {
-            self.rejected = Some(Rejected::LoneModifier(only));
+        if let Some(why) = chord.rejection() {
+            self.rejected = Some(why);
             return None;
         }
         Some(chord)
@@ -284,19 +291,16 @@ mod tests {
         // The buffer is clean afterwards, so the next attempt starts fresh.
         assert!(b.held().is_empty());
         b.on_event(PttKeyCode::LCtrl, true);
-        b.on_event(PttKeyCode::F(12), true);
+        b.on_event(PttKeyCode::F12, true);
         b.on_event(PttKeyCode::LCtrl, false);
-        assert_eq!(
-            b.on_event(PttKeyCode::F(12), false),
-            Some(chord("LCtrl+F12"))
-        );
+        assert_eq!(b.on_event(PttKeyCode::F12, false), Some(chord("LCtrl+F12")));
     }
 
     #[test]
     fn capture_records_a_single_key_chord_when_it_is_not_a_modifier() {
         let mut b = CaptureBuffer::new();
-        assert_eq!(b.on_event(PttKeyCode::F(13), true), None);
-        assert_eq!(b.on_event(PttKeyCode::F(13), false), Some(chord("F13")));
+        assert_eq!(b.on_event(PttKeyCode::F13, true), None);
+        assert_eq!(b.on_event(PttKeyCode::F13, false), Some(chord("F13")));
 
         let mut b = CaptureBuffer::new();
         b.on_event(PttKeyCode::CapsLock, true);
@@ -386,8 +390,8 @@ mod tests {
     fn a_lost_up_edge_does_not_wedge_the_recorder() {
         let (chord, _) = feed(&[
             (PttKeyCode::LCtrl, true),
-            (PttKeyCode::F(12), true),
-            (PttKeyCode::F(12), false),
+            (PttKeyCode::F12, true),
+            (PttKeyCode::F12, false),
             // LCtrl's release never arrived from the hook; the scanner sees the
             // key is no longer down and emits it.
             (PttKeyCode::LCtrl, false),
@@ -449,11 +453,11 @@ mod tests {
     fn scan_emits_a_down_then_an_up_for_a_press() {
         let mut scan = HeldScan::new(|_| false);
         let mut seen = Vec::new();
-        scan.tick(|k| k == PttKeyCode::F(9), |e| seen.push(e));
+        scan.tick(|k| k == PttKeyCode::F9, |e| seen.push(e));
         assert_eq!(
             seen,
             vec![CaptureEvent {
-                key: PttKeyCode::F(9),
+                key: PttKeyCode::F9,
                 down: true
             }]
         );
@@ -462,7 +466,7 @@ mod tests {
         assert_eq!(
             seen,
             vec![CaptureEvent {
-                key: PttKeyCode::F(9),
+                key: PttKeyCode::F9,
                 down: false
             }]
         );
@@ -505,15 +509,34 @@ mod tests {
     }
 
     #[test]
-    fn chord_keys_is_complete_and_unique() {
-        let mut sorted = CHORD_KEYS.to_vec();
-        sorted.dedup();
-        assert_eq!(sorted.len(), CHORD_KEYS.len(), "duplicate in CHORD_KEYS");
-        assert_eq!(CHORD_KEYS.iter().filter(|k| k.is_modifier()).count(), 8);
-        assert!(CHORD_KEYS.contains(&PttKeyCode::CapsLock));
-        for n in 1..=24u8 {
-            assert!(CHORD_KEYS.contains(&PttKeyCode::F(n)), "F{n} missing");
+    fn all_keys_is_complete_and_unique() {
+        assert_eq!(ALL_KEYS.len(), PttKeyCode::COUNT);
+        // Ordinal order must match declaration order: HeldScan indexes its
+        // bitset by position in ALL_KEYS and reads state by the key at that
+        // position, so a mismatch would attribute one key's state to another.
+        for (i, key) in ALL_KEYS.iter().enumerate() {
+            assert_eq!(key.ordinal(), i, "{key} is out of order");
         }
+        let mut tokens: Vec<_> = ALL_KEYS.iter().map(|k| k.token().to_lowercase()).collect();
+        tokens.sort();
+        let unique = tokens.len();
+        tokens.dedup();
+        assert_eq!(tokens.len(), unique, "two keys share a config token");
+        // Every token must survive the round trip config.toml relies on.
+        for key in ALL_KEYS {
+            assert_eq!(
+                crate::keycode::parse_key(key.token()),
+                Some(key),
+                "{key} does not round-trip"
+            );
+            assert!(
+                !key.token().contains('+'),
+                "{key} token breaks chord splitting"
+            );
+        }
+        assert_eq!(ALL_KEYS.iter().filter(|k| k.is_modifier()).count(), 8);
+        // Escape is never bindable: it cancels recording.
+        assert_eq!(crate::keycode::parse_key("Esc"), None);
     }
 
     /// Baseline suppression must not leak a pre-held key into a shortcut: a
@@ -549,7 +572,7 @@ mod tests {
         b.on_event(PttKeyCode::LCtrl, false);
         assert!(b.rejected().is_some());
         // The next press is a new attempt; the stale refusal must not describe it.
-        b.on_event(PttKeyCode::F(5), true);
+        b.on_event(PttKeyCode::F5, true);
         assert_eq!(b.rejected(), None);
     }
 
@@ -561,7 +584,7 @@ mod tests {
         assert_eq!(b.on_event(PttKeyCode::LShift, false), None);
         assert_eq!(b.rejected(), None);
         // Recording then proceeds normally.
-        assert_eq!(b.on_event(PttKeyCode::F(9), true), None);
-        assert_eq!(b.on_event(PttKeyCode::F(9), false), Some(chord("F9")));
+        assert_eq!(b.on_event(PttKeyCode::F9, true), None);
+        assert_eq!(b.on_event(PttKeyCode::F9, false), Some(chord("F9")));
     }
 }

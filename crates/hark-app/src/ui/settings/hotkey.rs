@@ -94,23 +94,13 @@ pub fn section(
     // and the fix has to be made in the one it just broke.
     match hark_hotkey::PttChord::parse(&draft.hotkey.ptt_key) {
         Ok(chord) => {
-            let (text, color) = match chord.lone_modifier() {
-                Some(key) => (
-                    format!(
-                        "{} on its own starts a dictation every time you press it, in \
-                         every app. Add another key unless you really mean that.",
-                        key.label()
-                    ),
-                    Some(theme::WARNING),
-                ),
-                None => (
-                    "Hold these keys together to dictate; release to inject.".to_string(),
-                    None,
-                ),
-            };
-            let text = RichText::new(text).small();
-            ui.label(match color {
-                Some(c) => text.color(c),
+            let text = RichText::new(match chord.rejection() {
+                Some(why) => why.message(),
+                None => "Hold these keys together to dictate; release to inject.".to_string(),
+            })
+            .small();
+            ui.label(match chord.rejection() {
+                Some(_) => text.color(theme::WARNING),
                 None => text.weak(),
             });
         }

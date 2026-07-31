@@ -8,12 +8,14 @@
 
 pub mod capture;
 pub mod edges;
+pub mod keycode;
 
 #[cfg(windows)]
 mod hook_win;
 
-pub use capture::{CaptureBuffer, CaptureEvent, HeldScan, Rejected, CHORD_KEYS};
-pub use edges::{pretty_chord, ChordParseError, ChordTracker, PttChord, PttEvent, PttKeyCode};
+pub use capture::{CaptureBuffer, CaptureEvent, HeldScan, Rejected};
+pub use edges::{pretty_chord, ChordParseError, ChordTracker, PttChord, PttEvent};
+pub use keycode::{KeyClass, PttKeyCode, ALL_KEYS};
 
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc::{Receiver, Sender};

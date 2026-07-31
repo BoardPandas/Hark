@@ -4,6 +4,16 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.33.0] - 2026-07-31
+
+### Added
+- **Any key can be part of your shortcut now, not just modifiers and the F row.** Letters, digits, the arrow keys, the navigation cluster, the numpad, punctuation and the lock keys — 114 keys in all, up from 33. Escape is the one exception: it cancels recording. Previously Hark silently ignored everything else, so pressing Ctrl+Shift+A recorded just "Ctrl+Shift" — and then fired on Ctrl+Shift alone.
+
+### Changed
+- **Hark now refuses shortcuts you would trigger by accident, and says why.** A shortcut that happens as a byproduct of ordinary writing is not a shortcut, it is a trap: bind dictation to "A" and every letter you type opens the microphone. Ctrl, Alt and Win lift a combination clear of typing, so anything held with them is allowed. **Shift does not** — Shift+A is just a capital A, Shift+Left selects a character, Shift+Enter is a soft line break in every chat box — so Shift alone no longer qualifies a shortcut. Keys nothing else competes for (F1–F24, Caps Lock, Num Lock, Scroll Lock, the Menu key) stay usable on their own, as they always were. Each refusal names the key and what it would have cost you.
+- **Ctrl+V is refused as a shortcut.** It is how Hark pastes your transcript, so a shortcut built on it would fight its own typing — newly worth saying, since V only became bindable in this release.
+- Shortcuts read in plain language throughout: "Left Ctrl + F12", "Page Up", "Numpad 7", "Left Arrow".
+
 ## [0.32.0] - 2026-07-31
 
 ### Added
