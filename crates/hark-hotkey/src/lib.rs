@@ -15,8 +15,8 @@ mod hook_win;
 pub use capture::{CaptureBuffer, CaptureEvent};
 pub use edges::{pretty_chord, ChordParseError, ChordTracker, PttChord, PttEvent, PttKeyCode};
 
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::mpsc::Sender;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::mpsc::{Receiver, Sender};
 use std::sync::Arc;
 use thiserror::Error;
 
@@ -30,6 +30,57 @@ pub enum HotkeyError {
     UnsupportedPlatform,
 }
 
+/// A tap on the listener's raw key stream, for the settings recorder.
+///
+/// The recorder used to install a *second* `WH_KEYBOARD_LL` hook of its own.
+/// On real hardware that hook installs, reports itself alive, pumps messages,
+/// and is never called — while the push-to-talk hook, same code, same thread
+/// shape, delivers every key. Rather than keep guessing at why, capture now
+/// rides the hook that demonstrably works: one relaxed atomic load per key
+/// event decides whether the callback feeds the chord tracker or forwards the
+/// raw edge here.
+pub struct CaptureTap {
+    /// Set while the settings UI is recording. Relaxed on both ends: the
+    /// worst a stale read can do is forward one edge either side of the flip.
+    on: AtomicBool,
+    /// Every edge the hook has forwarded since the tap was armed. The UI shows
+    /// it, so "the hook never saw your keys" and "the hook saw them and the UI
+    /// lost them" are distinguishable on sight instead of by another release.
+    seen: AtomicU64,
+    /// Only the platform hook sends on this; off Windows there is no hook yet.
+    #[cfg_attr(not(windows), allow(dead_code))]
+    tx: Sender<CaptureEvent>,
+}
+
+#[cfg_attr(not(windows), allow(dead_code))]
+impl CaptureTap {
+    pub(crate) fn new(tx: Sender<CaptureEvent>) -> CaptureTap {
+        CaptureTap {
+            on: AtomicBool::new(false),
+            seen: AtomicU64::new(0),
+            tx,
+        }
+    }
+
+    /// Called from the hook callback. Must stay lean: two relaxed atomics and
+    /// a channel send, no allocation, no I/O, no locks (Windows silently
+    /// removes low-level hooks whose callback overruns `LowLevelHooksTimeout`).
+    /// Returns true when the edge was consumed, so the caller skips the tracker
+    /// and a chord pressed while recording cannot start a dictation.
+    pub(crate) fn forward(&self, key: PttKeyCode, down: bool) -> bool {
+        if !self.on.load(Ordering::Relaxed) {
+            return false;
+        }
+        self.seen.fetch_add(1, Ordering::Relaxed);
+        let _ = self.tx.send(CaptureEvent { key, down });
+        true
+    }
+
+    pub fn edges_seen(&self) -> u64 {
+        self.seen.load(Ordering::Relaxed)
+    }
+}
+
 /// A running push-to-talk listener. Dropping it stops the hook thread.
 pub struct ListenerHandle {
     #[cfg_attr(not(windows), allow(dead_code))]
@@ -39,6 +90,11 @@ pub struct ListenerHandle {
     /// listening, and teardown skips posting to a thread id the OS may already
     /// have recycled onto somebody else's thread.
     alive: Arc<AtomicBool>,
+    /// Shared with the hook thread; `None` for a capture-only hook, which has
+    /// nothing to tap.
+    tap: Option<Arc<CaptureTap>>,
+    /// The tap's receiving end, handed to the recorder on the first arm.
+    capture_rx: Option<Receiver<CaptureEvent>>,
     thread: Option<std::thread::JoinHandle<()>>,
 }
 
@@ -49,6 +105,30 @@ impl ListenerHandle {
     /// against a hook that is no longer listening.
     pub fn is_alive(&self) -> bool {
         self.alive.load(Ordering::Acquire)
+    }
+
+    /// Start forwarding raw key edges instead of feeding the chord tracker.
+    /// The receiver comes back on the first call and is the caller's from then
+    /// on; later calls re-arm the same channel. `None` on a platform with no
+    /// hook, or if the receiver was already taken and dropped.
+    pub fn arm_capture(&mut self) -> Option<(Arc<CaptureTap>, Receiver<CaptureEvent>)> {
+        let tap = self.tap.clone()?;
+        let rx = self.capture_rx.take()?;
+        // Stale edges from a previous arm would be attributed to this one, and
+        // a leftover release would complete a "chord" the user never pressed.
+        while rx.try_recv().is_ok() {}
+        tap.seen.store(0, Ordering::Relaxed);
+        tap.on.store(true, Ordering::Relaxed);
+        Some((tap, rx))
+    }
+
+    /// Stop forwarding; the chord tracker takes the stream back. Giving the
+    /// receiver back keeps the handle re-armable for the next recording.
+    pub fn disarm_capture(&mut self, rx: Receiver<CaptureEvent>) {
+        if let Some(tap) = &self.tap {
+            tap.on.store(false, Ordering::Relaxed);
+        }
+        self.capture_rx = Some(rx);
     }
 }
 

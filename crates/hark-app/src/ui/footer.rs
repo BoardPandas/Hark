@@ -47,7 +47,10 @@ fn state_side(ui: &mut Ui, status: &PipelineStatus, settings: &Settings) -> bool
                 ui,
                 theme::icons::MICROPHONE,
                 weak,
-                &format!("Listening for {}", settings.hotkey.ptt_key),
+                &format!(
+                    "Listening for {}",
+                    hark_hotkey::pretty_chord(&settings.hotkey.ptt_key)
+                ),
             );
         }
         PipelineStatus::Recording => {

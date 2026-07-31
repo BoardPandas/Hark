@@ -5,6 +5,7 @@
 
 use super::capture::{HotkeyAction, HotkeyCapture};
 use super::form::{inline_error, subhead};
+use crate::pipeline::PipelineController;
 use crate::theme;
 use egui::{RichText, TextEdit, Ui};
 use hark_config::Settings;
@@ -26,13 +27,19 @@ fn default_ptt_key() -> String {
 /// install; it is not the default because a hand-typed string is one nobody
 /// has ever pressed.
 ///
-/// Returns what the page must do about the pipeline: its hook has to stand
-/// down before the recorder installs one, and come back afterwards.
-pub fn section(ui: &mut Ui, draft: &mut Settings, capture: &mut HotkeyCapture) -> HotkeyAction {
+/// Recording taps the running listener in place rather than stopping the
+/// pipeline and installing a second hook, so dictation is never torn down to
+/// change a shortcut and the recorder rides the code path dictation proves.
+pub fn section(
+    ui: &mut Ui,
+    draft: &mut Settings,
+    capture: &mut HotkeyCapture,
+    pipeline: &mut PipelineController,
+) -> HotkeyAction {
     subhead(ui, "Push-to-talk");
 
     if capture.is_recording() {
-        return recording_box(ui, draft, capture);
+        return recording_box(ui, draft, capture, pipeline);
     }
 
     let mut action = HotkeyAction::None;
@@ -107,10 +114,15 @@ pub fn section(ui: &mut Ui, draft: &mut Settings, capture: &mut HotkeyCapture) -
 /// The live prompt shown while the hook is capturing. Escape cancels, matching
 /// every other shortcut recorder; the button is there for anyone who does not
 /// know that.
-fn recording_box(ui: &mut Ui, draft: &mut Settings, capture: &mut HotkeyCapture) -> HotkeyAction {
+fn recording_box(
+    ui: &mut Ui,
+    draft: &mut Settings,
+    capture: &mut HotkeyCapture,
+    pipeline: &mut PipelineController,
+) -> HotkeyAction {
     // A completed chord lands straight in the draft and ends recording; the
     // idle field renders with the new value on the next pass.
-    let mut action = capture.poll_into(&mut draft.hotkey.ptt_key);
+    let mut action = capture.poll_into(&mut draft.hotkey.ptt_key, pipeline);
 
     egui::Frame::default()
         .fill(theme::surface(ui.visuals()))
@@ -119,7 +131,8 @@ fn recording_box(ui: &mut Ui, draft: &mut Settings, capture: &mut HotkeyCapture)
         .inner_margin(egui::Margin::symmetric(14, 11))
         .show(ui, |ui| {
             let held = capture.held_display();
-            if held.is_empty() {
+            let nothing_held = held.is_empty();
+            if nothing_held {
                 ui.label(
                     RichText::new("Press and hold your shortcut keys...")
                         .text_style(theme::subheading()),
@@ -139,18 +152,30 @@ fn recording_box(ui: &mut Ui, draft: &mut Settings, capture: &mut HotkeyCapture)
                 .small()
                 .weak(),
             );
+            // Keys the hook has actually reported. Shown because "I press keys
+            // and nothing happens" has two very different causes — the hook
+            // never sees them, or it sees them and the chord never lands — and
+            // this is the one number that tells them apart without a log.
+            let seen = capture.edges_seen();
+            if nothing_held && seen > 0 {
+                ui.label(
+                    RichText::new(format!("{seen} key events seen"))
+                        .small()
+                        .weak(),
+                );
+            }
         });
 
     // Escape comes from egui, not the hook: it is not a chord-capable key, so
     // the recorder never sees it and it can never end up in a shortcut.
     let escaped = ui.input(|i| i.key_pressed(egui::Key::Escape));
     if (ui.button("Cancel").clicked() || escaped) && !matches!(action, HotkeyAction::Ended) {
-        action = capture.cancel();
+        action = capture.cancel(pipeline);
     }
-    // Key edges wake the UI on their own (the capture pump). This slow tick
-    // covers the case where they stop arriving: a hook Windows has dropped
-    // sends nothing at all, and without a pass to notice, the prompt would ask
-    // for keys forever. Runs only while this box is on screen.
+    // Pressing a key with Hark focused wakes winit on its own, so this tick is
+    // a backstop rather than the mechanism: it covers a chord recorded while
+    // the window is not focused, and a hook Windows has dropped (which sends
+    // nothing at all, so without a pass nothing would ever notice).
     ui.ctx()
         .request_repaint_after(std::time::Duration::from_millis(250));
     action

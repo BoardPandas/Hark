@@ -113,23 +113,16 @@ impl SettingsPage {
             pipeline.start(saved, ui.ctx());
         }
         let test_finished = self.test.show(ui, &self.draft);
-        // Recording a shortcut installs its own keyboard hook; only one may run
-        // at a time, so the pipeline's push-to-talk hook stands down while
-        // recording and resumes (with the still-saved chord) when it ends.
-        // Order is load-bearing: stopping the listener posts a quit message to
-        // its thread id, so the capture hook must not exist yet when it lands.
+        // Recording taps the running listener in place: the pipeline is no
+        // longer stopped and restarted around it, which is what used to make
+        // this fragile (a stop posts a quit message to a listener thread id,
+        // and a hook installed before it lands can be caught by it).
         let ctx = ui.ctx().clone();
-        match hotkey::section(ui, &mut self.draft, &mut self.hotkey) {
+        match hotkey::section(ui, &mut self.draft, &mut self.hotkey, pipeline) {
             capture::HotkeyAction::StartRequested => {
-                pipeline.stop();
-                if !self.hotkey.begin(&ctx) {
-                    // Nothing is recording, so leaving the pipeline down would
-                    // silently cost the user dictation over a failed click.
-                    pipeline.start(saved, &ctx);
-                }
+                self.hotkey.begin(&ctx, pipeline);
             }
-            capture::HotkeyAction::Ended => pipeline.start(saved, &ctx),
-            capture::HotkeyAction::None => {}
+            capture::HotkeyAction::Ended | capture::HotkeyAction::None => {}
         }
         // The capture stream runs continuously while the pipeline is up, so
         // the meter is live here without starting anything extra.

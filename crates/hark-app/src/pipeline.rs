@@ -161,6 +161,24 @@ impl PipelineController {
         }
     }
 
+    /// Arm the listener's capture tap for the settings recorder. `None` when
+    /// the pipeline is stopped (no hook exists to tap); the caller then falls
+    /// back to installing a hook of its own.
+    pub fn arm_capture(
+        &mut self,
+    ) -> Option<(
+        Arc<hark_hotkey::CaptureTap>,
+        Receiver<hark_hotkey::CaptureEvent>,
+    )> {
+        self.handle.as_mut()?.arm_capture()
+    }
+
+    pub fn disarm_capture(&mut self, rx: Receiver<hark_hotkey::CaptureEvent>) {
+        if let Some(handle) = self.handle.as_mut() {
+            handle.disarm_capture(rx);
+        }
+    }
+
     /// Drop the handle; its Drop stops hook -> worker -> capture in order.
     /// The worker's sender drops with it, which ends the repaint pump.
     pub fn stop(&mut self) {

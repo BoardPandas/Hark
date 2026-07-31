@@ -1,93 +1,94 @@
 //! "Record a shortcut" state for the push-to-talk field. egui's high-level
 //! input cannot tell left from right modifiers and does not reliably see the
-//! Win key, so recording rides the same low-level hook the pipeline uses
-//! (`hark_hotkey::spawn_capture`). A dedicated pump thread wakes the event
-//! loop per key edge (the sanctioned cross-thread wake-up), so the UI drains
-//! edges without ever polling the main thread.
+//! Win key, so recording watches real key edges from the platform hook.
+//!
+//! It rides the *pipeline's* hook rather than installing one of its own. A
+//! second `WH_KEYBOARD_LL` hook installs, reports itself alive and pumps
+//! messages, yet is never called on real hardware, while the push-to-talk hook
+//! — same code, same thread shape — delivers every key; a build that logged
+//! both showed the capture hook installed for 51 seconds without a single
+//! callback while dictation through the other hook worked in the same session.
+//! Tapping the working hook sidesteps that whole question, and costs one
+//! relaxed atomic load per key event.
+//!
+//! Installing a hook is still the fallback for the one case with nothing to
+//! tap: a stopped pipeline (no API key yet, or a config error).
 
+use crate::pipeline::PipelineController;
 use egui::Context;
-use hark_hotkey::{CaptureBuffer, CaptureEvent, ListenerHandle};
+use hark_hotkey::{CaptureBuffer, CaptureEvent, CaptureTap, ListenerHandle};
 use std::sync::mpsc::{self, Receiver};
+use std::sync::Arc;
 
-/// What a render of the hotkey section asks the page to do. The page owns the
-/// pipeline, and the pipeline owns the push-to-talk hook: only one keyboard
-/// hook may run at a time, so the listener stands down while recording.
+/// What a render of the hotkey section asks the page to do.
 pub enum HotkeyAction {
     /// Nothing changed this frame.
     None,
-    /// The user asked to record. The page must stop the pipeline's hook and
-    /// *then* call [`HotkeyCapture::begin`] — never the other way round.
-    /// Teardown posts a quit message to the listener thread's id, and a
-    /// capture hook installed before that message lands can be killed by it
-    /// once Windows recycles the id onto the new thread.
+    /// The user asked to record; the page calls [`HotkeyCapture::begin`].
     StartRequested,
-    /// Recording just finished, was cancelled, or died: resume the pipeline.
+    /// Recording just finished, was cancelled, or died.
     Ended,
 }
 
-/// An in-progress recording: the live hook plus the chord being built.
+/// Where the raw key edges are coming from.
+enum Source {
+    /// The pipeline's own listener, tapped in place. Nothing was started and
+    /// nothing needs stopping; dictation keeps working the instant we disarm.
+    Tap(Arc<CaptureTap>),
+    /// A hook of our own, because the pipeline is stopped. Dropping the handle
+    /// posts WM_QUIT to the hook thread, which unhooks and exits.
+    OwnHook(ListenerHandle),
+}
+
+/// An in-progress recording: the edge source plus the chord being built.
 struct Recording {
-    /// Dropping the handle posts WM_QUIT to the hook thread, which unhooks and
-    /// exits; the pump then sees its sender drop and exits too.
-    handle: ListenerHandle,
-    edges: Receiver<CaptureEvent>,
+    source: Source,
+    /// `Option` only so the receiver can be handed back on disarm; always
+    /// `Some` while recording.
+    edges: Option<Receiver<CaptureEvent>>,
     buffer: CaptureBuffer,
 }
 
 impl Recording {
-    fn start(ctx: &Context) -> Result<Recording, String> {
-        let (hook_tx, hook_rx) = mpsc::channel();
-        let (ui_tx, ui_rx) = mpsc::channel();
-        let handle = hark_hotkey::spawn_capture(hook_tx).map_err(|e| e.to_string())?;
-
-        // Forward every edge to the UI lane and wake the event loop, mirroring
-        // pipeline::spawn_repaint_pump. Exits when the hook thread drops its
-        // sender (recording stopped) or the UI drops its receiver. Idle cost is
-        // zero: key edges are sparse and user-driven.
-        let ctx = ctx.clone();
-        std::thread::Builder::new()
-            .name("hark-ptt-capture-pump".to_string())
-            .spawn(move || {
-                while let Ok(edge) = hook_rx.recv() {
-                    if ui_tx.send(edge).is_err() {
-                        break;
-                    }
-                    crate::app::wake_ui(&ctx);
-                }
-            })
-            .expect("spawning the capture pump thread cannot fail");
-
-        Ok(Recording {
-            handle,
-            edges: ui_rx,
-            buffer: CaptureBuffer::new(),
-        })
-    }
-
     /// Drain pending edges. `Some(chord)` once the user completes a chord.
     fn poll(&mut self) -> Option<String> {
-        while let Ok(edge) = self.edges.try_recv() {
+        let edges = self.edges.as_ref()?;
+        while let Ok(edge) = edges.try_recv() {
             if let Some(chord) = self.buffer.on_event(edge.key, edge.down) {
                 return Some(chord.to_string());
             }
         }
         None
     }
+
+    /// Key edges the source has actually seen. Zero while the user swears they
+    /// are pressing keys means the hook is not being called at all — the one
+    /// fact that separates a dead hook from a lost message, and the reason it
+    /// is on screen rather than only in the log.
+    fn edges_seen(&self) -> u64 {
+        match &self.source {
+            Source::Tap(tap) => tap.edges_seen(),
+            // A hook of our own has no counter; the held keys are the signal.
+            Source::OwnHook(_) => 0,
+        }
+    }
+
+    fn is_alive(&self) -> bool {
+        match &self.source {
+            Source::Tap(_) => true,
+            Source::OwnHook(handle) => handle.is_alive(),
+        }
+    }
 }
 
-/// The push-to-talk section's cross-frame state: an optional live recording and
-/// the notice from the last failed attempt (e.g. recording is not wired up on
-/// this platform yet).
+/// The push-to-talk section's cross-frame state.
 #[derive(Default)]
 pub struct HotkeyCapture {
     recording: Option<Recording>,
     /// Shown until the next action; e.g. "Recording isn't available here yet".
     notice: Option<String>,
-    /// Whether the typed-chord escape hatch is showing. Off by default: the
-    /// recorder is the way to set a shortcut, and a chord typed by hand is a
-    /// string nobody validates against a real keyboard. It exists because a
-    /// recorder that cannot install its hook would otherwise leave no way at
-    /// all to change the shortcut.
+    /// Whether the typed-chord escape hatch is showing. Off by default: a chord
+    /// typed by hand is a string nobody has validated against a real keyboard.
     typing: bool,
 }
 
@@ -100,7 +101,6 @@ impl HotkeyCapture {
         self.recording.is_some()
     }
 
-    /// A failed record attempt to surface under the field, if any.
     pub fn notice(&self) -> Option<&str> {
         self.notice.as_deref()
     }
@@ -116,17 +116,39 @@ impl HotkeyCapture {
         self.notice = None;
     }
 
-    /// Start recording. Returns whether it began; on failure it leaves a
-    /// notice and reveals the typed fallback, so the user is never stuck.
-    pub fn begin(&mut self, ctx: &Context) -> bool {
-        match Recording::start(ctx) {
-            Ok(rec) => {
-                self.recording = Some(rec);
+    /// Start recording. Taps the running listener when there is one; otherwise
+    /// stops the (already stopped) pipeline's place in the world and installs a
+    /// hook. Returns whether recording began.
+    pub fn begin(&mut self, ctx: &Context, pipeline: &mut PipelineController) -> bool {
+        if let Some((tap, rx)) = pipeline.arm_capture() {
+            log::info!("shortcut recording: tapping the live push-to-talk hook");
+            self.recording = Some(Recording {
+                source: Source::Tap(tap),
+                edges: Some(rx),
+                buffer: CaptureBuffer::new(),
+            });
+            self.notice = None;
+            return true;
+        }
+
+        log::info!("shortcut recording: pipeline is stopped, installing a capture hook");
+        let (hook_tx, hook_rx) = mpsc::channel();
+        match hark_hotkey::spawn_capture(hook_tx) {
+            Ok(handle) => {
+                self.recording = Some(Recording {
+                    source: Source::OwnHook(handle),
+                    edges: Some(hook_rx),
+                    buffer: CaptureBuffer::new(),
+                });
                 self.notice = None;
+                // Nothing wakes the UI for us on this path, and the recording
+                // box repaints on a slow tick; a keypress with Hark focused
+                // also wakes winit, so this is a backstop, not the mechanism.
+                ctx.request_repaint();
                 true
             }
-            Err(detail) => {
-                self.notice = Some(format!("Can't record a shortcut here: {detail}"));
+            Err(e) => {
+                self.notice = Some(format!("Can't record a shortcut here: {e}"));
                 self.typing = true;
                 false
             }
@@ -134,36 +156,52 @@ impl HotkeyCapture {
     }
 
     /// Stop recording without setting a chord.
-    pub fn cancel(&mut self) -> HotkeyAction {
-        if self.recording.take().is_some() {
-            HotkeyAction::Ended
-        } else {
-            HotkeyAction::None
+    pub fn cancel(&mut self, pipeline: &mut PipelineController) -> HotkeyAction {
+        match self.recording.take() {
+            Some(rec) => {
+                self.release(rec, pipeline);
+                HotkeyAction::Ended
+            }
+            None => HotkeyAction::None,
         }
     }
 
-    /// Drain edges. When the user completes a chord, write it to `target`,
-    /// stop recording, and report `Ended`. A hook that died on its own ends
-    /// recording too, with the reason on screen: the alternative is a prompt
-    /// that asks for keys forever and never answers.
-    pub fn poll_into(&mut self, target: &mut String) -> HotkeyAction {
+    /// Drain edges. When the user completes a chord, write it to `target` and
+    /// report `Ended`. A hook that died on its own ends recording too, with the
+    /// reason on screen rather than a prompt that asks for keys forever.
+    pub fn poll_into(
+        &mut self,
+        target: &mut String,
+        pipeline: &mut PipelineController,
+    ) -> HotkeyAction {
         let Some(rec) = self.recording.as_mut() else {
             return HotkeyAction::None;
         };
         if let Some(chord) = rec.poll() {
+            log::info!("shortcut recorded after {} key edges", rec.edges_seen());
             *target = chord;
-            self.recording = None;
+            let rec = self.recording.take().expect("checked just above");
+            self.release(rec, pipeline);
             return HotkeyAction::Ended;
         }
-        if !rec.handle.is_alive() {
+        if !rec.is_alive() {
             log::warn!("shortcut recording ended: the keyboard hook stopped on its own");
             self.notice =
                 Some("Recording stopped: Windows dropped Hark's keyboard hook.".to_string());
             self.typing = true;
-            self.recording = None;
+            let rec = self.recording.take().expect("checked just above");
+            self.release(rec, pipeline);
             return HotkeyAction::Ended;
         }
         HotkeyAction::None
+    }
+
+    /// Give the key stream back. For a tap that hands the receiver to the
+    /// listener so the chord tracker resumes; an owned hook simply drops.
+    fn release(&mut self, mut rec: Recording, pipeline: &mut PipelineController) {
+        if let (Source::Tap(_), Some(rx)) = (&rec.source, rec.edges.take()) {
+            pipeline.disarm_capture(rx);
+        }
     }
 
     /// Live "Left Ctrl + Left Win" of the keys held so far, for the prompt.
@@ -177,5 +215,10 @@ impl HotkeyCapture {
             .map(|k| k.label())
             .collect::<Vec<_>>()
             .join(" + ")
+    }
+
+    /// Key edges the hook has reported since recording began.
+    pub fn edges_seen(&self) -> u64 {
+        self.recording.as_ref().map_or(0, |r| r.edges_seen())
     }
 }

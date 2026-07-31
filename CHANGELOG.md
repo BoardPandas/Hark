@@ -4,6 +4,15 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.31.1] - 2026-07-31
+
+### Fixed
+- **Recording a push-to-talk shortcut captures your keys.** Holding a combo in the recorder did nothing at all — no live preview, nothing set, on any combination. The recorder was installing a second keyboard hook of its own, and on real hardware that hook installs, reports itself healthy and waits for keys it is never given: an instrumented build caught it sitting live for 51 seconds without receiving a single keystroke, in the very same session where dictation through Hark's *other* hook worked perfectly. Rather than keep guessing at why Windows treats the two differently, recording now listens through the push-to-talk hook that demonstrably works. Two things follow from that: dictation is no longer stopped and restarted every time you open the recorder, and the recorder can no longer be left waiting on a hook that was never going to answer.
+- **The recorder shows how many keys it has seen.** If it ever comes up empty again, the box says whether the keys reached Hark at all — which is the difference between "Hark cannot see your keyboard" and "Hark saw the keys and lost the combo", and it no longer takes a log file to tell them apart.
+
+### Changed
+- **Your shortcut reads the same everywhere.** The status bar said "Listening for LCtrl+F12" while Settings said "Left Ctrl + F12"; both now use the readable form.
+
 ## [0.31.0] - 2026-07-31
 
 ### Fixed

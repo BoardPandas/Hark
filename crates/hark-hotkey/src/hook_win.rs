@@ -25,7 +25,7 @@
 
 use crate::capture::CaptureEvent;
 use crate::edges::{ChordTracker, PttChord, PttEvent, PttKeyCode};
-use crate::{HotkeyError, ListenerHandle};
+use crate::{CaptureTap, HotkeyError, ListenerHandle};
 use std::cell::{Cell, RefCell};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Sender};
@@ -101,10 +101,13 @@ fn physically_down(key: PttKeyCode) -> bool {
 /// The same hook serves push-to-talk (resolved chord edges) and the settings
 /// "record a shortcut" flow (raw key edges); the mode picks which.
 enum HookState {
-    /// Push-to-talk: feed a `ChordTracker`, emit engage/disengage edges.
+    /// Push-to-talk: feed a `ChordTracker`, emit engage/disengage edges —
+    /// unless the settings recorder has armed the tap, in which case the raw
+    /// edge goes there instead and the tracker never sees it.
     Ptt {
         tracker: ChordTracker,
         tx: Sender<PttEvent>,
+        tap: Arc<CaptureTap>,
     },
     /// Recording: forward every non-injected chord-capable key edge.
     Capture { tx: Sender<CaptureEvent> },
@@ -154,7 +157,7 @@ fn watchdog_tick() {
     let mut disconnected = false;
     let mut healed = false;
     HOOK_STATE.with(|state| {
-        if let Some(HookState::Ptt { tracker, tx }) = state.borrow_mut().as_mut() {
+        if let Some(HookState::Ptt { tracker, tx, .. }) = state.borrow_mut().as_mut() {
             if let Some(event) = tracker.resync_released(physically_down) {
                 log::warn!("push-to-talk release never arrived; ending the recording");
                 disconnected = tx.send(event).is_err();
@@ -184,7 +187,11 @@ unsafe extern "system" fn keyboard_hook(code: i32, wparam: WPARAM, lparam: LPARA
                     // or the record UI closed): shut this hook down rather than
                     // hooking keys forever.
                     let disconnected = match s {
-                        HookState::Ptt { tracker, tx } => {
+                        // Recording a shortcut: the raw edge goes to the
+                        // settings UI and the tracker is bypassed entirely, so
+                        // the chord being recorded cannot also fire a dictation.
+                        HookState::Ptt { tap, .. } if !injected && tap.forward(key, down) => false,
+                        HookState::Ptt { tracker, tx, .. } => {
                             match tracker.on_event_verified(key, down, injected, physically_down) {
                                 Some(event) => {
                                     // The watchdog exists only for the span of
@@ -218,13 +225,19 @@ pub(crate) fn spawn_listener(
     chord: PttChord,
     tx: Sender<PttEvent>,
 ) -> Result<ListenerHandle, HotkeyError> {
-    spawn_hook(
+    let (capture_tx, capture_rx) = mpsc::channel();
+    let tap = Arc::new(CaptureTap::new(capture_tx));
+    let mut handle = spawn_hook(
         "hark-hotkey",
         HookState::Ptt {
             tracker: ChordTracker::new(chord),
             tx,
+            tap: tap.clone(),
         },
-    )
+    )?;
+    handle.tap = Some(tap);
+    handle.capture_rx = Some(capture_rx);
+    Ok(handle)
 }
 
 /// Install the hook for the record-a-shortcut flow: raw key edges arrive on
@@ -299,6 +312,8 @@ fn spawn_hook(thread_name: &str, hook_state: HookState) -> Result<ListenerHandle
         Ok(Ok(thread_id)) => Ok(ListenerHandle {
             thread_id,
             alive,
+            tap: None,
+            capture_rx: None,
             thread: Some(thread),
         }),
         Ok(Err(e)) => {
