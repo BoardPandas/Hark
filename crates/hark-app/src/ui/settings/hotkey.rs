@@ -18,9 +18,12 @@ fn default_ptt_key() -> String {
 /// Push-to-talk shortcut. The chord is *recorded*, not typed: clicking the
 /// field captures held keys through the same low-level hook the pipeline uses
 /// (egui's own input can't tell left from right modifiers or reliably see the
-/// Win key), and the combo is committed on the first release — the rule every
-/// push-to-talk app uses, because a PTT chord is usually modifier-only and a
-/// recorder that waited for a "real" key could never record Ctrl+Win.
+/// Win key), and the combination is committed once every key has been let go.
+/// Release-to-commit rather than the commit-on-first-non-modifier rule most
+/// shortcut recorders use, because a PTT chord is usually modifier-only and
+/// that rule could never record Ctrl+Win; all-released rather than
+/// first-released, because a hand that lets go a few milliseconds apart would
+/// otherwise record half the combination.
 ///
 /// Typing the chord as text stays available behind a link, for the platforms
 /// where recording is not wired up yet and for the day a hook refuses to
@@ -146,12 +149,23 @@ fn recording_box(
             }
             ui.label(
                 RichText::new(
-                    "Let go to set it. Modifier keys (Ctrl, Shift, Alt, Win), Caps Lock, \
-                     and F1..F24 only — Esc to cancel.",
+                    "Let go of everything to set it. Modifier keys (Ctrl, Shift, Alt, \
+                     Win), Caps Lock, and F1..F24 only — Esc to cancel.",
                 )
                 .small()
                 .weak(),
             );
+            // A combination that cannot be a shortcut says why and lets the
+            // user try again, rather than silently setting something else or
+            // -- as it used to -- silently setting a bare modifier.
+            if let Some(rejected) = capture.rejected() {
+                ui.add_space(4.0);
+                ui.label(
+                    RichText::new(rejected.message())
+                        .small()
+                        .color(theme::WARNING),
+                );
+            }
             // Keys the hook has actually reported. Shown because "I press keys
             // and nothing happens" has two very different causes — the hook
             // never sees them, or it sees them and the chord never lands — and

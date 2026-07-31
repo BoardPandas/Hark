@@ -16,7 +16,7 @@
 
 use crate::pipeline::PipelineController;
 use egui::Context;
-use hark_hotkey::{CaptureBuffer, CaptureEvent, CaptureTap, ListenerHandle};
+use hark_hotkey::{CaptureBuffer, CaptureEvent, CaptureTap, ListenerHandle, Rejected};
 use std::sync::mpsc::{self, Receiver};
 use std::sync::Arc;
 
@@ -220,5 +220,11 @@ impl HotkeyCapture {
     /// Key edges the hook has reported since recording began.
     pub fn edges_seen(&self) -> u64 {
         self.recording.as_ref().map_or(0, |r| r.edges_seen())
+    }
+
+    /// Why the last combination the user let go of was turned down, if it was.
+    /// Recording carries on, so they can simply try another one.
+    pub fn rejected(&self) -> Option<Rejected> {
+        self.recording.as_ref().and_then(|r| r.buffer.rejected())
     }
 }

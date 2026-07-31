@@ -4,6 +4,12 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.31.2] - 2026-07-31
+
+### Fixed
+- **Recording a shortcut captures the whole combination, not the first key you let go of.** The recorder set the shortcut the instant *any* key came up, and hands do not release a combination in one instant — let go of Ctrl a few milliseconds before Shift and you recorded a bare "Left Ctrl". It looked like the recorder was ignoring you, because what it set was not what you pressed. It now waits until you have let go of everything and keeps every key you held at once, so a combination is recorded whole however loosely you press or release it. This is also the real source of the "pressing Ctrl on its own starts dictation" problem from 0.31.0: the shortcut really had been saved as a lone Ctrl.
+- **A lone Ctrl, Shift, Alt or Win is no longer accepted as a shortcut.** Binding push-to-talk to a bare modifier means every Ctrl press in every app starts a dictation — and it is miserable to undo, because you have to use the app it just broke to fix it. The recorder now says so and keeps listening, so you can simply press something else. Caps Lock and F1–F24 are still fine on their own; nothing else competes for them.
+
 ## [0.31.1] - 2026-07-31
 
 ### Fixed

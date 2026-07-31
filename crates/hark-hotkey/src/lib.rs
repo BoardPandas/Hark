@@ -12,7 +12,7 @@ pub mod edges;
 #[cfg(windows)]
 mod hook_win;
 
-pub use capture::{CaptureBuffer, CaptureEvent};
+pub use capture::{CaptureBuffer, CaptureEvent, Rejected};
 pub use edges::{pretty_chord, ChordParseError, ChordTracker, PttChord, PttEvent, PttKeyCode};
 
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};

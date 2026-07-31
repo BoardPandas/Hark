@@ -47,6 +47,24 @@ impl fmt::Display for PttKeyCode {
 }
 
 impl PttKeyCode {
+    /// Is this a key people hold to modify another? Bare modifiers make poor
+    /// shortcuts on their own: bind push-to-talk to one and every Ctrl press
+    /// in every app starts a dictation. Caps Lock and F1..F24 are fine alone —
+    /// nothing else is competing for them.
+    pub fn is_modifier(&self) -> bool {
+        matches!(
+            self,
+            PttKeyCode::LCtrl
+                | PttKeyCode::RCtrl
+                | PttKeyCode::LShift
+                | PttKeyCode::RShift
+                | PttKeyCode::LAlt
+                | PttKeyCode::RAlt
+                | PttKeyCode::LWin
+                | PttKeyCode::RWin
+        )
+    }
+
     /// The name a person reads, as opposed to the config token `Display`
     /// writes. Config keeps "LCtrl" because it round-trips through TOML; the
     /// UI shows "Left Ctrl" because that is what the key is called.
