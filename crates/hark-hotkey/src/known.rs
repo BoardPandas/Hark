@@ -85,6 +85,18 @@ const fn sideless(key: PttKeyCode) -> &'static str {
 }
 
 /// What else this chord does, if anything well-known does.
+/// A lock key toggles whatever else is held down with it: Scroll Lock flips
+/// on Ctrl+Alt+ScrollLock exactly as it does on its own. That side effect
+/// belongs to the KEY, not the combination, so it must be reported for any
+/// chord containing one — unlike an app shortcut, where Ctrl+Shift+A genuinely
+/// is not Ctrl+A and exact matching is right.
+fn lock_key_in(keys: &[PttKeyCode]) -> Option<&'static KnownShortcut> {
+    let lock = keys
+        .iter()
+        .find(|k| matches!(k, K::CapsLock | K::NumLock | K::ScrollLock))?;
+    KNOWN.iter().find(|row| row.chord == lock.token())
+}
+
 pub fn lookup(keys: &[PttKeyCode]) -> Option<&'static KnownShortcut> {
     // Normalise: side-less, and deduped — LCtrl+RCtrl+A is Ctrl+A to Windows.
     let mut mine: [&'static str; 4] = [""; 4];
@@ -101,6 +113,7 @@ pub fn lookup(keys: &[PttKeyCode]) -> Option<&'static KnownShortcut> {
         .iter()
         .find(|row| row_matches(row.chord, mine, false))
         .or_else(|| KNOWN.iter().find(|row| row_matches(row.chord, mine, true)))
+        .or_else(|| lock_key_in(keys))
 }
 
 impl PttChord {
@@ -586,6 +599,30 @@ mod table_integrity {
             "{refusing:?} would REFUSE a binding; a low-level hook sees far more than \
              people assume, so this needs citable evidence before it ships"
         );
+    }
+
+    /// Exact set equality is right for app shortcuts but wrong for the lock
+    /// keys: Ctrl+Alt+ScrollLock still flips Scroll Lock, and the first
+    /// version of this table said nothing at all about it.
+    #[test]
+    fn a_lock_key_is_reported_inside_any_chord() {
+        for text in [
+            "LCtrl+LAlt+ScrollLock",
+            "LCtrl+LShift+CapsLock",
+            "LWin+NumLock",
+            "ScrollLock",
+        ] {
+            let hit = chord(text)
+                .known_shortcut()
+                .unwrap_or_else(|| panic!("{text} should report its lock key"));
+            assert!(
+                hit.action.contains("toggles"),
+                "{text} reported {:?}, which does not mention the toggle",
+                hit.action
+            );
+        }
+        // A chord with no lock key is unaffected by the fallback.
+        assert!(chord("LCtrl+LWin+F13").known_shortcut().is_none());
     }
 
     #[test]

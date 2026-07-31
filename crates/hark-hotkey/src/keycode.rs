@@ -303,6 +303,24 @@ impl PttKeyCode {
         )
     }
 
+    /// The locks whose toggle a low-level hook can actually stop.
+    ///
+    /// Num Lock is deliberately absent: Windows applies its toggle ABOVE the
+    /// hook, so suppressing it would eat the keystroke and flip the lock
+    /// anyway (this is why PowerToys has to restore it with SendInput).
+    pub const fn is_suppressible_lock(self) -> bool {
+        matches!(self, K::CapsLock | K::ScrollLock)
+    }
+
+    /// Alt and Win — the modifiers that pop a menu on release unless Windows
+    /// saw another key go down while they were held. A swallowed keypress is
+    /// invisible to the system, so it cannot mark them "used in a chord", and
+    /// suppressing inside such a chord would pop the Start menu or the menu
+    /// bar on every dictation. Ctrl and Shift have no such release behaviour.
+    pub const fn is_menu_modifier(self) -> bool {
+        matches!(self, K::LAlt | K::RAlt | K::LWin | K::RWin)
+    }
+
     /// The config.toml spelling. Stable forever: config files hold these.
     pub const fn token(self) -> &'static str {
         match self {

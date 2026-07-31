@@ -218,18 +218,23 @@ pub fn capture_supported() -> bool {
 
 /// Start listening for the chord; edges arrive on `tx`. One listener per
 /// process. Blocks until the hook is installed (or failed).
+/// `swallow_locks`: suppress the Caps/Scroll Lock toggle when the lock key is
+/// pressed as part of this chord. Off makes the hook observe-only, exactly as
+/// it was; the setting exists because none of the suppression is verifiable
+/// without real Windows hardware, and a config line beats waiting for a build.
 pub fn spawn_listener(
     chord: PttChord,
+    swallow_locks: bool,
     tx: Sender<PttEvent>,
 ) -> Result<ListenerHandle, HotkeyError> {
     #[cfg(windows)]
     {
-        hook_win::spawn_listener(chord, tx)
+        hook_win::spawn_listener(chord, swallow_locks, tx)
     }
     #[cfg(not(windows))]
     {
         // CGEventTap arrives in checkpoint 7 (NEEDS MAC).
-        let _ = (chord, tx);
+        let _ = (chord, swallow_locks, tx);
         Err(HotkeyError::UnsupportedPlatform)
     }
 }

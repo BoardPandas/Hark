@@ -400,7 +400,7 @@ pub fn run(
     );
 
     let (ptt_tx, ptt_rx) = mpsc::channel();
-    let listener = hark_hotkey::spawn_listener(chord, ptt_tx)?;
+    let listener = hark_hotkey::spawn_listener(chord, settings.hotkey.swallow_lock_keys, ptt_tx)?;
 
     let recording = Arc::new(AtomicBool::new(false));
     let w = worker::Worker {

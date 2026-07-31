@@ -25,11 +25,42 @@
   handful of key-state reads: the pump is still the hook's lifeline.
 - **Heal releases only, never presses.** Synthesizing a press from a poll would
   let a chord the user was already holding start a dictation nobody asked for.
-- **Observe, never swallow.** Always `CallNextHookEx`. The Ctrl+Win default
-  chord needs no swallowing: Windows marks a Win press "used in a chord"
-  when another key goes down while it is held, so the Start menu does not
-  fire on release.
-- **Platform seam:** `spawn_listener(chord, tx)` is the only entry point.
+- **Observe, never swallow — with exactly one exception.** Default: always
+  `CallNextHookEx`. Skipping it starves every earlier-registered hook, the
+  target window proc, `RegisterHotKey` hotkeys and Raw Input, in every app on
+  the machine. `swallow` is a stack local initialised `false`, so every path
+  that is not the exception — an unmapped VK, an armed capture tap, a lost
+  receiver — falls through unchanged. The Ctrl+Win default needs no
+  swallowing: Windows marks a Win press "used in a chord" when another key
+  goes down while it is held, so the Start menu does not fire on release.
+  **The exception:** a Caps Lock or Scroll Lock key-down, when it is a member
+  of the running chord and the tracker is engaged, so a dictation does not
+  also flip the lock. `ChordTracker::swallow` is the whole policy and it is
+  pure. Every clause is load-bearing:
+  - **Key-down only.** The toggle rides the make code; swallowing a release
+    buys nothing and is the only way to leave a lock key stuck from the
+    system's point of view. Down-only makes that state unrepresentable.
+  - **Derived from `engaged`, never from a physical poll.** A poll is strictly
+    weaker than the engage condition and would fire with no dictation running.
+    The invariant that makes this defensible is that *every swallowed
+    keystroke has a visible dictation attached to it*.
+  - **Never a 1-key chord.** "All the other members are held" is vacuously
+    true when there are none, which would kill Caps Lock globally, forever.
+  - **Never with Alt or Win in the chord.** A swallowed press is invisible to
+    Windows, so it cannot mark them "used in a chord" and the Start menu or
+    menu bar pops on every dictation.
+  - **Never Num Lock.** Windows applies its toggle above the hook, so
+    swallowing eats the keystroke and the lock flips anyway.
+  - **Never two locks in one chord.** The suppressed member reads "up" all
+    hold, so the chord needs a member the watchdog can still read truthfully.
+  - **`resync_released` skips the suppressed member.** It never reaches the
+    system, so polling it would fire a bogus `UpMissed` at the first tick and
+    paste a quarter second of audio at the cursor on every dictation.
+  Known and accepted: the lock key must be pressed **last** (press it first
+  and it toggles), and screen readers that use Caps Lock as their modifier
+  lose it for that chord. `[hotkey] swallow_lock_keys = false` restores the
+  observe-only hook exactly.
+- **Platform seam:** `spawn_listener(chord, swallow_locks, tx)` is the only entry point.
   `hook_mac.rs` (CGEventTap, checkpoint 7, NEEDS MAC) must implement the same
   signature and feed the same `edges.rs` tracker; the tap thread owns its own
   `CFRunLoop` and must not fight the egui/winit main loop.

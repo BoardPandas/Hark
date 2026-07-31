@@ -396,6 +396,10 @@ fn watchdog_tick() {
 }
 
 unsafe extern "system" fn keyboard_hook(code: i32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
+    // Stack local, false by default: every path that is not the one exception
+    // below -- an unmapped VK, an armed capture tap, a lost receiver -- falls
+    // through to CallNextHookEx unchanged.
+    let mut swallow = false;
     if code >= 0 {
         // lparam points at the event struct for keyboard LL hooks.
         let info = unsafe { &*(lparam.0 as *const KBDLLHOOKSTRUCT) };
@@ -417,7 +421,13 @@ unsafe extern "system" fn keyboard_hook(code: i32, wparam: WPARAM, lparam: LPARA
                             false
                         }
                         HookState::Ptt { tracker, tx, .. } => {
-                            match tracker.on_event_verified(key, down, injected, physically_down) {
+                            // Asked AFTER the tracker consumes the event, so
+                            // the engage edge itself can be swallowed. Reads
+                            // only tracker state; see ChordTracker::swallow.
+                            let event =
+                                tracker.on_event_verified(key, down, injected, physically_down);
+                            swallow = tracker.swallow(key, down, injected);
+                            match event {
                                 Some(event) => {
                                     // The watchdog exists only for the span of
                                     // a hold: armed on engage, disarmed on the
@@ -441,6 +451,12 @@ unsafe extern "system" fn keyboard_hook(code: i32, wparam: WPARAM, lparam: LPARA
                 }
             });
         }
+    }
+    if swallow {
+        // The ONE exception to "observe, never swallow": a lock key pressed as
+        // part of the running chord, so the dictation does not also flip Caps
+        // Lock or Scroll Lock. Non-zero tells Windows to discard the event.
+        return LRESULT(1);
     }
     unsafe { CallNextHookEx(None, code, wparam, lparam) }
 }
@@ -488,6 +504,7 @@ pub(crate) fn spawn_scanner(tap: std::sync::Arc<crate::CaptureTap>) {
 /// Install the hook for push-to-talk: resolved chord edges arrive on `tx`.
 pub(crate) fn spawn_listener(
     chord: PttChord,
+    swallow_locks: bool,
     tx: Sender<PttEvent>,
 ) -> Result<ListenerHandle, HotkeyError> {
     let (capture_tx, capture_rx) = mpsc::channel();
@@ -498,7 +515,7 @@ pub(crate) fn spawn_listener(
     let mut handle = spawn_hook(
         "hark-hotkey",
         HookState::Ptt {
-            tracker: ChordTracker::new(chord),
+            tracker: ChordTracker::with_lock_suppression(chord, swallow_locks),
             tx,
             tap: shared.clone(),
         },

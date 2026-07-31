@@ -140,6 +140,11 @@ pub struct Hotkey {
     /// "+"-separated chord; hold ALL keys to record, release any to stop.
     /// Parsed by `hark-hotkey` at startup (unknown names error there).
     pub ptt_key: String,
+    /// Stop Caps/Scroll Lock toggling when the lock key is pressed as part of
+    /// the chord. Turning this off restores the observe-only hook exactly, and
+    /// exists because none of the suppression can be verified without real
+    /// Windows hardware — a config line beats waiting for a build.
+    pub swallow_lock_keys: bool,
 }
 
 impl Default for Hotkey {
@@ -147,6 +152,7 @@ impl Default for Hotkey {
         Hotkey {
             // Confirmed with the user 2026-07-16: chord, not a single key.
             ptt_key: "LCtrl+LWin".to_string(),
+            swallow_lock_keys: true,
         }
     }
 }

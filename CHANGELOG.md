@@ -4,6 +4,15 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.35.0] - 2026-07-31
+
+### Added
+- **A shortcut containing Caps Lock or Scroll Lock no longer flips the lock while you dictate.** Hold Ctrl+Shift+ScrollLock and you dictate without Scroll Lock toggling — but press Scroll Lock on its own and it works exactly as it always did. Press the lock key **last**: press it first and it toggles before Hark knows a shortcut is starting.
+  - Not available when the shortcut also contains **Alt or Win**. Suppressing a key makes it invisible to Windows, which then thinks Alt or Win was pressed on its own and pops the menu bar or Start menu every time you dictate — worse than the toggle. Ctrl and Shift are unaffected, so Ctrl+Shift+ScrollLock works where Ctrl+Alt+ScrollLock cannot.
+  - **Num Lock is never suppressed.** Windows applies its toggle before Hark can see the key, so blocking it would swallow the keypress and flip the lock anyway.
+  - Set `swallow_lock_keys = false` under `[hotkey]` in config.toml to switch it off entirely and go back to Hark never touching a key.
+- **The recorder warns about a lock key anywhere in a shortcut, not just on its own.** Ctrl+Alt+ScrollLock still toggles Scroll Lock and now says so; before, it said nothing at all because the warning only matched the key pressed alone.
+
 ## [0.34.0] - 2026-07-31
 
 ### Added

@@ -170,22 +170,87 @@ pub enum PttEvent {
     UpMissed,
 }
 
+/// Which chord member, if any, Hark may swallow so its lock does not toggle.
+///
+/// A pure function of the chord, resolved once. Every clause exists because
+/// something worse happens without it:
+/// - fewer than 2 keys: a lone Caps Lock chord would make Caps Lock unusable
+///   everywhere, forever. The vacuous "all other members are held" is exactly
+///   the trap here — there are no other members.
+/// - any Alt or Win: see [`PttKeyCode::is_menu_modifier`].
+/// - two suppressible locks: the swallowed one reads "up" for the whole hold,
+///   so the chord needs at least one member the watchdog can still read
+///   truthfully. One lock guarantees a non-lock member remains.
+fn swallowable_lock(chord: &PttChord, enabled: bool) -> Option<usize> {
+    if !enabled || chord.keys.len() < 2 {
+        return None;
+    }
+    if chord.keys.iter().any(|k| k.is_menu_modifier()) {
+        return None;
+    }
+    let mut found = None;
+    for (i, key) in chord.keys.iter().enumerate() {
+        if key.is_suppressible_lock() {
+            if found.is_some() {
+                return None;
+            }
+            found = Some(i);
+        }
+    }
+    found
+}
+
 /// The chord state machine. Feed every raw key event the platform hook sees;
 /// it emits an edge only on engage/disengage transitions.
 pub struct ChordTracker {
     chord: PttChord,
     member_down: Vec<bool>,
     engaged: bool,
+    /// The one member whose lock toggle may be suppressed. A pure function of
+    /// the chord, fixed at construction: there is deliberately NO per-press
+    /// bookkeeping, so there is no flag to strand and no way to represent a
+    /// key stuck swallowed. That is what makes a second return path in the
+    /// hook defensible at all.
+    lock: Option<usize>,
 }
 
 impl ChordTracker {
     pub fn new(chord: PttChord) -> ChordTracker {
+        ChordTracker::with_lock_suppression(chord, false)
+    }
+
+    pub fn with_lock_suppression(chord: PttChord, swallow_locks: bool) -> ChordTracker {
         let n = chord.keys.len();
+        let lock = swallowable_lock(&chord, swallow_locks);
         ChordTracker {
             chord,
             member_down: vec![false; n],
             engaged: false,
+            lock,
         }
+    }
+
+    /// Should the hook swallow the event it has just fed in, so the lock does
+    /// not toggle? Call AFTER [`Self::on_event_verified`] has consumed it.
+    ///
+    /// Key-down only, on purpose. The toggle rides the make code, so
+    /// swallowing releases buys nothing — and a swallowed release is the only
+    /// way a lock key could end up stuck from the system's point of view.
+    /// With down-only, that state is not representable.
+    pub fn swallow(&self, key: PttKeyCode, down: bool, injected: bool) -> bool {
+        if !down || injected {
+            return false;
+        }
+        let Some(lock) = self.lock else {
+            return false;
+        };
+        // Engaged with this member down means the press that just started the
+        // dictation, or a repeat inside it. Derived from the tracker's own
+        // state rather than from a physical poll: a poll is strictly weaker
+        // than the engage condition and would fire with no dictation running,
+        // and the invariant that makes this safe is that every swallowed
+        // keystroke has a visible dictation attached to it.
+        self.engaged && self.chord.keys[lock] == key && self.member_down[lock]
     }
 
     /// Process one raw key event, trusting the tracker's own record of what is
@@ -283,6 +348,14 @@ impl ChordTracker {
         }
         let mut released = false;
         for (idx, key) in self.chord.keys.iter().enumerate() {
+            // A swallowed key-down never reaches the system, so this member
+            // reads "up" for the whole hold. Polling it would fire a bogus
+            // UpMissed at the first tick and paste a quarter second of audio
+            // at the cursor on every dictation. `swallowable_lock` guarantees
+            // a non-lock member remains, so the watchdog still has an anchor.
+            if Some(idx) == self.lock {
+                continue;
+            }
             if self.member_down[idx] && !physically_down(*key) {
                 self.member_down[idx] = false;
                 released = true;
@@ -553,6 +626,113 @@ mod tests {
             t.on_event_verified(PttKeyCode::LCtrl, true, false, |_| true),
             None
         );
+    }
+
+    fn engaged_tracker(text: &str) -> ChordTracker {
+        let mut t = ChordTracker::with_lock_suppression(chord(text), true);
+        let keys: Vec<_> = chord(text).keys().to_vec();
+        for key in &keys {
+            t.on_event(*key, true, false);
+        }
+        assert!(t.engaged, "{text} should be engaged");
+        t
+    }
+
+    /// THE catastrophic case. A lone Caps Lock chord has no "other members",
+    /// so any rule phrased as "all the others are held" is vacuously true and
+    /// would swallow Caps Lock everywhere, forever, with no way back.
+    #[test]
+    fn a_lone_lock_key_chord_is_never_swallowed() {
+        for text in ["CapsLock", "ScrollLock"] {
+            let mut t = ChordTracker::with_lock_suppression(chord(text), true);
+            let key = chord(text).keys()[0];
+            assert_eq!(t.on_event(key, true, false), Some(PttEvent::Down));
+            assert!(
+                !t.swallow(key, true, false),
+                "{text} alone must keep working as a lock key"
+            );
+        }
+    }
+
+    #[test]
+    fn a_lock_key_in_a_chord_is_swallowed_on_the_press_that_engages() {
+        let t = engaged_tracker("LCtrl+ScrollLock");
+        assert!(t.swallow(PttKeyCode::ScrollLock, true, false));
+        // ...but only the lock member, only key-down, and never injected.
+        assert!(!t.swallow(PttKeyCode::LCtrl, true, false));
+        assert!(!t.swallow(PttKeyCode::ScrollLock, false, false));
+        assert!(!t.swallow(PttKeyCode::ScrollLock, true, true));
+    }
+
+    /// Nothing is swallowed unless a dictation is actually running. That is the
+    /// invariant that makes a second return path in the hook defensible: every
+    /// swallowed keystroke has a visible dictation attached to it.
+    #[test]
+    fn nothing_is_swallowed_while_idle() {
+        let mut t = ChordTracker::with_lock_suppression(chord("LCtrl+ScrollLock"), true);
+        assert!(!t.swallow(PttKeyCode::ScrollLock, true, false));
+        // Lock key first, chord not yet complete: still not engaged.
+        t.on_event(PttKeyCode::ScrollLock, true, false);
+        assert!(!t.swallow(PttKeyCode::ScrollLock, true, false));
+    }
+
+    #[test]
+    fn alt_or_win_in_the_chord_disables_suppression() {
+        // A swallowed press is invisible to Windows, so it cannot mark Alt or
+        // Win "used in a chord" -- the menu would pop on every dictation.
+        for text in ["LCtrl+LAlt+ScrollLock", "LWin+CapsLock", "RAlt+CapsLock"] {
+            let t = engaged_tracker(text);
+            let lock = chord(text)
+                .keys()
+                .iter()
+                .copied()
+                .find(|k| k.is_suppressible_lock())
+                .unwrap();
+            assert!(!t.swallow(lock, true, false), "{text} must not swallow");
+        }
+    }
+
+    #[test]
+    fn num_lock_is_never_swallowed() {
+        // Windows applies Num Lock's toggle above the hook, so swallowing
+        // would eat the keystroke and flip the lock anyway.
+        let t = engaged_tracker("LCtrl+NumLock");
+        assert!(!t.swallow(PttKeyCode::NumLock, true, false));
+    }
+
+    #[test]
+    fn two_lock_keys_disable_suppression() {
+        let t = engaged_tracker("CapsLock+ScrollLock");
+        assert!(!t.swallow(PttKeyCode::CapsLock, true, false));
+        assert!(!t.swallow(PttKeyCode::ScrollLock, true, false));
+    }
+
+    #[test]
+    fn suppression_is_off_unless_the_setting_asks_for_it() {
+        let mut t = ChordTracker::with_lock_suppression(chord("LCtrl+ScrollLock"), false);
+        t.on_event(PttKeyCode::LCtrl, true, false);
+        t.on_event(PttKeyCode::ScrollLock, true, false);
+        assert!(!t.swallow(PttKeyCode::ScrollLock, true, false));
+        // ...and ChordTracker::new is the observe-only constructor.
+        let plain = ChordTracker::new(chord("LCtrl+ScrollLock"));
+        assert!(!plain.swallow(PttKeyCode::ScrollLock, true, false));
+    }
+
+    /// A swallowed press never reaches the system, so the watchdog would read
+    /// that member as "up" for the whole hold, emit UpMissed at the first
+    /// 250 ms tick, and paste a quarter second of audio at the cursor on every
+    /// single dictation. The suppressed member must be exempt from the poll.
+    #[test]
+    fn the_watchdog_ignores_the_suppressed_member() {
+        let mut t = engaged_tracker("LCtrl+ScrollLock");
+        // ScrollLock reads up (it was swallowed); LCtrl is genuinely held.
+        assert_eq!(
+            t.resync_released(|k| k == PttKeyCode::LCtrl),
+            None,
+            "a swallowed member must not look like a lost release"
+        );
+        // A real release of the member it CAN read still heals normally.
+        assert_eq!(t.resync_released(|_| false), Some(PttEvent::UpMissed));
     }
 
     #[test]
