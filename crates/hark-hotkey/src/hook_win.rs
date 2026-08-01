@@ -643,8 +643,8 @@ mod tests {
 
     #[test]
     fn vk_mapping_round_trips_for_every_chord_key() {
-        // Every key in CHORD_KEYS, not a hand-picked dozen: the scanner reads
-        // key_to_vk for all 33 each tick, so a mismatch anywhere would invent a
+        // Every key in ALL_KEYS, not a hand-picked dozen: the scanner reads
+        // key_to_vk for all 114 each tick, so a mismatch anywhere would invent a
         // press or miss a release for that key. The watchdog only ever touched
         // the handful in a configured chord, which is why 12 used to be enough.
         for key in crate::keycode::ALL_KEYS {
@@ -653,10 +653,21 @@ mod tests {
     }
 
     #[test]
-    fn vk_mapping_ignores_typing_keys() {
-        assert_eq!(vk_to_key(0x41), None); // 'A'
-        assert_eq!(vk_to_key(0x20), None); // Space
-        assert_eq!(vk_to_key(0x0D), None); // Enter
-        assert_eq!(vk_to_key(0x56), None); // 'V' (the paste key!)
+    fn vk_mapping_ignores_what_is_not_a_chord_key() {
+        // Typing keys map now — every one of the 114 is bindable, and whether a
+        // chord is a trap (Ctrl+V and friends) is `PttChord::rejection`'s
+        // business, not this table's. What is left out is deliberate:
+        assert_eq!(vk_to_key(0x1B), None); // Escape: it cancels a recording
+        assert_eq!(vk_to_key(0x2C), None); // PrintScreen
+        assert_eq!(vk_to_key(0x13), None); // Pause
+        assert_eq!(vk_to_key(0xAD), None); // Volume Mute, and the media keys
+        assert_eq!(vk_to_key(0x01), None); // a mouse button, not a key
+
+        // The sideless modifier codes stay unmapped or a right-hand press would
+        // engage a chord that names the left one: the hook and GetAsyncKeyState
+        // both speak in sides, and the tracker matches members by equality.
+        assert_eq!(vk_to_key(0x10), None); // Shift
+        assert_eq!(vk_to_key(0x11), None); // Ctrl
+        assert_eq!(vk_to_key(0x12), None); // Alt
     }
 }

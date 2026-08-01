@@ -4,6 +4,11 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.35.2] - 2026-07-31
+
+### Fixed
+- **Development tooling only — Hark itself is unchanged in this release.** The Windows test suite has been failing on every push since 0.33.0, because one test still insisted that letters, Space, Enter and V could not be part of a shortcut — which stopped being true the moment that release made all 114 keys bindable. The test only compiles on Windows, so nothing caught it before CI did. It now pins what genuinely stays out: Escape (it cancels a recording), Print Screen, Pause, the media keys, and the sideless Shift/Ctrl/Alt codes that would otherwise let a right-hand key stand in for a left-hand one.
+
 ## [0.35.1] - 2026-07-31
 
 ### Fixed
