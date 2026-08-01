@@ -84,7 +84,7 @@ fn result(ui: &mut Ui, updater: &mut Updater) {
         ),
         Kind::Failed(msg) => {
             ui.horizontal_wrapped(|ui| {
-                ui.label(RichText::new(theme::icons::X).color(theme::DANGER));
+                ui.label(theme::icon_text(theme::icons::X).color(theme::DANGER));
                 ui.label(&msg);
             });
         }

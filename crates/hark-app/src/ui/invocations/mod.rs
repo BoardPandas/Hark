@@ -70,7 +70,7 @@ impl InvocationsPage {
         if let Some(error) = &self.notice {
             ui.add_space(6.0);
             ui.horizontal_wrapped(|ui| {
-                ui.label(RichText::new(theme::icons::WARNING).color(theme::DANGER));
+                ui.label(theme::icon_text(theme::icons::WARNING).color(theme::DANGER));
                 ui.label(RichText::new(error).small());
             });
         }
@@ -103,7 +103,7 @@ impl InvocationsPage {
                             ui.set_width((ui.available_width() - 96.0).max(160.0));
                             ui.horizontal_wrapped(|ui| {
                                 ui.label(
-                                    RichText::new(theme::icons::LIGHTNING)
+                                    theme::icon_text(theme::icons::LIGHTNING)
                                         .color(theme::accent(ui.visuals())),
                                 );
                                 ui.label(RichText::new(&entry.phrase).monospace());
@@ -121,7 +121,7 @@ impl InvocationsPage {
                             if let Some(reason) = skip_reason(&invocations.entries, index) {
                                 ui.horizontal_wrapped(|ui| {
                                     ui.label(
-                                        RichText::new(theme::icons::WARNING)
+                                        theme::icon_text(theme::icons::WARNING)
                                             .small()
                                             .color(theme::WARNING),
                                     );
@@ -131,7 +131,7 @@ impl InvocationsPage {
                         });
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Min), |ui| {
                             if ui
-                                .button(RichText::new(theme::icons::TRASH))
+                                .button(theme::icon_text(theme::icons::TRASH))
                                 .on_hover_text("Delete invocation")
                                 .clicked()
                             {

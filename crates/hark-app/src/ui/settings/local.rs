@@ -59,7 +59,7 @@ pub fn section(ui: &mut Ui, draft: &mut Settings, download: &mut ModelDownload) 
 fn unavailable(ui: &mut Ui) {
     ui.add_space(4.0);
     ui.horizontal_wrapped(|ui| {
-        ui.label(RichText::new(theme::icons::WARNING).color(theme::WARNING));
+        ui.label(theme::icon_text(theme::icons::WARNING).color(theme::WARNING));
         ui.label(
             RichText::new(
                 "This build of Hark does not include the on-device engine. \
@@ -194,7 +194,7 @@ fn controls(ui: &mut Ui, draft: &mut Settings, download: &mut ModelDownload, sta
     if draft.local_stt.mode == LocalMode::Primary && status != ModelStatus::Ready {
         ui.add_space(4.0);
         ui.horizontal_wrapped(|ui| {
-            ui.label(RichText::new(theme::icons::WARNING).color(theme::WARNING));
+            ui.label(theme::icon_text(theme::icons::WARNING).color(theme::WARNING));
             ui.label(
                 RichText::new(
                     "Dictation will not work until this finishes downloading, \

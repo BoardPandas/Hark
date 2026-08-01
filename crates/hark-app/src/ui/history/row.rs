@@ -78,7 +78,7 @@ pub fn show(
         });
         ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
             if ui
-                .button(RichText::new(theme::icons::TRASH))
+                .button(theme::icon_text(theme::icons::TRASH))
                 .on_hover_text("Delete entry")
                 .clicked()
             {
@@ -90,7 +90,7 @@ pub fn show(
             let add = ui
                 .add_enabled(
                     selected.is_some(),
-                    egui::Button::new(RichText::new(theme::icons::BOOK_OPEN)),
+                    egui::Button::new(theme::icon_text(theme::icons::BOOK_OPEN)),
                 )
                 .on_hover_text(match selected {
                     Some(term) => format!("Add \u{201C}{term}\u{201D} to your Spellbook"),
@@ -100,7 +100,7 @@ pub fn show(
                 action = Some(Action::AddTerm(term.to_string()));
             }
             if ui
-                .button(RichText::new(theme::icons::COPY))
+                .button(theme::icon_text(theme::icons::COPY))
                 .on_hover_text("Copy text")
                 .clicked()
             {
@@ -152,7 +152,7 @@ fn details(ui: &mut Ui, entry: &Entry, tz: &TimeZone, selection: &mut Option<Sel
             if let Some(trigger) = &entry.invocation {
                 ui.horizontal_wrapped(|ui| {
                     ui.label(
-                        RichText::new(theme::icons::LIGHTNING)
+                        theme::icon_text(theme::icons::LIGHTNING)
                             .small()
                             .color(theme::accent(ui.visuals())),
                     );

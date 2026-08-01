@@ -95,7 +95,7 @@ fn show_report(ui: &mut Ui, report: &TestReport) {
     match &report.stt {
         Ok(pass) => {
             ui.horizontal(|ui| {
-                ui.label(RichText::new(theme::icons::CHECK).color(theme::SUCCESS));
+                ui.label(theme::icon_text(theme::icons::CHECK).color(theme::SUCCESS));
                 ui.add(
                     egui::Label::new(RichText::new(format!("\u{201C}{}\u{201D}", pass.text)))
                         .truncate(),
@@ -112,7 +112,7 @@ fn show_report(ui: &mut Ui, report: &TestReport) {
         }
         Err(detail) => {
             ui.horizontal_wrapped(|ui| {
-                ui.label(RichText::new(theme::icons::X).color(theme::DANGER));
+                ui.label(theme::icon_text(theme::icons::X).color(theme::DANGER));
                 ui.label(detail);
             });
         }
@@ -120,14 +120,14 @@ fn show_report(ui: &mut Ui, report: &TestReport) {
     match &report.cleanup {
         Some(Ok(pass)) => {
             ui.horizontal(|ui| {
-                ui.label(RichText::new(theme::icons::CHECK).color(theme::SUCCESS));
+                ui.label(theme::icon_text(theme::icons::CHECK).color(theme::SUCCESS));
                 ui.label(format!("Cleanup {}", pass.model));
                 ui.label(RichText::new(format!("{} ms", pass.ms)).monospace().weak());
             });
         }
         Some(Err(detail)) => {
             ui.horizontal_wrapped(|ui| {
-                ui.label(RichText::new(theme::icons::X).color(theme::DANGER));
+                ui.label(theme::icon_text(theme::icons::X).color(theme::DANGER));
                 ui.label(format!("Cleanup: {detail}"));
             });
         }

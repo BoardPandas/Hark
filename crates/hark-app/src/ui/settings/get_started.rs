@@ -100,7 +100,7 @@ pub fn show(ui: &mut Ui, card_view: &CardView, chord: &str) -> bool {
                 {
                     ui.horizontal(|ui| {
                         if done {
-                            ui.label(RichText::new(theme::icons::CHECK).color(theme::SUCCESS));
+                            ui.label(theme::icon_text(theme::icons::CHECK).color(theme::SUCCESS));
                         } else {
                             ui.label(RichText::new(format!("{}.", index + 1)).weak());
                         }
@@ -113,7 +113,7 @@ pub fn show(ui: &mut Ui, card_view: &CardView, chord: &str) -> bool {
                     ui,
                     |ui| {
                         ui.horizontal(|ui| {
-                            ui.label(RichText::new(theme::icons::CHECK).color(theme::SUCCESS));
+                            ui.label(theme::icon_text(theme::icons::CHECK).color(theme::SUCCESS));
                             ui.label(RichText::new("You're set").text_style(theme::subheading()));
                         });
                     },

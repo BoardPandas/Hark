@@ -200,14 +200,14 @@ fn report(ui: &mut Ui, outcome: &Outcome, default_voice: VoiceName) {
     match &outcome.result {
         Ok(pass) => {
             ui.horizontal_wrapped(|ui| {
-                ui.label(RichText::new(theme::icons::CHECK).color(theme::SUCCESS));
+                ui.label(theme::icon_text(theme::icons::CHECK).color(theme::SUCCESS));
                 ui.label(format!("Cleanup reached {}", pass.model));
                 ui.label(RichText::new(format!("{} ms", pass.ms)).monospace().weak());
             });
         }
         Err(detail) => {
             ui.horizontal_wrapped(|ui| {
-                ui.label(RichText::new(theme::icons::X).color(theme::DANGER));
+                ui.label(theme::icon_text(theme::icons::X).color(theme::DANGER));
                 ui.label(detail);
             });
         }
@@ -257,7 +257,7 @@ fn inherited_line(ui: &mut Ui, draft: &Settings) {
         }
         CleanupResolution::VerbatimWithWarning { reason } => {
             ui.horizontal_wrapped(|ui| {
-                ui.label(RichText::new(theme::icons::WARNING).color(theme::WARNING));
+                ui.label(theme::icon_text(theme::icons::WARNING).color(theme::WARNING));
                 ui.label(RichText::new(format!(
                     "{reason} Text is injected as transcribed."
                 )));

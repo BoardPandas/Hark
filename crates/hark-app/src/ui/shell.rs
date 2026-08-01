@@ -87,7 +87,7 @@ fn topbar(ui: &mut Ui, page: &mut pages::Page) {
                 ui.spacing_mut().item_spacing.x = 2.0;
                 let accent = theme::accent(ui.visuals());
                 ui.label(
-                    RichText::new(theme::icons::MICROPHONE)
+                    theme::icon_text(theme::icons::MICROPHONE)
                         .size(17.0)
                         .color(accent),
                 );
@@ -161,7 +161,9 @@ fn tab(ui: &mut Ui, page: &mut pages::Page, target: pages::Page) {
 /// page it takes the accent border + accent text.
 fn settings_tab(ui: &mut Ui, page: &mut pages::Page) {
     let on_settings = *page == pages::Page::Settings;
-    let label = format!("{}  Settings", theme::icons::GEAR);
+    // Two sections, not one format!: the gear needs the icon family (Inter
+    // claims that codepoint) while "Settings" needs the text family.
+    let label = theme::icon_label_job(ui.style(), theme::icons::GEAR, "Settings");
     let clicked = if on_settings {
         ui.add(theme::primary_button(ui.visuals(), label)).clicked()
     } else {
@@ -203,14 +205,14 @@ fn banner(ui: &mut Ui, updater: &mut Updater, page: &mut pages::Page) {
                         );
                     }
                     Phase::Ready { .. } => {
-                        ui.label(RichText::new(theme::icons::CHECK).color(tint));
+                        ui.label(theme::icon_text(theme::icons::CHECK).color(tint));
                         ui.label(
                             RichText::new(format!("Hark {version} is ready to install"))
                                 .color(tint),
                         );
                     }
                     _ => {
-                        ui.label(RichText::new(theme::icons::ARROW_UP).color(tint));
+                        ui.label(theme::icon_text(theme::icons::ARROW_UP).color(tint));
                         ui.label(
                             RichText::new(format!("Hark {version} is available.")).color(tint),
                         );
@@ -221,7 +223,7 @@ fn banner(ui: &mut Ui, updater: &mut Updater, page: &mut pages::Page) {
                 ui.with_layout(Layout::right_to_left(egui::Align::Center), |ui| {
                     if ui
                         .add(
-                            egui::Button::new(RichText::new(theme::icons::X).color(tint))
+                            egui::Button::new(theme::icon_text(theme::icons::X).color(tint))
                                 .frame(false),
                         )
                         .on_hover_text("Dismiss")

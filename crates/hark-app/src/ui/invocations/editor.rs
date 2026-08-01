@@ -86,7 +86,7 @@ impl Draft {
                 if let Some(problem) = &problem {
                     ui.horizontal_wrapped(|ui| {
                         ui.label(
-                            RichText::new(theme::icons::WARNING)
+                            theme::icon_text(theme::icons::WARNING)
                                 .small()
                                 .color(theme::DANGER),
                         );
@@ -247,13 +247,13 @@ impl Draft {
         ui.add_space(4.0);
         if preview.expand(&self.probe).fired.is_some() {
             ui.horizontal_wrapped(|ui| {
-                ui.label(RichText::new(theme::icons::CHECK).color(theme::SUCCESS));
+                ui.label(theme::icon_text(theme::icons::CHECK).color(theme::SUCCESS));
                 ui.label(RichText::new("Would fire").color(theme::SUCCESS));
             });
             return;
         }
         ui.horizontal_wrapped(|ui| {
-            ui.label(RichText::new(theme::icons::X).weak());
+            ui.label(theme::icon_text(theme::icons::X).weak());
             ui.label(RichText::new("Would not fire").weak());
         });
         // The near-miss hint: close but rejected is the confusing case, and

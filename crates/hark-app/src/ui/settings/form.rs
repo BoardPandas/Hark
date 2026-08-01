@@ -50,7 +50,7 @@ pub fn none_if_empty(text: &str) -> Option<String> {
 
 pub(crate) fn inline_error(ui: &mut Ui, text: &str) {
     ui.horizontal(|ui| {
-        ui.label(RichText::new(theme::icons::WARNING).color(theme::DANGER));
+        ui.label(theme::icon_text(theme::icons::WARNING).color(theme::DANGER));
         ui.label(RichText::new(text).small());
     });
 }

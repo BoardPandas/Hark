@@ -44,6 +44,15 @@ dictation pipeline on worker threads via `PipelineController`. Root
   the embedded `Phosphor.ttf`; see `assets/README.md` before touching
   either). If egui-phosphor ships an egui-0.35 release, swapping back is a
   drop-in.
+- **Render every icon with `theme::icon_text` (or `icon_label_job` when it
+  sits next to a label), never `RichText::new(icons::X)`.** Inter ships 745
+  Private-Use-Area glyphs and five of them sit on Phosphor codepoints
+  (ARROW_UP, BOOK_OPEN, CHART_BAR, GEAR, KEY). egui walks the family list in
+  order, so in any Inter-led family those five silently resolve to Inter's
+  glyph — the Settings tab rendered a stray letter instead of a gear, with no
+  error anywhere. Phosphor cannot lead the shared families in return: it maps
+  a..z and would swallow ordinary lowercase text. Hence a separate `icon()`
+  family, pinned by tests in `theme.rs`.
 - Status is never conveyed by color alone: icon + label, always.
 - UI modules stay under ~300 lines; split panels into widgets.
 

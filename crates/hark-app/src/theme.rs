@@ -217,9 +217,15 @@ pub fn paint_fading_rule(ui: &Ui, rect: Rect) {
 /// An outlined "primary" button: accent border + accent text, transparent
 /// fill (the Nocturne rule — buttons are outlined, never flooded). Hover adds
 /// the quiet neutral tint from the widget visuals; focus is the accent ring.
-pub fn primary_button(visuals: &Visuals, text: impl Into<String>) -> egui::Button<'static> {
+pub fn primary_button(
+    visuals: &Visuals,
+    text: impl Into<egui::WidgetText>,
+) -> egui::Button<'static> {
     let accent = accent(visuals);
-    egui::Button::new(RichText::new(text.into()).color(accent)).stroke(Stroke::new(1.0, accent))
+    // The caller may pass a plain string (tinted here) or a LayoutJob that
+    // already carries its own per-section colours, e.g. an icon + label whose
+    // two halves need different font families.
+    egui::Button::new(text.into().color(accent)).stroke(Stroke::new(1.0, accent))
 }
 
 /// An outlined destructive button: danger text, danger-at-~50% border, no
@@ -285,6 +291,18 @@ fn font_definitions() -> FontDefinitions {
         list
     };
 
+    // Icons get a family that leads with Phosphor, and it is not optional.
+    // Inter ships 745 Private-Use-Area glyphs of its own, five of which sit on
+    // codepoints Phosphor uses (ARROW_UP, BOOK_OPEN, CHART_BAR, GEAR, KEY), so
+    // in any family where Inter comes first egui resolves those five to
+    // Inter's glyph and never reaches Phosphor: the Settings tab rendered a
+    // stray letter instead of a gear. Phosphor cannot simply lead the shared
+    // families in return — it maps a..z and would swallow ordinary lowercase
+    // text — so icons need their own family and `icon_text` to reach it.
+    let mut icons = vec!["Phosphor".to_string(), "Inter".to_string()];
+    icons.extend(fallback.iter().cloned());
+    fonts.families.insert(icon(), icons);
+
     fonts
         .families
         .insert(FontFamily::Proportional, with_fallback("Inter"));
@@ -301,6 +319,42 @@ fn font_definitions() -> FontDefinitions {
     }
     fonts.families.insert(FontFamily::Monospace, mono);
     fonts
+}
+
+/// The family icons must render in: Phosphor first, so Inter's Private-Use
+/// glyphs cannot shadow one. Only ever use it for glyphs — Phosphor maps the
+/// lowercase Latin range, so ordinary text set in this family renders wrong.
+pub fn icon() -> FontFamily {
+    FontFamily::Name("Icon".into())
+}
+
+/// One icon glyph, in the family that actually resolves it. Every icon must go
+/// through here; `RichText::new(icons::GEAR)` silently renders Inter's glyph.
+pub fn icon_text(glyph: &str) -> RichText {
+    RichText::new(glyph).family(icon())
+}
+
+/// An icon followed by a label, as one widget. Two sections rather than one
+/// string, because the icon and the text need different families and a single
+/// `format!` can only have one.
+pub fn icon_label_job(style: &egui::Style, glyph: &str, text: &str) -> egui::text::LayoutJob {
+    use egui::text::{LayoutJob, TextFormat};
+    let size = TextStyle::Button.resolve(style).size;
+    // PLACEHOLDER lets a caller recolour the whole job (primary_button tints
+    // it accent); a concrete colour here would win and ignore them.
+    let color = Color32::PLACEHOLDER;
+    let mut job = LayoutJob::default();
+    job.append(
+        glyph,
+        0.0,
+        TextFormat::simple(FontId::new(size, icon()), color),
+    );
+    job.append(
+        text,
+        6.0,
+        TextFormat::simple(FontId::new(size, medium()), color),
+    );
+    job
 }
 
 /// The Nocturne type scale. Body 15px Inter Regular; page titles 24px and
@@ -545,6 +599,40 @@ mod tests {
         assert_eq!(styles[&TextStyle::Small].size, 12.0);
         assert_eq!(styles[&TextStyle::Monospace].size, 13.0);
         assert_eq!(styles[&TextStyle::Monospace].family, FontFamily::Monospace);
+    }
+
+    /// The bug this pins: Inter ships 745 Private-Use-Area glyphs, five of
+    /// which collide with Phosphor's (ARROW_UP, BOOK_OPEN, CHART_BAR, GEAR,
+    /// KEY). egui resolves a glyph through the family list in order, so in any
+    /// family led by Inter those five render as Inter's glyph and Phosphor is
+    /// never consulted — the Settings tab showed a stray letter where the gear
+    /// should be, and nothing anywhere reported a problem.
+    #[test]
+    fn the_icon_family_leads_with_phosphor() {
+        let fonts = font_definitions();
+        let list = &fonts.families[&icon()];
+        assert_eq!(
+            list[0], "Phosphor",
+            "icons must resolve to Phosphor BEFORE any text font, or Inter's \
+             private-use glyphs shadow them"
+        );
+        // ...and Inter stays reachable, so an icon string that also contains
+        // text does not fall all the way through to egui's defaults.
+        assert!(list.contains(&"Inter".to_string()));
+    }
+
+    /// Phosphor maps the lowercase Latin range, which is why it cannot simply
+    /// lead the shared families and why `icon_text` exists at all. If this ever
+    /// stops being true the whole icon family could be retired.
+    #[test]
+    fn phosphor_would_swallow_lowercase_text_if_it_led_a_text_family() {
+        let fonts = font_definitions();
+        for family in [FontFamily::Proportional, medium(), semibold()] {
+            assert_ne!(
+                fonts.families[&family][0], "Phosphor",
+                "{family:?} must lead with a text font"
+            );
+        }
     }
 
     #[test]

@@ -4,6 +4,11 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.35.1] - 2026-07-31
+
+### Fixed
+- **The Settings tab shows a gear again, not a stray letter.** Five icons — the Settings gear, the key icon in the status bar, the Spellbook book, the Stats chart and the update arrow — were rendering as unrelated characters. Hark's text font ships 745 glyphs in a private area of the character map, five of which sit on exactly the same slots as the icon font's, and the text font was being consulted first. Icons now render through a font stack of their own, and a test pins the ordering so a future icon cannot quietly collide the same way.
+
 ## [0.35.0] - 2026-07-31
 
 ### Added

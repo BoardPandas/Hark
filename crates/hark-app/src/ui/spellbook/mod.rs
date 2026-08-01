@@ -104,7 +104,7 @@ impl SpellbookPage {
 
         if let Some(error) = &self.notice {
             ui.horizontal_wrapped(|ui| {
-                ui.label(RichText::new(theme::icons::WARNING).color(theme::DANGER));
+                ui.label(theme::icon_text(theme::icons::WARNING).color(theme::DANGER));
                 ui.label(RichText::new(error).small());
             });
         }
@@ -131,7 +131,7 @@ impl SpellbookPage {
         if let Some(heard) = &self.primed_from {
             ui.horizontal_wrapped(|ui| {
                 ui.label(
-                    RichText::new(theme::icons::LIGHTNING)
+                    theme::icon_text(theme::icons::LIGHTNING)
                         .small()
                         .color(theme::accent(ui.visuals())),
                 );
@@ -275,7 +275,7 @@ impl SpellbookPage {
                             self.edit_needs_focus = true;
                         }
                         if ui
-                            .button(RichText::new(theme::icons::TRASH))
+                            .button(theme::icon_text(theme::icons::TRASH))
                             .on_hover_text("Delete term")
                             .clicked()
                         {
@@ -325,7 +325,7 @@ impl SpellbookPage {
                 ui.horizontal(|ui| {
                     ui.label(RichText::new(alias).monospace().small());
                     if ui
-                        .small_button(RichText::new(theme::icons::X))
+                        .small_button(theme::icon_text(theme::icons::X))
                         .on_hover_text("Remove this spelling")
                         .clicked()
                     {
@@ -374,7 +374,7 @@ fn alias_warning(ui: &mut Ui, alias: &str) {
     }
     ui.horizontal_wrapped(|ui| {
         ui.label(
-            RichText::new(theme::icons::WARNING)
+            theme::icon_text(theme::icons::WARNING)
                 .small()
                 .color(theme::WARNING),
         );
