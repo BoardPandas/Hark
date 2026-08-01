@@ -4,6 +4,11 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.35.3] - 2026-07-31
+
+### Changed
+- **Development tooling only — Hark itself is unchanged in this release.** A tagged release can no longer publish while the repo's own checks are failing. Building and publishing were entirely independent of testing, so the four releases from 0.33.0 through 0.35.1 each shipped a signed installer while the test suite was red — the stale test fixed in 0.35.2 had been failing that whole time and nothing stood in the way. Formatting, lint and the full test suite now run inside the release itself, before anything is built or signed, so a release that would ship broken code stops instead.
+
 ## [0.35.2] - 2026-07-31
 
 ### Fixed

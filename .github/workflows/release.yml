@@ -79,9 +79,55 @@ jobs:
       # which is the libsqlite3-sys MSRV trap this guards against.
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
 
       - name: Cache cargo build
         uses: Swatinem/rust-cache@v2
+
+      # THE RELEASE GATE. These three steps duplicate ci.yml on purpose.
+      #
+      # ci.yml and release.yml used to be wholly independent, so a tag shipped
+      # whatever it pointed at regardless of whether the repo's own checks
+      # passed. That is not hypothetical: a stale Windows-only test in
+      # hark-hotkey failed CI on every push from 0.33.0 through 0.35.1, and all
+      # four Release runs in that window published signed installers anyway.
+      #
+      # Gating on ci.yml's conclusion instead was considered and rejected.
+      # ci.yml deliberately has no tag trigger (adding one changes the OIDC
+      # subject claim and breaks Azure signing -- LL-G github-actions, HIGH), so
+      # no CI run exists on the tag itself; and workflow_run would run this job
+      # in default-branch context, where github.ref is refs/heads/main and the
+      # tag-derived version resolution above has nothing to read. Querying CI's
+      # conclusion for the tagged SHA is racy -- the commit and tag are pushed
+      # together, so both workflows start in the same second -- and gives no
+      # safe answer when a SHA has no CI run at all (a workflow_dispatch
+      # re-release of an old tag). Checking the tree in-process has none of
+      # those failure modes: it verifies exactly what is about to be signed.
+      #
+      # Placed before the build so a bad tree never reaches the signing steps
+      # and never spends Trusted Signing quota. Costs ~2-4 min on a ~13 min run.
+      #
+      # SCOPE: this runner is windows-latest, so this catches Windows and
+      # platform-independent failures only. macOS-only clippy/test breakage and
+      # the `npm run check:claude` wiring guard stay ci.yml's job -- which is
+      # the right split, since the artifact this workflow produces is Windows.
+      #
+      # Default (debug) profile, deliberately: --all-targets in release profile
+      # would drop test executables into target/release, which the signing step
+      # globs non-recursively and would then sign and ship. Debug artifacts land
+      # in target/debug and leave that glob matching exactly one exe.
+      - name: cargo fmt
+        run: cargo fmt --all -- --check
+
+      # --all-targets matches ci.yml: without it cargo skips test targets
+      # entirely, so lints in tests go unchecked (LL-G
+      # rust/cargo-check-skips-test-targets).
+      - name: cargo clippy
+        run: cargo clippy --all-targets -- -D warnings
+
+      - name: cargo test
+        run: cargo test --workspace
 
       # Only hark-app, so target/release holds exactly one top-level exe.
       - name: Build release binary
