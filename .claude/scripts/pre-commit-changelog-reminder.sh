@@ -3,27 +3,18 @@
 # Fires before check-changelog-staged.sh so Claude gets the instructions first
 # Always exits 0 (advisory) -- the staged check hook handles enforcement
 
-# Self-filter: only act on actual git commit invocations (the settings.json
-# "if" rule fires conservatively on commands with opaque substitutions).
-input=$(cat)
-if ! printf '%s' "$input" | grep -qE 'git[[:space:]]+commit'; then
-  exit 0
-fi
+. "$(dirname "$0")/_git-commit-filter.sh"
 
-# Merge commits and explicit opt-outs are exempt (mirrors check-changelog-staged.sh)
-if git rev-parse -q --verify MERGE_HEAD >/dev/null 2>&1; then
-  exit 0
-fi
-if [ "${SKIP_CHANGELOG:-}" = "1" ]; then
-  exit 0
-fi
+read_hook_input
 
-staged=$(git diff --cached --name-only 2>/dev/null)
+# The settings.json "if" rule fires conservatively on commands containing opaque
+# substitutions, so re-check here before doing anything.
+is_git_commit || exit 0
 
-# If CHANGELOG.md is already staged, no reminder needed
-if echo "$staged" | grep -q "^CHANGELOG.md$"; then
-  exit 0
-fi
+# Same exemptions as check-changelog-staged.sh, from the same helper -- the two
+# must agree or the reminder fires for commits the blocker then lets through.
+is_changelog_exempt && exit 0
+changelog_is_handled && exit 0
 
 cat <<'EOF'
 === CHANGELOG & VERSION UPDATE REQUIRED ===

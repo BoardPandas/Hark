@@ -1,10 +1,14 @@
 ---
 description: Enforce LL-G knowledge base check before writing code
 paths:
-  - "crates/**"
-  - "**/*.rs"
-  - ".claude/scripts/**"
+  - ".claude/**"
   - "scripts/**"
+  - "src/**"
+  - "lib/**"
+  - "app/**"
+  - "worker/**"
+  - "api/**"
+  - "middleware.*"
 ---
 
 # RULE 1 Enforcement: Check LL-G Before Writing Code
@@ -18,7 +22,9 @@ Before writing or editing any file matching the paths above, you MUST consult th
    WebFetch https://raw.githubusercontent.com/BoardPandas/LL-G/main/llms.txt
    ```
 
-2. **Identify relevant technologies** from the file you're about to write (e.g., Rust, SQLite, Bash, Windows, WiX/MSI, etc.).
+2. **Identify relevant technologies** from the file you're about to write (e.g., Next.js, TypeScript, Better Auth, Tailwind, etc.).
+
+   When the file is under `.claude/` or is a hook script, the technology is **`claude-code`** (and `bash` for `.sh` files). That shelf documents the silent-failure modes of this very configuration -- dead hook matchers, ignored frontmatter keys, blocking hooks with no stderr.
 
 3. **Fetch each relevant tech index:**
    ```

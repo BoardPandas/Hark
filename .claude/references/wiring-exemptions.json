@@ -1,0 +1,15 @@
+{
+  "$comment": "Read by scripts/check-claude-wiring.mjs. Every entry is a glob that matches zero files in THIS repo but is intentionally retained. Each one needs a reason. An entry that no longer matches a real rule/glob is reported as stale, so this file cannot rot silently.",
+  "deadGlobsAllowed": [
+    {
+      "file": ".claude/rules/llg-check.md",
+      "globs": ["src/**", "lib/**", "app/**", "worker/**", "api/**", "middleware.*"],
+      "reason": "Template payload. This repo ships .claude/ for other projects to clone; these directories exist in the consuming project, not here. The rule is live in this repo via .claude/** and scripts/**."
+    },
+    {
+      "file": ".claude/rules/bp-check.md",
+      "globs": ["Dockerfile*", "docker-compose*", "biome.*", "turbo.json", "pnpm-workspace.yaml", "vitest.config.*", "playwright.config.*", "jest.config.*"],
+      "reason": "Template payload, same rationale. The rule is live here via CLAUDE.md, .claude/**, .github/** and package.json."
+    }
+  ]
+}

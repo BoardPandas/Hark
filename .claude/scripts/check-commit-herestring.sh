@@ -1,5 +1,9 @@
 #!/usr/bin/env bash
-# PreToolUse hook (matcher: Bash(git commit*)).
+# PreToolUse hook (matcher: Bash, if: Bash(git commit*)).
+#
+# The matcher is the bare tool name. "Bash(git commit*)" is permissions syntax;
+# in a matcher it matches nothing and the hook never runs.
+# (LL-G kb/claude-code/hook-matcher-tool-names-only.md)
 #
 # Blocks git commit commands that contain PowerShell here-string syntax.
 # In the Bash tool, @'...'@ is NOT a here-string: the @ characters are
@@ -11,15 +15,17 @@
 #
 # Exit 0 = allow. Exit 2 = block (stderr is shown to Claude).
 
-input=$(cat)
+. "$(dirname "$0")/_git-commit-filter.sh"
 
-# Self-filter: only act on actual git commit invocations (the settings.json
-# "if" rule fires conservatively on commands with opaque substitutions).
-if ! printf '%s' "$input" | grep -qE 'git[[:space:]]+commit'; then
-  exit 0
-fi
+read_hook_input
 
-if printf '%s' "$input" | grep -qF "@'" || printf '%s' "$input" | grep -qF "'@"; then
+# The settings.json "if" rule fires conservatively on commands containing opaque
+# substitutions, so re-check here before doing anything.
+is_git_commit || exit 0
+
+# Detect on the RAW command: is_git_commit strips quoted regions internally, and
+# stripping would erase the very @'...'@ markers this hook looks for.
+if printf '%s' "$HOOK_COMMAND" | grep -qF "@'" || printf '%s' "$HOOK_COMMAND" | grep -qF "'@"; then
   {
     echo "BLOCKED: this git commit uses PowerShell here-string syntax (@'...'@)."
     echo ""

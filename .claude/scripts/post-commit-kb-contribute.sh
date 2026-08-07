@@ -2,12 +2,18 @@
 # Post-commit hook: remind Claude to evaluate if committed work should be contributed to LLG or BP
 # Always exits 0 (advisory) -- outputs the diff summary and reminder for Claude to evaluate
 
-# Self-filter: only act on actual git commit invocations (the settings.json
-# "if" rule fires conservatively on commands with opaque substitutions).
-input=$(cat)
-if ! printf '%s' "$input" | grep -qE '"command"[^}]*git[[:space:]]+commit'; then
-  exit 0
-fi
+. "$(dirname "$0")/_git-commit-filter.sh"
+
+read_hook_input
+
+# The settings.json "if" rule fires conservatively on commands containing opaque
+# substitutions, so re-check here before doing anything.
+#
+# read_hook_input reads tool_input.command only. A PostToolUse payload also
+# carries tool_response, so scanning the whole payload would fire on any command
+# whose OUTPUT merely mentions a commit -- e.g. `git log`.
+# (LL-G kb/bash/hook-scans-tool-output-false-record.md)
+is_git_commit || exit 0
 
 echo "=== KNOWLEDGE BASE CONTRIBUTION CHECK ==="
 echo ""

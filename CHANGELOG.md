@@ -4,6 +4,15 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.35.4] - 2026-08-07
+
+### Changed
+
+- **Claude Code configuration synced to the current shared template.** Hook
+  scripts, path-scoped rules, references and repo-maintenance skills were
+  refreshed, `settings.json` was restructured, and the `triage-issues` skill
+  was added. No application code or runtime behaviour changes.
+
 ## [0.35.3] - 2026-07-31
 
 ### Changed

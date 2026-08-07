@@ -76,7 +76,9 @@ Key BP practices to apply during init:
 2. Spin up parallel `explorer` agents to fetch and analyze sources. Use the custom `explorer` agent (defined in `.claude/agents/`), never the built-in `Explore` type -- the built-in loads every MCP tool schema and blows the context window.
    - **Subagent 1:** "Fetch official Anthropic sources and extract current Claude Code version, features, and recommended patterns. WHY: We need the latest official conventions to generate an up-to-date config."
    - **Subagent 2:** "Fetch community sources and extract practical tips, skill patterns, and agent patterns. WHY: Community sources have battle-tested patterns not in official docs."
+   - **Subagent 3:** "Search the web for Claude Code best practices published in the last seven days, following the Live Web Search section of the source URL registry exactly. Resolve today's date and the current Claude Code version first, then apply both gates as hard filters: no visible publish date on or after (today - 7 days) means discard, and not tied to the current version's minor line means discard. Report kept and discarded counts. WHY: The registry only lists sources that update on their own cadence; this catches changed behavior in the current release that none of them have written up yet."
 3. For URLs that fail to fetch, log the failure and continue. Do not halt.
+4. Subagent 3's findings are claims, not sources. Use one only when an official source corroborates it or you can verify it against the installed CLI; report the rest to the user without writing them into the config. Zero surviving results is a normal outcome -- never widen the window or relax a gate to produce findings.
 
 **Priority:** BP entries take precedence over web sources when they conflict. BP entries are vetted and tested across 28 repos; web sources may be outdated or context-specific.
 
@@ -347,7 +349,57 @@ See LL-G for full details: https://github.com/BoardPandas/LL-G
 
 If BP or LL-G are not accessible, note in the report: "BP/LL-G not reachable -- skipping knowledge base integration. Ensure repos are available for full integration."
 
-## Step 15: Report
+## Step 15: Reset the Changelog and Version Baseline
+
+A project cloned from this template inherits the template's own `CHANGELOG.md` and its `package.json` version. That history describes the bootstrap template's releases, not this project's, so a brand-new project starts life claiming a version and a release log it never had. Reset it to a clean `0.0.1` baseline.
+
+**15a. Classify the existing changelog before touching anything**
+
+Read `CHANGELOG.md` in the repo root and decide which case applies:
+
+- **Absent** -- create a fresh one at `0.0.1`.
+- **Template-inherited** -- entries describe the bootstrap template itself (skills, agents, `.claude/` wiring, plan-repo/init-repo, hook scripts) rather than this project's features. Reset to `0.0.1`.
+- **Project-owned** -- entries describe this project's own features, fixes, or releases. **Do not reset.** Leave `CHANGELOG.md` and the version field exactly as they are and record the decision in the Step 16 report.
+
+If the file is genuinely ambiguous (mixed template and project entries, or a single vague entry), ask with AskUserQuestion in an interactive session. In a non-interactive or autonomous run, leave both files untouched and flag the ambiguity in the report. Never destroy real release history to satisfy this step -- a wrong reset is unrecoverable from the working tree.
+
+This classification is also what makes re-running `/init-repo` safe: once the project has accumulated its own entries, the changelog reads as project-owned and the reset stops applying.
+
+**15b. Write the fresh changelog**
+
+When 15a says to reset, overwrite `CHANGELOG.md` with:
+
+```markdown
+# Changelog
+
+All notable changes to this project will be documented in this file.
+
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
+
+## [0.0.1] - <YYYY-MM-DD>
+
+### Added
+- Initial project setup and Claude Code configuration.
+```
+
+Use today's actual date (from the date check at the top of this skill), not a placeholder and not a date copied from the template's entries.
+
+**15c. Reset the version field to 0.0.1**
+
+Set the version to `0.0.1` in whichever manifest this project uses:
+
+- `package.json` -- `"version": "0.0.1"`
+- `pyproject.toml` -- `version = "0.0.1"`
+- `Cargo.toml` -- `version = "0.0.1"`
+- `*.csproj` -- `<Version>0.0.1</Version>`
+
+Reset only the manifest the project actually has; do not create one that does not exist. If the project has no version field anywhere (a Go module, a plain script repo), skip this and note it in the report -- the changelog reset still stands on its own.
+
+**15d. Leave the commit rule in place**
+
+Keep `.claude/rules/commit-changelog.md` as shipped. It is what bumps the project forward from `0.0.1` on every subsequent commit, so the reset gives it a correct starting point rather than resuming mid-way through the template's version history.
+
+## Step 16: Report
 
 After verification completes, print a summary listing:
 
@@ -363,6 +415,7 @@ After verification completes, print a summary listing:
 - Tools detected and added to tools.md
 - Design guardrails generated (if applicable)
 - BP audit score and failing practices (from Step 14)
+- Changelog and version baseline (from Step 15): whether it was reset to `0.0.1`, or preserved because the changelog is project-owned or ambiguous
 - Pending user decisions: recommended hooks and optional settings that were skipped in a non-interactive run (from Steps 11 and 12)
 - Merge conflicts where an existing value was preserved over a recommended one
 - Any warnings or issues encountered
@@ -372,9 +425,10 @@ After verification completes, print a summary listing:
 
 When merging with existing configuration:
 
-1. For JSON files: deep-merge objects. Never replace an existing value; only add missing keys. If a recommended value conflicts with an existing one, keep the existing value and list the conflict in the Step 15 report for the user to decide.
+1. For JSON files: deep-merge objects. Never replace an existing value; only add missing keys. If a recommended value conflicts with an existing one, keep the existing value and list the conflict in the Step 16 report for the user to decide.
 2. For markdown files: append new sections. Do not remove existing sections.
 3. For skills: if a skill already exists with custom content, do not overwrite. Only update if the existing skill references deprecated features.
 4. For agents: same rule as skills.
 5. For rules: if a rule file already exists, preserve it. Only add new rule files.
 6. For agent-memory: never overwrite existing memory files. Only create missing ones.
+7. The Step 15 changelog reset is the single deliberate exception to rule 2, and it is narrow: it may only overwrite a `CHANGELOG.md` that Step 15a classified as template-inherited. A project-owned or ambiguous changelog falls back under rule 2 and is preserved.

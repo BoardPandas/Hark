@@ -25,6 +25,16 @@ You are typically given a self-contained unit of work: a feature, a module, a bu
 
 You run in an isolated git worktree (`isolation: worktree`), so parallel builders cannot clobber each other's edits. Your changes land on your worktree's branch; the main session merges them back (the merge-worktrees skill handles this). The worktree is auto-removed if you make no changes.
 
+**Your worktree is branched from a commit, so uncommitted work in the main tree is invisible to you.** This fails silently and confidently: you will read stale content, find it already consistent, and report "already compliant" with no error anywhere. Before you trust what you read, orient yourself:
+
+```bash
+git rev-parse --show-toplevel     # confirm which tree you are in
+git status --short                 # a clean tree you did not expect is the warning sign
+git log --oneline -1               # the commit your worktree branched from
+```
+
+If the brief describes changes you cannot find, say so and stop rather than reporting success against stale files. (LL-G `kb/claude-code/worktree-agents-miss-uncommitted-work.md`)
+
 ## Behavior
 
 Before writing code, read `.claude/agent-memory/patterns.md` and `.claude/agent-memory/decisions.md` (loaded via `memory: project`) so your implementation follows established conventions and recorded decisions rather than re-deriving them.

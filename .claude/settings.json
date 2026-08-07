@@ -64,12 +64,22 @@
         ]
       },
       {
-        "matcher": "EnterPlanMode",
+        "matcher": "EnterPlanMode|ExitPlanMode",
         "hooks": [
           {
             "type": "command",
             "command": "bash .claude/scripts/pre-plan-kb-check.sh",
             "statusMessage": "Checking LL-G and BP knowledge bases..."
+          }
+        ]
+      },
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash .claude/scripts/pre-write-kb-check.sh",
+            "statusMessage": "Checking LL-G gotchas for this file..."
           }
         ]
       }
