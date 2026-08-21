@@ -4,6 +4,18 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.35.8] - 2026-08-21
+
+### Changed
+
+- **The Claude wiring guard now runs on Windows as well as Linux on every
+  push.** 0.35.7 made a release run that guard on a Windows runner, but the guard
+  had only ever executed on Linux — so the release path depended on behaviour
+  nothing had tested. It now runs on both platforms in ordinary CI, which means
+  any cross-platform difference surfaces on a normal push instead of on a release
+  tag. Formatting stays a single Linux check, since it is platform-independent
+  and there is no reason to pay for it twice.
+
 ## [0.35.7] - 2026-08-21
 
 ### Changed

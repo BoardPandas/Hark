@@ -28,24 +28,46 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  # Fail-fast gate: seconds, no system libraries, no compilation. Runs before the
-  # matrix so a miswired rule or a formatting slip does not burn three runners.
-  gate:
-    name: Wiring + formatting
-    runs-on: ubuntu-latest
+  # Rule scoping and hook matchers fail SILENTLY when miswired: a rule with a
+  # dead glob is indistinguishable from one that simply has not triggered. This
+  # guard is the only thing that makes that failure mode observable.
+  #
+  # ON BOTH PLATFORMS, on purpose. release.yml also runs this guard, on
+  # windows-latest, and until 0.35.8 the guard had only ever executed on ubuntu
+  # -- so the release path depended on untested behaviour. Node's fs.globSync is
+  # where any divergence would show: the rule globs are forward-slash (required
+  # by node glob everywhere) but results come back with platform separators.
+  # Running it here on Windows too means a divergence surfaces on an ordinary
+  # push instead of on a release tag.
+  #
+  # Dependency-free apart from Node, so there is nothing to install and nothing
+  # to compile; it stays a fail-fast gate on both legs.
+  wiring:
+    name: Claude wiring guard (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
+      # Pinned to 24: the guard needs fs.globSync, which lands in Node 22.
+      # Matches the pin in release.yml -- change both together.
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: "24"
 
-      # Rule scoping and hook matchers fail SILENTLY when miswired: a rule with a
-      # dead glob is indistinguishable from one that simply has not triggered.
-      # This guard is the only thing that makes that failure mode observable.
-      # Dependency-free, so there is nothing to install.
       - name: Claude wiring guard (rule scoping + hook matchers)
         run: npm run check:claude
+
+  # Formatting is platform-independent; checking it once is enough. Kept separate
+  # from `wiring` so it is not run twice by that job's matrix.
+  fmt:
+    name: Formatting
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       # Pinned by SHA, not by the `stable` branch name: that branch is mutable, so
       # `@stable` would run whatever was last pushed to it. `toolchain: stable` is
@@ -55,13 +77,12 @@ jobs:
           toolchain: stable
           components: rustfmt
 
-      # Formatting is platform-independent; checking it once is enough.
       - name: cargo fmt
         run: cargo fmt --all -- --check
 
-  # Dependency advisories. A separate job, not a step in `gate`: gate is meant to
-  # stay compilation-free and finish in seconds, and installing cargo-audit
-  # compiles. Runs on ubuntu because it only reads Cargo.lock -- no ALSA, X11 or
+  # Dependency advisories. A separate job, not a step in `wiring`/`fmt`: those
+  # are meant to stay compilation-free and finish in seconds, and installing
+  # cargo-audit compiles. Runs on ubuntu because it only reads Cargo.lock -- no ALSA, X11 or
   # GTK headers needed, unlike the build matrix below.
   #
   # This job CAN go red without anyone touching the repo, because advisories are
@@ -106,7 +127,7 @@ jobs:
   # ubuntu-latest without also adding those packages.
   rust:
     name: clippy + tests (${{ matrix.os }})
-    needs: gate
+    needs: [wiring, fmt]
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
