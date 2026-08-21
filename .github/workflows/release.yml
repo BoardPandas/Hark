@@ -74,6 +74,25 @@ jobs:
           Add-Content -Path $env:GITHUB_OUTPUT -Value "tag=$ref"
           Write-Host "Releasing Hark $version from tag $ref"
 
+      # FIRST GATE, and deliberately ahead of the Rust toolchain: dependency-free,
+      # a few seconds, and it aborts before this job installs anything or spends
+      # Trusted Signing quota.
+      #
+      # This used to be ci.yml's job alone, on the reasoning that the artifact
+      # here is Windows so a wiring guard adds nothing. 0.35.4 disproved it: a
+      # .claude template sync left the guard failing on main for two weeks, and
+      # because ci.yml has no tag trigger, a `v0.35.4` tag would have built,
+      # signed and published over a red guard without ever consulting it. The
+      # guard is the ONLY check that is not otherwise duplicated below, so it is
+      # the one this workflow most needed.
+      - name: Set up Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "24"
+
+      - name: Claude wiring guard (rule scoping + hook matchers)
+        run: npm run check:claude
+
       # `toolchain: stable` is a channel, not a version pin: the workspace
       # rust-version = "1.97" floor (Cargo.toml) makes cargo error if the runner's
       # stable is ever older, which is the libsqlite3-sys MSRV trap this guards
@@ -93,7 +112,7 @@ jobs:
       - name: Cache cargo build
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
 
-      # THE RELEASE GATE. These three steps duplicate ci.yml on purpose.
+      # THE REST OF THE RELEASE GATE. These steps duplicate ci.yml on purpose.
       #
       # ci.yml and release.yml used to be wholly independent, so a tag shipped
       # whatever it pointed at regardless of whether the repo's own checks
@@ -116,10 +135,11 @@ jobs:
       # Placed before the build so a bad tree never reaches the signing steps
       # and never spends Trusted Signing quota. Costs ~2-4 min on a ~13 min run.
       #
-      # SCOPE: this runner is windows-latest, so this catches Windows and
-      # platform-independent failures only. macOS-only clippy/test breakage and
-      # the `npm run check:claude` wiring guard stay ci.yml's job -- which is
-      # the right split, since the artifact this workflow produces is Windows.
+      # SCOPE: this runner is windows-latest, so cargo fmt/clippy/test here catch
+      # Windows and platform-independent failures only. macOS-only clippy/test
+      # breakage remains ci.yml's job -- acceptable, since the artifact this
+      # workflow produces is Windows. The wiring guard above is platform-neutral
+      # and runs in both.
       #
       # Default (debug) profile, deliberately: --all-targets in release profile
       # would drop test executables into target/release, which the signing step

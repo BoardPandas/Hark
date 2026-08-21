@@ -4,6 +4,20 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.35.7] - 2026-08-21
+
+### Changed
+
+- **A release now runs the Claude wiring guard before it builds anything.** The
+  release already re-ran formatting, lint and the test suite on its own copy of
+  the tree, but skipped the wiring guard on the reasoning that it added nothing
+  to a Windows artifact. 0.35.4 showed otherwise: that guard failed on `main` for
+  two weeks, and because the CI workflow has no tag trigger, tagging a release in
+  that window would have built, signed and published without ever consulting it.
+  It is also the only check the release did not already duplicate. It now runs
+  first — before the Rust toolchain is installed, so a bad tree costs seconds
+  rather than a build and a signing quota.
+
 ## [0.35.6] - 2026-08-21
 
 ### Fixed
