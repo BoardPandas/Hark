@@ -4,6 +4,23 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.35.6] - 2026-08-21
+
+### Fixed
+
+- **A second CI failure, which had been hiding behind the first.** With the
+  wiring guard failing, the build-and-test jobs never ran at all — they wait on
+  it — so a lint error introduced by a newer Rust release sat undetected on
+  `main`. Unblocking the guard in 0.35.5 exposed it immediately: `cargo clippy`
+  failed on both Windows and macOS over the WAV decoder's sample loop. The two
+  affected loops now use `as_chunks`, which is what the new lint asks for, reads
+  better, and needs no bounds indexing. Behaviour is identical, and the Rust
+  version floor is unchanged.
+- **The contributor rules now say to update the toolchain before trusting a
+  local lint run.** CI installs whatever Rust stable is current, so a local
+  toolchain a few weeks behind is missing that release's lints and reports clean
+  on code CI will reject — exactly how the above reached `main`.
+
 ## [0.35.5] - 2026-08-21
 
 ### Security

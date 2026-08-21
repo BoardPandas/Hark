@@ -100,9 +100,14 @@ pub fn parse_wav_16k_mono(bytes: &[u8]) -> Result<WavInfo, SttError> {
         )));
     }
 
+    // `as_chunks::<2>()` rather than `chunks_exact(2)`: same semantics (both
+    // drop a trailing odd byte) but it yields `&[u8; 2]`, so `from_le_bytes`
+    // needs no indexing. clippy::manual_as_chunks requires it on newer stable.
     let samples = data
-        .chunks_exact(2)
-        .map(|b| f32::from(i16::from_le_bytes([b[0], b[1]])) / 32768.0)
+        .as_chunks::<2>()
+        .0
+        .iter()
+        .map(|b| f32::from(i16::from_le_bytes(*b)) / 32768.0)
         .collect();
     Ok(WavInfo {
         sample_rate,

@@ -33,4 +33,5 @@ Loads whenever Rust source is touched. Full context: root `CLAUDE.md`, [`tasks/p
 - `Result` + `?` everywhere; never swallow errors. Validate at boundaries: mic samples, STT provider responses, cleanup responses, TOML/DB I/O.
 - Secrets (provider API keys) live only in the OS keychain via `keyring`; never in `config.toml`, never logged.
 - `cargo fmt` + `cargo clippy --all-targets -- -D warnings` clean before done.
+- **`rustup update stable` first, or a clean local clippy proves nothing.** CI pins the *action* by SHA but installs whatever stable is current, so a local toolchain even a few weeks behind silently lacks that release's new lints. This has already shipped a red build once (0.35.5: `clippy::manual_as_chunks` fired on 1.98.0 and not on 1.97.0). The `rust-version = "1.97"` floor is the MSRV, not the version to develop on.
 - Past ~500 lines, look for a seam worth splitting on — it is a smell, not a cap. Lookup tables (`hark-hotkey/src/keycode.rs`, `known.rs`) are exempt, and no file should ever be compressed just to get under the number.

@@ -38,8 +38,10 @@ fn samples_from_wav(bytes: &[u8]) -> Vec<f32> {
         .expect("fixture has a data chunk");
     let start = pos + 8;
     bytes[start..]
-        .chunks_exact(2)
-        .map(|c| i16::from_le_bytes([c[0], c[1]]) as f32 / 32_768.0)
+        .as_chunks::<2>()
+        .0
+        .iter()
+        .map(|c| i16::from_le_bytes(*c) as f32 / 32_768.0)
         .collect()
 }
 
