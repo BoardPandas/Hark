@@ -1,6 +1,6 @@
 # Hark — Project Rules
 
-Hark is a single-user, **push-to-talk voice dictation desktop app** for Windows + macOS, written in **Rust**. Hold a key, speak, release; polished English text is injected at the cursor in any app. Transcription is **BYOK cloud** (the user's own STT provider key, multi-provider adapters); history, stats, and the spellbook are local-only; cleanup is optional and uses the user's own LLM key. (Pivoted from on-device STT on 2026-07-15; see `tasks/plan-repo.md`.)
+Hark is a single-user, **push-to-talk voice dictation desktop app** for Windows + macOS, written in **Rust**. Hold a key, speak, release; polished English text is injected at the cursor in any app. Transcription is **BYOK cloud by default** (the user's own STT provider key, multi-provider adapters) with an **opt-in on-device engine** alongside it; history, stats, and the spellbook are local-only; cleanup is optional and uses the user's own LLM key. (Pivoted away from on-device STT on 2026-07-15, then reintroduced it as an optional second engine in 0.18.0 — the cloud path remains primary. See `tasks/plan-repo.md`.)
 
 > This is a **native desktop app**. There is no web frontend, server, database service, auth service, or hosting platform. `.claude/references/infrastructure.md` now says exactly that at the point of use — the template's Northflank/Cloudflare/Better Auth stack was removed from it, not just disclaimed here.
 
@@ -11,7 +11,8 @@ Hark is a single-user, **push-to-talk voice dictation desktop app** for Windows 
 | Language / process model | Rust; single process, **UI on main thread, pipeline on worker threads** |
 | Audio | `cpal` (16 kHz mono ring buffer, pre-roll + tail) |
 | Push-to-talk | Native low-level key hooks: **CGEventTap (macOS), `WH_KEYBOARD_LL` (Windows)** — NOT the `global-hotkey` crate |
-| STT | **BYOK cloud via an `SttProvider` trait**: OpenAI-compatible `/audio/transcriptions` adapter (OpenAI, Groq) + Deepgram nova-3 adapter (`keyterm` biasing). No local model |
+| STT (cloud, primary) | **BYOK cloud via an `SttProvider` trait**: OpenAI-compatible `/audio/transcriptions` adapter (OpenAI, Groq) + Deepgram nova-3 adapter (`keyterm` biasing) |
+| STT (on-device, optional) | `hark-local-stt`: sherpa-onnx Parakeet, behind the `engine` feature — **on by default** via `hark-app`'s `local-engine`. Off/Backup/Primary per `[local_stt] mode`. Never on the cloud hot path unless selected |
 | STT transport | `reqwest` 0.13 blocking + multipart + rustls on pipeline worker threads; one long-lived `Client`; **no global tokio runtime** |
 | Spellbook | Phonetic post-correction (primary, provider-agnostic) + per-provider biasing (OpenAI/Groq `prompt`, Deepgram `keyterm`) |
 | Invocations | Trigger phrase → canned text (`hark_spellbook::Expander`); same guarded matcher as the spellbook at a **0.90** confirm threshold vs 0.85. A fired invocation **must** skip cleanup — control flow, never a prompt clause |
@@ -44,7 +45,8 @@ Full detail + citations: `.claude/agent-memory/explorer/hark_cloud_stt_providers
 - Handle errors explicitly (`Result`/`?`); never swallow. Validate at boundaries (mic input, model output, BYOK responses, file/DB I/O).
 - Avoid premature abstraction. Three similar lines beat a forced helper.
 - Comment only the non-obvious "why", not self-explanatory code.
-- Files over 500 lines should be split. Prefer editing existing files over creating new ones.
+- Prefer splitting a file once it passes ~500 lines **and there is a natural seam**. This is a smell to investigate, not a cap to trim to: 14 files are legitimately over it (largest `hark-config/src/lib.rs`, 1168), and lookup tables like `hark-hotkey/src/keycode.rs` and `known.rs` are exempt — splitting a table on an arbitrary line makes it worse. Never compress a file to duck the number.
+- Prefer editing existing files over creating new ones.
 - `cargo fmt` + `cargo clippy --all-targets -- -D warnings` must pass. Run tests before declaring done (this machine is coding-only: build/test/lint here; run the app on real macOS/Windows).
 
 ## Hierarchical CLAUDE.md architecture

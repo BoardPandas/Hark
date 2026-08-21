@@ -17,7 +17,7 @@ would rather not send audio to a provider at all, it removes the cloud entirely.
 
 ## The three modes
 
-Set under Settings → On-device model, stored as `[local_stt] mode`.
+Set under Settings → On-device model ([ui/settings/local.rs:15-53](../../crates/hark-app/src/ui/settings/local.rs#L15-L53)), stored as `[local_stt] mode` ([hark-config/src/local.rs:14-30](../../crates/hark-config/src/local.rs#L14-L30)).
 
 | Mode | Behavior | API key needed |
 |---|---|---|
@@ -31,11 +31,13 @@ produced the text, so history never misattributes the result.
 
 `primary` is the only mode that lets the pipeline start without a resolvable API
 key — see `PipelineController::start`, which skips the keychain failure path when
-`mode.uses_cloud()` is false.
+`mode.uses_cloud()` is false ([hark-app/src/pipeline.rs:129](../../crates/hark-app/src/pipeline.rs#L129),
+[hark-config/src/local.rs:42](../../crates/hark-config/src/local.rs#L42)).
 
 ## The model
 
-**Parakeet TDT 0.6B v3, int8 ONNX** — NVIDIA, CC-BY-4.0, 25 languages.
+**Parakeet TDT 0.6B v3, int8 ONNX** — NVIDIA, CC-BY-4.0, 25 languages
+([hark-local-stt/src/model.rs:114-145](../../crates/hark-local-stt/src/model.rs#L114-L145)).
 
 | | |
 |---|---|
@@ -47,9 +49,10 @@ key — see `PipelineController::start`, which skips the keychain failure path w
 Weights are **not** bundled. They download on demand into
 `<data_dir>/models/<model-id>/` from a public Hugging Face repo (no auth token),
 with `Range`-based resume, live progress, cancel, and a pinned-sha256 integrity
-check per file.
+check per file ([download.rs:97-160](../../crates/hark-local-stt/src/download.rs#L97-L160),
+[model.rs:19](../../crates/hark-local-stt/src/model.rs#L19)).
 
-`greedy_search` is not a tuning choice. `modified_beam_search` with hotwords is
+`greedy_search` is not a tuning choice ([engine.rs:83](../../crates/hark-local-stt/src/engine.rs#L83)). `modified_beam_search` with hotwords is
 the open [sherpa-onnx #3267](https://github.com/k2-fsa/sherpa-onnx/issues/3267)
 hallucination bug; Hark never needs it because the spellbook's phonetic
 post-correction already handles term biasing, provider-agnostically.
@@ -57,16 +60,20 @@ post-correction already handles term biasing, provider-agnostically.
 v3 is the latest revision and costs ~0.27 pp of English accuracy against the
 English-only v2 in exchange for 24 more languages. Switching back is a one-line
 config change once `parakeet-tdt-0.6b-v2-int8` is added to the catalog in
-`hark-local-stt/src/model.rs`.
+[`hark-local-stt/src/model.rs:146`](../../crates/hark-local-stt/src/model.rs#L146).
 
 ## The fallback deadline
 
 This is the detail that makes fallback worth having.
 
-`hark_stt::TOTAL_TIMEOUT_MS` is 15 s. Waiting that out and *then* spending ~2 s
-decoding locally produces a 17-second dictation — worse than no fallback. So when
-`mode = "fallback"` **and the weights are actually on disk**, the pipeline builds
-its STT client with `local_stt.fallback_after_ms` (default 6000) instead. With no
+`hark_stt::TOTAL_TIMEOUT_MS` is 15 s ([hark-stt/src/lib.rs:24](../../crates/hark-stt/src/lib.rs#L24)).
+Waiting that out and *then* spending ~2 s decoding locally produces a 17-second
+dictation — worse than no fallback. So when `mode = "fallback"` **and the weights
+are actually on disk**, the pipeline builds its STT client with
+`local_stt.fallback_after_ms` (default 6000, floor 500) instead
+([hark-config/src/local.rs:69](../../crates/hark-config/src/local.rs#L69),
+[:106-108](../../crates/hark-config/src/local.rs#L106-L108),
+[hark-pipeline/src/lib.rs:300-310](../../crates/hark-pipeline/src/lib.rs#L300-L310)). With no
 model downloaded, nothing changes and the normal 15 s applies.
 
 ## Residency
@@ -80,7 +87,8 @@ button. The engine is dropped (and its RAM released) whenever the pipeline
 restarts — every settings Save does that.
 
 First load takes seconds, so the pipeline emits `PipelineEvent::LoadingLocalModel`
-before blocking and the status bar names it. Without that the app simply looks
+before blocking and the status bar names it ([events.rs:82](../../crates/hark-pipeline/src/events.rs#L82),
+[worker.rs:504](../../crates/hark-pipeline/src/worker.rs#L504)). Without that the app simply looks
 frozen on the first local dictation.
 
 ## Build-time cost and the `local-engine` feature
@@ -96,11 +104,15 @@ cargo build --release                        # includes the engine
 cargo build --release --no-default-features  # slim, cloud-only
 ```
 
-`hark-app/local-engine` → `hark-local-stt/engine` + `hark-pipeline/engine`.
+`hark-app/local-engine` → `hark-local-stt/engine` + `hark-pipeline/engine`
+([hark-app/Cargo.toml:69-70](../../crates/hark-app/Cargo.toml#L69-L70),
+[hark-local-stt/Cargo.toml:35-37](../../crates/hark-local-stt/Cargo.toml#L35-L37)).
 
 Without the feature, the model-management half still compiles and tests
-normally, `LocalEngine::load` returns `EngineUnavailable`, and the Settings
-section says so plainly instead of offering a toggle that cannot work.
+normally, `LocalEngine::load` returns `EngineUnavailable`
+([engine.rs:100-107](../../crates/hark-local-stt/src/engine.rs#L100-L107)), and the Settings
+section says so plainly instead of offering a toggle that cannot work
+([ui/settings/local.rs:55-70](../../crates/hark-app/src/ui/settings/local.rs#L55-L70)).
 
 ## Crate layout
 
@@ -117,7 +129,8 @@ hark-app/
 ```
 
 The policy in `hark-pipeline/src/local.rs` is expressed over a `Transcriber`
-trait so it is unit-tested without a network or a 670 MB model on disk.
+trait ([local.rs:92](../../crates/hark-pipeline/src/local.rs#L92)) so it is unit-tested
+without a network or a 670 MB model on disk.
 
 ## Gotchas worth keeping
 
@@ -126,21 +139,22 @@ trait so it is unit-tested without a network or a 670 MB model on disk.
   downloader streams to disk.
 - **The shared HTTP client's 15 s timeout must be overridden per download
   request**, or every model download dies at 15 seconds.
-- **`Accept-Encoding: identity` on download requests.** A compressed transfer
+- **`Accept-Encoding: identity` on download requests** ([download.rs:139](../../crates/hark-local-stt/src/download.rs#L139)). A compressed transfer
   makes `Content-Length` disagree with the bytes written, which silently breaks
   resume arithmetic.
-- **A `200` response to a `Range` request means the server ignored it.** Append
+- **A `200` response to a `Range` request means the server ignored it** ([download.rs:155-161](../../crates/hark-local-stt/src/download.rs#L155-L161)). Append
   in that case and you corrupt the file; the downloader restarts from zero.
 - **`.part` suffixes must be additive, not `with_extension`.** `with_extension`
   would turn `encoder.int8.onnx` into `encoder.int8.part` and collide across
   files.
 - **A model id becomes a directory name**, so `hark-config` validates it as a
-  plain path segment — no separators, no `..`.
+  plain path segment — no separators, no `..` ([hark-config/src/local.rs:87-96](../../crates/hark-config/src/local.rs#L87-L96)).
 
 ## Verifying on real hardware
 
 The engine cannot be meaningfully tested without the weights, so there is an
-opt-in integration test that reports load and decode wall times:
+opt-in integration test that reports load and decode wall times
+([tests/engine_real_model.rs:47](../../crates/hark-local-stt/tests/engine_real_model.rs#L47)):
 
 ```bash
 HARK_LOCAL_MODEL_DIR=<model dir> \

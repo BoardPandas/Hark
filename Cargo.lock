@@ -1579,7 +1579,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "39cab71617ae0d63f51a36d69f866391735b51691dbda63cf6f96d042b63efeb"
 dependencies = [
  "libc",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -2275,7 +2275,7 @@ dependencies = [
 
 [[package]]
 name = "hark-app"
-version = "0.35.2"
+version = "0.35.5"
 dependencies = [
  "eframe",
  "egui",
@@ -2301,7 +2301,7 @@ dependencies = [
 
 [[package]]
 name = "hark-audio"
-version = "0.35.2"
+version = "0.35.5"
 dependencies = [
  "cpal",
  "log",
@@ -2312,7 +2312,7 @@ dependencies = [
 
 [[package]]
 name = "hark-autostart"
-version = "0.35.2"
+version = "0.35.5"
 dependencies = [
  "thiserror 2.0.18",
  "winreg",
@@ -2320,7 +2320,7 @@ dependencies = [
 
 [[package]]
 name = "hark-config"
-version = "0.35.2"
+version = "0.35.5"
 dependencies = [
  "log",
  "serde",
@@ -2331,7 +2331,7 @@ dependencies = [
 
 [[package]]
 name = "hark-hotkey"
-version = "0.35.2"
+version = "0.35.5"
 dependencies = [
  "log",
  "thiserror 2.0.18",
@@ -2340,7 +2340,7 @@ dependencies = [
 
 [[package]]
 name = "hark-inject"
-version = "0.35.2"
+version = "0.35.5"
 dependencies = [
  "arboard",
  "enigo",
@@ -2350,7 +2350,7 @@ dependencies = [
 
 [[package]]
 name = "hark-keychain"
-version = "0.35.2"
+version = "0.35.5"
 dependencies = [
  "keyring",
  "thiserror 2.0.18",
@@ -2358,7 +2358,7 @@ dependencies = [
 
 [[package]]
 name = "hark-local-stt"
-version = "0.35.2"
+version = "0.35.5"
 dependencies = [
  "hark-config",
  "log",
@@ -2371,7 +2371,7 @@ dependencies = [
 
 [[package]]
 name = "hark-pipeline"
-version = "0.35.2"
+version = "0.35.5"
 dependencies = [
  "hark-audio",
  "hark-config",
@@ -2389,7 +2389,7 @@ dependencies = [
 
 [[package]]
 name = "hark-single-instance"
-version = "0.35.2"
+version = "0.35.5"
 dependencies = [
  "hark-config",
  "libc",
@@ -2400,7 +2400,7 @@ dependencies = [
 
 [[package]]
 name = "hark-spellbook"
-version = "0.35.2"
+version = "0.35.5"
 dependencies = [
  "rphonetic",
  "strsim",
@@ -2408,7 +2408,7 @@ dependencies = [
 
 [[package]]
 name = "hark-store"
-version = "0.35.2"
+version = "0.35.5"
 dependencies = [
  "rusqlite",
  "tempfile",
@@ -2417,7 +2417,7 @@ dependencies = [
 
 [[package]]
 name = "hark-stt"
-version = "0.35.2"
+version = "0.35.5"
 dependencies = [
  "base64",
  "hark-voice",
@@ -2431,7 +2431,7 @@ dependencies = [
 
 [[package]]
 name = "hark-update"
-version = "0.35.2"
+version = "0.35.5"
 dependencies = [
  "log",
  "reqwest",
@@ -2445,7 +2445,7 @@ dependencies = [
 
 [[package]]
 name = "hark-voice"
-version = "0.35.2"
+version = "0.35.5"
 dependencies = [
  "hark-stt",
  "log",
@@ -4241,7 +4241,7 @@ dependencies = [
  "once_cell",
  "socket2",
  "tracing",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -4589,7 +4589,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys 0.12.1",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -4648,7 +4648,7 @@ dependencies = [
  "security-framework",
  "security-framework-sys",
  "webpki-root-certs",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -5186,7 +5186,7 @@ dependencies = [
  "getrandom 0.4.3",
  "once_cell",
  "rustix 1.1.4",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -5958,15 +5958,15 @@ dependencies = [
 
 [[package]]
 name = "webbrowser"
-version = "1.2.1"
+version = "1.2.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0fc95580916af1e68ff6a7be07446fc5db73ebf71cf092de939bbf5f7e189f72"
+checksum = "62c35be770821a214dbc362fc26908c853e776c0004294d0b10b8a6bad582f94"
 dependencies = [
- "core-foundation 0.10.1",
  "jni 0.22.4",
  "log",
  "ndk-context",
  "objc2 0.6.4",
+ "objc2-app-kit 0.3.2",
  "objc2-foundation 0.3.2",
  "url",
  "web-sys",
@@ -6205,7 +6205,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]

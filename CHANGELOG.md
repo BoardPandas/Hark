@@ -4,6 +4,73 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.35.5] - 2026-08-21
+
+### Security
+
+- **An update whose signature carries no readable publisher name is now
+  refused.** Verification compared the downloaded exe's signer against the
+  running app's; when Windows could read *neither* name, the two empty strings
+  compared equal and the check reported a publisher match while having read
+  nothing. An unreadable name is now treated as unreadable on both sides, never
+  as a match. The dev-build case — running an unsigned local build — still falls
+  back to the Authenticode trust check alone, as it always did.
+- **Every GitHub Action is pinned to a commit hash.** They were pinned to tags,
+  and `dtolnay/rust-toolchain@stable` to a *branch*, both of which upstream can
+  move at any time. The release workflow holds the code-signing credentials, so
+  anything that runs there can sign and publish a Hark binary; it now runs only
+  code that was reviewed.
+- **`webbrowser` updated to 1.2.4**, clearing RUSTSEC-2026-0257 (argument
+  injection through the `BROWSER` variable on Unix). Reached through egui when
+  Hark opens a link.
+
+### Added
+
+- **Dependency advisories are now checked on every push.** `.cargo/audit.toml`
+  has recorded a careful triage of known advisories since 0.21.0, but nothing
+  ever ran `cargo audit`, so a new advisory could sit unnoticed — and one had,
+  for three weeks. CI now runs it, and the existing ignore list is how an
+  advisory that genuinely cannot reach a shipped build gets deferred.
+- **Tests for the two places that had none.** Update signature verification (the
+  gate that decides whether a download may replace the running app) had no tests
+  at all; neither did the 114-key shortcut table, whose ordering the key scanner
+  depends on and whose silent corruption would show up as phantom key presses.
+  Both are now covered.
+
+### Fixed
+
+- **CI had been failing on `main` for two weeks and nothing said so.** A sync of
+  the shared Claude configuration pulled in path patterns from a web-project
+  template — Docker, Vitest, Jest, `src/`, `api/` — none of which exist in a Rust
+  desktop app, so the repo's own wiring guard correctly refused every build. The
+  patterns now describe Hark's actual layout.
+- **The two version files had drifted apart** (`package.json` 0.35.4,
+  `Cargo.toml` 0.35.3), which would have stopped the next release at its first
+  step with a mismatch error. `Cargo.lock` had been stale since 0.35.3 for the
+  same reason. All three now agree.
+- **The README said Hark had no on-device model.** On-device transcription
+  shipped in 0.18.0 and is included in every build, and it can run as the only
+  engine with no provider account at all — but Prerequisites still read "No model
+  download; nothing runs locally", so anyone who wanted offline dictation was
+  told it did not exist. The README, `CLAUDE.md`, the Rust contributor rules and
+  the architecture overview have all been corrected, and the README gained a
+  section explaining the three modes.
+
+### Changed
+
+- **The on-device documentation page is now maintained.** It was written by hand
+  and never registered in the docs table of contents, so the tooling could not
+  see it and it carried no source citations. It is registered now, with 15
+  citations checked against the code.
+- **The documentation staleness ledger is current again.** It listed known gaps
+  up to release 0.18.1 and then stopped, so it understated the gap by 17
+  releases — most importantly the entire push-to-talk shortcut overhaul of
+  0.31.0–0.35.2, which the audio page still does not describe.
+- **The "split files over 500 lines" rule is now written as the guideline it
+  always was.** Fourteen files are legitimately over it, including two key
+  lookup tables that would be worse if split, and nothing enforced it — so as
+  written it invited someone to compress a file to duck the number.
+
 ## [0.35.4] - 2026-08-07
 
 ### Changed

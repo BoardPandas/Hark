@@ -410,6 +410,60 @@ pages:
       - hark_08_spellbook
       - hark_09_voice_cleanup
 
+  # Hand-written in 0.18.0 and never registered here, so `/doc-sync update` could
+  # not see it and the page drifted outside the citation regime. Registered with
+  # autogen: false -- the prose is good; what it lacked was ownership.
+  - id: hark_07b_on_device_stt
+    title: "On-Device Speech-to-Text"
+    folder: "features"
+    filename: "ON_DEVICE_STT.md"
+    description: "The opt-in local Parakeet engine: model download manager, Off/Backup/Primary modes, the cloud fallback deadline, and the local-engine build feature."
+    category: feature
+    source_files:
+      - "crates/hark-local-stt/src/lib.rs"
+      - "crates/hark-local-stt/src/model.rs"
+      - "crates/hark-local-stt/src/download.rs"
+      - "crates/hark-local-stt/src/engine.rs"
+      - "crates/hark-local-stt/src/error.rs"
+      - "crates/hark-pipeline/src/local.rs"
+      - "crates/hark-config/src/local.rs"
+      - "crates/hark-app/src/model_download.rs"
+      - "crates/hark-app/src/ui/settings/local.rs"
+    sections:
+      - id: hark_07b_on_device_stt_modes
+        title: "The three modes"
+        autogen: false
+        source_files:
+          - "crates/hark-config/src/local.rs"
+        diagrams_needed: false
+        diagram_types: []
+      - id: hark_07b_on_device_stt_model
+        title: "The model"
+        autogen: false
+        source_files:
+          - "crates/hark-local-stt/src/model.rs"
+          - "crates/hark-local-stt/src/download.rs"
+        diagrams_needed: false
+        diagram_types: []
+      - id: hark_07b_on_device_stt_fallback
+        title: "The fallback deadline"
+        autogen: false
+        source_files:
+          - "crates/hark-pipeline/src/local.rs"
+        diagrams_needed: false
+        diagram_types: []
+      - id: hark_07b_on_device_stt_feature
+        title: "Build-time cost and the local-engine feature"
+        autogen: false
+        source_files:
+          - "crates/hark-local-stt/src/engine.rs"
+        diagrams_needed: false
+        diagram_types: []
+    related_pages:
+      - hark_07_transcription
+      - hark_08_spellbook
+      - hark_04_configuration
+
   - id: hark_08_spellbook
     title: "Spellbook"
     folder: "features"
@@ -814,8 +868,9 @@ pages:
       - hark_02_architecture
 
 notes:
-  - "Large Rust workspace: 13 crates, ~65 source files. 14 pages chosen per the Large guideline (8-14)."
+  - "Large Rust workspace: 15 crates, ~93 non-test source files. 16 pages (14 from the original plan, plus hark_08b_invocations and hark_07b_on_device_stt)."
   - "hark-pipeline orchestration is documented inside core/ARCHITECTURE.md rather than a standalone page."
   - "hark-audio and hark-hotkey are combined into AUDIO_CAPTURE.md since they form the input-capture stage together."
   - "hark-update and hark-autostart are combined into UPDATES_AND_AUTOSTART.md as related lifecycle concerns."
   - "This is a native desktop app: no API-reference, database-service, auth, or hosting/infra pages apply."
+  - "hark-single-instance has no page yet -- the one crate still uncovered by this TOC."

@@ -5,14 +5,13 @@ paths:
   - ".claude/**"
   - ".github/**"
   - "package.json"
-  - "Dockerfile*"
-  - "docker-compose*"
-  - "biome.*"
-  - "turbo.json"
-  - "pnpm-workspace.yaml"
-  - "vitest.config.*"
-  - "playwright.config.*"
-  - "jest.config.*"
+  - "**/Cargo.toml"
+  - "Cargo.lock"
+  - "rustfmt.toml"
+  - ".cargo/**"
+  - "config/**"
+  - "installer/**"
+  - "scripts/**"
 ---
 
 # RULE 3 Enforcement: Check BP Before Configuration Work
@@ -26,7 +25,7 @@ Before creating or modifying infrastructure, tooling, or configuration files mat
    WebFetch https://raw.githubusercontent.com/BoardPandas/BP/main/llms.txt
    ```
 
-2. **Identify relevant concerns** from the file you're about to write (e.g., testing config -> testing, Dockerfile -> deployment, CLAUDE.md -> claude-config).
+2. **Identify relevant concerns** from the file you're about to write (e.g., a CI workflow -> ci-cd, `Cargo.toml` -> dependencies, the installer or signing setup -> release, CLAUDE.md -> claude-config).
 
 3. **Fetch each relevant concern index:**
    ```
@@ -40,10 +39,10 @@ Before creating or modifying infrastructure, tooling, or configuration files mat
 ## When to check
 
 - Setting up new tooling (linters, formatters, test runners)
-- Creating or modifying Dockerfiles
-- Configuring CI/CD pipelines
+- Adding or upgrading a crate dependency
+- Configuring CI/CD pipelines, code signing, or the installer
 - Structuring `.claude/` configuration
-- Setting up monorepo workspaces
+- Restructuring the Cargo workspace
 - Adding versioning or changelog automation
 - Configuring environment/secrets management
 

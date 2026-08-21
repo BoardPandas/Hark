@@ -16,7 +16,8 @@ Loads whenever Rust source is touched. Full context: root `CLAUDE.md`, [`tasks/p
 
 ## Verified stack gotchas (as of 2026-07-15, re-verify before relying on them)
 
-- **STT is BYOK cloud, not local.** `SttProvider` trait, two Phase 1 adapters: OpenAI-compatible multipart `/audio/transcriptions` (OpenAI + Groq share the exact contract) and Deepgram `/v1/listen` (nova-3, `Token` auth, raw `audio/wav` body, `keyterm` biasing). No sherpa-onnx, no ONNX runtime, no model files.
+- **Cloud STT is the primary path.** `SttProvider` trait, two Phase 1 adapters: OpenAI-compatible multipart `/audio/transcriptions` (OpenAI + Groq share the exact contract) and Deepgram `/v1/listen` (nova-3, `Token` auth, raw `audio/wav` body, `keyterm` biasing).
+- **On-device STT also exists, and ships on by default.** `hark-local-stt` wraps sherpa-onnx (Parakeet) behind its `engine` feature, which `hark-app`'s default `local-engine` feature turns on — so a stock `cargo build`/`clippy`/`test` **does** compile the ONNX runtime path. It is opt-in at runtime (`[local_stt] mode` = Off/Backup/Primary), never on the cloud hot path unless selected, and decoding is always `greedy_search` (see `crates/hark-local-stt/src/engine.rs`). Do not write code, comments or docs that assert Hark has no local model.
 - **Transport:** `reqwest` 0.13 `blocking` + `multipart` + `rustls-tls-webpki-roots` on the pipeline worker thread; no global tokio runtime. `ureq` multipart is unstable (as of 3.3.0); the `deepgram` crate is pre-1.0 and drags in full tokio.
 - **Provider quirks:** Groq bills a 10 s minimum per request. Deepgram `keyterm` needs nova-3+ (weighted `keywords` is nova-2 legacy; mutually exclusive). OpenAI/Groq biasing goes through `prompt` (224-token cap on Whisper-family models).
 - **Never log API keys or raw audio**; error messages must not echo the Authorization header or request bodies.
@@ -31,4 +32,5 @@ Loads whenever Rust source is touched. Full context: root `CLAUDE.md`, [`tasks/p
 
 - `Result` + `?` everywhere; never swallow errors. Validate at boundaries: mic samples, STT provider responses, cleanup responses, TOML/DB I/O.
 - Secrets (provider API keys) live only in the OS keychain via `keyring`; never in `config.toml`, never logged.
-- `cargo fmt` + `cargo clippy --all-targets -- -D warnings` clean before done. Files > 500 lines get split.
+- `cargo fmt` + `cargo clippy --all-targets -- -D warnings` clean before done.
+- Past ~500 lines, look for a seam worth splitting on — it is a smell, not a cap. Lookup tables (`hark-hotkey/src/keycode.rs`, `known.rs`) are exempt, and no file should ever be compressed just to get under the number.

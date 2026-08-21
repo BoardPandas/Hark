@@ -90,7 +90,7 @@ Run `/doc-sync update` after code changes to regenerate only the AUTOGEN section
 
 ### Validation
 - Structure errors: 0 (every PAGE_ID and BEGIN/END pair matches `_toc.yaml`)
-- Broken internal links: 0 across all 15 pages
+- Broken internal links: 0 across all 15 pages (16 as of 0.35.5, with `ON_DEVICE_STT.md` registered)
 - Mermaid: 14 blocks, 0 invalid (static check; `mmdc` not installed, so no render test was performed)
 - Citations emitted this run: verified against `git show bcfcc3f:<path>` — 0 nonexistent paths, 0 out-of-range line numbers
 
@@ -106,12 +106,38 @@ their own `/doc-sync update` run:
 | 0.15.0 | `over_expanded` guard and `LENGTH_DISCIPLINE_CLAUSE` | VOICE_CLEANUP |
 | 0.16.0 | `hark-single-instance` crate | none — no page exists |
 | 0.17.0 | `hark-audio/src/gain.rs`, peak-window silence gating, live input meter | AUDIO_CAPTURE |
-| 0.18.0 | `hark-local-stt` crate (5 modules), `hark-pipeline/src/local.rs`, `hark-config/src/local.rs` | ON_DEVICE_STT |
+| 0.18.0 | `hark-local-stt` crate (5 modules), `hark-pipeline/src/local.rs`, `hark-config/src/local.rs` | ON_DEVICE_STT — **closed 0.35.5**: the hand-written page is now registered in `_toc.yaml` as `hark_07b_on_device_stt` and carries citations |
 | 0.18.1 | multi-monitor overlay placement | DESKTOP_UI |
 
 26 of 83 non-test Rust source files are not matched by any `_toc.yaml` source
 pattern, concentrated in `hark-local-stt`, `hark-single-instance`, and the
 `hark-app/src/ui/settings/*` submodules.
+
+### Coverage gaps since 0.19.0 (appended 2026-08-21, no regeneration performed)
+
+The table above stopped at 0.18.1 and was not extended for the next **37
+commits**, so a reader trusting it as complete would have understated the gap by
+17 releases. Extended here from `git log bcfcc3f..HEAD`; still no regeneration —
+that remains a separate `/doc-sync update` run.
+
+| Releases | Undocumented work | Affected page |
+|---|---|---|
+| 0.21.0–0.21.3, 0.23.1 | The Nocturne restyle, and the recording overlay becoming a real frameless, shape-clipped, transparently-composited window | DESKTOP_UI |
+| 0.22.0, 0.24.0 | Four added cleanup voices, the no-dashes rule, and the Grammar voice | VOICE_CLEANUP |
+| 0.23.0 | Trailing period suppressed on single-word dictations | VOICE_CLEANUP |
+| 0.25.0, 0.29.1, 0.30.0, 0.30.4, 0.30.5 | Window/pill focus and surfacing behaviour, including the OS-level main-window kick | DESKTOP_UI |
+| 0.26.0 | Dictionary renamed to Spellbook (terminology sweep) | SPELLBOOK, GLOSSARY |
+| 0.27.0–0.27.1 | Transcript text selection and snapping in History | DESKTOP_UI |
+| 0.28.0–0.29.0 | Adding Spellbook terms from a history selection; Spellbook aliases and the **schema v2 migration** | SPELLBOOK, **DATA_STORAGE** |
+| 0.30.1–0.30.3 | `ci.yml` added (fmt/clippy/test gate), the changelog hook unsilenced | RELEASE_AND_PACKAGING |
+| 0.30.2 | Per-page scrollbars in the Spellbook | DESKTOP_UI |
+| **0.31.0–0.35.2** | **The whole push-to-talk shortcut overhaul** — shortcut recording, `hark-hotkey/src/edges.rs`, `capture.rs`, `keycode.rs`, `known.rs`, all 114 keys bindable, trap-key refusal, conflict reporting, lock-key suppression (`swallow_lock_keys`) | AUDIO_CAPTURE (the only page citing `hark-hotkey`) |
+| 0.35.1 | Icon font stack ordering | DESKTOP_UI |
+| 0.35.3, 0.35.5 | Release gated on the repo's own checks; SHA-pinned actions; `cargo audit` in CI | RELEASE_AND_PACKAGING |
+
+**Highest-value next run:** `hark-hotkey`. It is 3,870 LOC — the second-largest
+crate — it changed in five of the last eight releases, and `AUDIO_CAPTURE.md`
+still describes the pre-0.31 model in which the shortcut was not user-recordable.
 
 ### Pre-existing issue (not introduced here, not corrected)
 

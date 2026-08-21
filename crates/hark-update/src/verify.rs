@@ -26,22 +26,50 @@ pub fn verify(_staged: &Path) -> Result<(), UpdateError> {
 pub fn verify(staged: &Path) -> Result<(), UpdateError> {
     verify_trust(staged)?;
     let staged_signer = signer_subject(staged)?;
-
     // Anchor to the running exe's signer when it is itself signed (release
-    // builds always are). A dev/unsigned running build cannot anchor, so fall
-    // back to the trusted-signature check alone, loudly.
-    match std::env::current_exe().ok().and_then(|p| signer_subject(&p).ok()) {
-        Some(running_signer) if running_signer == staged_signer => {
-            log::info!("update signer verified: {staged_signer}");
+    // builds always are). A dev/unsigned running build cannot anchor.
+    let running = std::env::current_exe()
+        .ok()
+        .and_then(|p| signer_subject(&p).ok());
+    decide_signer(&staged_signer, running.as_deref())
+}
+
+/// Gate 2 in isolation: given the downloaded exe's signer subject and the
+/// running exe's (if it has a readable one), decide whether the update may
+/// proceed.
+///
+/// Split out from the Win32 calls deliberately. This is the half that decides
+/// whether a validly-signed binary is allowed to replace the running one, and
+/// as a free function over two strings it can be tested on every platform
+/// rather than only where `WinVerifyTrust` exists.
+///
+/// An **empty or whitespace-only** subject is treated as *unreadable*, never as
+/// a value that can match. `cert_name_string` returns `String::new()` when
+/// `CertGetNameStringW` reports no name, so without this a certificate with no
+/// readable subject on both sides would compare equal and wave the update
+/// through on a signer check that had in fact read nothing.
+#[cfg_attr(not(windows), allow(dead_code))] // used by `verify` on Windows, and by the tests everywhere
+fn decide_signer(staged: &str, running: Option<&str>) -> Result<(), UpdateError> {
+    let staged = staged.trim();
+    if staged.is_empty() {
+        return Err(UpdateError::Verification(
+            "downloaded update carries a signature with no readable signer name".to_string(),
+        ));
+    }
+
+    match running.map(str::trim).filter(|r| !r.is_empty()) {
+        Some(running) if running == staged => {
+            log::info!("update signer verified: {staged}");
             Ok(())
         }
-        Some(running_signer) => Err(UpdateError::Verification(format!(
-            "downloaded update is signed by \"{staged_signer}\", not the running app's publisher \"{running_signer}\""
+        Some(running) => Err(UpdateError::Verification(format!(
+            "downloaded update is signed by \"{staged}\", not the running app's publisher \"{running}\""
         ))),
+        // Falls back to the trusted-signature check alone, loudly.
         None => {
             log::warn!(
                 "running exe is unsigned; accepting update on trusted-signature check alone \
-                 (downloaded signer: {staged_signer})"
+                 (downloaded signer: {staged})"
             );
             Ok(())
         }
@@ -217,4 +245,66 @@ unsafe fn cert_name_string(
     // `written` counts the trailing NUL; trim it.
     let end = (written as usize).saturating_sub(1).min(buf.len());
     String::from_utf16_lossy(&buf[..end])
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// `UpdateError` has no `PartialEq`, so assert on the rendered message.
+    fn err(result: Result<(), UpdateError>) -> String {
+        match result {
+            Err(e) => e.to_string(),
+            Ok(()) => panic!("expected the update to be refused, but it was accepted"),
+        }
+    }
+
+    #[test]
+    fn matching_publisher_is_accepted() {
+        assert!(decide_signer("Board Pandas LLC", Some("Board Pandas LLC")).is_ok());
+    }
+
+    #[test]
+    fn a_different_publisher_is_refused_even_though_it_is_validly_signed() {
+        // The whole point of gate 2: WinVerifyTrust already passed on this file.
+        let msg = err(decide_signer(
+            "Totally Legit Software",
+            Some("Board Pandas LLC"),
+        ));
+        assert!(msg.contains("Totally Legit Software"), "{msg}");
+        assert!(msg.contains("Board Pandas LLC"), "{msg}");
+    }
+
+    #[test]
+    fn an_unsigned_running_exe_falls_back_to_the_trust_check_alone() {
+        // A dev build cannot anchor. Accepting here is deliberate; the file has
+        // still passed WinVerifyTrust before this function is reached.
+        assert!(decide_signer("Board Pandas LLC", None).is_ok());
+    }
+
+    #[test]
+    fn an_unreadable_running_subject_is_treated_as_unsigned_not_as_a_match() {
+        // `cert_name_string` yields "" when CertGetNameStringW reports no name.
+        assert!(decide_signer("Board Pandas LLC", Some("")).is_ok());
+        assert!(decide_signer("Board Pandas LLC", Some("   ")).is_ok());
+    }
+
+    #[test]
+    fn an_unreadable_staged_subject_is_refused_outright() {
+        // The regression this guards: two empty subjects used to compare equal,
+        // so a signer check that had read nothing reported a publisher match.
+        assert!(err(decide_signer("", Some(""))).contains("no readable signer name"));
+        assert!(err(decide_signer("   ", None)).contains("no readable signer name"));
+        assert!(
+            err(decide_signer("", Some("Board Pandas LLC"))).contains("no readable signer name")
+        );
+    }
+
+    #[test]
+    fn subject_comparison_ignores_surrounding_whitespace_but_not_case() {
+        assert!(decide_signer("  Board Pandas LLC  ", Some("Board Pandas LLC")).is_ok());
+        // Certificate subjects are compared exactly; a case-folded near-miss is
+        // a different publisher, not the same one.
+        assert!(decide_signer("board pandas llc", Some("Board Pandas LLC")).is_err());
+    }
 }

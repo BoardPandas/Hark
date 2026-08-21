@@ -827,3 +827,192 @@ pub fn parse_key(name: &str) -> Option<PttKeyCode> {
     };
     Some(key)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::HashSet;
+
+    /// The invariant the module header calls load-bearing: `ALL_KEYS` is indexed
+    /// by `ordinal()`. Insert a variant into the enum without inserting it here
+    /// at the same position and every later key's ordinal shifts — the scanner
+    /// then reads the wrong slot of its state array and, per the header,
+    /// "would manufacture phantom edges". Nothing else catches that.
+    #[test]
+    fn all_keys_is_indexed_by_ordinal() {
+        for (i, key) in ALL_KEYS.iter().enumerate() {
+            assert_eq!(
+                key.ordinal(),
+                i,
+                "{key} sits at index {i} but ordinals as {}",
+                key.ordinal()
+            );
+        }
+    }
+
+    #[test]
+    fn all_keys_covers_every_variant_exactly_once() {
+        assert_eq!(ALL_KEYS.len(), PttKeyCode::COUNT);
+        let unique: HashSet<_> = ALL_KEYS.iter().collect();
+        assert_eq!(
+            unique.len(),
+            PttKeyCode::COUNT,
+            "ALL_KEYS repeats a key, so one variant is missing from it"
+        );
+    }
+
+    /// Tokens are the config spelling. Two keys sharing one means a chord in
+    /// `config.toml` silently resolves to the wrong key.
+    #[test]
+    fn tokens_are_unique_and_non_empty() {
+        let mut seen: HashSet<&str> = HashSet::new();
+        for key in ALL_KEYS {
+            let t = key.token();
+            assert!(!t.is_empty(), "{key:?} has an empty token");
+            assert!(seen.insert(t), "token {t:?} is used by more than one key");
+        }
+    }
+
+    #[test]
+    fn labels_are_non_empty() {
+        for key in ALL_KEYS {
+            assert!(!key.label().is_empty(), "{key} has an empty UI label");
+        }
+    }
+
+    /// The header's warning made executable: "a case mismatch between `parse`
+    /// and the hook would be push-to-talk silently dead with no error anywhere."
+    #[test]
+    fn every_token_round_trips_through_parse_key() {
+        for key in ALL_KEYS {
+            assert_eq!(
+                parse_key(key.token()),
+                Some(key),
+                "{key} writes itself as {:?} but that token does not parse back",
+                key.token()
+            );
+        }
+    }
+
+    #[test]
+    fn parse_key_is_case_insensitive_and_trims() {
+        for key in ALL_KEYS {
+            let t = key.token();
+            for spelling in [
+                t.to_ascii_uppercase(),
+                t.to_ascii_lowercase(),
+                format!("  {t}\t"),
+            ] {
+                assert_eq!(
+                    parse_key(&spelling),
+                    Some(key),
+                    "{spelling:?} did not parse as {key}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn escape_is_never_bindable() {
+        // Escape cancels a recording, so it must not resolve to any key.
+        for spelling in ["esc", "Esc", "escape", "ESCAPE", " escape "] {
+            assert_eq!(parse_key(spelling), None, "{spelling:?} became bindable");
+        }
+        assert!(
+            !ALL_KEYS
+                .iter()
+                .any(|k| k.token().eq_ignore_ascii_case("escape")),
+            "an Escape variant reached ALL_KEYS"
+        );
+    }
+
+    #[test]
+    fn unknown_and_empty_tokens_are_rejected() {
+        for spelling in ["", "   ", "nope", "f25", "lctrl+shift", "🙂"] {
+            assert_eq!(
+                parse_key(spelling),
+                None,
+                "{spelling:?} unexpectedly parsed"
+            );
+        }
+    }
+
+    /// The aliases exist so hand-written config keeps working; a rename that
+    /// drops one is a silent config break at the next launch.
+    #[test]
+    fn historical_aliases_still_resolve() {
+        for (alias, expected) in [
+            ("lcontrol", K::LCtrl),
+            ("rcontrol", K::RCtrl),
+            ("altgr", K::RAlt),
+            ("lcmd", K::LWin),
+            ("lsuper", K::LWin),
+            ("rcmd", K::RWin),
+            ("rsuper", K::RWin),
+            ("return", K::Enter),
+            ("pgup", K::PageUp),
+            ("pgdn", K::PageDown),
+            ("pgdown", K::PageDown),
+            ("del", K::Delete),
+            ("ins", K::Insert),
+            ("menu", K::Apps),
+            ("contextmenu", K::Apps),
+            ("grave", K::Backtick),
+            ("backquote", K::Backtick),
+            ("apostrophe", K::Quote),
+            ("plus", K::Equals),
+        ] {
+            assert_eq!(
+                parse_key(alias),
+                Some(expected),
+                "alias {alias:?} stopped resolving"
+            );
+        }
+    }
+
+    /// `class()` drives `PttChord::rejection`, i.e. which chords are refusable.
+    /// The modifier set is exactly the eight sided modifier keys — a key
+    /// wrongly classed here changes what the recorder accepts.
+    #[test]
+    fn exactly_the_eight_sided_modifiers_are_classed_as_modifiers() {
+        let modifiers: Vec<_> = ALL_KEYS
+            .iter()
+            .copied()
+            .filter(|k| k.class() == KeyClass::Modifier)
+            .collect();
+        assert_eq!(
+            modifiers,
+            vec![
+                K::LCtrl,
+                K::RCtrl,
+                K::LShift,
+                K::RShift,
+                K::LAlt,
+                K::RAlt,
+                K::LWin,
+                K::RWin,
+            ]
+        );
+    }
+
+    #[test]
+    fn the_locks_and_function_keys_are_dedicated() {
+        for key in [
+            K::CapsLock,
+            K::NumLock,
+            K::ScrollLock,
+            K::Apps,
+            K::F1,
+            K::F24,
+        ] {
+            assert_eq!(key.class(), KeyClass::Dedicated, "{key} is not Dedicated");
+        }
+    }
+
+    #[test]
+    fn display_matches_token() {
+        for key in ALL_KEYS {
+            assert_eq!(key.to_string(), key.token());
+        }
+    }
+}
