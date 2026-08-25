@@ -17,7 +17,7 @@
 # Everything below the `build()` line is identical either way.
 
 pkgname=hark
-pkgver=0.36.2
+pkgver=0.36.3
 pkgrel=1
 pkgdesc="Push-to-talk voice dictation: hold a key, speak, release, and polished text appears at your cursor"
 arch=('x86_64')
@@ -36,7 +36,19 @@ license=('MIT')
 # the others. libxcb is deliberately absent: x11rb speaks the X protocol in
 # pure Rust and links no XCB.
 depends=('alsa-lib' 'gtk3' 'xdotool' 'libappindicator-gtk3' 'libx11' 'libxkbcommon')
-makedepends=('rust' 'cargo' 'pkgconf')
+# base-devel ships neither cmake nor clang, and a build dependency that comes
+# in through a -sys crate's build script is named nowhere pacman can see it, so
+# leaving them out fails an AUR build with a bare "cmake: command not found"
+# from inside a dependency nobody chose directly:
+#   cmake   aws-lc-sys builds AWS-LC through it, and that arrives via
+#           rustls -> reqwest -- the cloud STT path, not the optional local
+#           engine. `--no-default-features` does not avoid it. (sherpa-onnx-sys
+#           1.13.4 needs no cmake at all: it downloads a prebuilt archive.)
+#   clang   not load-bearing today -- aws-lc-sys's bindgen is optional, nothing
+#           in Cargo.lock turns it on, and `cc` picks gcc from base-devel
+#           regardless. It is here so an AUR build uses the same toolchain the
+#           release container installs, rather than a near-miss of it.
+makedepends=('rust' 'cargo' 'pkgconf' 'cmake' 'clang')
 # The API key is stored through the Secret Service. Optional, not a hard
 # dependency: HARK_STT_KEY works without any keyring at all.
 optdepends=('gnome-keyring: store the API key in the GNOME keyring'

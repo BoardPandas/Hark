@@ -4,6 +4,20 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.36.3] - 2026-08-25
+
+### Fixed
+
+- **Building the Arch package by hand no longer needs tools nobody told you
+  about.** `packaging/PKGBUILD` now declares `cmake` and `clang` among its build
+  dependencies. `cmake` is genuinely required -- AWS-LC is compiled through it,
+  and it arrives via the HTTPS stack every cloud transcription uses, so even a
+  build with the on-device engine switched off needs it -- but it comes in
+  through a dependency's build script, where pacman cannot see it. Arch's
+  `base-devel` provides neither, so a build would stop partway with nothing more
+  than "cmake: command not found". The release build was unaffected: it installs
+  both explicitly.
+
 ## [0.36.2] - 2026-08-25
 
 ### Changed
