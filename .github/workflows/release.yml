@@ -15,10 +15,26 @@
 #
 # The Linux jobs need no secrets at all: distribution packages are verified by
 # the repository they come from, and Hark publishes to GitHub Releases rather
-# than to an apt/dnf repo, so there is nothing for a GPG key to sign into. They
-# run AFTER the Windows job (`needs: release`) so the release object exists and
-# only one job can ever create it -- two jobs racing to create the same release
-# is a 422 on whichever loses.
+# than to an apt/dnf repo, so there is nothing for a GPG key to sign into.
+#
+# JOB SHAPE
+#
+#   version                 seconds; verifies the tag and creates the release
+#     |- release  (windows) ~21 min; signs, packages, attaches
+#     `- linux    (ubuntu)  ~30 min; deb + rpm + tarball, attaches
+#          `- linux-arch    ~30 min; makepkg, attaches
+#
+# The two big builds used to be serial -- `linux` had `needs: release` -- purely
+# because whichever job ran first had to be the one that CREATED the release
+# object. softprops/action-gh-release creates a release when the tag has none
+# and updates it when it does, so two jobs starting together both try to create
+# it and the loser gets a 422. Hoisting that creation into `version` leaves
+# every build job doing nothing but APPEND, which is safe to do concurrently,
+# and takes the wall clock from ~81 min to ~51 min.
+#
+# `linux-arch` stays downstream of `linux`, deliberately: it builds with
+# `makepkg --nocheck`, and skipping the suite is only defensible while the
+# ubuntu job has already run it in full against the same commit.
 #
 # Required GitHub Actions secrets (synced from Doppler). See
 # .github/RELEASING.md for the Azure RBAC role and one-time setup:
@@ -31,6 +47,11 @@
 
 name: Release
 
+# DO NOT ADD TRIGGERS HERE. The Azure signing service principal is federated on
+# a subject claim derived from the ref, so changing what starts this workflow
+# changes the identity presented to Entra and signing fails with
+# AADSTS700213 (LL-G github-actions/tag-trigger-breaks-azure-oidc, HIGH).
+# Restructuring jobs and steps within the workflow does not touch that claim.
 on:
   push:
     tags:
@@ -50,12 +71,23 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  release:
-    name: Windows (signed installer + portable exe)
-    runs-on: windows-latest
-    # Consumed by the Linux jobs so the tag/package.json/Cargo.toml agreement
-    # is verified exactly once, in the step below, rather than re-derived three
-    # times with three chances to disagree.
+  # ---------------------------------------------------------------------------
+  # The gate every other job hangs off, and the only job that ever creates the
+  # release object. Seconds long: no Rust toolchain, no secrets, nothing to
+  # compile.
+  #
+  # Both checks here used to live inside the Windows job, where the Linux jobs
+  # inherited them only by accident of `needs: release`. Now that the builds run
+  # in parallel there is no such accident left to rely on, so the version
+  # agreement and the wiring guard sit upstream of all three builds instead of
+  # inside one of them. A red guard or a mistagged commit now stops the release
+  # before any job has built -- or created -- anything.
+  version:
+    name: Version gate + release object
+    runs-on: ubuntu-latest
+    # Consumed by all three build jobs so the tag/package.json/Cargo.toml
+    # agreement is verified exactly once, in the step below, rather than
+    # re-derived three times with three chances to disagree.
     outputs:
       version: ${{ steps.version.outputs.version }}
       tag: ${{ steps.version.outputs.tag }}
@@ -67,6 +99,13 @@ jobs:
 
       # The tag is authoritative for the release; package.json must agree so
       # a mistagged build fails loudly instead of shipping a mismatched exe.
+      #
+      # Still pwsh, verbatim from when this step lived in the Windows job:
+      # PowerShell is preinstalled on the ubuntu runner image, the script is
+      # plain cross-platform pwsh, and rewriting a release gate in another
+      # language to move it between runners is how a gate quietly stops
+      # gating. If the image ever drops pwsh this fails in seconds, loudly,
+      # before anything is built.
       - name: Resolve and verify version
         id: version
         shell: pwsh
@@ -90,17 +129,24 @@ jobs:
           Add-Content -Path $env:GITHUB_OUTPUT -Value "tag=$ref"
           Write-Host "Releasing Hark $version from tag $ref"
 
-      # FIRST GATE, and deliberately ahead of the Rust toolchain: dependency-free,
-      # a few seconds, and it aborts before this job installs anything or spends
-      # Trusted Signing quota.
+      # Dependency-free and a few seconds long, which is why it can sit in front
+      # of everything without costing anything.
       #
       # This used to be ci.yml's job alone, on the reasoning that the artifact
       # here is Windows so a wiring guard adds nothing. 0.35.4 disproved it: a
       # .claude template sync left the guard failing on main for two weeks, and
       # because ci.yml has no tag trigger, a `v0.35.4` tag would have built,
       # signed and published over a red guard without ever consulting it. The
-      # guard is the ONLY check that is not otherwise duplicated below, so it is
-      # the one this workflow most needed.
+      # guard is the ONLY check in this workflow that is not otherwise
+      # duplicated in the build jobs below, so it is the one this workflow most
+      # needed.
+      #
+      # On ubuntu here, where it once ran on windows-latest, because this job is
+      # the common ancestor and gating all three builds is worth more than the
+      # runner it happens to run on. Windows coverage of the guard did not go
+      # anywhere: ci.yml runs it on ubuntu AND windows on every push, precisely
+      # so a fs.globSync path-separator divergence surfaces there rather than on
+      # a release tag.
       - name: Set up Node
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
@@ -108,6 +154,44 @@ jobs:
 
       - name: Claude wiring guard (rule scoping + hook matchers)
         run: npm run check:claude
+
+      # THE ONE PLACE A RELEASE IS CREATED. Every build job below passes only
+      # tag_name and files, so each is a pure append and they cannot race.
+      #
+      # generate_release_notes belongs to this call alone: asking for it again
+      # on an append would regenerate the body and overwrite it on every
+      # subsequent upload.
+      #
+      # Consequence worth knowing: the release object now exists before any
+      # artifact does. It is empty until the Windows job attaches the installer
+      # ~20 min later, and it stays empty if that job fails. The in-app update
+      # checker reads `releases/latest` and offers whatever tag it finds, asset
+      # or no asset, so a failed Windows build leaves a real (if brief) window
+      # where Hark offers an update it cannot download. Creating the release
+      # from a build job instead is what the 422 race above rules out; making it
+      # a draft and publishing it at the end would close the window, but only if
+      # action-gh-release resolves a draft by tag reliably, which is not
+      # something to find out during a release.
+      - name: Create the GitHub release
+        uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228 # v3.0.2
+        with:
+          tag_name: ${{ steps.version.outputs.tag }}
+          name: Hark ${{ steps.version.outputs.version }}
+          generate_release_notes: true
+
+  # ---------------------------------------------------------------------------
+  # Windows: the signed installer and the signed portable exe, the headline
+  # downloads. Runs in parallel with `linux`; both only append to the release
+  # `version` already created.
+  release:
+    name: Windows (signed installer + portable exe)
+    needs: version
+    runs-on: windows-latest
+    steps:
+      - name: Check out the tagged commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
 
       # `toolchain: stable` is a channel, not a version pin: the workspace
       # rust-version = "1.97" floor (Cargo.toml) makes cargo error if the runner's
@@ -128,7 +212,7 @@ jobs:
       - name: Cache cargo build
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
 
-      # THE REST OF THE RELEASE GATE. These steps duplicate ci.yml on purpose.
+      # THE RELEASE GATE. These steps duplicate ci.yml on purpose.
       #
       # ci.yml and release.yml used to be wholly independent, so a tag shipped
       # whatever it pointed at regardless of whether the repo's own checks
@@ -141,21 +225,20 @@ jobs:
       # subject claim and breaks Azure signing -- LL-G github-actions, HIGH), so
       # no CI run exists on the tag itself; and workflow_run would run this job
       # in default-branch context, where github.ref is refs/heads/main and the
-      # tag-derived version resolution above has nothing to read. Querying CI's
-      # conclusion for the tagged SHA is racy -- the commit and tag are pushed
-      # together, so both workflows start in the same second -- and gives no
-      # safe answer when a SHA has no CI run at all (a workflow_dispatch
+      # tag-derived version resolution upstream has nothing to read. Querying
+      # CI's conclusion for the tagged SHA is racy -- the commit and tag are
+      # pushed together, so both workflows start in the same second -- and gives
+      # no safe answer when a SHA has no CI run at all (a workflow_dispatch
       # re-release of an old tag). Checking the tree in-process has none of
       # those failure modes: it verifies exactly what is about to be signed.
       #
       # Placed before the build so a bad tree never reaches the signing steps
-      # and never spends Trusted Signing quota. Costs ~2-4 min on a ~13 min run.
+      # and never spends Trusted Signing quota. Costs ~2-4 min on a ~21 min job.
       #
       # SCOPE: this runner is windows-latest, so cargo fmt/clippy/test here catch
-      # Windows and platform-independent failures only. macOS-only clippy/test
-      # breakage remains ci.yml's job -- acceptable, since the artifact this
-      # workflow produces is Windows. The wiring guard above is platform-neutral
-      # and runs in both.
+      # Windows and platform-independent failures only -- which is exactly why
+      # the ubuntu job below runs its own copy rather than trusting this one.
+      # macOS-only clippy/test breakage remains ci.yml's job.
       #
       # Default (debug) profile, deliberately: --all-targets in release profile
       # would drop test executables into target/release, which the signing step
@@ -252,11 +335,11 @@ jobs:
           $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
           if (-not (Test-Path $iscc)) { throw "ISCC not found at $iscc" }
           & $iscc `
-            "/DAppVersion=${{ steps.version.outputs.version }}" `
+            "/DAppVersion=${{ needs.version.outputs.version }}" `
             "/DSourceExe=${{ github.workspace }}\target\release\hark-app.exe" `
             installer\hark.iss
           if ($LASTEXITCODE -ne 0) { throw "ISCC failed with exit code $LASTEXITCODE" }
-          $out = "installer\Output\Hark-${{ steps.version.outputs.version }}-windows-x64-setup.exe"
+          $out = "installer\Output\Hark-${{ needs.version.outputs.version }}-windows-x64-setup.exe"
           if (-not (Test-Path $out)) { throw "Installer not produced at $out" }
 
       # v2 reads the service principal from its own inputs, same as the exe
@@ -281,7 +364,7 @@ jobs:
       - name: Verify the installer signature
         shell: pwsh
         run: |
-          $exe = "installer\Output\Hark-${{ steps.version.outputs.version }}-windows-x64-setup.exe"
+          $exe = "installer\Output\Hark-${{ needs.version.outputs.version }}-windows-x64-setup.exe"
           $sig = Get-AuthenticodeSignature $exe
           Write-Host "Status: $($sig.Status)"
           Write-Host "Signer: $($sig.SignerCertificate.Subject)"
@@ -295,18 +378,19 @@ jobs:
         id: asset
         shell: pwsh
         run: |
-          $portable = "Hark-${{ steps.version.outputs.version }}-windows-x64.exe"
+          $portable = "Hark-${{ needs.version.outputs.version }}-windows-x64.exe"
           Copy-Item target\release\hark-app.exe $portable
-          $installer = "installer\Output\Hark-${{ steps.version.outputs.version }}-windows-x64-setup.exe"
+          $installer = "installer\Output\Hark-${{ needs.version.outputs.version }}-windows-x64-setup.exe"
           Add-Content -Path $env:GITHUB_OUTPUT -Value "portable=$portable"
           Add-Content -Path $env:GITHUB_OUTPUT -Value "installer=$installer"
 
-      - name: Publish the GitHub release
+      # Append only. No name and no generate_release_notes: the `version` job
+      # set both when it created the release, and passing them again here would
+      # overwrite the body every time an asset lands.
+      - name: Attach the Windows assets to the release
         uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228 # v3.0.2
         with:
-          tag_name: ${{ steps.version.outputs.tag }}
-          name: Hark ${{ steps.version.outputs.version }}
-          generate_release_notes: true
+          tag_name: ${{ needs.version.outputs.tag }}
           files: |
             ${{ steps.asset.outputs.installer }}
             ${{ steps.asset.outputs.portable }}
@@ -314,10 +398,17 @@ jobs:
   # ---------------------------------------------------------------------------
   # Linux: .deb, .rpm and a portable .tar.gz, built and gated on ubuntu.
   #
-  # `needs: release` for two reasons. The GitHub release object must already
-  # exist -- action-gh-release creates it if missing, so two jobs starting at
-  # once race to create the same tag and whichever loses gets a 422. And a
-  # Windows gate failure should stop the whole release, not publish half of it.
+  # `needs: version`, not `needs: release`: it needs the release object to exist
+  # and the version to be resolved, and both of those now happen upstream, so
+  # there is nothing left to wait on the Windows build for. The two run
+  # side by side.
+  #
+  # A consequence of that, stated plainly: a Windows gate failure no longer
+  # stops the Linux packages from being attached. Both jobs gate themselves on
+  # the same tree, so a failure that would stop one generally stops the other;
+  # what is genuinely Windows-only (signing, Inno Setup) can now leave a release
+  # holding Linux assets and no installer. That is the trade for the wall clock,
+  # and it is visible -- a red job on the run, and a release with no .exe.
   #
   # This job runs its own fmt/clippy/test pass rather than trusting the Windows
   # job's. Those steps there run on windows-latest and so only ever exercise the
@@ -335,7 +426,7 @@ jobs:
   # packaging/LINUX.md states the requirement.
   linux:
     name: Linux (deb + rpm + tarball)
-    needs: release
+    needs: version
     runs-on: ubuntu-latest
     steps:
       - name: Check out the tagged commit
@@ -452,7 +543,7 @@ jobs:
       - name: Stage the assets
         id: asset
         env:
-          VERSION: ${{ needs.release.outputs.version }}
+          VERSION: ${{ needs.version.outputs.version }}
         run: |
           set -euo pipefail
           mkdir -p dist "tarball/Hark-${VERSION}-linux-x64"
@@ -467,16 +558,16 @@ jobs:
           cp "$(ls target/generate-rpm/*.rpm)" "dist/Hark-${VERSION}-linux-x64.rpm"
           ls -la dist
 
-      # No generate_release_notes here: the Windows job already generated them,
-      # and asking again would overwrite that body on every subsequent upload.
+      # Append only, same as the Windows job: the `version` job owns the release
+      # body, and asking for notes again would overwrite it on every upload.
       - name: Attach the Linux assets to the release
         uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228 # v3.0.2
         with:
-          tag_name: ${{ needs.release.outputs.tag }}
+          tag_name: ${{ needs.version.outputs.tag }}
           files: |
-            dist/Hark-${{ needs.release.outputs.version }}-linux-x64.deb
-            dist/Hark-${{ needs.release.outputs.version }}-linux-x64.rpm
-            dist/Hark-${{ needs.release.outputs.version }}-linux-x64.tar.gz
+            dist/Hark-${{ needs.version.outputs.version }}-linux-x64.deb
+            dist/Hark-${{ needs.version.outputs.version }}-linux-x64.rpm
+            dist/Hark-${{ needs.version.outputs.version }}-linux-x64.tar.gz
 
   # ---------------------------------------------------------------------------
   # Arch: a real .pkg.tar.zst, built by makepkg inside an Arch container.
@@ -485,12 +576,20 @@ jobs:
   # one links against Ubuntu's glibc and GTK sonames, which are not the ones
   # pacman would install. An Arch package has to be built against Arch.
   #
+  # STILL `needs: linux`, and not for the release object -- `version` provides
+  # that now. The edge is load-bearing on its own: the build below runs
+  # `makepkg --nocheck`, and skipping the test suite is only justified because
+  # the ubuntu job has already run the whole suite against this exact commit.
+  # Point this at `version` alone and that justification evaporates.
+  # `version` is in `needs` as well because `needs` exposes only the jobs a job
+  # names directly -- outputs do not reach through `linux`.
+  #
   # packaging/PKGBUILD is the same file an AUR consumer would use. HARK_SRCDIR
   # switches it to building the checked-out tree, because at this moment the
   # tag's source tarball is what we are producing, not something to download.
   linux-arch:
     name: Arch (pkg.tar.zst)
-    needs: [release, linux]
+    needs: [version, linux]
     runs-on: ubuntu-latest
     # Digest-pinned for the same reason every `uses:` here is SHA-pinned: this
     # workflow holds `contents: write`, and `archlinux:base-devel` is a mutable
@@ -522,7 +621,7 @@ jobs:
       # consumers, who have no such guarantee.
       - name: Build the package
         env:
-          VERSION: ${{ needs.release.outputs.version }}
+          VERSION: ${{ needs.version.outputs.version }}
         run: |
           set -euo pipefail
           useradd -m builder
@@ -540,7 +639,7 @@ jobs:
       # silently never appears.
       - name: Verify the package declares its dependencies
         env:
-          VERSION: ${{ needs.release.outputs.version }}
+          VERSION: ${{ needs.version.outputs.version }}
         run: |
           set -euo pipefail
           pkg="dist/Hark-${VERSION}-linux-x64.pkg.tar.zst"
@@ -558,5 +657,5 @@ jobs:
       - name: Attach the Arch package to the release
         uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228 # v3.0.2
         with:
-          tag_name: ${{ needs.release.outputs.tag }}
-          files: dist/Hark-${{ needs.release.outputs.version }}-linux-x64.pkg.tar.zst
+          tag_name: ${{ needs.version.outputs.tag }}
+          files: dist/Hark-${{ needs.version.outputs.version }}-linux-x64.pkg.tar.zst

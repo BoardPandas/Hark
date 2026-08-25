@@ -17,7 +17,7 @@
 # Everything below the `build()` line is identical either way.
 
 pkgname=hark
-pkgver=0.36.1
+pkgver=0.36.2
 pkgrel=1
 pkgdesc="Push-to-talk voice dictation: hold a key, speak, release, and polished text appears at your cursor"
 arch=('x86_64')

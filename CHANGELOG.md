@@ -4,6 +4,26 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.36.2] - 2026-08-25
+
+### Changed
+
+- **A release now builds for Windows and Linux at the same time.** The two used
+  to run one after the other, so the last download did not appear on a release
+  until roughly 80 minutes after the tag was pushed; they now run side by side
+  and everything is attached in a little over 50. The Arch package still waits
+  for the Linux build, deliberately -- it is packaged without running the test
+  suite, and that is only defensible while the Linux job has just run the suite
+  against the same commit.
+- **A mistagged or misconfigured release now stops every build, not just the
+  Windows one.** Checking the tag against `package.json` and `Cargo.toml` and
+  running the `.claude` wiring guard moved into a short first job that all three
+  builds wait on. Previously both checks lived inside the Windows build, and the
+  Linux jobs inherited them only because they happened to run afterwards. One
+  visible consequence of the new order: the release page is created as soon as
+  the tag checks out and fills in with downloads as each build finishes, instead
+  of appearing only once the Windows installer is ready.
+
 ## [0.36.1] - 2026-08-25
 
 ### Fixed
