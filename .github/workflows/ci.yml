@@ -152,7 +152,23 @@ jobs:
       #                                 for headers -- libappindicator-sys has
       #                                 no build script)
       #   libxkbcommon-dev, libx11-dev  dlopened by winit's xkbcommon-dl/x11-dl
-      #   cmake, clang                  sherpa-onnx builds its native engine
+      #   cmake                         aws-lc-sys compiles AWS-LC through it,
+      #                                 reached via rustls -> reqwest. That is
+      #                                 the cloud STT path, so
+      #                                 --no-default-features does not avoid it
+      #   clang                         NOT load-bearing: aws-lc-sys's bindgen
+      #                                 is an optional dependency, nothing in
+      #                                 Cargo.lock enables it, and cc picks gcc
+      #                                 regardless. Kept only so this leg, the
+      #                                 Arch container and the PKGBUILD's
+      #                                 makedepends are the same toolchain
+      # This pair read "sherpa-onnx builds its native engine" until 0.36.4, and
+      # that was wrong in both directions: sherpa-onnx-sys 1.13.4 has no cmake
+      # path at all (its build-dependencies are bzip2/tar/ureq and it downloads
+      # a prebuilt archive), while the crate that does need cmake is on the path
+      # every cloud transcription takes. It cost an afternoon in the PKGBUILD,
+      # where the same two were missing from makedepends.
+      #
       # NOT here: libudev-dev. evdev 0.13 talks to the kernel through nix and
       # has no C dependency; naming it would be a lie that outlives the check.
       - name: Install Linux build dependencies

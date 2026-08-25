@@ -4,6 +4,16 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.36.4] - 2026-08-25
+
+### Fixed
+
+- **Corrected the note in CI explaining why `cmake` and `clang` are installed.**
+  It credited the on-device transcription engine for both. Neither is true:
+  `cmake` is needed by the HTTPS stack every cloud transcription goes through,
+  and `clang` is not currently needed at all. The mistaken note is what left the
+  same two tools out of the Arch build dependencies until 0.36.3.
+
 ## [0.36.3] - 2026-08-25
 
 ### Fixed
