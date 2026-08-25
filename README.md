@@ -1,6 +1,6 @@
 # Hark
 
-A lean, system-wide, push-to-talk voice dictation tool for **Windows** and **macOS**. Hold a key, speak, release — polished English text is injected at your cursor in any app. Transcription is **bring-your-own-key cloud** by default (you supply your own speech-to-text provider key), with an **optional on-device model** that transcribes without the internet or a key at all; history, stats, the spellbook, and your invocations stay local on your machine; cleanup is optional and uses your own LLM key.
+A lean, system-wide, push-to-talk voice dictation tool for **Windows**, **macOS** and **Linux**. Hold a key, speak, release — polished English text is injected at your cursor in any app. Transcription is **bring-your-own-key cloud** by default (you supply your own speech-to-text provider key), with an **optional on-device model** that transcribes without the internet or a key at all; history, stats, the spellbook, and your invocations stay local on your machine; cleanup is optional and uses your own LLM key.
 
 > Wispr Flow-style dictation, scoped to one user, English-only, and local-first.
 
@@ -20,16 +20,16 @@ Desktop app — **no web infrastructure** (no server, database service, auth, or
 |---|---|
 | Language | Rust (UI on main thread, pipeline on worker threads) |
 | Audio | `cpal` (16 kHz mono ring buffer) |
-| Push-to-talk | Native low-level key hooks: CGEventTap (macOS), `WH_KEYBOARD_LL` (Windows) |
+| Push-to-talk | Native low-level key hooks: CGEventTap (macOS), `WH_KEYBOARD_LL` (Windows), `evdev` (Linux — works on X11 and Wayland alike) |
 | STT | BYOK cloud via an `SttProvider` trait: OpenAI-compatible `/audio/transcriptions` adapter (OpenAI, Groq) + Deepgram nova-3 adapter |
 | STT transport | `reqwest` blocking + multipart + rustls on worker threads; one long-lived client, no global tokio |
 | Spellbook | Phonetic post-correction (primary, provider-agnostic) + per-provider biasing (OpenAI/Groq `prompt`, Deepgram `keyterm`) |
 | Invocations | Trigger phrase → canned text, matched by the same guarded phonetic matcher at a tighter confirm threshold; injected verbatim, cleanup skipped |
 | Cleanup / voices | Bring-your-own-key, OpenAI-compatible chat endpoint (optional) |
-| Injection | Clipboard paste, `enigo` keystroke fallback |
+| Injection | Clipboard paste, `enigo` keystroke fallback (a `uinput` virtual keyboard on Wayland, which has no XTEST) |
 | Tray + UI | `tray-icon` + `eframe`/`egui` (native, no webview) |
 | Storage | `rusqlite` (history + stats), TOML (settings + spellbook) |
-| Key storage | `keyring` → macOS Keychain / Windows Credential Manager |
+| Key storage | `keyring` → macOS Keychain / Windows Credential Manager / Secret Service (Linux) |
 
 See [`tasks/plan-repo.md`](tasks/plan-repo.md) for the full rationale and the current-as-of-2026-07-15 research corrections.
 
@@ -59,13 +59,21 @@ key up  ─────▶ append ~150 ms tail
               ▼  write history (if capture enabled) + increment lifetime stats
 ```
 
-The tray daemon owns the hot path (hotkey, audio, STT, injection). The settings/history window opens on demand. On macOS the main thread owns the event loop (tray + window); the pipeline runs on worker threads.
+The tray daemon owns the hot path (hotkey, audio, STT, injection). The settings/history window opens on demand. On macOS the main thread owns the event loop (tray + window); the pipeline runs on worker threads. On Linux the tray is the one exception: libappindicator builds it out of GTK widgets, which need a GTK main loop that cannot share a thread with winit's, so it runs on a thread of its own.
 
 ## Prerequisites
 
 - **Rust** (stable) via [rustup](https://rustup.rs) — `cargo`, `rustfmt`, `clippy`.
 - **A speech-to-text provider key** (OpenAI, Groq, or Deepgram) — entered in Settings on first run, stored in the OS keychain. Not required if you set the on-device model as your primary engine (see below).
-- Platform build tools: Xcode command-line tools (macOS); MSVC build tools (Windows).
+- Platform build tools: Xcode command-line tools (macOS); MSVC build tools (Windows); on Linux, the dev headers Hark links against:
+
+  ```bash
+  # Debian / Ubuntu
+  sudo apt install libasound2-dev libgtk-3-dev libayatana-appindicator3-dev \
+    libxdo-dev libxkbcommon-dev libx11-dev pkg-config cmake clang
+  # Arch
+  sudo pacman -S alsa-lib gtk3 libappindicator-gtk3 xdotool libxkbcommon cmake clang pkgconf
+  ```
 
 ## Getting started
 
@@ -83,6 +91,35 @@ not to install.
 To remove Hark, use **Add or remove programs**. Your settings and history in
 `%APPDATA%\hark` are left in place.
 
+### Install (Linux)
+
+Download the package for your distribution from the
+[Releases page](https://github.com/BoardPandas/Hark/releases/latest):
+
+```bash
+sudo apt install ./Hark-<version>-linux-x64.deb          # Debian, Ubuntu, Mint, Pop!_OS
+sudo dnf install ./Hark-<version>-linux-x64.rpm          # Fedora, RHEL, openSUSE
+sudo pacman -U Hark-<version>-linux-x64.pkg.tar.zst      # Arch, Manjaro, EndeavourOS
+```
+
+Then grant Hark permission to see the push-to-talk chord and to paste, and log
+back in so the group takes effect:
+
+```bash
+sudo usermod -aG input $USER
+```
+
+That single step is the whole Linux-specific setup. Hark reads `/dev/input`
+directly rather than going through the display server, which is what makes
+push-to-talk work identically on X11 and Wayland — the X11 grab APIs other
+tools use are invisible to a Wayland compositor. Hark never grabs a device and
+never swallows a keystroke; every key still reaches the app you are typing in.
+
+**[packaging/LINUX.md](packaging/LINUX.md)** has the full story: why the
+permission is needed, a portable tarball with manual install steps, the glibc
+floor, troubleshooting, and the handful of places Linux cannot match Windows
+exactly.
+
 ### Build from source
 
 ```bash
@@ -96,7 +133,7 @@ cargo run
 # provider key (OpenAI, Groq, or Deepgram) in Settings on first run.
 ```
 
-> **Note:** this machine is a coding-only environment. Build, test, lint, and typecheck here; run and validate the running app (mic, hotkey, injection, notarization) on real macOS and Windows.
+> **Note:** this machine is a coding-only environment. Build, test, lint, and typecheck here; run and validate the running app (mic, hotkey, injection, notarization) on real macOS, Windows and Linux.
 
 ## Project structure
 
@@ -117,9 +154,11 @@ crates/
   hark-store/        # rusqlite (history + stats)
   hark-config/       # TOML settings + spellbook load/save
   hark-keychain/     # keyring wrapper (BYOK key in the OS keychain)
-  hark-autostart/    # launch-at-login (Windows registry / macOS login item)
+  hark-autostart/    # launch-at-login (Windows registry / XDG autostart / macOS login item)
   hark-update/       # in-app update checker + Windows self-update
 config/              # default config.toml + spellbook
+installer/           # Inno Setup script for the Windows installer
+packaging/           # Linux: .desktop, icon, udev rule, PKGBUILD, LINUX.md
 ```
 
 ## Configuration

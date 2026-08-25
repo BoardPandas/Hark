@@ -1,0 +1,19 @@
+# Hark needs two kinds of access to the input stack, and this rule grants the
+# half that is not already granted by default.
+#
+# READING keyboards (/dev/input/event*) is how Hark sees the push-to-talk
+# chord. Those nodes are already root:input 0660 on every mainstream distro,
+# so membership of the `input` group is all that is required and this file
+# does not touch them.
+#
+# WRITING /dev/uinput is how Hark pastes: under Wayland there is no XTEST, so
+# the Ctrl+V that ends a dictation is synthesized through a virtual keyboard.
+# The kernel creates /dev/uinput as root:root 0600, which no desktop session
+# can open. This rule hands it to the same `input` group, so one group
+# membership covers both directions.
+#
+# OPTIONS+="static_node=uinput" makes the ownership and mode apply to the
+# device node systemd-udevd creates ahead of the module being loaded. Without
+# it the permissions only land after something has already opened the device
+# as root, which on a desktop is never.
+KERNEL=="uinput", SUBSYSTEM=="misc", GROUP="input", MODE="0660", OPTIONS+="static_node=uinput"

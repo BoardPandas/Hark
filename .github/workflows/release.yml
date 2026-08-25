@@ -1,4 +1,6 @@
-# Build, sign, and publish a Windows release of Hark.
+# Build, sign, and publish a release of Hark: a signed Windows installer and
+# portable exe, plus Linux packages for Debian/Ubuntu, Fedora/RHEL/openSUSE and
+# Arch.
 #
 # Trigger: push a SemVer tag (v0.13.0). The tag's version must match
 # package.json (the repo's version source of truth, per
@@ -10,6 +12,13 @@
 # Azure/artifact-signing-action). Auth is a service principal passed via
 # the action's own with: inputs (azure-client-id / -tenant-id /
 # -client-secret), which it promotes to DefaultAzureCredential's env.
+#
+# The Linux jobs need no secrets at all: distribution packages are verified by
+# the repository they come from, and Hark publishes to GitHub Releases rather
+# than to an apt/dnf repo, so there is nothing for a GPG key to sign into. They
+# run AFTER the Windows job (`needs: release`) so the release object exists and
+# only one job can ever create it -- two jobs racing to create the same release
+# is a 422 on whichever loses.
 #
 # Required GitHub Actions secrets (synced from Doppler). See
 # .github/RELEASING.md for the Azure RBAC role and one-time setup:
@@ -42,7 +51,14 @@ concurrency:
 
 jobs:
   release:
+    name: Windows (signed installer + portable exe)
     runs-on: windows-latest
+    # Consumed by the Linux jobs so the tag/package.json/Cargo.toml agreement
+    # is verified exactly once, in the step below, rather than re-derived three
+    # times with three chances to disagree.
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      tag: ${{ steps.version.outputs.tag }}
     steps:
       - name: Check out the tagged commit
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -294,3 +310,253 @@ jobs:
           files: |
             ${{ steps.asset.outputs.installer }}
             ${{ steps.asset.outputs.portable }}
+
+  # ---------------------------------------------------------------------------
+  # Linux: .deb, .rpm and a portable .tar.gz, built and gated on ubuntu.
+  #
+  # `needs: release` for two reasons. The GitHub release object must already
+  # exist -- action-gh-release creates it if missing, so two jobs starting at
+  # once race to create the same tag and whichever loses gets a 422. And a
+  # Windows gate failure should stop the whole release, not publish half of it.
+  #
+  # This job runs its own fmt/clippy/test pass rather than trusting the Windows
+  # job's. Those steps there run on windows-latest and so only ever exercise the
+  # Windows cfg branches; everything Linux-specific in 0.36.0 -- the evdev
+  # listener, the uinput paste, the XDG autostart entry, the GTK tray thread --
+  # is invisible to them. Same reasoning the Windows gate is inline: verify
+  # exactly what is about to be shipped.
+  #
+  # GLIBC FLOOR. The binary is dynamically linked, so it requires at least the
+  # glibc of the runner that built it -- currently 2.39 (Ubuntu 24.04), which
+  # covers Ubuntu 24.04+, Debian 13+ and Fedora 40+, and excludes Debian 12.
+  # Building on an older image would widen that, but ubuntu-22.04 begins
+  # deprecation in September 2026 and is unsupported from April 2027, so
+  # pinning to it would trade a known limitation for a scheduled outage.
+  # packaging/LINUX.md states the requirement.
+  linux:
+    name: Linux (deb + rpm + tarball)
+    needs: release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out the tagged commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
+
+      # Same list as ci.yml's Linux leg; keep the two in step.
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libasound2-dev libgtk-3-dev libayatana-appindicator3-dev \
+            libxdo-dev libxkbcommon-dev libx11-dev pkg-config cmake clang
+
+      # SHA-pinned for the same reason every `uses:` in the Windows job is: this
+      # workflow holds `contents: write`, so a floating ref here could publish
+      # an arbitrary asset onto a Hark release.
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c # stable branch @ 2026-07
+        with:
+          toolchain: stable
+          components: rustfmt, clippy
+
+      # Caches ~/.cargo/bin too, so cargo-deb and cargo-generate-rpm are
+      # compiled once and restored afterwards instead of on every release.
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          key: release-linux
+
+      - name: cargo fmt
+        run: cargo fmt --all -- --check
+
+      # --all-targets matches ci.yml: without it cargo skips test targets
+      # entirely, so lints in tests go unchecked (LL-G
+      # rust/cargo-check-skips-test-targets).
+      - name: cargo clippy
+        run: cargo clippy --all-targets -- -D warnings
+
+      - name: cargo test
+        run: cargo test --workspace
+
+      - name: Build release binary
+        run: cargo build --release -p hark-app
+
+      - name: Install packaging tools
+        run: cargo install cargo-deb cargo-generate-rpm --locked
+
+      # rust-cache restores target/, which on a repeat release still holds the
+      # PREVIOUS version's .deb and .rpm. Every step below resolves its artifact
+      # with a glob, and a glob that matches two files does not fail loudly --
+      # `cp $(ls *.rpm) dest` silently misbehaves, and the verification steps
+      # would happily check whichever file sorted first. Clearing the output
+      # directories is what makes those globs mean "the package we just built".
+      - name: Clear stale package output
+        run: rm -rf target/debian target/generate-rpm
+
+      # --no-build: package the binary built above rather than rebuilding it
+      # under a different profile. Metadata lives in crates/hark-app/Cargo.toml.
+      - name: Build the .deb
+        run: cargo deb -p hark-app --no-build
+
+      - name: Build the .rpm
+        run: cargo generate-rpm -p crates/hark-app --payload-compress zstd
+
+      # A REAL GATE, not a printout. The tray is loaded through dlopen
+      # (libappindicator-sys uses libloading), so it never appears in the
+      # binary's DT_NEEDED and neither dpkg-shlibdeps nor rpm's auto-req can
+      # infer it. crates/hark-app/Cargo.toml names it explicitly -- and if that
+      # line is ever dropped, the packages still build, still install, and the
+      # tray simply never appears, with no error anywhere. This step is the only
+      # thing that would notice.
+      #
+      # The $auto-derived entries are checked too: dpkg-shlibdeps failing to
+      # launch is a WARNING, not an error, and produces a package that declares
+      # no library dependencies at all.
+      - name: Verify the packages declare their dependencies
+        run: |
+          set -euo pipefail
+          # Belt and braces with the cleanup step: assert exactly one artifact
+          # rather than letting a glob quietly pick one of several.
+          [ "$(ls target/debian/*.deb | wc -l)" = 1 ] || { echo "::error::expected exactly one .deb"; exit 1; }
+          [ "$(ls target/generate-rpm/*.rpm | wc -l)" = 1 ] || { echo "::error::expected exactly one .rpm"; exit 1; }
+          deb=$(ls target/debian/*.deb)
+          depends=$(dpkg-deb -f "$deb" Depends)
+          echo "deb Depends: $depends"
+          for want in libayatana-appindicator3-1 libasound2 libgtk-3-0 libc6; do
+            case "$depends" in
+              *"$want"*) ;;
+              *) echo "::error::.deb Depends is missing $want -- see the packaging metadata in crates/hark-app/Cargo.toml"; exit 1 ;;
+            esac
+          done
+
+          rpm=$(ls target/generate-rpm/*.rpm)
+          requires=$(rpm -qpR "$rpm")
+          echo "rpm Requires:"; echo "$requires"
+          for want in libayatana-appindicator3.so.1 libasound.so.2 libgtk-3.so.0; do
+            case "$requires" in
+              *"$want"*) ;;
+              *) echo "::error::.rpm Requires is missing $want -- see the packaging metadata in crates/hark-app/Cargo.toml"; exit 1 ;;
+            esac
+          done
+
+          # The binary must land where packaging/hark.desktop's Exec line points,
+          # or the launcher entry is dead on arrival.
+          dpkg-deb -c "$deb" | grep -q ' ./usr/bin/hark$' \
+            || { echo "::error::.deb does not install /usr/bin/hark"; exit 1; }
+          dpkg-deb -c "$deb" | grep -q '70-hark-uinput.rules$' \
+            || { echo "::error::.deb does not install the udev rule; paste will fail on Wayland"; exit 1; }
+
+      # The escape hatch for distributions the three package formats do not
+      # cover. Carries the support files too, because without the udev rule
+      # there is no Wayland paste; packaging/LINUX.md has the install commands.
+      - name: Stage the assets
+        id: asset
+        env:
+          VERSION: ${{ needs.release.outputs.version }}
+        run: |
+          set -euo pipefail
+          mkdir -p dist "tarball/Hark-${VERSION}-linux-x64"
+          cp target/release/hark-app "tarball/Hark-${VERSION}-linux-x64/hark"
+          cp packaging/hark.desktop packaging/hark.svg \
+             packaging/70-hark-uinput.rules packaging/hark-uinput.conf \
+             packaging/LINUX.md LICENSE README.md \
+             "tarball/Hark-${VERSION}-linux-x64/"
+          tar -czf "dist/Hark-${VERSION}-linux-x64.tar.gz" -C tarball "Hark-${VERSION}-linux-x64"
+
+          cp "$(ls target/debian/*.deb)" "dist/Hark-${VERSION}-linux-x64.deb"
+          cp "$(ls target/generate-rpm/*.rpm)" "dist/Hark-${VERSION}-linux-x64.rpm"
+          ls -la dist
+
+      # No generate_release_notes here: the Windows job already generated them,
+      # and asking again would overwrite that body on every subsequent upload.
+      - name: Attach the Linux assets to the release
+        uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228 # v3.0.2
+        with:
+          tag_name: ${{ needs.release.outputs.tag }}
+          files: |
+            dist/Hark-${{ needs.release.outputs.version }}-linux-x64.deb
+            dist/Hark-${{ needs.release.outputs.version }}-linux-x64.rpm
+            dist/Hark-${{ needs.release.outputs.version }}-linux-x64.tar.gz
+
+  # ---------------------------------------------------------------------------
+  # Arch: a real .pkg.tar.zst, built by makepkg inside an Arch container.
+  #
+  # Built natively rather than repackaged from the ubuntu job's binary: that
+  # one links against Ubuntu's glibc and GTK sonames, which are not the ones
+  # pacman would install. An Arch package has to be built against Arch.
+  #
+  # packaging/PKGBUILD is the same file an AUR consumer would use. HARK_SRCDIR
+  # switches it to building the checked-out tree, because at this moment the
+  # tag's source tarball is what we are producing, not something to download.
+  linux-arch:
+    name: Arch (pkg.tar.zst)
+    needs: [release, linux]
+    runs-on: ubuntu-latest
+    # Digest-pinned for the same reason every `uses:` here is SHA-pinned: this
+    # workflow holds `contents: write`, and `archlinux:base-devel` is a mutable
+    # tag rebuilt every few days. A stale digest costs nothing but download
+    # time -- the `pacman -Syu` below brings the image current regardless.
+    # Refresh with:
+    #   docker buildx imagetools inspect archlinux:base-devel
+    container:
+      image: archlinux:base-devel@sha256:68bfc3b0d277b08a99101dc9b94aaa03e5ae70cf1b4fb965c03b2b87b915760d # resolved 2026-08-24
+    steps:
+      # Before checkout: actions/checkout needs git, and the container image
+      # ships without it. A full -Syu rather than -Sy because Arch does not
+      # support partial upgrades -- a mixed library set breaks in ways that
+      # look like build errors.
+      - name: Install build dependencies
+        run: |
+          pacman -Syu --noconfirm --needed \
+            git rust cargo pkgconf cmake clang \
+            alsa-lib gtk3 libappindicator-gtk3 libxkbcommon libx11 libxcb xdotool
+
+      - name: Check out the tagged commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
+
+      # makepkg refuses to run as root, by design, and the container is root.
+      # --nocheck because the ubuntu job above already ran the whole suite
+      # against this exact commit; the PKGBUILD keeps check() defined for AUR
+      # consumers, who have no such guarantee.
+      - name: Build the package
+        env:
+          VERSION: ${{ needs.release.outputs.version }}
+        run: |
+          set -euo pipefail
+          useradd -m builder
+          cp packaging/PKGBUILD packaging/hark.install /home/builder/
+          chown -R builder:builder /home/builder "$GITHUB_WORKSPACE"
+          # git refuses to operate on a tree owned by another user; makepkg's
+          # .BUILDINFO generation reads the repo.
+          su builder -c "git config --global --add safe.directory '$GITHUB_WORKSPACE'"
+          su builder -c "cd /home/builder && HARK_SRCDIR='$GITHUB_WORKSPACE' makepkg -f --nocheck --noconfirm"
+          mkdir -p dist
+          cp /home/builder/hark-*-x86_64.pkg.tar.zst "dist/Hark-${VERSION}-linux-x64.pkg.tar.zst"
+
+      # Same gate as the deb/rpm: the tray library is dlopened, so nothing
+      # infers it and a dropped `depends` entry would ship a package whose tray
+      # silently never appears.
+      - name: Verify the package declares its dependencies
+        env:
+          VERSION: ${{ needs.release.outputs.version }}
+        run: |
+          set -euo pipefail
+          pkg="dist/Hark-${VERSION}-linux-x64.pkg.tar.zst"
+          info=$(tar --zstd -xOf "$pkg" .PKGINFO)
+          echo "$info" | grep -E '^(pkgname|pkgver|depend)'
+          for want in alsa-lib gtk3 xdotool libappindicator-gtk3 libx11 libxkbcommon; do
+            echo "$info" | grep -qx "depend = $want" \
+              || { echo "::error::PKGBUILD depends is missing $want"; exit 1; }
+          done
+          tar --zstd -tf "$pkg" | grep -qx 'usr/bin/hark' \
+            || { echo "::error::package does not install /usr/bin/hark"; exit 1; }
+          tar --zstd -tf "$pkg" | grep -q '70-hark-uinput.rules$' \
+            || { echo "::error::package does not install the udev rule; paste will fail on Wayland"; exit 1; }
+
+      - name: Attach the Arch package to the release
+        uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228 # v3.0.2
+        with:
+          tag_name: ${{ needs.release.outputs.tag }}
+          files: dist/Hark-${{ needs.release.outputs.version }}-linux-x64.pkg.tar.zst

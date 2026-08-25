@@ -17,8 +17,17 @@
 //! (LL-G HIGH `kb/rust/gui-subsystem-console-child-window.md`). No child
 //! process is spawned here.
 //!
-//! Non-Windows targets get no-ops so the desktop app compiles everywhere. The
-//! macOS login item (`SMAppService` / `LaunchAgent`) is a separate task.
+//! Linux: an XDG autostart entry, `$XDG_CONFIG_HOME/autostart/hark.desktop`
+//! (`~/.config/autostart` by default). Every mainstream desktop — GNOME, KDE,
+//! XFCE, Cinnamon, sway via its own config — reads that directory at session
+//! start, so one file covers them all without touching systemd user units or
+//! a desktop-specific API. [`reconcile`] writes it (self-healing a stale path
+//! after an upgrade) or deletes it, exactly as the Windows branch does with
+//! its registry value.
+//!
+//! Remaining non-Windows, non-Linux targets get no-ops so the desktop app
+//! compiles everywhere. The macOS login item (`SMAppService` / `LaunchAgent`)
+//! is a separate task.
 
 use thiserror::Error;
 
@@ -33,12 +42,23 @@ pub const RUN_VALUE_NAME: &str = "Hark";
 pub const HIDDEN_FLAG: &str = "--hidden";
 
 #[derive(Debug, Error)]
-#[cfg_attr(not(windows), allow(dead_code))]
+#[cfg_attr(not(any(windows, target_os = "linux")), allow(dead_code))]
 pub enum Error {
     #[error("cannot determine the current executable path: {0}")]
     Exe(#[source] std::io::Error),
+    #[cfg(windows)]
     #[error("registry access failed: {0}")]
     Registry(#[source] std::io::Error),
+    #[cfg(target_os = "linux")]
+    #[error("no per-user config directory to hold the autostart entry")]
+    NoConfigDir,
+    #[cfg(target_os = "linux")]
+    #[error("cannot write the autostart entry at {path}: {source}")]
+    DesktopFile {
+        path: std::path::PathBuf,
+        #[source]
+        source: std::io::Error,
+    },
 }
 
 /// Make the OS startup entry match `enabled`. Idempotent: enabling twice
@@ -56,7 +76,7 @@ pub fn is_enabled() -> Result<bool, Error> {
 
 /// The `Run` value data for `exe`: `"<path>" --hidden`. The path is quoted so
 /// a space in the install directory cannot split the command at login.
-#[cfg(any(windows, test))]
+#[cfg(any(windows, all(test, not(target_os = "linux"))))]
 fn command_for(exe: &std::path::Path) -> String {
     format!("\"{}\" {}", exe.display(), HIDDEN_FLAG)
 }
@@ -175,7 +195,157 @@ mod imp {
     }
 }
 
-#[cfg(not(windows))]
+#[cfg(target_os = "linux")]
+mod imp {
+    use super::Error;
+    use std::path::{Path, PathBuf};
+
+    /// Basename of the autostart entry. The desktop-entry spec wants it to
+    /// match the application's desktop file id, which the packages install as
+    /// `hark.desktop`.
+    const ENTRY: &str = "hark.desktop";
+
+    fn entry_path() -> Result<PathBuf, Error> {
+        let dir = hark_config::default_config_dir().ok_or(Error::NoConfigDir)?;
+        Ok(dir.join("autostart").join(ENTRY))
+    }
+
+    fn current_exe() -> Result<PathBuf, Error> {
+        std::env::current_exe().map_err(Error::Exe)
+    }
+
+    pub(super) fn reconcile(enabled: bool) -> Result<(), Error> {
+        let path = entry_path()?;
+        if enabled {
+            let exe = current_exe()?;
+            write_entry(&path, &super::desktop_entry(&exe))
+        } else {
+            remove_entry(&path)
+        }
+    }
+
+    pub(super) fn is_enabled() -> Result<bool, Error> {
+        let path = entry_path()?;
+        let current = match std::fs::read_to_string(&path) {
+            Ok(text) => text,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(false),
+            Err(source) => return Err(Error::DesktopFile { path, source }),
+        };
+        // Compare the Exec line only. Desktops rewrite these files (GNOME
+        // appends X-GNOME-Autostart-enabled when you toggle an entry in
+        // Tweaks), so a whole-file comparison would report "disabled" for an
+        // entry that is working perfectly.
+        let expected = super::exec_line(&current_exe()?);
+        Ok(current.lines().any(|line| line.trim() == expected))
+    }
+
+    fn write_entry(path: &Path, contents: &str) -> Result<(), Error> {
+        let err = |source| Error::DesktopFile {
+            path: path.to_path_buf(),
+            source,
+        };
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent).map_err(err)?;
+        }
+        std::fs::write(path, contents).map_err(err)
+    }
+
+    /// A missing file is success: the desired end state, "not in startup",
+    /// already holds.
+    fn remove_entry(path: &Path) -> Result<(), Error> {
+        match std::fs::remove_file(path) {
+            Ok(()) => Ok(()),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+            Err(source) => Err(Error::DesktopFile {
+                path: path.to_path_buf(),
+                source,
+            }),
+        }
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        #[test]
+        fn write_read_remove_round_trips_and_delete_is_idempotent() {
+            let dir = tempfile::tempdir().expect("tempdir");
+            // The autostart directory does not exist on a fresh account.
+            let path = dir.path().join("autostart").join(ENTRY);
+
+            write_entry(&path, "hello").expect("write");
+            assert_eq!(std::fs::read_to_string(&path).expect("read"), "hello");
+
+            remove_entry(&path).expect("remove");
+            assert!(!path.exists());
+            remove_entry(&path).expect("a second remove is a no-op");
+        }
+
+        #[test]
+        fn the_entry_lands_under_the_xdg_autostart_directory() {
+            // Every desktop reads exactly this path; a typo here is an
+            // autostart toggle that writes a file nothing will ever look at.
+            let path = entry_path().expect("a config dir exists on this machine");
+            assert!(path.ends_with(Path::new("autostart").join(ENTRY)));
+        }
+
+        #[test]
+        fn the_written_entry_is_the_one_is_enabled_recognises() {
+            // The pair has to agree or the Settings toggle reads back as off
+            // immediately after switching it on.
+            let exe = Path::new("/usr/bin/hark");
+            let entry = super::super::desktop_entry(exe);
+            assert!(entry
+                .lines()
+                .any(|line| line.trim() == super::super::exec_line(exe)));
+        }
+    }
+}
+
+/// The desktop entry written for `exe`. Minimal on purpose: `Name` and `Exec`
+/// are all the spec requires beyond `Type`, and every extra key is one more
+/// thing that can disagree with the packaged `hark.desktop`.
+///
+/// `X-GNOME-Autostart-enabled` is included because GNOME writes it when a user
+/// toggles an entry and treats its absence as true; stating it makes an entry
+/// Hark just wrote unambiguous rather than depending on that default.
+#[cfg(target_os = "linux")]
+fn desktop_entry(exe: &std::path::Path) -> String {
+    format!(
+        "[Desktop Entry]\n\
+         Type=Application\n\
+         Name={RUN_VALUE_NAME}\n\
+         Comment=Push-to-talk voice dictation\n\
+         {}\n\
+         Icon=hark\n\
+         Terminal=false\n\
+         Categories=Utility;AudioVideo;\n\
+         X-GNOME-Autostart-enabled=true\n",
+        exec_line(exe)
+    )
+}
+
+/// The entry's `Exec=` line: the quoted exe path plus [`HIDDEN_FLAG`].
+///
+/// The desktop-entry spec gives `Exec` its own quoting rules, and they are not
+/// the shell's: a value may be double-quoted, and inside those quotes a
+/// literal `"`, `` ` ``, `$` or `\` must be prefixed with a backslash. A path
+/// containing any of them is unusual but entirely legal on Linux, and getting
+/// this wrong means an autostart entry that silently fails to launch.
+#[cfg(target_os = "linux")]
+fn exec_line(exe: &std::path::Path) -> String {
+    let escaped: String = exe
+        .to_string_lossy()
+        .chars()
+        .flat_map(|c| {
+            let escape = matches!(c, '"' | '`' | '$' | '\\');
+            escape.then_some('\\').into_iter().chain(std::iter::once(c))
+        })
+        .collect();
+    format!("Exec=\"{escaped}\" {HIDDEN_FLAG}")
+}
+
+#[cfg(not(any(windows, target_os = "linux")))]
 mod imp {
     use super::Error;
 
@@ -188,7 +358,56 @@ mod imp {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, target_os = "linux"))]
+mod linux_tests {
+    use super::*;
+    use std::path::Path;
+
+    #[test]
+    fn the_exec_line_quotes_the_path_and_appends_the_hidden_flag() {
+        let line = exec_line(Path::new("/opt/Hark Beta/hark"));
+        assert_eq!(line, "Exec=\"/opt/Hark Beta/hark\" --hidden");
+        // Quoted so a space in the install directory cannot split the command.
+        assert!(line.starts_with("Exec=\""));
+        assert!(line.ends_with(HIDDEN_FLAG));
+    }
+
+    #[test]
+    fn the_exec_line_escapes_what_the_desktop_spec_reserves() {
+        // Legal path characters that are special inside a quoted Exec value.
+        // Unescaped, the entry is malformed and the desktop drops it silently.
+        let line = exec_line(Path::new(r#"/home/u/$IT/a"b/`c`/d\e/hark"#));
+        assert!(line.contains(r"\$IT"), "$ must be escaped: {line}");
+        assert!(line.contains(r#"a\"b"#), "a quote must be escaped: {line}");
+        assert!(line.contains(r"\`c\`"), "backticks must be escaped: {line}");
+        assert!(
+            line.contains(r"d\\e"),
+            "a backslash must be escaped: {line}"
+        );
+    }
+
+    #[test]
+    fn an_ordinary_path_is_left_alone() {
+        assert_eq!(
+            exec_line(Path::new("/usr/bin/hark")),
+            "Exec=\"/usr/bin/hark\" --hidden"
+        );
+    }
+
+    #[test]
+    fn the_entry_is_a_wellformed_desktop_file() {
+        let entry = desktop_entry(Path::new("/usr/bin/hark"));
+        // The three keys the spec actually requires. A file missing any of
+        // them is ignored by the session with no error anywhere.
+        assert!(entry.starts_with("[Desktop Entry]\n"));
+        assert!(entry.contains("\nType=Application\n"));
+        assert!(entry.contains(&format!("\nName={RUN_VALUE_NAME}\n")));
+        assert!(entry.contains("\nExec=\"/usr/bin/hark\" --hidden\n"));
+        assert!(entry.ends_with('\n'), "the file must end with a newline");
+    }
+}
+
+#[cfg(all(test, not(target_os = "linux")))]
 mod tests {
     use super::*;
     use std::path::Path;

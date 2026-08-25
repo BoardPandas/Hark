@@ -1,22 +1,55 @@
 # cargo-audit configuration (https://github.com/rustsec/rustsec/blob/main/cargo-audit/audit.toml.example)
 #
-# Ignored advisories below are all in the Linux/Wayland-only dependency graph
-# under eframe -> winit -> sctk-adwaita. Hark ships Windows + macOS binaries
-# only; these crates never compile for our targets (they appear in `cargo tree`
-# only with `--target all`). Re-evaluate if a Linux target is ever added, or
-# when wayland-scanner releases with quick-xml >= 0.41 (blocked upstream as of
-# 2026-07-16: latest wayland-scanner 0.31.10 still requires quick-xml ^0.39).
+# RE-TRIAGED 2026-08-24 for 0.36.0, which made Linux a ship target. The
+# previous reasoning here was "Hark ships Windows + macOS binaries only; these
+# crates never compile for our targets", and that reasoning is now void: every
+# entry below is in the shipped Linux binary's graph or its build. Each one has
+# been re-checked against `cargo tree --target x86_64-unknown-linux-gnu`, and
+# the justification rewritten to say what is actually true now. Two survive on
+# a narrower argument; the third is a genuine, accepted exposure.
+#
+# WHEN THIS FILE IS EDITED: every entry needs a reason and a re-evaluation
+# trigger, and the reason has to be one that a Linux build does not falsify.
 
 [advisories]
 ignore = [
     # quick-xml 0.39.4: quadratic run time checking start tags for duplicate
-    # attributes (DoS). Build-time codegen path (wayland-scanner proc-macro),
-    # Linux-only, fix blocked upstream.
+    # attributes (DoS).
+    #
+    # BUILD-TIME ONLY, and that is the whole argument. quick-xml is reached
+    # exclusively through wayland-scanner, which is a PROC-MACRO crate: it runs
+    # on our build machine, parses the Wayland protocol XML files vendored
+    # inside the wayland crates themselves, and emits Rust. It is not linked
+    # into the shipped binary and it never sees an input an attacker chooses.
+    # A denial-of-service against our own compiler, on fixed inputs, is not a
+    # threat. Verified with `cargo tree -i quick-xml -e normal,build
+    # --target x86_64-unknown-linux-gnu`: the only path is the proc-macro one.
+    #
+    # RE-EVALUATE IF: quick-xml ever appears under `-e normal` (i.e. becomes a
+    # runtime dependency), or wayland-scanner releases against quick-xml >= 0.41
+    # (blocked upstream as of 2026-08-24: wayland-scanner 0.31.10 still pins
+    # quick-xml ^0.39).
     "RUSTSEC-2026-0194",
     # quick-xml 0.39.4: unbounded namespace-declaration allocation in NsReader
-    # (memory-exhaustion DoS). Same Linux-only build-time path as above.
+    # (memory-exhaustion DoS). Identical build-time-only path and identical
+    # re-evaluation trigger as RUSTSEC-2026-0194 above.
     "RUSTSEC-2026-0195",
-    # ttf-parser 0.25.1 unmaintained (informational). Reached only via
-    # sctk-adwaita's ab_glyph on the same Linux-only path.
+    # ttf-parser 0.25.1 unmaintained (INFORMATIONAL -- an unmaintained notice,
+    # not a vulnerability; no CVE and no known exploit).
+    #
+    # THIS ONE NOW SHIPS, and the honest description changed with 0.36.0. It is
+    # a runtime dependency via sctk-adwaita -> ab_glyph -> owned_ttf_parser,
+    # which is winit's client-side window decoration renderer on Wayland: it
+    # parses a font from the user's own system to draw Hark's titlebar. So the
+    # input is local and already trusted (a user who can replace your system
+    # font can replace your binary), and the code is not on any path that
+    # touches audio, transcripts or API keys.
+    #
+    # Accepted rather than fixed because there is nothing to fix: the whole
+    # chain is transitive under eframe, no newer ttf-parser is selectable while
+    # ab_glyph pins 0.25, and the alternative is dropping Wayland decorations.
+    #
+    # RE-EVALUATE IF: this is ever upgraded from informational to a real
+    # advisory, or when ab_glyph releases against a maintained parser.
     "RUSTSEC-2026-0192",
 ]

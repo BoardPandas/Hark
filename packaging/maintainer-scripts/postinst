@@ -1,0 +1,28 @@
+#!/bin/sh
+# Make Hark's udev rule and kernel module effective now, rather than at the
+# next reboot. Everything here is best-effort: a container or chroot install
+# has no udevd and no module loading, and failing the package for that would
+# be wrong.
+set -e
+
+if [ "$1" = "configure" ]; then
+    # Load uinput now so a user who installs and immediately runs Hark does
+    # not hit "/dev/uinput does not exist".
+    modprobe uinput >/dev/null 2>&1 || true
+    # Apply 70-hark-uinput.rules to the node that already exists.
+    udevadm control --reload-rules >/dev/null 2>&1 || true
+    udevadm trigger --subsystem-match=misc --sysname-match=uinput >/dev/null 2>&1 || true
+
+    cat <<'NOTE'
+
+Hark needs permission to watch your keyboard for the push-to-talk chord and to
+paste through a virtual keyboard. Add yourself to the "input" group, then log
+out and back in (a new terminal is not enough -- group membership is fixed at
+login):
+
+    sudo usermod -aG input $USER
+
+NOTE
+fi
+
+exit 0

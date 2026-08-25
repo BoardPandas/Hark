@@ -5,6 +5,15 @@
 //! requirement (invisible on a Windows-only dev loop; right by
 //! construction).
 //!
+//! **Where the OS objects live is the platform seam.** This module owns the
+//! menu layout, the id-to-action mapping and the change detection — all pure,
+//! all shared — and hands single [`TrayUpdate`]s to a `Surface`.
+//! `surface_native` (Windows, macOS) holds the `TrayIcon` on the main thread
+//! and calls straight through. `surface_gtk` (Linux) cannot: libappindicator
+//! makes the tray out of GTK widgets, which need a GTK main loop that would
+//! fight winit's for the main thread, so it runs them on a thread of their
+//! own. Everything above the seam is identical on all three.
+//!
 //! Event delivery while the window is hidden: `MenuEvent::receiver()` and
 //! `TrayIconEvent::receiver()` are global static channels, and a hidden,
 //! idle window paints no frames to drain them. Same pattern as the
@@ -15,16 +24,31 @@
 
 pub mod icon;
 
+#[cfg(target_os = "linux")]
+#[path = "surface_gtk.rs"]
+mod surface;
+#[cfg(not(target_os = "linux"))]
+#[path = "surface_native.rs"]
+mod surface;
+
 use crate::pipeline::PipelineStatus;
 use crate::ui::settings::form::{voice_display, VOICES};
 use hark_config::VoiceName;
 use std::sync::mpsc::{self, Receiver};
 use tray_icon::menu::{CheckMenuItem, Menu, MenuEvent, MenuItem, PredefinedMenuItem};
-use tray_icon::{Icon, TrayIcon, TrayIconBuilder, TrayIconEvent};
+use tray_icon::TrayIconEvent;
 
 const OPEN_SETTINGS_ID: &str = "open-settings";
 const QUIT_ID: &str = "quit";
 const VOICE_ID_PREFIX: &str = "voice:";
+/// Linux only, and not a gratuitous difference: libappindicator exposes no
+/// click or double-click event at all, so [`TrayAction::ShowWindow`] — which
+/// Windows and macOS raise from a double-click on the icon — is unreachable
+/// there. Without this item, a hidden window could only be recovered through
+/// "Open Settings", which also switches the page out from under the user. The
+/// id is still decoded on every platform so [`action_for_id`] stays pure and
+/// its tests do not fork.
+const SHOW_WINDOW_ID: &str = "show-window";
 
 /// What a tray interaction asks of the app.
 #[derive(Debug, PartialEq, Eq)]
@@ -36,10 +60,18 @@ pub enum TrayAction {
     Quit,
 }
 
+/// One OS-level change to the tray. The diffing that produces these is pure
+/// and lives in [`Tray::apply`]; a `Surface` only has to get them to the OS.
+pub(crate) enum TrayUpdate {
+    Icon(icon::TrayState),
+    Tooltip(String),
+    Voice(VoiceName),
+}
+
 pub struct Tray {
-    /// Keeps the OS icon alive; dropping it removes the tray entry.
-    tray: TrayIcon,
-    voices: Vec<(VoiceName, CheckMenuItem)>,
+    /// Owns the OS objects, wherever this platform requires them to live.
+    /// Dropping it removes the tray entry.
+    surface: surface::Surface,
     actions: Receiver<TrayAction>,
     shown: icon::TrayState,
     tooltip: String,
@@ -56,49 +88,12 @@ impl Tray {
         chord: &str,
         voice: VoiceName,
     ) -> Result<Tray, String> {
-        let err = |e: &dyn std::fmt::Display| e.to_string();
-        let menu = Menu::new();
-        let mut voices = Vec::new();
-        for v in VOICES {
-            let item = CheckMenuItem::with_id(
-                format!("{VOICE_ID_PREFIX}{}", v.label()),
-                voice_display(v),
-                true,
-                v == voice,
-                None,
-            );
-            menu.append(&item).map_err(|e| err(&e))?;
-            voices.push((v, item));
-        }
-        menu.append(&PredefinedMenuItem::separator())
-            .map_err(|e| err(&e))?;
-        menu.append(&MenuItem::with_id(
-            OPEN_SETTINGS_ID,
-            "Open Settings",
-            true,
-            None,
-        ))
-        .map_err(|e| err(&e))?;
-        menu.append(&PredefinedMenuItem::separator())
-            .map_err(|e| err(&e))?;
-        menu.append(&MenuItem::with_id(QUIT_ID, "Quit Hark", true, None))
-            .map_err(|e| err(&e))?;
-
-        let state = icon::state(status);
-        let tooltip = icon::tooltip(status, chord);
-        let tray = TrayIconBuilder::new()
-            .with_menu(Box::new(menu))
-            .with_icon(build_icon(state))
-            .with_tooltip(&tooltip)
-            .build()
-            .map_err(|e| err(&e))?;
-
+        let surface = surface::Surface::create(status, chord, voice)?;
         Ok(Tray {
-            tray,
-            voices,
+            surface,
             actions: spawn_pumps(ctx.clone()),
-            shown: state,
-            tooltip,
+            shown: icon::state(status),
+            tooltip: icon::tooltip(status, chord),
             checked: voice,
         })
     }
@@ -113,22 +108,19 @@ impl Tray {
     }
 
     /// Reconcile the OS tray with the pipeline + settings; cheap no-op
-    /// unless something changed. OS-level set failures are logged and
-    /// retried on the next state change; the in-window footer stays the
-    /// authoritative status surface either way.
+    /// unless something changed. This runs every frame, so the diffing is the
+    /// point: on Linux each update also costs a channel hop and a PNG
+    /// rewritten to a temp file, which is not something to do 60 times a
+    /// second for a state that did not change.
     pub fn apply(&mut self, status: &PipelineStatus, chord: &str, voice: VoiceName) {
         let state = icon::state(status);
         if state != self.shown {
-            if let Err(e) = self.tray.set_icon(Some(build_icon(state))) {
-                log::warn!("tray icon update failed: {e}");
-            }
+            self.surface.apply(TrayUpdate::Icon(state));
             self.shown = state;
         }
         let tooltip = icon::tooltip(status, chord);
         if tooltip != self.tooltip {
-            if let Err(e) = self.tray.set_tooltip(Some(&tooltip)) {
-                log::warn!("tray tooltip update failed: {e}");
-            }
+            self.surface.apply(TrayUpdate::Tooltip(tooltip.clone()));
             self.tooltip = tooltip;
         }
         if voice != self.checked {
@@ -140,16 +132,47 @@ impl Tray {
     /// purpose: a native `CheckMenuItem` toggles itself on click, so even a
     /// click on the already-selected voice needs its checkmark restored.
     pub fn set_voice(&mut self, voice: VoiceName) {
-        for (v, item) in &self.voices {
-            item.set_checked(*v == voice);
-        }
+        self.surface.apply(TrayUpdate::Voice(voice));
         self.checked = voice;
     }
 }
 
-fn build_icon(state: icon::TrayState) -> Icon {
-    Icon::from_rgba(icon::rgba(state), icon::SIZE, icon::SIZE)
-        .expect("the RGBA buffer is SIZE*SIZE*4 by construction")
+/// Build the menu and hand back the voice items, which stay live so their
+/// checkmarks can be set later. Shared by both surfaces: the layout and the
+/// ids are what [`action_for_id`] decodes, so they must not diverge by
+/// platform.
+fn build_menu(voice: VoiceName) -> Result<(Menu, Vec<(VoiceName, CheckMenuItem)>), String> {
+    let err = |e: &dyn std::fmt::Display| e.to_string();
+    let menu = Menu::new();
+    let mut voices = Vec::new();
+    for v in VOICES {
+        let item = CheckMenuItem::with_id(
+            format!("{VOICE_ID_PREFIX}{}", v.label()),
+            voice_display(v),
+            true,
+            v == voice,
+            None,
+        );
+        menu.append(&item).map_err(|e| err(&e))?;
+        voices.push((v, item));
+    }
+    menu.append(&PredefinedMenuItem::separator())
+        .map_err(|e| err(&e))?;
+    #[cfg(target_os = "linux")]
+    menu.append(&MenuItem::with_id(SHOW_WINDOW_ID, "Show Hark", true, None))
+        .map_err(|e| err(&e))?;
+    menu.append(&MenuItem::with_id(
+        OPEN_SETTINGS_ID,
+        "Open Settings",
+        true,
+        None,
+    ))
+    .map_err(|e| err(&e))?;
+    menu.append(&PredefinedMenuItem::separator())
+        .map_err(|e| err(&e))?;
+    menu.append(&MenuItem::with_id(QUIT_ID, "Quit Hark", true, None))
+        .map_err(|e| err(&e))?;
+    Ok((menu, voices))
 }
 
 /// One pump thread per global receiver (module docs). Menu clicks arrive
@@ -195,6 +218,9 @@ fn action_for_id(id: &str) -> Option<TrayAction> {
     if id == OPEN_SETTINGS_ID {
         return Some(TrayAction::OpenSettings);
     }
+    if id == SHOW_WINDOW_ID {
+        return Some(TrayAction::ShowWindow);
+    }
     if id == QUIT_ID {
         return Some(TrayAction::Quit);
     }
@@ -224,6 +250,17 @@ mod tests {
             Some(TrayAction::OpenSettings)
         );
         assert_eq!(action_for_id("quit"), Some(TrayAction::Quit));
+        assert_eq!(action_for_id("show-window"), Some(TrayAction::ShowWindow));
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn the_linux_menu_can_reach_show_window() {
+        // On Linux the menu item is the ONLY route to ShowWindow -- there is
+        // no icon click event to fall back on -- so the item's id and the
+        // decoder have to agree or a hidden Hark cannot be recovered without
+        // changing the page.
+        assert_eq!(action_for_id(SHOW_WINDOW_ID), Some(TrayAction::ShowWindow));
     }
 
     #[test]

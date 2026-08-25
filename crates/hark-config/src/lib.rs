@@ -592,12 +592,17 @@ impl Settings {
     }
 }
 
-/// The per-user config file location. `None` when the OS gives us no home
+/// The per-user config *directory*. `None` when the OS gives us no home
 /// (headless CI); callers fall back to defaults.
-pub fn default_config_path() -> Option<PathBuf> {
+///
+/// On Linux this is the XDG config home, which is a different place from
+/// [`default_data_dir`] — the freedesktop spec separates configuration a user
+/// might sync or hand-edit from state a program owns. Windows and macOS put
+/// both under one roof, which is their convention.
+pub fn default_config_dir() -> Option<PathBuf> {
     #[cfg(windows)]
     {
-        std::env::var_os("APPDATA").map(|d| PathBuf::from(d).join("hark").join("config.toml"))
+        std::env::var_os("APPDATA").map(|d| PathBuf::from(d).join("hark"))
     }
     #[cfg(target_os = "macos")]
     {
@@ -606,18 +611,28 @@ pub fn default_config_path() -> Option<PathBuf> {
                 .join("Library")
                 .join("Application Support")
                 .join("hark")
-                .join("config.toml")
         })
     }
     #[cfg(all(not(windows), not(target_os = "macos")))]
     {
-        std::env::var_os("HOME").map(|h| {
-            PathBuf::from(h)
-                .join(".config")
-                .join("hark")
-                .join("config.toml")
-        })
+        // XDG_CONFIG_HOME wins when set and absolute. The spec says a relative
+        // value is invalid and must be treated as unset, which matters: joining
+        // a relative path would put the config wherever Hark happened to be
+        // started from, so it would appear empty on the next launch.
+        if let Some(x) = std::env::var_os("XDG_CONFIG_HOME") {
+            let x = PathBuf::from(x);
+            if x.is_absolute() {
+                return Some(x.join("hark"));
+            }
+        }
+        std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".config").join("hark"))
     }
+}
+
+/// The per-user config file location. `None` when the OS gives us no home
+/// (headless CI); callers fall back to defaults.
+pub fn default_config_path() -> Option<PathBuf> {
+    default_config_dir().map(|d| d.join("config.toml"))
 }
 
 /// The per-user data directory (the history database lives here). `None`
@@ -639,8 +654,14 @@ pub fn default_data_dir() -> Option<PathBuf> {
     }
     #[cfg(all(not(windows), not(target_os = "macos")))]
     {
+        // Same absolute-path rule as XDG_CONFIG_HOME above: a relative value
+        // is invalid per the spec, and honouring one would scatter the history
+        // database across every directory Hark was ever launched from.
         if let Some(x) = std::env::var_os("XDG_DATA_HOME") {
-            return Some(PathBuf::from(x).join("hark"));
+            let x = PathBuf::from(x);
+            if x.is_absolute() {
+                return Some(x.join("hark"));
+            }
         }
         std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".local").join("share").join("hark"))
     }

@@ -89,6 +89,13 @@ const INNER: f32 = 8.0;
 
 /// Draw the icon for a state as straight (non-premultiplied) RGBA,
 /// `SIZE * SIZE * 4` bytes.
+/// The tray icon for `state`, ready to hand to the OS. Both surfaces build
+/// icons, so this lives next to the pixels rather than in either of them.
+pub fn build(state: TrayState) -> tray_icon::Icon {
+    tray_icon::Icon::from_rgba(rgba(state), SIZE, SIZE)
+        .expect("the RGBA buffer is SIZE*SIZE*4 by construction")
+}
+
 pub fn rgba(state: TrayState) -> Vec<u8> {
     let (color, hollow, bang) = match state {
         TrayState::Idle => (theme::TRAY_ACCENT, true, false),

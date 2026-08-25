@@ -206,8 +206,16 @@ impl HotkeyCapture {
         }
         if !rec.is_alive() {
             log::warn!("shortcut recording ended: the keyboard hook stopped on its own");
-            self.notice =
-                Some("Recording stopped: Windows dropped Hark's keyboard hook.".to_string());
+            // Two different failures wear the same shape here. On Windows the
+            // OS silently unhooks a callback it thinks ran long; on Linux the
+            // evdev reader only dies if the devices went away (a keyboard
+            // unplugged mid-recording, a VT switch). Naming the wrong one
+            // sends the user hunting in the wrong place.
+            self.notice = Some(if cfg!(target_os = "linux") {
+                "Recording stopped: Hark lost its connection to the keyboard.".to_string()
+            } else {
+                "Recording stopped: Windows dropped Hark's keyboard hook.".to_string()
+            });
             self.typing = true;
             let rec = self.recording.take().expect("checked just above");
             self.release(rec, pipeline);

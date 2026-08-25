@@ -1,7 +1,15 @@
 //! In-app update checking and self-update against GitHub Releases.
 //!
-//! Hark ships as a single signed portable `.exe` published as a GitHub release
-//! asset (`Hark-<version>-windows-x64.exe`). This crate:
+//! **Self-update is Windows-only, on purpose.** There, Hark ships as a single
+//! signed portable `.exe` that owns its own install directory, so swapping it
+//! is Hark's job. A Linux build is installed by `apt`/`dnf`/`pacman` from the
+//! `.deb`/`.rpm`/`.pkg.tar.zst` this repo publishes, and those files belong to
+//! the package manager: overwriting one in place would fail its integrity
+//! checks and be silently reverted by the next `upgrade`. So on Linux this
+//! crate does step 1 and stops — `hark-app`'s updater reports the new version
+//! and offers the release page, and the package manager does the installing.
+//!
+//! On Windows, where Hark ships as `Hark-<version>-windows-x64.exe`:
 //!
 //! 1. `check` — asks the Releases API for the latest tag and compares it, by
 //!    SemVer, to the running version.
@@ -37,7 +45,9 @@ const USER_AGENT: &str = concat!(
 );
 
 /// The published asset is named `Hark-<version>-windows-x64.exe`; match by
-/// suffix so a version change in the middle does not break the picker.
+/// suffix so a version change in the middle does not break the picker. The
+/// Linux assets on the same release are deliberately NOT matched here: see
+/// the module docs on why nothing self-installs over a packaged file.
 const WINDOWS_ASSET_SUFFIX: &str = "-windows-x64.exe";
 
 /// Passed to the process [`relaunch`] spawns so it knows to wait for this

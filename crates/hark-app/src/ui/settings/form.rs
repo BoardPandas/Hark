@@ -228,6 +228,27 @@ pub fn classify_level(peak: f32) -> InputLevel {
     }
 }
 
+/// The level advice, which has to name a control panel that exists. "Windows
+/// sound settings" on a Linux desktop is worse than no advice at all: it sends
+/// the user looking for something that is not there. Spelled out per platform
+/// rather than assembled from fragments — two extra lines beats a helper that
+/// has to be read twice to see which sentence it builds.
+#[cfg(target_os = "linux")]
+const TOO_QUIET: &str =
+    "Very quiet — move closer, or raise the input level in your sound settings.";
+#[cfg(target_os = "linux")]
+const TOO_LOUD: &str = "Too loud — lower the input level in your sound settings.";
+
+#[cfg(target_os = "macos")]
+const TOO_QUIET: &str = "Very quiet — move closer, or raise the level in System Settings › Sound.";
+#[cfg(target_os = "macos")]
+const TOO_LOUD: &str = "Too loud — lower the level in System Settings › Sound.";
+
+#[cfg(not(any(target_os = "linux", target_os = "macos")))]
+const TOO_QUIET: &str = "Very quiet — move closer, or raise the level in Windows sound settings.";
+#[cfg(not(any(target_os = "linux", target_os = "macos")))]
+const TOO_LOUD: &str = "Too loud — lower the level in Windows sound settings.";
+
 /// A live input meter under the picker.
 ///
 /// This exists so "Hark can't hear me" becomes something the user can see
@@ -241,15 +262,9 @@ fn input_meter(ui: &mut Ui, peak: f32) {
             ui.visuals().weak_text_color(),
             "No input — is this the right microphone?",
         ),
-        InputLevel::TooQuiet => (
-            theme::WARNING,
-            "Very quiet — move closer, or raise the level in Windows sound settings.",
-        ),
+        InputLevel::TooQuiet => (theme::WARNING, TOO_QUIET),
         InputLevel::Good => (theme::SUCCESS, "Good level."),
-        InputLevel::Hot => (
-            theme::DANGER,
-            "Too loud — lower the level in Windows sound settings.",
-        ),
+        InputLevel::Hot => (theme::DANGER, TOO_LOUD),
     };
     ui.add_space(6.0);
     // Amplitude is linear but hearing is not; a square root gives the quiet end
@@ -427,9 +442,16 @@ pub fn behavior_section(ui: &mut Ui, draft: &mut Settings) {
             // the checkbox only edits the draft here, like every other field.
             ui.checkbox(&mut draft.startup.launch_at_login, "Launch Hark at login");
             ui.label(
-                RichText::new("Starts hidden in the system tray when you sign in to Windows.")
-                    .small()
-                    .weak(),
+                RichText::new(if cfg!(target_os = "linux") {
+                    // An XDG autostart entry runs when the desktop session
+                    // starts, which is not the same moment as signing in on
+                    // Windows and is worth being accurate about.
+                    "Starts hidden in the system tray when your desktop session starts."
+                } else {
+                    "Starts hidden in the system tray when you sign in to Windows."
+                })
+                .small()
+                .weak(),
             );
         });
 }

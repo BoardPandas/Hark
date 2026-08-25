@@ -3,8 +3,9 @@
 //! Left Win to record, release either to stop).
 //!
 //! The `spawn_listener` boundary is the platform seam: `hook_win.rs`
-//! (WH_KEYBOARD_LL) implements it now; `hook_mac.rs` (CGEventTap) slots in
-//! behind the same signature in checkpoint 7 without touching the pipeline.
+//! (WH_KEYBOARD_LL) and `hook_linux.rs` (evdev) implement it today;
+//! `hook_mac.rs` (CGEventTap) slots in behind the same signature in
+//! checkpoint 7 without touching the pipeline.
 
 pub mod capture;
 pub mod edges;
@@ -13,6 +14,9 @@ pub mod known;
 
 #[cfg(windows)]
 mod hook_win;
+
+#[cfg(target_os = "linux")]
+mod hook_linux;
 
 pub use capture::{CaptureBuffer, CaptureEvent, HeldScan, Rejected};
 pub use edges::{pretty_chord, ChordParseError, ChordTracker, PttChord, PttEvent};
@@ -139,6 +143,11 @@ pub struct ListenerHandle {
     /// listening, and teardown skips posting to a thread id the OS may already
     /// have recycled onto somebody else's thread.
     alive: Arc<AtomicBool>,
+    /// Wakes the evdev listener out of `poll` so teardown is immediate rather
+    /// than waiting out a rescan timeout. Windows has no equivalent field: its
+    /// hook thread is stopped by posting WM_QUIT to `thread_id`.
+    #[cfg(target_os = "linux")]
+    stop: Option<hook_linux::Stopper>,
     /// Shared with the hook thread; `None` for a capture-only hook, which has
     /// nothing to tap.
     tap: Option<Arc<CaptureTap>>,
@@ -173,6 +182,10 @@ impl ListenerHandle {
         tap.hook_edges.store(0, Ordering::Relaxed);
         tap.polled_edges.store(0, Ordering::Relaxed);
         tap.on.store(true, Ordering::Relaxed);
+        // Windows only: its hook stops being called while our own window has
+        // focus (LL-G HIGH), so the recorder needs a second source. evdev has
+        // no such hole -- the kernel delivers every edge regardless of focus --
+        // so on Linux the polled counter stays at zero, honestly.
         #[cfg(windows)]
         hook_win::spawn_scanner(tap.clone());
         Some(tap)
@@ -203,6 +216,10 @@ impl Drop for ListenerHandle {
         if self.alive.load(Ordering::Acquire) {
             hook_win::stop_listener(self.thread_id);
         }
+        #[cfg(target_os = "linux")]
+        if let Some(stop) = &self.stop {
+            stop.stop();
+        }
         if let Some(t) = self.thread.take() {
             let _ = t.join();
         }
@@ -213,7 +230,7 @@ impl Drop for ListenerHandle {
 /// wherever [`spawn_capture`] would fail, so the settings UI can offer the
 /// typed fallback instead of a button that only ever reports an error.
 pub fn capture_supported() -> bool {
-    cfg!(windows)
+    cfg!(any(windows, target_os = "linux"))
 }
 
 /// Start listening for the chord; edges arrive on `tx`. One listener per
@@ -222,6 +239,9 @@ pub fn capture_supported() -> bool {
 /// pressed as part of this chord. Off makes the hook observe-only, exactly as
 /// it was; the setting exists because none of the suppression is verifiable
 /// without real Windows hardware, and a config line beats waiting for a build.
+/// **Windows only.** Suppressing one key on Linux would need `EVIOCGRAB`,
+/// which takes the whole device and would stop every other keystroke reaching
+/// the focused app; the Linux listener logs the setting as inert and observes.
 pub fn spawn_listener(
     chord: PttChord,
     swallow_locks: bool,
@@ -231,7 +251,11 @@ pub fn spawn_listener(
     {
         hook_win::spawn_listener(chord, swallow_locks, tx)
     }
-    #[cfg(not(windows))]
+    #[cfg(target_os = "linux")]
+    {
+        hook_linux::spawn_listener(chord, swallow_locks, tx)
+    }
+    #[cfg(not(any(windows, target_os = "linux")))]
     {
         // CGEventTap arrives in checkpoint 7 (NEEDS MAC).
         let _ = (chord, swallow_locks, tx);
@@ -249,7 +273,11 @@ pub fn spawn_capture(tx: Sender<CaptureEvent>) -> Result<ListenerHandle, HotkeyE
     {
         hook_win::spawn_capture(tx)
     }
-    #[cfg(not(windows))]
+    #[cfg(target_os = "linux")]
+    {
+        hook_linux::spawn_capture(tx)
+    }
+    #[cfg(not(any(windows, target_os = "linux")))]
     {
         // Recording rides the same platform hook, so it lands with the
         // CGEventTap in checkpoint 7 (NEEDS MAC).

@@ -1,0 +1,116 @@
+# Maintainer: Charles Vossburg <chaz@wellforceit.com>
+#
+# Two ways this file gets used, and they must both keep working:
+#
+#  1. release.yml builds it inside an archlinux:base-devel container against
+#     the checked-out tree, producing the .pkg.tar.zst attached to the GitHub
+#     release. That run sets HARK_SRCDIR so prepare() skips the download and
+#     builds the tree that is already there.
+#  2. An AUR consumer runs `makepkg` with no HARK_SRCDIR, which fetches the
+#     tagged source tarball from GitHub.
+#
+# Everything below the `build()` line is identical either way.
+
+pkgname=hark
+pkgver=0.36.0
+pkgrel=1
+pkgdesc="Push-to-talk voice dictation: hold a key, speak, release, and polished text appears at your cursor"
+arch=('x86_64')
+url="https://github.com/BoardPandas/Hark"
+license=('MIT')
+# Verified against `objdump -p target/release/hark-app | grep NEEDED` plus the
+# libraries the binary dlopens (which no tool can infer -- see below):
+#   alsa-lib              libasound.so.2, microphone capture via cpal
+#   gtk3                  libgtk-3/libgdk-3/libgdk_pixbuf/glib, the tray's toolkit
+#   xdotool               libxdo.so.4, DIRECTLY LINKED for muda's menu items
+#   libappindicator-gtk3  dlopened by libappindicator-sys for the tray icon
+#   libx11, libxkbcommon  dlopened by winit's x11-dl and xkbcommon-dl
+# The last three are the ones to be careful with: dlopened libraries never
+# reach DT_NEEDED, so dropping any of them still builds a package that installs
+# cleanly and then fails at runtime -- silently for the tray, at startup for
+# the others. libxcb is deliberately absent: x11rb speaks the X protocol in
+# pure Rust and links no XCB.
+depends=('alsa-lib' 'gtk3' 'xdotool' 'libappindicator-gtk3' 'libx11' 'libxkbcommon')
+makedepends=('rust' 'cargo' 'pkgconf')
+# The API key is stored through the Secret Service. Optional, not a hard
+# dependency: HARK_STT_KEY works without any keyring at all.
+optdepends=('gnome-keyring: store the API key in the GNOME keyring'
+            'kwallet: store the API key in KWallet')
+# makepkg enables cross-language LTO by default, and it does not survive this
+# dependency tree: `ring` ships hand-written assembly whose symbols the LTO
+# plugin drops, so linking fails with a wall of "undefined symbol:
+# ring_core_*". Verified on Arch 2026-08-24. This is a build-flag conflict, not
+# an lto-vs-no-lto performance choice -- cargo's own release profile settings
+# are untouched.
+options=(!lto)
+
+install="${pkgname}.install"
+
+# The source array has to be EMPTY in the CI case, not merely unused: makepkg
+# downloads every entry before prepare() ever runs, and in a release job the
+# tag it would reach for does not exist yet -- the package is built from the
+# commit being released, at the moment it is released.
+if [ -n "${HARK_SRCDIR:-}" ]; then
+    source=()
+    sha256sums=()
+    _builddir="${HARK_SRCDIR}"
+else
+    source=("${pkgname}-${pkgver}.tar.gz::${url}/archive/refs/tags/v${pkgver}.tar.gz")
+    # SKIP is correct only while this file is consumed from the repo, where the
+    # tree is already trusted. Run `updpkgsums` to pin the real digest before
+    # ever publishing this to the AUR, where the tarball is fetched over the
+    # network and an unverified download is the whole attack.
+    sha256sums=('SKIP')
+    _builddir="${srcdir}/Hark-${pkgver}"
+fi
+
+prepare() {
+    [ -n "${HARK_SRCDIR:-}" ] && return 0
+    cd "${_builddir}"
+    # --locked: the committed Cargo.lock is what CI tested. Resolving fresh
+    # here would ship a dependency set nothing has ever run.
+    cargo fetch --locked
+}
+
+build() {
+    cd "${_builddir}"
+    export RUSTUP_TOOLCHAIN=stable
+    export CARGO_TARGET_DIR=target
+    cargo build --frozen --release -p hark-app
+}
+
+# Skipped by release.yml (`makepkg --nocheck`): the ubuntu leg of the same
+# workflow has already run the whole suite against this commit, and repeating
+# it here would add several minutes to every release for no new information.
+# It stays defined because an AUR consumer builds from source with no such
+# guarantee, and for them it is the only test run there is.
+check() {
+    cd "${_builddir}"
+    export RUSTUP_TOOLCHAIN=stable
+    export CARGO_TARGET_DIR=target
+    cargo test --frozen --release --workspace
+}
+
+package() {
+    cd "${_builddir}"
+
+    # Installed as `hark`, matching packaging/hark.desktop's Exec line.
+    install -Dm755 target/release/hark-app "${pkgdir}/usr/bin/${pkgname}"
+
+    install -Dm644 packaging/hark.desktop \
+        "${pkgdir}/usr/share/applications/${pkgname}.desktop"
+    install -Dm644 packaging/hark.svg \
+        "${pkgdir}/usr/share/icons/hicolor/scalable/apps/${pkgname}.svg"
+
+    # Grants the `input` group write access to /dev/uinput, which is what lets
+    # Hark paste under Wayland. Reading keyboards needs no rule: /dev/input/
+    # event* is already root:input 0660.
+    install -Dm644 packaging/70-hark-uinput.rules \
+        "${pkgdir}/usr/lib/udev/rules.d/70-hark-uinput.rules"
+    install -Dm644 packaging/hark-uinput.conf \
+        "${pkgdir}/usr/lib/modules-load.d/${pkgname}-uinput.conf"
+
+    install -Dm644 packaging/LINUX.md "${pkgdir}/usr/share/doc/${pkgname}/LINUX.md"
+    install -Dm644 README.md "${pkgdir}/usr/share/doc/${pkgname}/README.md"
+    install -Dm644 LICENSE "${pkgdir}/usr/share/licenses/${pkgname}/LICENSE"
+}

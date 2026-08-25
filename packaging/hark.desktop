@@ -1,0 +1,14 @@
+[Desktop Entry]
+Type=Application
+Name=Hark
+GenericName=Voice Dictation
+Comment=Hold a key, speak, release — polished text appears at your cursor
+Exec=hark
+Icon=hark
+Terminal=false
+Categories=Utility;AudioVideo;Audio;
+Keywords=dictation;speech;voice;transcription;push-to-talk;
+# Hark lives in the tray and starts with its window hidden, so the launcher
+# must not wait for a window to map and then show a "not responding" cursor.
+StartupNotify=false
+SingleMainWindow=true

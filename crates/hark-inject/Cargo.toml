@@ -19,10 +19,22 @@ enigo = { version = "0.6.1", default-features = false }
 log = "0.4"
 thiserror = "2"
 
-# Linux is NOT a target platform: this exists only so the workspace compiles
-# and tests on a Linux dev machine. enigo refuses to build on Linux unless a
-# backend is named, so name the pure-Rust one (x11rb needs no C libraries).
-# The 0.6.1 pin and default-features = false above are unchanged, and
-# Windows/macOS builds never see this section.
+# Linux is a ship target as of 0.36.0. enigo refuses to build unless a backend
+# is named, so name the pure-Rust one (x11rb needs no C libraries); it drives
+# X11 sessions, where it resolves keysyms against the active layout. Wayland
+# has no XTEST, so key synthesis there goes through a uinput virtual keyboard
+# instead -- the same evdev crate hark-hotkey reads with, so one permission
+# (the `input` group) covers both directions. The 0.6.1 pin and
+# default-features = false above are unchanged.
 [target.'cfg(target_os = "linux")'.dependencies]
 enigo = { version = "0.6.1", default-features = false, features = ["x11rb"] }
+evdev = "0.13.2"
+
+# The clipboard itself is display-server-specific too: arboard's default build
+# speaks X11 only, and a Wayland-native app that never touched X would find the
+# clipboard empty. `wayland-data-control` adds the wlr-data-control path, which
+# arboard prefers when WAYLAND_DISPLAY is set and falls back from on X11.
+[target.'cfg(target_os = "linux")'.dependencies.arboard]
+version = "3.6.1"
+default-features = false
+features = ["wayland-data-control"]

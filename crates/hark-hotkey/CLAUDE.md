@@ -60,10 +60,47 @@
   and it toggles), and screen readers that use Caps Lock as their modifier
   lose it for that chord. `[hotkey] swallow_lock_keys = false` restores the
   observe-only hook exactly.
+- **Edge semantics live in `edges.rs` only** (pure, exhaustively tested):
+  engage on last chord member down, disengage on first up, auto-repeat
+  filtered, non-chord keys ignored.
 - **Platform seam:** `spawn_listener(chord, swallow_locks, tx)` is the only entry point.
   `hook_mac.rs` (CGEventTap, checkpoint 7, NEEDS MAC) must implement the same
   signature and feed the same `edges.rs` tracker; the tap thread owns its own
   `CFRunLoop` and must not fight the egui/winit main loop.
-- **Edge semantics live in `edges.rs` only** (pure, exhaustively tested):
-  engage on last chord member down, disengage on first up, auto-repeat
-  filtered, non-chord keys ignored.
+
+## Linux (`hook_linux.rs`, evdev)
+
+- **evdev, never an X11 grab.** X11 grab APIs are invisible to a Wayland
+  compositor, and Wayland is the default session on GNOME and KDE — an X11 hook
+  would leave push-to-talk silently dead for most Linux users. Reading
+  `/dev/input/event*` sits below the display server, so one implementation
+  covers X11, Wayland and a bare TTY. The cost is a permission: the user must
+  be in the `input` group.
+- **One thread owns every device.** `poll(2)` over all keyboard fds plus a
+  shutdown self-pipe; the tracker, the watchdog and the hotplug rescan all run
+  on it, so nothing locks the tracker and no edge is observed out of order.
+- **Skip devices named `Hark*`.** There is no `LLKHF_INJECTED` here: our own
+  uinput paste keyboard is indistinguishable from hardware once its events
+  reach `/dev/input`, and reading it back re-triggers the chord forever.
+  `hark-inject` names its device `Hark Virtual Keyboard`; both crates key off
+  the bare app name so a rename cannot desynchronise them.
+- **Auto-repeat (`value == 2`) is dropped.** The tracker deals in edges, and a
+  held chord would otherwise manufacture a down every ~30 ms and inflate the
+  recorder's counter into nonsense.
+- **`swallow_locks` is inert, and says so.** Suppressing one key needs
+  `EVIOCGRAB`, which takes the device exclusively — every other keystroke would
+  stop reaching the focused app. The listener logs the setting as having no
+  effect rather than silently ignoring it.
+- **`Oem8` has no evdev counterpart, and that is correct.** `VK_OEM_8` is a
+  Win32 virtual-key artifact ("miscellaneous, varies by keyboard"), not a
+  physical position, so `key_to_evdev` returns `None` for it and a chord
+  containing it is reported unbindable. Do not map it to a neighbour to make a
+  test pass; a test pins it as the *only* unmapped key.
+- **No polled scanner.** The Windows hook needs one because it stops being
+  called while our own window has focus (LL-G HIGH). evdev has no such hole, so
+  the recorder's `polled` counter stays honestly at zero.
+- **The permission failure is phrased as the fix.** `HotkeyError::Install`
+  carries the `usermod -aG input` instruction, because it reaches the Settings
+  window and the user is the only one who can act on it. `has_unreadable_nodes`
+  is what separates "no keyboard" from "no permission" — `evdev::enumerate`
+  silently drops nodes it cannot open, so the two look identical without it.

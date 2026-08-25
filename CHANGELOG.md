@@ -4,6 +4,66 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.36.0] - 2026-08-24
+
+### Added
+
+- **Hark runs on Linux, with the same features it has on Windows.** Debian/Ubuntu
+  (`.deb`), Fedora/RHEL/openSUSE (`.rpm`) and Arch (`.pkg.tar.zst`) packages are
+  built and attached to every release, alongside a portable `.tar.gz` for
+  everything else. Dictation, cleanup, voices, the spellbook, invocations,
+  history, statistics, on-device transcription, the recording overlay and
+  launch-at-login all behave as they do elsewhere.
+- **Push-to-talk works on Wayland and X11 alike.** Hark watches the keyboard
+  through the kernel's input devices rather than through the display server, so
+  the chord is seen the same way on GNOME, KDE, XFCE, the wlroots compositors
+  and even a bare console. The approach every other global-hotkey tool takes is
+  X11-only, and X11 is no longer the default session on GNOME or KDE.
+- **One setup step, stated plainly.** Hark needs to be in the `input` group to
+  see the chord and to paste. If it is not, Hark opens its window and says
+  exactly that, with the command to fix it — instead of starting and quietly
+  doing nothing. The packages install the udev rule and load the kernel module
+  for you. [`packaging/LINUX.md`](packaging/LINUX.md) covers the rest: why the
+  permission is needed, the portable tarball, and troubleshooting.
+- **Launch at login on Linux.** The Settings toggle now writes a standard XDG
+  autostart entry, so Hark starts hidden in the tray with your desktop session.
+- **A "Show Hark" item in the Linux tray menu.** The tray protocol Linux panels
+  use delivers no click events, so the double-click that restores the window on
+  Windows and macOS has a menu item instead of no equivalent.
+
+### Changed
+
+- **CI builds and tests on Linux.** The platform with the most platform-specific
+  code in it was the one platform nothing compiled on. Releases run the full
+  format, lint and test pass on Linux before packaging, and verify that the
+  finished packages actually declare their dependencies.
+- **The update checker points Linux users at their package manager.** On Linux
+  Hark tells you a new version exists and links to it, but never replaces its
+  own binary: that file belongs to `apt`/`dnf`/`pacman`, and overwriting it
+  would be undone by the next upgrade.
+- **Advice in Settings names a control panel that exists.** The microphone level
+  hints said "Windows sound settings" on every platform; they now say something
+  true for the one you are on. Same for the launch-at-login description and the
+  message shown when a shortcut recording stops.
+
+### Fixed
+
+- **`XDG_CONFIG_HOME` is honoured for the settings file**, matching the existing
+  `XDG_DATA_HOME` handling for the history database. Both now ignore a relative
+  value, as the spec requires — previously a relative one would have scattered
+  config and history across whatever directory Hark was launched from.
+
+### Security
+
+- **Re-triaged the ignored dependency advisories now that Linux ships.** All
+  three were previously waived on the grounds that Hark did not build for Linux
+  at all, which is no longer true. Two (`RUSTSEC-2026-0194`, `-0195`, quick-xml)
+  survive on a narrower and verified argument: they are reachable only through a
+  build-time proc macro operating on fixed inputs, never in the shipped binary.
+  The third (`RUSTSEC-2026-0192`, ttf-parser unmaintained) is now genuinely
+  shipped — it renders window decorations on Wayland — and is documented as an
+  accepted exposure rather than an inapplicable one.
+
 ## [0.35.8] - 2026-08-21
 
 ### Changed

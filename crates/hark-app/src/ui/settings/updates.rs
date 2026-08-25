@@ -106,8 +106,17 @@ fn result(ui: &mut Ui, updater: &mut Updater) {
                 if ui.add(accent_button(ui, "Download & install")).clicked() {
                     updater.start_install(ui.ctx());
                 }
-            } else if ui.button("View release").clicked() {
-                ui.ctx().open_url(egui::OpenUrl::new_tab(html_url));
+            } else {
+                // A bare "View release" is a dead end on Linux: the user is
+                // looking at a page of .deb/.rpm/.pkg.tar.zst files with no
+                // hint that their package manager is the thing that installs
+                // them. Hark must not run that upgrade itself -- the files
+                // belong to dpkg/rpm/pacman (see hark-update's module docs).
+                #[cfg(target_os = "linux")]
+                ui.label("Install it with your package manager, or download it below.");
+                if ui.button("View release").clicked() {
+                    ui.ctx().open_url(egui::OpenUrl::new_tab(html_url));
+                }
             }
         }
         Kind::Ready => {

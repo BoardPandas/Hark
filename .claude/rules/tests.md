@@ -11,4 +11,4 @@ paths:
 - **The hot path is the thing to test.** Prioritize: ring-buffer pre-roll/tail boundaries, silence trimming, spellbook phonetic-correction matching, voice prompt assembly (spellbook terms passed through untouched), retention pruning, and lifetime-stats-survive-clear behavior.
 - **Isolate the untestable-here parts.** Mic capture, global key hooks, clipboard injection, egui rendering, and live BYOK calls cannot be validated on this coding-only machine — keep their pure logic (edge detection, buffer math, request building, response parsing) in functions that are unit-testable without hardware or network, and mock the BYOK HTTP boundary.
 - Do not assert on wall-clock timing in tests (flaky); assert on sample counts / buffer lengths instead.
-- New behavior ships with a test unless it is purely I/O glue that can only be verified by running the app on real macOS/Windows — say so explicitly when that's the case.
+- New behavior ships with a test unless it is purely I/O glue that can only be verified by running the app on real macOS/Windows/Linux — say so explicitly when that's the case.

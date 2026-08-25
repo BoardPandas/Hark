@@ -119,12 +119,16 @@ jobs:
       - name: cargo audit
         run: cargo audit
 
-  # Build and test on the platforms Hark actually ships on. ubuntu is
-  # deliberately absent: the workspace does build on Linux (hark-inject carries
-  # an explicit x11rb accommodation for exactly that), but a GitHub ubuntu runner
-  # needs ALSA, X11/xdo, and the whole eframe GTK/wayland dev-header set apt-get
-  # installed first, and Linux is not a ship target. Do not "fix" this by adding
-  # ubuntu-latest without also adding those packages.
+  # Build and test on the platforms Hark ships on -- all three of them since
+  # 0.36.0, when Linux became a ship target rather than a place the workspace
+  # merely happened to compile.
+  #
+  # ubuntu needs a dev-header install the other two do not (see the step
+  # below); that is the whole reason it used to be excluded here. It is not a
+  # reason to exclude it now that Linux is a shipped artifact: the platform
+  # with the most platform-specific code in it (evdev push-to-talk, uinput
+  # paste, XDG autostart, the GTK tray thread) was the one platform nothing
+  # compiled on in CI.
   rust:
     name: clippy + tests (${{ matrix.os }})
     needs: [wiring, fmt]
@@ -132,9 +136,32 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [windows-latest, macos-latest]
+        os: [windows-latest, macos-latest, ubuntu-latest]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # Linux links against system libraries the other runners either bundle or
+      # do not need. A missing one fails at link time with an unresolved symbol
+      # and nothing that names the package, so the mapping is written down.
+      # Keep it in step with the PKGBUILD's depends:
+      #   libasound2-dev                cpal, microphone capture
+      #   libgtk-3-dev                  GTK, which the tray is built out of
+      #   libxdo-dev                    libxdo, linked for muda's menu items
+      #   libayatana-appindicator3-dev  the tray icon (dlopened at RUN time, so
+      #                                 this is here for the runtime .so, not
+      #                                 for headers -- libappindicator-sys has
+      #                                 no build script)
+      #   libxkbcommon-dev, libx11-dev  dlopened by winit's xkbcommon-dl/x11-dl
+      #   cmake, clang                  sherpa-onnx builds its native engine
+      # NOT here: libudev-dev. evdev 0.13 talks to the kernel through nix and
+      # has no C dependency; naming it would be a lie that outlives the check.
+      - name: Install Linux build dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libasound2-dev libgtk-3-dev libayatana-appindicator3-dev \
+            libxdo-dev libxkbcommon-dev libx11-dev pkg-config cmake clang
 
       # `toolchain: stable` is a channel, not a version pin -- matching release.yml.
       # The workspace rust-version = "1.97" floor makes cargo error if a runner's

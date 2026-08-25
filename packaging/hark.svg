@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Hark application icon.
+
+  Deliberately the same mark the tray draws for its Idle state
+  (crates/hark-app/src/tray/icon.rs): an accent ring, #9184D9, on the theme's
+  darkest accent, #2B2741. The launcher icon and the tray icon are the only
+  two places a user ever sees Hark's mark, and one shape for both is what
+  makes the tray entry recognisable as the app they launched.
+
+  Geometry is the tray icon's, scaled x8 from its 32 px canvas: centre 128,
+  outer radius 104, inner radius 64 -- so a 40-unit stroke on an 84-unit
+  radius. Kept scalable rather than shipped as PNGs because every desktop
+  that reads hicolor handles SVG, and a rasterisation step in CI is one more
+  thing that can silently produce a blank icon.
+-->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
+  <rect width="256" height="256" rx="56" ry="56" fill="#2B2741"/>
+  <circle cx="128" cy="128" r="84" fill="none" stroke="#9184D9" stroke-width="40"/>
+</svg>

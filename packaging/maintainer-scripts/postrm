@@ -1,0 +1,12 @@
+#!/bin/sh
+# Only the udev rule needs undoing, and only on a real removal: dpkg has
+# already deleted the file by the time this runs, so all that is left is
+# telling udevd to forget it. The uinput module is left loaded -- other
+# software uses it, and unloading a module out from under them would be rude.
+set -e
+
+if [ "$1" = "remove" ] || [ "$1" = "purge" ]; then
+    udevadm control --reload-rules >/dev/null 2>&1 || true
+fi
+
+exit 0

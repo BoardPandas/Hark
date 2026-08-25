@@ -4,7 +4,7 @@ version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
-description = "Hark launch-at-login: app-managed Windows HKCU Run entry (no console spawn). No-op on other platforms."
+description = "Hark launch-at-login: app-managed Windows HKCU Run entry (no console spawn) and XDG autostart entry on Linux. No-op on other platforms."
 
 [dependencies]
 thiserror = "2"
@@ -15,3 +15,12 @@ thiserror = "2"
 # winreg is a thin safe wrapper over windows-sys; it spawns no process.
 [target.'cfg(windows)'.dependencies]
 winreg = "0.56"
+
+# The autostart entry lives in the per-user config dir, and hark-config owns
+# that decision for the whole workspace (same borrow hark-single-instance makes
+# for the data dir) rather than each crate re-deriving XDG_CONFIG_HOME.
+[target.'cfg(target_os = "linux")'.dependencies]
+hark-config = { path = "../hark-config" }
+
+[target.'cfg(target_os = "linux")'.dev-dependencies]
+tempfile = "3"

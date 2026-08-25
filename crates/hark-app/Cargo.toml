@@ -4,7 +4,12 @@ version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
-description = "Hark desktop app: eframe window (and later tray) on the main thread, dictation pipeline on worker threads."
+# User-facing, because it is: cargo-deb uses this verbatim as the .deb
+# synopsis (it has no override) and cargo-generate-rpm falls back to it. The
+# architecture note this used to carry -- eframe window and tray on the main
+# thread, pipeline on workers -- lives in src/main.rs, where it is read by the
+# people it is for. It also said "and later tray" long after the tray shipped.
+description = "Push-to-talk voice dictation: hold a key, speak, release, and polished text appears at your cursor"
 
 [dependencies]
 # `persistence` remembers window geometry across launches (spec §3.9).
@@ -59,6 +64,106 @@ windows = { version = "0.62.2", features = [
     "Win32_UI_HiDpi",
     "Win32_UI_WindowsAndMessaging",
 ] }
+
+# The Linux tray is libappindicator, i.e. GTK widgets, and GTK widgets need
+# gtk::init() plus a running GTK loop on their own thread -- winit already owns
+# the main thread's loop. hark-app therefore drives that second loop itself
+# (crates/hark-app/src/tray/surface_gtk.rs), which means calling gtk directly.
+# Same 0.18 line libappindicator pulls in, so the two unify to one gtk.
+[target.'cfg(target_os = "linux")'.dependencies]
+gtk = "0.18"
+
+# --- Linux packaging -------------------------------------------------------
+#
+# Both tools read their config from THIS crate's manifest (`cargo deb -p
+# hark-app`, `cargo generate-rpm -p crates/hark-app`), which is why the tables
+# live here and not at the workspace root. The two asset lists deliberately
+# describe the same layout in each tool's own syntax rather than being
+# generated from one source: they disagree about path resolution (cargo-deb
+# special-cases the literal `target/release/` prefix and resolves everything
+# else against this directory; cargo-generate-rpm resolves against the
+# workspace root), and a clever shared abstraction would hide exactly the
+# detail that breaks.
+#
+# The binary is installed as `hark`, not `hark-app`: that is the name in
+# packaging/hark.desktop's Exec line and the name a user types. Cargo's own
+# artifact keeps its crate name so nothing about the Windows release changes.
+
+[package.metadata.deb]
+name = "hark"
+maintainer = "Charles Vossburg <chaz@wellforceit.com>"
+copyright = "2026, BoardPandas"
+license-file = ["../../LICENSE", "0"]
+extended-description = """Hold a key, speak, release: Hark transcribes what you said and injects polished text at the cursor in any application. Transcription uses your own API key with your chosen provider, or an optional on-device engine; history, statistics and the spellbook never leave the machine.
+
+Hark reads /dev/input to see the push-to-talk chord and writes /dev/uinput to paste, so it works identically on X11 and Wayland. Add yourself to the "input" group and log back in before first use."""
+section = "sound"
+priority = "optional"
+# $auto resolves the LINKED shared libraries (ALSA, GTK, X11, xdo) through
+# dpkg-shlibdeps, which is more accurate than any list written by hand.
+#
+# The appindicator library is named explicitly because $auto CANNOT find it:
+# libappindicator-sys dlopens it via libloading, so it never appears in the
+# binary's DT_NEEDED and shlibdeps has nothing to see. Left implicit, the
+# package installs cleanly on a machine with no appindicator and the tray
+# simply never appears -- a silent failure with no error to search for.
+# Two alternatives because the Ayatana fork replaced the original: Debian 12+
+# and Ubuntu 22.04+ ship libayatana-appindicator3-1, older releases the other.
+# These are the exact sonames libappindicator-sys tries, in its order.
+depends = "$auto, libayatana-appindicator3-1 | libappindicator3-1"
+# A Secret Service implementation is what `keyring` stores the BYOK API key in.
+# Recommends, not Depends: Hark runs without one -- the HARK_STT_KEY
+# environment override exists for exactly that -- it just cannot save a key
+# from the Settings window.
+recommends = "gnome-keyring"
+maintainer-scripts = "../../packaging/maintainer-scripts"
+assets = [
+    # cargo-deb wants this literal prefix even when the real target dir differs;
+    # it is how the tool recognises a Cargo-built artifact.
+    ["target/release/hark-app", "usr/bin/hark", "755"],
+    ["../../packaging/hark.desktop", "usr/share/applications/hark.desktop", "644"],
+    ["../../packaging/hark.svg", "usr/share/icons/hicolor/scalable/apps/hark.svg", "644"],
+    ["../../packaging/70-hark-uinput.rules", "usr/lib/udev/rules.d/70-hark-uinput.rules", "644"],
+    ["../../packaging/hark-uinput.conf", "usr/lib/modules-load.d/hark-uinput.conf", "644"],
+    ["../../packaging/LINUX.md", "usr/share/doc/hark/LINUX.md", "644"],
+    ["../../README.md", "usr/share/doc/hark/README.md", "644"],
+]
+
+[package.metadata.generate-rpm]
+name = "hark"
+summary = "Push-to-talk voice dictation for the desktop"
+# auto-req reads the ELF for its shared-library needs, the rpm equivalent of
+# dpkg-shlibdeps. Left on ("auto" is the default) for the same reason.
+#
+# The appindicator soname is required explicitly for the reason spelled out
+# above the deb `depends`: it is dlopened, so it is absent from DT_NEEDED and
+# auto-req cannot infer it. Requiring the soname rather than a package name
+# keeps this working across Fedora (libayatana-appindicator-gtk3) and openSUSE
+# (libayatana-appindicator3-1), which agree on the library and not the label.
+requires = { "/usr/bin/udevadm" = "*", "libayatana-appindicator3.so.1()(64bit)" = "*" }
+post_install_script = """
+modprobe uinput >/dev/null 2>&1 || true
+udevadm control --reload-rules >/dev/null 2>&1 || true
+udevadm trigger --subsystem-match=misc --sysname-match=uinput >/dev/null 2>&1 || true
+echo
+echo 'Hark needs permission to watch your keyboard and to paste through a'
+echo 'virtual keyboard. Add yourself to the "input" group, then log out and'
+echo 'back in:  sudo usermod -aG input $USER'
+echo
+"""
+post_uninstall_script = """
+udevadm control --reload-rules >/dev/null 2>&1 || true
+"""
+assets = [
+    { source = "target/release/hark-app", dest = "/usr/bin/hark", mode = "755" },
+    { source = "packaging/hark.desktop", dest = "/usr/share/applications/hark.desktop", mode = "644" },
+    { source = "packaging/hark.svg", dest = "/usr/share/icons/hicolor/scalable/apps/hark.svg", mode = "644" },
+    { source = "packaging/70-hark-uinput.rules", dest = "/usr/lib/udev/rules.d/70-hark-uinput.rules", mode = "644" },
+    { source = "packaging/hark-uinput.conf", dest = "/usr/lib/modules-load.d/hark-uinput.conf", mode = "644" },
+    { source = "packaging/LINUX.md", dest = "/usr/share/doc/hark/LINUX.md", mode = "644", doc = true },
+    { source = "README.md", dest = "/usr/share/doc/hark/README.md", mode = "644", doc = true },
+    { source = "LICENSE", dest = "/usr/share/licenses/hark/LICENSE", mode = "644", doc = true },
+]
 
 [features]
 # On by default so a stock build can actually use on-device STT. Building

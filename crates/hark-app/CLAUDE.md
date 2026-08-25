@@ -72,4 +72,19 @@ dictation pipeline on worker threads via `PipelineController`. Root
   debug keeps the console for logs; release is windowless, so any console
   child process must set `CREATE_NO_WINDOW` (LL-G HIGH, standing).
 - This machine builds and tests only; the window itself is validated on
-  real Windows/macOS hardware (CP6).
+  real Windows/macOS/Linux hardware (CP6).
+- **The tray has a platform seam, and the Linux side runs off the main
+  thread.** `tray/mod.rs` owns the menu layout, the id-to-action mapping and
+  the per-frame change detection — all pure and shared — and hands single
+  `TrayUpdate`s to a `Surface`. `surface_native.rs` (Windows, macOS) holds the
+  `TrayIcon` on the main thread and calls straight through.
+  `surface_gtk.rs` (Linux) cannot: libappindicator makes the tray out of GTK
+  widgets, which are `!Send`, need `gtk::init()` on their own thread, and only
+  act while a GTK main loop iterates — and winit owns the main thread's loop.
+  So it runs them on a dedicated thread, pumping GTK manually rather than
+  calling `gtk::main()` (which never returns and so could never drain the
+  update channel). **This does not weaken the main-thread rule:** that rule is
+  AppKit's, and `surface_gtk.rs` never compiles on macOS.
+- **Keep the diffing in `Tray::apply`.** It runs every frame, and on Linux each
+  update costs a channel hop plus a PNG rewritten to a temp file — not
+  something to do 60 times a second for a state that did not change.

@@ -12,7 +12,7 @@
 > - **v0.13.6:** In-app update checker with Windows self-update, plus per-device microphone selection.
 > - **v0.13.0:** Hark moved into the system tray with a state-reflecting icon and voice selector.
 
-This is the canonical wiki for Hark, a push-to-talk voice dictation desktop app for Windows and macOS, written in Rust with BYOK cloud transcription. Every page is generated from the source tree and cites the exact files and line ranges it describes.
+This is the canonical wiki for Hark, a push-to-talk voice dictation desktop app for Windows, macOS and Linux, written in Rust with BYOK cloud transcription. Every page is generated from the source tree and cites the exact files and line ranges it describes.
 
 ## Quick Start
 

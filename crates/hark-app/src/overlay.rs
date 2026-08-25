@@ -35,7 +35,7 @@
 //! The window is transparent and never takes focus: Hark injects text into
 //! whatever app is focused, so the overlay must not steal that focus.
 //! `with_active(false)` (never activate) and `with_taskbar(false)` handle
-//! that, and are validated on real Windows/macOS hardware, not on this
+//! that, and are validated on real Windows/macOS/Linux hardware, not on this
 //! build-only machine.
 //!
 //! It deliberately does NOT set `with_mouse_passthrough`. On Windows winit

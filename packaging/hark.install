@@ -1,0 +1,37 @@
+# pacman hooks for Hark. Everything here is best-effort: a chroot or container
+# install has no udevd and no module loading, and failing the transaction over
+# that would be wrong.
+
+_hark_apply_rules() {
+    modprobe uinput >/dev/null 2>&1 || true
+    udevadm control --reload-rules >/dev/null 2>&1 || true
+    udevadm trigger --subsystem-match=misc --sysname-match=uinput >/dev/null 2>&1 || true
+}
+
+post_install() {
+    _hark_apply_rules
+    cat <<'NOTE'
+
+Hark needs permission to watch your keyboard for the push-to-talk chord and to
+paste through a virtual keyboard. Add yourself to the "input" group, then log
+out and back in -- a new terminal is not enough, group membership is fixed at
+login:
+
+    sudo usermod -aG input $USER
+
+Then open Hark and paste your transcription API key into Settings.
+
+NOTE
+}
+
+post_upgrade() {
+    # The rule file may have changed between versions; re-apply rather than
+    # assuming the running udevd already has it.
+    _hark_apply_rules
+}
+
+post_remove() {
+    # The rule file is gone by now; this only tells udevd to forget it. The
+    # uinput module stays loaded -- other software uses it.
+    udevadm control --reload-rules >/dev/null 2>&1 || true
+}

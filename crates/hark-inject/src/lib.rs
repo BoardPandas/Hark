@@ -3,12 +3,21 @@
 //!
 //! Strategy selection and the fallback decision are pure logic (tested);
 //! the clipboard sequence and key synthesis are I/O glue verifiable only on
-//! real Windows/macOS (run-on-real-HW).
+//! real Windows/macOS/Linux (run-on-real-HW).
+//!
+//! On Linux the key-synthesis backend is chosen by session type: enigo (XTEST)
+//! under X11, a uinput virtual keyboard under Wayland, where XTEST does not
+//! exist. See `keys.rs` for why that is decided up front rather than by
+//! falling back on error.
 
 mod clipboard;
 mod keys;
+#[cfg(target_os = "linux")]
+mod uinput_linux;
 
 pub use clipboard::ClipboardError;
+#[cfg(target_os = "linux")]
+pub use uinput_linux::VIRTUAL_KEYBOARD_NAME;
 
 use thiserror::Error;
 
