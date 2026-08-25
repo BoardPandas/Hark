@@ -532,9 +532,17 @@ jobs:
 
           # The binary must land where packaging/hark.desktop's Exec line points,
           # or the launcher entry is dead on arrival.
-          dpkg-deb -c "$deb" | grep -q ' ./usr/bin/hark$' \
+          # Captured once rather than piped into `grep -q` twice, for the reason
+          # spelled out in the Arch job's verify step: grep -q exits at the
+          # match, the producer's next write hits a closed pipe, and pipefail
+          # turns that into a failed check on a good package. These two have
+          # passed every release so far -- dpkg-deb gets its listing out fast
+          # enough -- but it is the same loaded gun, and a gate that can lie
+          # about a good build is worse than no gate.
+          contents=$(dpkg-deb -c "$deb")
+          echo "$contents" | grep -q ' ./usr/bin/hark$' \
             || { echo "::error::.deb does not install /usr/bin/hark"; exit 1; }
-          dpkg-deb -c "$deb" | grep -q '70-hark-uinput.rules$' \
+          echo "$contents" | grep -q '70-hark-uinput.rules$' \
             || { echo "::error::.deb does not install the udev rule; paste will fail on Wayland"; exit 1; }
 
       # The escape hatch for distributions the three package formats do not
@@ -666,9 +674,28 @@ jobs:
             echo "$info" | grep -qx "depend = $want" \
               || { echo "::error::PKGBUILD depends is missing $want"; exit 1; }
           done
-          tar --zstd -tf "$pkg" | grep -qx 'usr/bin/hark' \
+          # Read the file list ONCE into a variable instead of piping tar into
+          # `grep -q`. `grep -q` exits at its first match; tar then has to
+          # decompress the ~47 MB binary to reach the next header, and that
+          # write lands on a closed pipe. `set -o pipefail` promotes the SIGPIPE
+          # to a failed step, so 0.36.5 reported "package does not install
+          # /usr/bin/hark" about a package that installs it -- a gate lying
+          # about a good build, which is worse than no gate. Reproduced 20/20
+          # with the binary early in the archive, which is where makepkg puts
+          # it; it passes 20/20 read this way. `echo "$info" | grep -q` above is
+          # safe by contrast: a builtin writing a few hundred bytes finishes
+          # before grep can exit.
+          #
+          # The listing is echoed because every step in this job has now failed
+          # once for a different reason, and the next one should not need a
+          # release to diagnose.
+          files=$(tar --zstd -tf "$pkg")
+          echo "$files"
+          # (\./)? because a leading ./ is a tar-format detail, not a fact about
+          # the package. makepkg emits bare paths today.
+          echo "$files" | grep -qE '^(\./)?usr/bin/hark$' \
             || { echo "::error::package does not install /usr/bin/hark"; exit 1; }
-          tar --zstd -tf "$pkg" | grep -q '70-hark-uinput.rules$' \
+          echo "$files" | grep -q '70-hark-uinput.rules$' \
             || { echo "::error::package does not install the udev rule; paste will fail on Wayland"; exit 1; }
 
       - name: Attach the Arch package to the release

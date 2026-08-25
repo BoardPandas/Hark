@@ -4,6 +4,19 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.36.6] - 2026-08-25
+
+### Fixed
+
+- **The Arch package is attached to the release.** 0.36.5 built and packaged it
+  correctly and then failed its own safety check, which announced that the
+  package did not contain the Hark binary. It did. The check read the package's
+  file listing through a pipe that closed as soon as it found what it was
+  looking for, and the resulting plumbing error was reported as a bad package
+  rather than as a broken check. It now reads the listing once, and prints it,
+  so anything that goes wrong here in future says what it actually saw. The
+  matching Debian check had the same flaw waiting in it and got the same fix.
+
 ## [0.36.5] - 2026-08-25
 
 ### Fixed
