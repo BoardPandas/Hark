@@ -4,6 +4,19 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.36.1] - 2026-08-25
+
+### Fixed
+
+- **The Arch package is built again.** 0.36.0 attached a `.deb`, an `.rpm` and a
+  tarball but no `.pkg.tar.zst`: the release build failed one second in, looking
+  for its dependencies in an empty local registry. The packaging recipe skipped
+  the dependency download whenever it was building an already-checked-out tree,
+  which conflated the source tree with the ~500 crates it is built against --
+  those still have to be fetched. Only the release path took that shortcut, so
+  building the same file from the AUR always worked and nothing caught it until
+  Linux shipped.
+
 ## [0.36.0] - 2026-08-24
 
 ### Added

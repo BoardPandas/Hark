@@ -4,15 +4,20 @@
 #
 #  1. release.yml builds it inside an archlinux:base-devel container against
 #     the checked-out tree, producing the .pkg.tar.zst attached to the GitHub
-#     release. That run sets HARK_SRCDIR so prepare() skips the download and
-#     builds the tree that is already there.
+#     release. That run sets HARK_SRCDIR, which empties `source` so makepkg
+#     does not go looking for a tarball of the tag it is in the middle of
+#     releasing, and points the build at the tree that is already there.
 #  2. An AUR consumer runs `makepkg` with no HARK_SRCDIR, which fetches the
 #     tagged source tarball from GitHub.
+#
+# HARK_SRCDIR changes where the SOURCE comes from and nothing else. The crate
+# dependencies are fetched from crates.io in both modes -- prepare() is not
+# conditional, and 0.36.0 shipped no Arch package because it once was.
 #
 # Everything below the `build()` line is identical either way.
 
 pkgname=hark
-pkgver=0.36.0
+pkgver=0.36.1
 pkgrel=1
 pkgdesc="Push-to-talk voice dictation: hold a key, speak, release, and polished text appears at your cursor"
 arch=('x86_64')
@@ -65,10 +70,20 @@ else
 fi
 
 prepare() {
-    [ -n "${HARK_SRCDIR:-}" ] && return 0
     cd "${_builddir}"
     # --locked: the committed Cargo.lock is what CI tested. Resolving fresh
     # here would ship a dependency set nothing has ever run.
+    #
+    # RUNS IN BOTH MODES, including the HARK_SRCDIR one. It used to return
+    # early there, on the reasoning that a tree which is already present has
+    # nothing to download -- but the tree is the only thing HARK_SRCDIR
+    # supplies. Its ~500 dependencies still come from crates.io either way, and
+    # `source=()` above is already what skips the tarball. Returning early left
+    # the registry empty and build()'s `--frozen` (which is --locked AND
+    # --offline) resolving against nothing, so 0.36.0's Arch job died one
+    # second in with "error: no matching package named `eframe` found /
+    # location searched: crates.io index". The AUR path never saw it, because
+    # that path is the one that still ran this.
     cargo fetch --locked
 }
 
