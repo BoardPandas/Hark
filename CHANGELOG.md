@@ -4,6 +4,17 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.36.5] - 2026-08-25
+
+### Fixed
+
+- **The Arch package is attached to the release again.** 0.36.4 built it
+  successfully and then failed while filing it: Arch's packaging defaults also
+  produce a second, empty debug package, and the release job's copy step matched
+  both files and gave up. The empty package is no longer built, and the copy now
+  names the one it wants and stops with a clear message if it ever sees anything
+  else. 0.36.4 shipped every other download; only the Arch one was missing.
+
 ## [0.36.4] - 2026-08-25
 
 ### Fixed

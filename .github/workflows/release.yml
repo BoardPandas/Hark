@@ -632,7 +632,24 @@ jobs:
           su builder -c "git config --global --add safe.directory '$GITHUB_WORKSPACE'"
           su builder -c "cd /home/builder && HARK_SRCDIR='$GITHUB_WORKSPACE' makepkg -f --nocheck --noconfirm"
           mkdir -p dist
-          cp /home/builder/hark-*-x86_64.pkg.tar.zst "dist/Hark-${VERSION}-linux-x64.pkg.tar.zst"
+
+          # `hark-[0-9]*`, not `hark-*`: makepkg's default OPTIONS include
+          # `debug`, so alongside hark-<ver>-1-x86_64.pkg.tar.zst it also emits
+          # hark-debug-<ver>-1-x86_64.pkg.tar.zst. `hark-*` matched both, and cp
+          # with three arguments wants a directory last, so 0.36.4 failed on
+          # "cp: target 'dist/Hark-0.36.4-linux-x64.pkg.tar.zst': No such file
+          # or directory" AFTER a completely successful 13-minute build. The
+          # PKGBUILD sets !debug so the second package is not produced at all;
+          # this glob is the belt to that braces, the same way the deb/rpm job
+          # asserts exactly one artifact rather than trusting its globs.
+          count=$(ls /home/builder/hark-[0-9]*-x86_64.pkg.tar.zst | wc -l)
+          if [ "$count" != 1 ]; then
+            echo "::error::expected exactly one package, found $count"
+            ls -la /home/builder/*.pkg.tar.zst
+            exit 1
+          fi
+          cp "$(ls /home/builder/hark-[0-9]*-x86_64.pkg.tar.zst)" \
+             "dist/Hark-${VERSION}-linux-x64.pkg.tar.zst"
 
       # Same gate as the deb/rpm: the tray library is dlopened, so nothing
       # infers it and a dropped `depends` entry would ship a package whose tray

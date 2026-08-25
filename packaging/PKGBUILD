@@ -17,7 +17,7 @@
 # Everything below the `build()` line is identical either way.
 
 pkgname=hark
-pkgver=0.36.4
+pkgver=0.36.5
 pkgrel=1
 pkgdesc="Push-to-talk voice dictation: hold a key, speak, release, and polished text appears at your cursor"
 arch=('x86_64')
@@ -59,7 +59,14 @@ optdepends=('gnome-keyring: store the API key in the GNOME keyring'
 # ring_core_*". Verified on Arch 2026-08-24. This is a build-flag conflict, not
 # an lto-vs-no-lto performance choice -- cargo's own release profile settings
 # are untouched.
-options=(!lto)
+# !debug: makepkg's default OPTIONS build a separate hark-debug package, and
+# there is nothing to put in it -- cargo's release profile emits no debug info
+# (no [profile.release] override, so debug = false), which is why 0.36.4's build
+# log carries "Error while writing index for .../usr/bin/hark: No debugging
+# symbols". An empty second package is not free: it is the extra .pkg.tar.zst
+# that made release.yml's `hark-*` copy glob ambiguous and failed that job after
+# the build had already succeeded.
+options=(!lto !debug)
 
 install="${pkgname}.install"
 
