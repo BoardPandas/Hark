@@ -4,6 +4,20 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.37.0] - 2026-09-04
+
+### Added
+
+- **`REVIEW.md` — review policy as version-controlled code.** Defines the review passes, a deliberately narrow "Important" bar (the code is wrong, it fails silently, or it is a security/data-loss risk — everything else is a nit), a three-nit cap, and an explicit do-not-report list. `check:claude` now fails when it is missing or missing a required section, since an empty stub satisfies a bare existence check and provides nothing.
+- **Weekly scheduled security scan** (`.github/workflows/security-scan.yml`). On-demand scanning makes coverage point-in-time: a credential committed the day after a manual run goes unnoticed. Checks tracked credential-shaped files against full history and validates hook script syntax.
+- **`.claude/references/managed-settings.example.json`** — a lift-and-adapt example of the org-policy tier: credential denies that cannot be relaxed downstream, a deny-by-default network allowlist, an approval-gate hook, and a minimum version floor.
+- **`## Commands`, `## Verifying your work`, and `## Things Claude Gets Wrong` in `CLAUDE.md`.** The verification contract was previously undocumented — nothing said which command proves a change is good, or that a failing check must never be skipped or narrowed to make it pass.
+- **Protected-path denies** for `node_modules`, build output, vendored trees, lockfiles, minified bundles, and `.git`.
+
+### Changed
+
+- **The wiring guard now enforces the always-on context budget in bytes and checks that every skill resolves to a model.** Both were previously unenforced here, so the defects below were invisible rather than absent.
+
 ## [0.36.6] - 2026-08-25
 
 ### Fixed

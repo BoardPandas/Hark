@@ -23,6 +23,7 @@
  */
 import { globSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
+import { readdirSync as _rdSync, readFileSync as _rfSync } from "node:fs";
 
 const CLAUDE_DIR = ".claude";
 const RULES_DIR = join(CLAUDE_DIR, "rules");
@@ -219,6 +220,147 @@ notes.push(`always-on: ~${alwaysOnTokens} tokens across ${budget.length} file(s)
 notes.push(`rules: ${ruleFiles.length} total, ${alwaysOnRules.length} load in every session`);
 
 /* ── report ───────────────────────────────────────────────────────────────── */
+
+// ------------------------- 4x: always-on context budget, measured in BYTES
+// Budget by bytes, not lines: a line-count budget keeps passing while single
+// lines grow to thousands of characters. Always-on context is CLAUDE.md plus
+// every rule with no paths: frontmatter (those load in every session).
+// Self-contained -- inserted into guards of several vintages.
+{
+  const _CLAUDE_MD_CEILING = 16 * 1024;
+  const _ALWAYS_ON_CEILING = 20 * 1024;
+  const _tok = (b) => Math.round(b / 3.6);
+  let _alwaysOn = 0;
+
+  let _md = null;
+  try { _md = _rfSync(`${process.cwd()}/CLAUDE.md`, "utf8"); } catch { _md = null; }
+  if (_md !== null) {
+    const _b = Buffer.byteLength(_md);
+    _alwaysOn += _b;
+    if (_b > _CLAUDE_MD_CEILING) {
+      errors.push(
+        `CLAUDE.md is ${_b} bytes (~${_tok(_b)} tok), over the ${_CLAUDE_MD_CEILING}-byte ceiling. ` +
+          "Move detail down into docs and keep pointers up here.",
+      );
+    }
+  }
+
+  let _ruleNames = [];
+  try { _ruleNames = _rdSync(`${process.cwd()}/.claude/rules`); } catch { _ruleNames = []; }
+  for (const _n of _ruleNames) {
+    if (!_n.endsWith(".md")) continue;
+    let _txt = "";
+    try { _txt = _rfSync(`${process.cwd()}/.claude/rules/${_n}`, "utf8"); } catch { continue; }
+    const _fm = _txt.match(/^---\r?\n([\s\S]*?)\r?\n---/);
+    if (_fm && /^\s*paths\s*:/m.test(_fm[1])) continue;
+    _alwaysOn += Buffer.byteLength(_txt);
+  }
+
+  if (_alwaysOn > _ALWAYS_ON_CEILING) {
+    errors.push(
+      `Always-on context is ${_alwaysOn} bytes (~${_tok(_alwaysOn)} tok), over the ` +
+        `${_ALWAYS_ON_CEILING}-byte ceiling. Above this, individual rules stop being salient ` +
+        "regardless of wording.",
+    );
+  }
+}
+
+
+// ------------- 9x: every skill must resolve to a model, one way or another
+// A skill either declares model: itself, or binds agent: and inherits that
+// agent's. Having NEITHER means it runs on whatever model the session happens
+// to be using -- an invisible cost and quality variance.
+{
+  const _fm = (t) => (t.match(/^---\r?\n([\s\S]*?)\r?\n---/) || [])[1] || "";
+  const _agentModel = new Map();
+  let _agents = [];
+  try { _agents = _rdSync(`${process.cwd()}/.claude/agents`); } catch { _agents = []; }
+  for (const _a of _agents) {
+    if (!_a.endsWith(".md")) continue;
+    let _t = "";
+    try { _t = _rfSync(`${process.cwd()}/.claude/agents/${_a}`, "utf8"); } catch { continue; }
+    _agentModel.set(_a.replace(/\.md$/, ""), (_fm(_t).match(/^\s*model\s*:\s*(\S+)/m) || [])[1] || null);
+  }
+
+  const _walkSkills = (dir, out = []) => {
+    let _entries = [];
+    try { _entries = _rdSync(dir, { withFileTypes: true }); } catch { return out; }
+    for (const _e of _entries) {
+      const _p = `${dir}/${_e.name}`;
+      if (_e.isDirectory()) {
+        if (_e.name === "node_modules" || _e.name === "worktrees") continue;
+        _walkSkills(_p, out);
+      } else if (_e.name === "SKILL.md") out.push(_p);
+    }
+    return out;
+  };
+
+  for (const _s of _walkSkills(`${process.cwd()}/.claude/skills`)) {
+    if (_s.includes("/worktrees/")) continue;
+    let _t = "";
+    try { _t = _rfSync(_s, "utf8"); } catch { continue; }
+    const _front = _fm(_t);
+    if (/^\s*model\s*:/m.test(_front)) continue;
+    const _rel = _s.slice(process.cwd().length + 1);
+    const _bound = (_front.match(/^\s*agent\s*:\s*(\S+)/m) || [])[1];
+    if (!_bound) {
+      errors.push(
+        `${_rel}: declares no model: and binds no agent:, so it runs on whatever model the ` +
+          "session happens to be using. Add model:, or bind agent: to inherit one.",
+      );
+    } else if (!_agentModel.has(_bound)) {
+      errors.push(`${_rel}: binds agent: ${_bound}, which does not exist in .claude/agents/.`);
+    } else if (_agentModel.get(_bound) === null) {
+      errors.push(
+        `${_rel}: inherits its model from agent: ${_bound}, but that agent declares no model: either.`,
+      );
+    }
+  }
+}
+
+// ------------------------------ 10: the review policy must exist and be whole
+// A review policy that lives in someone's head is applied inconsistently and
+// silently: reviewers disagree about what blocks a merge, and nobody notices
+// until a defect ships past a review that "passed". REVIEW.md is what the
+// reviewer agent, /repo-review and human reviewers all read, so its absence
+// degrades review quality without producing any error.
+//
+// The section headings are checked, not just existence: an empty stub file
+// satisfies a bare existence check and provides exactly nothing.
+//
+// Self-contained on purpose -- this block is inserted into guards of several
+// different vintages, so it assumes no local helper, ROOT constant, or import
+// beyond readFileSync.
+{
+  const reviewPath = `${process.cwd()}/REVIEW.md`;
+  let reviewText = null;
+  try {
+    reviewText = readFileSync(reviewPath, "utf8");
+  } catch {
+    reviewText = null;
+  }
+  if (reviewText === null) {
+    errors.push(
+      "REVIEW.md is missing. Review policy has to be version-controlled, or every reviewer " +
+        "applies a different bar and nothing says so. Copy it from the bootstrap template.",
+    );
+  } else {
+    const required = [
+      [/^##\s+Passes\s*$/m, "## Passes (what review covers)"],
+      [/^##\s+What\s+"?Important"?\s+means\s+here\s*$/im, '## What "Important" means here (severity bar)'],
+      [/^##\s+Cap\s+the\s+nits\s*$/im, "## Cap the nits (nit budget)"],
+      [/^##\s+Do\s+not\s+report\s*$/im, "## Do not report (exclusions)"],
+    ];
+    for (const [re, what] of required) {
+      if (!re.test(reviewText)) {
+        errors.push(
+          `REVIEW.md is missing the section "${what}". A review policy without it leaves the ` +
+            "question unanswered, which is the same as having no policy for it.",
+        );
+      }
+    }
+  }
+}
 
 for (const n of notes) console.log(`claude-wiring: ${n}`);
 for (const w of warnings) console.warn(`claude-wiring WARN: ${w}`);

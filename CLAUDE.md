@@ -80,6 +80,36 @@ Aggressively offload research, doc fetching, log analysis, and codebase explorat
 - Lock the tool list and model at session start to preserve the prompt cache.
 - Use `/handoff` before ending a session; load it as sole context in the next.
 
+## Commands
+
+```bash
+npm run check:claude
+```
+
+## Verifying your work
+
+A change is not done until these are green:
+
+```bash
+npm run check:claude
+```
+
+Never skip, delete, or narrow a failing check to make it pass — the checks exist because
+the defects they catch are otherwise silent. If a check is genuinely wrong, change it
+deliberately and say so in the changelog.
+
+## Things Claude Gets Wrong
+
+Corrections that have been needed twice. Add to this list when a mistake repeats; move the
+generalisable version to LL-G via `/add-lesson`.
+
+- **Folding the changelog edit into the commit command.** The gate is a `PreToolUse` hook, so it runs *before* the command. `edit && git commit` cannot satisfy it. Stage first, commit second.
+- **Writing `Tool(pattern)` as a hook `matcher:`.** That is permissions syntax; in a matcher it matches nothing and the hook silently never runs. Use `matcher: "Bash"` plus `if:` on the handler.
+- **Reaching for `$CLAUDE_FILE_PATH` in a hook.** It does not exist, expands to `""`, and an empty path argument makes most tools walk the entire repo. Parse `tool_input.file_path` from stdin and hard-guard on non-empty.
+- **Adding a `paths:` glob that matches nothing.** A rule scoped to a path that does not exist never fires and says nothing. The wiring guard fails the build on it.
+- **Leaving a skill with no `model:` and no `agent:`.** It then runs on whatever model the session happens to be using. Declare one or bind the other.
+- **Budgeting context by line count.** A line budget keeps passing while single lines grow to thousands of characters. Budget by bytes.
+
 ## RULE 0 — Read-Only First (MANDATORY)
 
 Gather information before acting. Read-only/diagnostic commands first; state-changing commands only with user approval; destructive operations never without explicit request. (BP `safety/read-only-first-rule`.)

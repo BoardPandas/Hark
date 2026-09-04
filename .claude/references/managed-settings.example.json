@@ -1,0 +1,116 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+
+  "//": "EXAMPLE ONLY -- this file is inert where it sits. Managed settings are deployed by an administrator via MDM or the admin console to the OS-level managed-settings.json path; they are NOT read from .claude/. Copy what you need, do not symlink this.",
+
+  "//precedence": "managed-settings.json > CLI flags > .claude/settings.local.json > .claude/settings.json > ~/.claude/settings.local.json > ~/.claude/settings.json. Deny rules win at every tier, so a deny here cannot be overridden by a developer's local settings. That is the entire point of this tier.",
+
+  "//scope": "Use this tier only for what must not be negotiable: credential access, network egress, approval gates, minimum version. Everything else belongs in .claude/settings.json where the team can see and change it. A managed tier used for convenience settings is one nobody can debug.",
+
+  "permissions": {
+    "//deny": "Deny wins everywhere and cannot be relaxed downstream. Credential paths first: an agent that can read ~/.aws/credentials can act as the developer against production regardless of what else is blocked.",
+    "deny": [
+      "Read(~/.ssh/**)",
+      "Read(~/.aws/**)",
+      "Read(~/.azure/**)",
+      "Read(~/.kube/**)",
+      "Read(~/.gnupg/**)",
+      "Read(~/.docker/config.json)",
+      "Read(~/.npmrc)",
+      "Read(~/.git-credentials)",
+      "Read(~/.config/gh/**)",
+      "Read(**/.env)",
+      "Read(**/.env.*)",
+      "Read(**/*.pem)",
+      "Read(**/*.key)",
+      "Bash(curl:*)",
+      "Bash(wget:*)",
+      "Bash(nc:*)",
+      "Bash(ssh:*)",
+      "Bash(aws:*)",
+      "Bash(az:*)",
+      "Bash(gcloud:*)",
+      "Bash(kubectl:*)",
+      "Bash(terraform apply:*)",
+      "Bash(sudo:*)",
+      "Bash(eval:*)"
+    ],
+
+    "//allow": "Pre-approve the inner loop, or the gates get clicked through reflexively and stop being read. Everything here is read-only or local-only.",
+    "allow": [
+      "Read",
+      "Glob",
+      "Grep",
+      "Bash(git status:*)",
+      "Bash(git diff:*)",
+      "Bash(git log:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(git switch:*)",
+      "Bash(npm run build:*)",
+      "Bash(npm test:*)",
+      "Bash(npm run lint:*)",
+      "Bash(make build:*)",
+      "Bash(make test:*)",
+      "Bash(make lint:*)"
+    ],
+
+    "//additionalDirectories": "Empty by design. Each entry widens the blast radius to another tree the agent can edit.",
+    "additionalDirectories": []
+  },
+
+  "//sandbox": "OS-level filesystem and network isolation, enforced below the permission layer -- so a command that slips past a permission rule still cannot reach the network. Deny-by-default egress with an explicit allowlist is the shape that actually holds; an allowlist of blocked hosts does not.",
+  "sandbox": {
+    "enabled": true,
+    "network": {
+      "allowUnixSockets": false,
+      "allowLocalBinding": false,
+      "allowedDomains": [
+        "registry.npmjs.org",
+        "github.com",
+        "api.github.com",
+        "objects.githubusercontent.com",
+        "raw.githubusercontent.com",
+        "api.anthropic.com"
+      ]
+    }
+  },
+
+  "//credentials": "Strip credential material from the environment handed to spawned processes. Without this, a token in the parent shell is inherited by every command the agent runs.",
+  "credentials": {
+    "stripFromEnv": [
+      "AWS_ACCESS_KEY_ID",
+      "AWS_SECRET_ACCESS_KEY",
+      "AWS_SESSION_TOKEN",
+      "AZURE_CLIENT_SECRET",
+      "GOOGLE_APPLICATION_CREDENTIALS",
+      "GITHUB_TOKEN",
+      "GH_TOKEN",
+      "NPM_TOKEN",
+      "DATABASE_URL"
+    ]
+  },
+
+  "//allowManagedHooksOnly": "Only hooks defined in this managed file run. A developer cannot add a hook that bypasses an approval gate, and cannot disable one with disableAllHooks in their settings.local.json. Turning this on means the team's own hooks in .claude/settings.json stop running -- so either re-declare the ones you want here, or leave this false. It is the single most commonly misconfigured key in this file.",
+  "allowManagedHooksOnly": false,
+
+  "//requiredMinimumVersion": "Refuse to start on an unapproved CLI version. Raise it deliberately after validating a release; a version floor nobody moves eventually blocks everyone.",
+  "requiredMinimumVersion": "2.0.0",
+
+  "//hooks": "Approval gates live here so they cannot be edited away. A gate script exits 0 to allow, 2 to block -- and MUST write its reason to stderr, because a blocking hook's stdout is discarded and the user otherwise sees a refusal with no explanation.",
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "if": "Bash(*deploy*production*)",
+            "command": "bash /opt/claude-gates/require-release-authorization.sh",
+            "statusMessage": "Checking release authorization..."
+          }
+        ]
+      }
+    ]
+  }
+}

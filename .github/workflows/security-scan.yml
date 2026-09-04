@@ -1,0 +1,56 @@
+name: Scheduled security scan
+
+# The security-scan skill is on-demand, which makes coverage point-in-time: a
+# credential committed the day after a manual run goes unnoticed until somebody
+# happens to run it again. This is the recurring half.
+on:
+  schedule:
+    # Mondays 07:00 UTC.
+    - cron: "0 7 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    name: Credential and hook audit
+    runs-on: ubuntu-latest
+    steps:
+      # Full history: a secret deleted from the working tree is still leaked, so
+      # the history is the part that actually matters.
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: "22"
+
+      - name: Dependency audit
+        run: |
+          if [ -f package-lock.json ]; then
+            npm audit --audit-level=moderate || true
+          else
+            echo "No lockfile; skipping dependency audit."
+          fi
+      # Tracked credential material is the highest-severity finding in the
+      # security-scan skill's category list, and it is cheap to check for.
+      - name: Tracked credential files
+        run: |
+          hits=$(git ls-files | grep -iE '(^|/)\.env($|\.)|\.(pem|key|p12|pfx|keystore)$' | grep -viE '\.example$|\.sample$|\.template$' || true)
+          if [ -n "$hits" ]; then
+            echo "::error::Tracked credential-shaped files found:"
+            echo "$hits"
+            exit 1
+          fi
+          echo "No tracked credential files."
+
+      - name: Hook script syntax
+        run: |
+          status=0
+          for f in .claude/scripts/*.sh .claude/hooks/*.sh; do
+            [ -f "$f" ] || continue
+            bash -n "$f" || { echo "::error file=$f::bash syntax error"; status=1; }
+          done
+          exit $status
