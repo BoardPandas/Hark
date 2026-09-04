@@ -24,7 +24,17 @@
       "Read(~/.config/gh/**)",
       "Edit(~/.bashrc)",
       "Edit(~/.zshrc)",
-      "Edit(~/.profile)"
+      "Edit(~/.profile)",
+      "Edit(**/node_modules/**)",
+      "Edit(**/dist/**)",
+      "Edit(**/build/**)",
+      "Edit(**/vendor/**)",
+      "Edit(**/*.min.js)",
+      "Edit(**/*.lock)",
+      "Edit(**/package-lock.json)",
+      "Edit(**/pnpm-lock.yaml)",
+      "Edit(**/yarn.lock)",
+      "Edit(**/.git/**)"
     ]
   },
   "hooks": {
@@ -93,6 +103,16 @@
             "if": "Bash(git commit*)",
             "command": "bash .claude/scripts/post-commit-kb-contribute.sh",
             "statusMessage": "Checking for knowledge base contributions..."
+          }
+        ]
+      },
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash .claude/scripts/post-edit-format.sh",
+            "statusMessage": "Formatting edited file..."
           }
         ]
       }
