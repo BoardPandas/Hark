@@ -1,0 +1,7 @@
+{
+  "$comment": "Written by the update-practices skill (Step 2b). lastSyncedCommit is the claude-code-bootstrap main SHA compared against on the last run; deadUrls drives the two-strikes rule for removing entries from source-urls.md.",
+  "$baselineNote": "This baseline was RECONSTRUCTED on 2026-09-06, not recorded by a sync run: the file was missing, so update-practices had nothing to diff against and could not tell which template changes this repo had already taken. The SHA was derived by fingerprinting this repo's unmodified template payload (_json-parser.sh, _git-commit-filter.sh, check-changelog-staged.sh) against bootstrap history and taking the newest commit all probes agree on. It is deliberately conservative: an over-old baseline makes the next sync re-examine changes already present, which is harmless, while an over-new one makes it skip changes that are genuinely missing. The method reproduced the recorded SHA in the two repos that already had this file.",
+  "lastSyncedCommit": "07cd260ebe76111906c38f60f535eb94789ea26d",
+  "lastSyncedDate": "2026-08-07",
+  "deadUrls": []
+}
