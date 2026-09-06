@@ -37,11 +37,27 @@ FILE_PATH=$(json_field "$HOOK_INPUT" tool_input.file_path)
 # Never format outside the repo, whatever the payload claims. A path that escapes
 # the working tree is either a bug or an attempt to use the hook as a write
 # primitive; both deserve the same answer.
+#
+# Resolve the FILE, not just its directory. Checking `dirname` only proves the
+# containing directory is in the repo -- an in-repo symlink pointing outside
+# passes that test, and the formatter then writes through it to the target. The
+# containment check has to run on the fully resolved path.
 REPO_ROOT=$(git rev-parse --show-toplevel 2>/dev/null) || exit 0
-case "$(cd "$(dirname "$FILE_PATH")" 2>/dev/null && pwd -P)" in
-  "$REPO_ROOT"|"$REPO_ROOT"/*) ;;
+REPO_ROOT=$(cd "$REPO_ROOT" 2>/dev/null && pwd -P) || exit 0
+
+# readlink -f resolves every symlink component; the cd/pwd -P fallback covers
+# platforms whose readlink lacks -f (older BSD/macOS userlands).
+RESOLVED=$(readlink -f "$FILE_PATH" 2>/dev/null) \
+  || RESOLVED="$(cd "$(dirname "$FILE_PATH")" 2>/dev/null && pwd -P)/$(basename "$FILE_PATH")"
+[ -n "$RESOLVED" ] || exit 0
+
+case "$RESOLVED" in
+  "$REPO_ROOT"/*) ;;
   *) exit 0 ;;
 esac
+
+# Format the resolved path from here on, so nothing downstream re-follows a link.
+FILE_PATH="$RESOLVED"
 
 # Generated and vendored trees are formatted by whatever generates them.
 case "$FILE_PATH" in

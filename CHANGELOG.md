@@ -4,6 +4,17 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.37.1] - 2026-09-06
+
+### Security
+
+- **`Bash(git clone:*)` was pre-approved, which is arbitrary code execution.** Git's `ext::` transport runs a shell command as the transport (`git clone "ext::sh -c <cmd>"`), and `--upload-pack=` is a second route; the `:*` glob constrained neither. The allow entry is now scoped to `https://github.com/*`, and both RCE routes are denied outright — deny wins at every settings tier, so a looser local override cannot reopen them.
+- **The live deny list was weaker than the one this repo publishes as its own example.** With blanket `Read` allowed, any dotenv file or private key in a working tree was readable with no prompt. Added `Read(**/.env)`, `Read(**/.env.*)`, `Read(**/*.pem)`, `Read(**/*.key)`, `Read(**/*.p12)`, `Read(**/*.pfx)` and `Read(~/.gnupg/**)`.
+
+### Fixed
+
+- **The formatter hook's containment guard could be escaped by a symlink.** It resolved the edited file's *directory* and confirmed that was inside the repo — but an in-repo symlink pointing outside passes that check, and the formatter then wrote through it to the target. It now resolves the full path (`readlink -f`, with a `cd`/`pwd -P` fallback) and formats the resolved path, so nothing downstream re-follows the link.
+
 ## [0.37.0] - 2026-09-04
 
 ### Added

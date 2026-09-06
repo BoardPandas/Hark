@@ -11,9 +11,19 @@
       "Grep",
       "WebFetch",
       "WebSearch",
-      "Bash(git clone:*)"
+      "Bash(git clone https://github.com/*)"
     ],
     "deny": [
+      "Bash(git clone ext::*)",
+      "Bash(git clone --upload-pack*)",
+      "Bash(git clone -u *)",
+      "Read(**/.env)",
+      "Read(**/.env.*)",
+      "Read(**/*.pem)",
+      "Read(**/*.key)",
+      "Read(**/*.p12)",
+      "Read(**/*.pfx)",
+      "Read(~/.gnupg/**)",
       "Read(~/.ssh/**)",
       "Read(~/.aws/**)",
       "Read(~/.azure/**)",
