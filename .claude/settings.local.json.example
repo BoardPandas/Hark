@@ -3,12 +3,28 @@
 
   "//": "Personal overrides. Copy to settings.local.json (git-ignored) and edit. settings.local.json deep-merges over settings.json and is never committed.",
 
-  "//disableAllHooks": "Kill switch for ALL hooks (commit checks, KB nudges, bell). Set true if the team hooks get in your way locally.",
+  "//disableAllHooks": "Kill switch for ALL hooks (commit checks, KB nudges, formatter, bell). Set true if the team hooks get in your way locally.",
   "disableAllHooks": false,
 
   "//alwaysThinkingEnabled": "Force extended thinking every turn. Useful on gnarly codebases.",
   "alwaysThinkingEnabled": false,
 
   "//language": "Preferred response language, e.g. 'en', 'ja', 'es'.",
-  "language": "en"
+  "language": "en",
+
+  "//sandbox": "OS-level filesystem and network isolation, opt-in per developer. Deliberately NOT enabled in the committed settings.json: turning it on changes how every command executes, and a clone that suddenly cannot reach its own package registry looks like a broken repo rather than a policy. Enable it here first, confirm your workflow survives, then decide whether it belongs in the team file. Organisations that need it non-negotiable put it in managed settings instead -- see .claude/references/managed-settings.example.json.",
+  "//sandbox-example": {
+    "enabled": true,
+    "network": {
+      "allowUnixSockets": false,
+      "allowLocalBinding": false,
+      "allowedDomains": [
+        "registry.npmjs.org",
+        "github.com",
+        "api.github.com",
+        "raw.githubusercontent.com",
+        "api.anthropic.com"
+      ]
+    }
+  }
 }

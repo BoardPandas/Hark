@@ -1,0 +1,89 @@
+name: Agent evals
+
+# The wiring guard proves .claude/ is WIRED. These evals prove it still WORKS.
+# They trigger on exactly the files whose behaviour they cover, plus a weekly
+# run so model-side drift surfaces without anyone touching the repo.
+on:
+  push:
+    branches: [main]
+    paths:
+      - "CLAUDE.md"
+      - "REVIEW.md"
+      - ".claude/**"
+      - "scripts/**"
+      - ".github/workflows/agent-evals.yml"
+  pull_request:
+    # GitHub Actions' YAML parser rejects anchors and aliases, so this list is
+    # duplicated rather than shared. Keep the two in sync.
+    paths:
+      - "CLAUDE.md"
+      - "REVIEW.md"
+      - ".claude/**"
+      - "scripts/**"
+      - ".github/workflows/agent-evals.yml"
+  schedule:
+    # Mondays 06:00 UTC. Catches drift from model updates, not from commits.
+    - cron: "0 6 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  # Always runs, costs nothing, needs no key. Catches the way eval suites
+  # actually die: the corpus rots into unrunnable shape and nobody notices
+  # because the expensive job was skipped for unrelated reasons.
+  validate:
+    name: Eval corpus structure
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: "22"
+      - name: Validate corpus (no API calls)
+        run: node scripts/run-evals.mjs --validate
+      - name: Self-test the validator
+        run: node --test scripts/run-evals.test.mjs
+
+  behavioural:
+    name: Behavioural evals
+    runs-on: ubuntu-latest
+    needs: validate
+    # Forks and key-less clones get a skip rather than a red build they cannot
+    # fix. The `validate` job above still gates every push, so a skip here is
+    # never the only thing standing between a config change and main.
+    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: "22"
+
+      - name: Check for an API key
+        id: key
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          if [ -n "$ANTHROPIC_API_KEY" ]; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "present=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::ANTHROPIC_API_KEY is not set; behavioural evals skipped. Structure validation still ran."
+          fi
+
+      # Pinned exactly, for the same reason every action above is pinned to a
+      # commit SHA rather than a tag: this is the one job that holds the API key,
+      # and an unpinned install hands whatever the registry serves that morning
+      # full access to it. Bump this deliberately after validating a release --
+      # a floating version in a credentialed job is a supply-chain hole, not
+      # convenience.
+      - name: Install the Claude Code CLI
+        if: steps.key.outputs.present == 'true'
+        run: npm install -g @anthropic-ai/claude-code@2.1.247
+
+      - name: Run behavioural evals
+        if: steps.key.outputs.present == 'true'
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: node scripts/run-evals.mjs

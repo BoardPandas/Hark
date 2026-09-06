@@ -80,6 +80,11 @@
             "if": "Bash(git commit*)",
             "command": "bash .claude/scripts/check-changelog-staged.sh",
             "statusMessage": "Verifying changelog is staged..."
+          },
+          {
+            "type": "command",
+            "command": "bash .claude/scripts/require-release-authorization.sh",
+            "statusMessage": "Checking release authorization..."
           }
         ]
       },

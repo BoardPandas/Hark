@@ -233,7 +233,12 @@ notes.push(`rules: ${ruleFiles.length} total, ${alwaysOnRules.length} load in ev
   let _alwaysOn = 0;
 
   let _md = null;
+  // A repo may keep its instructions at .claude/CLAUDE.md instead of the root;
+  // checking only the root path silently exempts the whole file in those repos.
   try { _md = _rfSync(`${process.cwd()}/CLAUDE.md`, "utf8"); } catch { _md = null; }
+  if (_md === null) {
+    try { _md = _rfSync(`${process.cwd()}/.claude/CLAUDE.md`, "utf8"); } catch { _md = null; }
+  }
   if (_md !== null) {
     const _b = Buffer.byteLength(_md);
     _alwaysOn += _b;

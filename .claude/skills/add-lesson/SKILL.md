@@ -133,9 +133,44 @@ Write the updated master content to `.git/llg-master.md`, then push it:
 ```
 Then delete the scratch file: `rm .git/llg-master.md`
 
-## Step 7: Confirm
+## Step 7: Close the loop -- does this lesson ALSO need enforcement?
+
+**The LL-G entry from Steps 1-6 is not optional and is never replaced by anything
+here.** Writing it is what this skill is for. Step 7 decides only what to add *on
+top of it*, and the answer is often nothing.
+
+An LL-G entry *teaches*. It does not *enforce*: nothing fails when the lesson is
+forgotten, which is how the same gotcha returns a year later in a different repo.
+
+**If the lesson concerns this repository's own Claude configuration** -- a hook that
+did not fire, a rule that never loaded, frontmatter silently ignored, a skill on the
+wrong model, a guard that could be satisfied vacuously -- then it also needs a
+regression case, or nothing stops it recurring:
+
+1. Add a case under `.claude/evals/cases/NN-<slug>.md` following the format in
+   `.claude/evals/README.md`. Grade **behaviour**, not recall: if the expectation is
+   unmet but every other one holds, something must actually have gone wrong.
+2. If the defect is *statically* checkable, prefer a check in
+   `scripts/check-claude-wiring.mjs` plus a case in its test file. A check that runs
+   on every push beats one that runs when someone remembers to invoke the eval suite;
+   the eval case is for behaviour a static check cannot reach.
+3. Run `npm run evals -- --validate` to confirm the corpus still parses.
+
+**If the lesson is about a technology rather than this configuration** (a Graph API
+quirk, a Next.js footgun), the LL-G entry already written is the whole fix. Say so and
+stop -- do not manufacture an eval case for something the eval harness cannot exercise.
+
+Either way, the LL-G entry ships. A guard check and an eval case are enforcement added
+beside it, never a substitute for it: a check that lives only in this repo teaches no
+other repo anything, which is the entire reason LL-G exists.
+
+State which of the two this was, and why. "No eval case: this is a PowerShell
+gotcha, not a configuration defect" is a complete and correct answer.
+
+## Step 8: Confirm
 
 Output:
 - The GitHub URL of the created entry file (printed by `kb-upsert.sh`)
 - Confirmation that both index files were updated
 - The entry's severity level
+- Whether an eval case or guard check was added, or why neither was needed

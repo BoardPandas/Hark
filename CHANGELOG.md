@@ -4,6 +4,25 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.38.0] - 2026-09-06
+
+### Added
+
+- **Configuration evals (`.claude/evals/`).** The wiring guard proves `.claude/` is *wired*; nothing proved it still *works*. A skill body replaced wholesale by a template sync, a CLAUDE.md rule pruned one line too far, or a hook whose refusal message stopped landing all pass the guard while behaving differently. 23 cases now cover the guard contract, the commit gate, skill triggering, agent boundaries and review policy. `npm run evals -- --validate` checks corpus structure with no API calls; the behavioural pass grades each case through `claude -p` restricted to read-only tools. Cases whose targets do not exist here were deliberately not installed — a case testing a rule this repo does not have is testing nothing.
+- **`/capture-intent` and the `intent/` convention.** An idea can now enter as `intent/<slug>/intent.md` — the problem in the originator's own words, with no technology choices or estimates, requiring no engineering knowledge, and gated on product-owner approval before a spec is written.
+- **AI code review in CI** (`.github/workflows/claude-review.yml`). Reviews the diff against `REVIEW.md` and posts findings. Runs on **push to main** as well as pull requests, because work here lands by merging directly — a PR-only review would never fire. Read-only, guarded on `ANTHROPIC_API_KEY`, and it uses the pinned CLI rather than a third-party action.
+- **A release authorisation gate** (`.claude/scripts/require-release-authorization.sh`). Production deploy commands block until a named person authorises the specific release via `RELEASE_AUTHORIZED_BY=<name>` on the command itself, which then appears in the transcript as a recorded fact. Scoped narrowly to deploy commands; `--dry-run` is exempt.
+
+### Changed
+
+- **`/spec-developer` now consumes an approved intent and emits two artifacts.** It previously conflated `spec.md` (what is built, product-owner-owned) with `plan.md` (how, engineer-owned). It also refuses a `Status: Draft` intent unless overridden, and loads the project's policy references *while* writing rather than auditing afterwards — conflicts land in a Flagged Concerns table naming who resolves each.
+- **`/add-lesson` closes the loop.** An LL-G entry teaches but does not enforce, so the same gotcha returns later in another repo. The skill now asks whether the lesson also needs an eval case or a guard check, and explicitly permits "no case needed" for technology gotchas rather than manufacturing one.
+- **`CLAUDE.md` documents the artifact chain** — intent → spec → plan → diff, with the owner and approver of each.
+
+### Fixed
+
+- **The context-budget check never saw `.claude/CLAUDE.md`.** It resolved only the repository root, so any repo keeping its instructions under `.claude/` had its entire CLAUDE.md silently exempt from the ceiling it was supposed to enforce. The check now prefers the root path and falls back to `.claude/CLAUDE.md`.
+
 ## [0.37.1] - 2026-09-06
 
 ### Security

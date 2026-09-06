@@ -110,6 +110,21 @@ generalisable version to LL-G via `/add-lesson`.
 - **Leaving a skill with no `model:` and no `agent:`.** It then runs on whatever model the session happens to be using. Declare one or bind the other.
 - **Budgeting context by line count.** A line budget keeps passing while single lines grow to thousands of characters. Budget by bytes.
 
+## Artifact Chain
+
+Each stage commits an artifact the next stage reads. One artifact, one owner, one approval.
+
+| Artifact | Location | Produced by | Approved by |
+|---|---|---|---|
+| `intent.md` | `intent/<slug>/intent.md` | `/capture-intent` | Product owner |
+| `spec.md` | `intent/<slug>/spec.md` | `/spec-developer` | Product owner |
+| `plan.md` | `tasks/<slug>-plan.md` | plan mode / `/spec-developer` | Engineer |
+| diff | git branch | session / `builder` | Code owner, per `REVIEW.md` |
+
+Intent captures the problem in the originator's own words and needs no engineering
+knowledge. Spec turns it into requirements and design with policy already applied. Plan is
+the implementation order. Never skip straight to a diff for work larger than a single file.
+
 ## RULE 0 — Read-Only First (MANDATORY)
 
 Gather information before acting. Read-only/diagnostic commands first; state-changing commands only with user approval; destructive operations never without explicit request. (BP `safety/read-only-first-rule`.)

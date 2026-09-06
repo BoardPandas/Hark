@@ -1,0 +1,125 @@
+name: AI code review
+
+# Stage 5 of the AI-native SDLC playbook: Claude reviews the change against
+# REVIEW.md before a human does, so human attention goes to intent and risk
+# rather than to what a machine can find.
+#
+# Runs on push to main as well as on pull_request. That is deliberate: this repo
+# family lands work by merging to main directly rather than through PRs, so a
+# review that only fires on pull_request would never run here. On a push the
+# findings are posted as a commit comment; on a PR, as a PR comment.
+#
+# Uses the CLI directly rather than a third-party review action, for the same
+# reason every action below is SHA-pinned: one fewer supply-chain edge, and the
+# version is pinned explicitly.
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - "**/*.md"
+      - "CHANGELOG.md"
+      - ".claude/evals/**"
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  # Needed to post the review back as a commit or PR comment. Nothing else.
+  issues: write
+  pull-requests: write
+
+concurrency:
+  # A second push supersedes an in-flight review of the first; reviewing a diff
+  # that is already stale wastes tokens and posts confusing findings.
+  group: claude-review-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  review:
+    name: Review against REVIEW.md
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          # Need the parent commit to diff against.
+          fetch-depth: 2
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: "22"
+
+      - name: Check for an API key
+        id: key
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          if [ -n "$ANTHROPIC_API_KEY" ]; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "present=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::ANTHROPIC_API_KEY is not set; AI review skipped."
+          fi
+
+      - name: Install the Claude Code CLI
+        if: steps.key.outputs.present == 'true'
+        # Pinned for the same reason the actions are: this job holds the API key.
+        run: npm install -g @anthropic-ai/claude-code@2.1.247
+
+      - name: Collect the diff
+        if: steps.key.outputs.present == 'true'
+        id: diff
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            base="${{ github.event.pull_request.base.sha }}"
+          else
+            base="${{ github.event.before }}"
+          fi
+          # A force-push or an initial commit can leave `before` unusable.
+          git rev-parse --verify "$base^{commit}" >/dev/null 2>&1 || base=$(git rev-parse HEAD~1)
+          git diff "$base"...HEAD > /tmp/review.diff || true
+          bytes=$(wc -c < /tmp/review.diff)
+          echo "bytes=$bytes" >> "$GITHUB_OUTPUT"
+          echo "Diff is $bytes bytes."
+
+      - name: Review
+        if: steps.key.outputs.present == 'true' && steps.diff.outputs.bytes != '0'
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          # Held in env rather than a heredoc: a heredoc terminator sits at column
+          # zero, which closes the YAML block scalar and makes the whole workflow
+          # unparsable. The failure is not subtle once you look, and invisible
+          # until something actually parses the file.
+          REVIEW_PROMPT: |
+            Review the diff in /tmp/review.diff against this repository's REVIEW.md,
+            which is the authoritative review policy. Read REVIEW.md first and follow
+            it exactly: its passes, its definition of Important, its nit cap, and its
+            do-not-report list.
+
+            Output only the findings, in REVIEW.md's finding format. If nothing meets
+            the Important bar and there are no nits worth the cap, say "No findings."
+            and stop. Do not summarise the diff. Do not praise. Do not restate policy.
+        run: |
+          # Read-only: the reviewer gets no Write, Edit or Bash. It reads the repo
+          # for context and reports; it never changes anything.
+          if ! claude -p "$REVIEW_PROMPT" --allowed-tools Read,Glob,Grep > /tmp/review.md 2>&1; then
+            echo "::warning::Review invocation failed; see log."
+            cat /tmp/review.md
+            exit 0
+          fi
+          cat /tmp/review.md
+
+      - name: Post the review
+        if: steps.key.outputs.present == 'true' && steps.diff.outputs.bytes != '0'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          [ -s /tmp/review.md ] || { echo "Empty review; nothing to post."; exit 0; }
+          grep -qi '^No findings' /tmp/review.md && { echo "No findings; not posting."; exit 0; }
+          body=$(printf '### AI review (per `REVIEW.md`)\n\n%s' "$(cat /tmp/review.md)")
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            gh pr comment "${{ github.event.pull_request.number }}" --body "$body"
+          else
+            gh api "repos/${{ github.repository }}/commits/${{ github.sha }}/comments" \
+              -f body="$body" >/dev/null
+          fi

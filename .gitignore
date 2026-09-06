@@ -93,3 +93,6 @@ installer/Output/
 
 # Skill-creator eval scaffolding (transient: fixtures, iteration outputs, review HTML)
 .claude/skills/*-workspace/
+
+# Eval transcripts (regenerated per run, diagnostic only)
+.claude/evals/.transcripts/
