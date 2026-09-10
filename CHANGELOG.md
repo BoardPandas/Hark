@@ -4,6 +4,20 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.39.1] - 2026-09-10
+
+### Fixed
+
+- **The documentation wiki still described the old Windows distribution.** Six
+  generated sections said a portable download ships with each release and that
+  updates swap the running program in place — both untrue as of 0.39.0. Two of
+  them were worse than out of date: one documented the call sequence of two
+  functions that no longer exist, and the release-workflow page had every line
+  number derived from a version of the workflow file that has since been
+  restructured into four jobs and more than tripled in length, so its citations
+  pointed at unrelated code. All six are regenerated from current source, and
+  every citation was checked to resolve to a real file and a real line range.
+
 ## [0.39.0] - 2026-09-10
 
 ### Removed

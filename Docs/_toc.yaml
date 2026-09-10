@@ -2,9 +2,9 @@ project:
   name: "Hark"
   description: "Push-to-talk voice dictation desktop app for Windows and macOS, written in Rust, with BYOK cloud transcription and optional LLM cleanup."
   repo_base_url: "https://github.com/BoardPandas/Hark/blob"
-  ref_commit_hash: "bcfcc3fef6f02252870fc3f06440d99992818ade"
+  ref_commit_hash: "edda9d9df731374ab20faac8a9f2dc86c18ea8f3"
   branch: "main"
-  updated_at: "2026-07-22"
+  updated_at: "2026-09-10"
 
 pages:
   - id: hark_01_overview

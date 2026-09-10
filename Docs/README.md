@@ -1,6 +1,8 @@
 # Hark Documentation
 
-> **Latest Updates (July 2026):**
+> **Latest Updates (September 2026):**
+> - **v0.39.0:** The Windows portable download is gone; the installer is the only one, and updates now run it instead of swapping the running program. One manual install is needed to cross this version.
+> - **v0.38.4:** Hark no longer vanishes moments after pasting a dictation, and panics now reach the log instead of a stderr a windowed build does not have.
 > - **v0.20.0:** Invocations — say a trigger phrase, get a block of text you wrote, injected verbatim and never reworded by a cleanup voice.
 > - **v0.19.1:** Groundwork for a Gemini adapter that transcribes and cleans in one request (not yet selectable in Settings).
 > - **v0.19.0:** A Test button for the cleanup provider, and a pinned unsaved-changes bar in Settings.
