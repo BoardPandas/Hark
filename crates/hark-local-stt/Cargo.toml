@@ -20,7 +20,7 @@ hark-config = { path = "../hark-config" }
 log = "0.4"
 thiserror = "2"
 # Integrity check for downloaded weights against the sha256 pinned in model.rs.
-sha2 = "0.10"
+sha2 = "0.11"
 
 # The native engine. Optional and OFF by default: linking it statically costs
 # ~28 MB of binary (measured 2026-07-21, linux-x64), which every user would

@@ -4,6 +4,46 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.38.4] - 2026-09-10
+
+### Changed
+
+- **Dependencies brought up to date.** A full audit found no vulnerabilities in
+  any of the 725 packages Hark builds against, so this is maintenance rather
+  than a security fix. Updated in place: the UI toolkit (egui/eframe 0.35 →
+  0.36, which also moves the graphics layer from wgpu 29 to 30), the audio
+  resampler (rubato 4 → 5), the phonetic matcher behind the spellbook
+  (rphonetic 3 → 4), the OS keychain binding (keyring 4.1.5 → 4.2.0), the
+  on-device speech engine (sherpa-onnx 1.13.4 → 1.13.7), the SQLite binding,
+  the HTTP stack's supporting crates, and around a hundred smaller ones.
+- **Two advisories cleared.** A dependency of the QUIC stack had been pulled
+  from the registry by its author, and a concurrency primitive used by the
+  Linux keychain and accessibility paths carried a soundness advisory
+  (RUSTSEC-2026-0221). Both had fixed releases available; both are taken.
+
+### Fixed
+
+- **The keychain pin comment now records why it is where it is.** It described
+  a pin at a version the file no longer held, which is worse than no comment:
+  the next person to read it would have trusted a stale reason.
+
+### Known gaps
+
+- **Two advisories remain and cannot be closed from here.** Both sit in the
+  GTK stack that only the Linux tray uses, and both are held there by
+  `libappindicator`, which requires the older GTK line. Moving Hark's own GTK
+  dependency alone would put two copies of the same C binding in one process,
+  where `gtk::init()` would initialise one and the tray widgets would use the
+  other — it compiles cleanly and breaks the tray at runtime. They clear when
+  `tray-icon` updates upstream, not before.
+- **The HTTP client stays on its current release deliberately.** The newer one
+  removes the build option Hark uses to pin its TLS trust roots to a fixed,
+  bundled set, and falls back to the operating system's certificate store
+  instead. Restoring the current behaviour there means asking for those roots
+  in code, in four places, where it can be forgotten — so it is a deliberate
+  decision to make rather than a version to bump. The current release carries
+  no known vulnerability.
+
 ## [0.38.3] - 2026-09-10
 
 ### Fixed
