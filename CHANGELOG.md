@@ -4,6 +4,54 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.38.5] - 2026-09-10
+
+### Fixed
+
+- **The release authorisation gate did not cover the way this project actually
+  releases.** It was written to pause a production deploy until a named person
+  authorises it, and its match list named wrangler, railway, vercel, fly,
+  kubectl, helm and terraform — none of which this repo uses. Hark deploys by
+  pushing a `v*` tag, which builds, signs and publishes the installers the
+  in-app updater then offers to every install. That command went straight
+  through the gate built to stop it, and the 0.38.4 tag push proved it by
+  sailing past unchallenged. Tag pushes, `gh release create/upload/edit` and
+  re-running the release workflow are now all gated.
+- **The same gate refused ordinary commits.** It matched patterns like
+  "wrangler … deploy" against the whole command text, with no notion of where a
+  command actually starts — so committing with a message that merely *discussed*
+  deploy tooling was refused as though it were a deploy. Both halves of the
+  matching now walk the command the way a shell does, checking what is in
+  command position rather than what words appear somewhere in the text. A gate
+  that fires on writing about deploys is one people learn to switch off.
+- **The weekly security scan was not auditing dependencies at all.** Its
+  dependency step ran `npm audit`, guarded by a check for a `package-lock.json`
+  this repo has never had, so every Monday it printed "No lockfile; skipping
+  dependency audit" and moved on. The Rust crates Hark actually ships were
+  never scanned on a schedule — only on pushes, which is exactly the coverage
+  the scheduled scan exists to supplement, since advisories are published
+  upstream without anyone touching the code. It now runs `cargo audit` against
+  the same ignore list CI uses.
+
+### Changed
+
+- **Two suppressed advisories were retired rather than left to rot.** The
+  quick-xml denial-of-service pair was ignored on the argument that it was
+  reached only through a build-time proc macro; the dependency update in 0.38.4
+  moved quick-xml to the version both advisories name as fixed, which is the
+  exact re-evaluation trigger that entry was written with. The entries are gone,
+  because an ignore that no longer matches anything is not harmless — it
+  silently suppresses that advisory ID if it ever returns against something
+  else. The remaining entry (an unmaintained font parser reached through the
+  Wayland titlebar renderer) was re-checked against the new UI toolkit and still
+  holds.
+
+### Added
+
+- **An eval case covering the release gate.** The gate had no case, which is how
+  it stayed wrong: the wiring guard proves a hook is *wired*, and nothing proved
+  this one would refuse the command it exists to refuse.
+
 ## [0.38.4] - 2026-09-10
 
 ### Changed

@@ -23,17 +23,12 @@ jobs:
         with:
           fetch-depth: 0
 
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
-        with:
-          node-version: "22"
+      # No setup-node here: the only step that needed it was an `npm audit`
+      # guarded by `[ -f package-lock.json ]`, and this repo has no lockfile,
+      # so that step never once ran. Both are gone; the Rust audit it was
+      # standing in for is the `dependencies` job below. The two steps that
+      # remain are git and bash only.
 
-      - name: Dependency audit
-        run: |
-          if [ -f package-lock.json ]; then
-            npm audit --audit-level=moderate || true
-          else
-            echo "No lockfile; skipping dependency audit."
-          fi
       # Tracked credential material is the highest-severity finding in the
       # security-scan skill's category list, and it is cheap to check for.
       - name: Tracked credential files
@@ -54,3 +49,56 @@ jobs:
             bash -n "$f" || { echo "::error file=$f::bash syntax error"; status=1; }
           done
           exit $status
+
+  # The recurring half of the dependency audit.
+  #
+  # ci.yml already gates `cargo audit` on every push and PR, and that half stops
+  # a bad dependency being introduced. It is not the half that matters here: a
+  # RustSec advisory is published upstream, against code already sitting in
+  # Cargo.lock, without anyone touching this repo. A quiet week means ci.yml
+  # never runs, and a vulnerability disclosed on the Tuesday goes unnoticed
+  # until somebody happens to push.
+  #
+  # What used to occupy this slot was an `npm audit` guarded by
+  # `[ -f package-lock.json ]`. Hark's package.json declares no dependencies and
+  # there has never been a lockfile, so that branch never executed once: the
+  # step printed "No lockfile; skipping dependency audit" every Monday and read
+  # as coverage. The Rust crates Hark actually ships were never scanned on a
+  # schedule at all.
+  #
+  # A separate job from the credential scan above, so one failing does not hide
+  # the other and the cheap checks are not held behind a Rust toolchain.
+  dependencies:
+    name: Dependency advisories
+    runs-on: ubuntu-latest
+    steps:
+      # Newer pins than the job above deliberately: these match ci.yml, which is
+      # current. The older SHAs up there are due a refresh of their own.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c # stable branch @ 2026-07
+        with:
+          toolchain: stable
+
+      # Caches ~/.cargo/bin, so cargo-audit is compiled once rather than on
+      # every weekly run. Distinct key from ci.yml's `audit` job: sharing one
+      # would have the two workflows evicting each other's entry.
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          key: audit-scheduled
+
+      - name: Install cargo-audit
+        run: cargo install cargo-audit --locked
+
+      # Reads .cargo/audit.toml, exactly like ci.yml, so the ignore list and its
+      # justifications live in one place. Exits non-zero on any unignored
+      # vulnerability; `unmaintained` and `unsound` notices stay warnings. That
+      # is deliberate: two of those are currently held open by libappindicator
+      # pinning an older GTK line, and a scheduled job that is permanently red
+      # is a job everyone learns to ignore.
+      #
+      # WHEN THIS FAILS: same procedure as ci.yml's audit job. Fix the
+      # dependency, or add the advisory to .cargo/audit.toml WITH A REASON and a
+      # re-evaluation trigger. Do not delete this job.
+      - name: cargo audit
+        run: cargo audit
