@@ -4,6 +4,40 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.39.0] - 2026-09-10
+
+### Removed
+
+- **The portable Windows download is gone; the installer is the only one.** It
+  was a second copy of the same binary that left you with an install Windows had
+  no record of — nothing in Add or remove programs, no upgrade path — and it was
+  also the file the in-app updater quietly installed over itself. That is why an
+  updated Hark could report one version while Add or remove programs reported
+  another: the binary moved and the install record did not.
+
+### Changed
+
+- **Updates now run the installer instead of swapping the running program.**
+  "Download & install" fetches the signed installer, checks its signature and
+  publisher exactly as before, then hands over to it and closes Hark; the
+  installer replaces the files and starts Hark again, hidden in the tray where
+  it was. Shortcuts, the launch-at-login entry and the uninstall record all stay
+  in step with the version you are actually running.
+
+### Upgrading
+
+- **This one update has to be installed by hand, and only this one.** Every
+  build up to 0.38.5 looks for the portable download that no longer exists, so
+  those copies will report that a new version is available and offer the release
+  page rather than installing it themselves. Download
+  `Hark-<version>-windows-x64-setup.exe` once and run it; in-app updating works
+  normally from then on. Nothing breaks in the meantime — dictation carries on,
+  the update just does not apply itself.
+- **If you were running the portable exe**, the installer will not find it, so
+  it installs a fresh copy to `%LOCALAPPDATA%\Programs\Hark`. Your settings and
+  history in `%APPDATA%\hark` are shared and carry over untouched; delete the
+  old portable exe once you are happy.
+
 ## [0.38.5] - 2026-09-10
 
 ### Fixed

@@ -171,26 +171,22 @@ impl Updater {
         self.rx = Some(rx);
     }
 
-    /// Apply the staged update and relaunch. On success the process exits and
-    /// never returns; a failure lands back in `Failed`.
+    /// Hand the staged installer to Setup and get out of its way. On success
+    /// the process exits and never returns; a failure lands back in `Failed`.
+    ///
+    /// Exiting immediately is not tidiness, it is the contract: Setup replaces
+    /// `Hark.exe`, and Windows will not overwrite a running image. `hark.iss`
+    /// sets `CloseApplications=yes` so the Restart Manager would close us
+    /// anyway, but waiting to be killed turns a two-second update into a stall.
+    /// Setup starts Hark again itself (`/relaunch=yes`), so nothing here needs
+    /// to survive to do it.
     pub fn restart(&mut self) {
         let Phase::Ready { staged, .. } = &self.phase else {
             return;
         };
         let staged = staged.clone();
-        let exe = match hark_update::apply(&staged) {
-            Ok(exe) => exe,
-            Err(e) => {
-                self.phase = Phase::Failed(format!("could not apply the update: {e}"));
-                return;
-            }
-        };
-        if let Err(e) = hark_update::relaunch(&exe) {
-            // The exe is already swapped; the next manual launch is the new
-            // version. Surface why the auto-relaunch did not happen.
-            self.phase = Phase::Failed(format!(
-                "update installed, but relaunch failed ({e}). Reopen Hark to finish."
-            ));
+        if let Err(e) = hark_update::install(&staged) {
+            self.phase = Phase::Failed(format!("could not start the installer: {e}"));
             return;
         }
         std::process::exit(0);

@@ -2434,7 +2434,7 @@ dependencies = [
 
 [[package]]
 name = "hark-app"
-version = "0.38.5"
+version = "0.39.0"
 dependencies = [
  "eframe",
  "egui",
@@ -2461,7 +2461,7 @@ dependencies = [
 
 [[package]]
 name = "hark-audio"
-version = "0.38.5"
+version = "0.39.0"
 dependencies = [
  "cpal",
  "log",
@@ -2472,7 +2472,7 @@ dependencies = [
 
 [[package]]
 name = "hark-autostart"
-version = "0.38.5"
+version = "0.39.0"
 dependencies = [
  "hark-config",
  "tempfile",
@@ -2482,7 +2482,7 @@ dependencies = [
 
 [[package]]
 name = "hark-config"
-version = "0.38.5"
+version = "0.39.0"
 dependencies = [
  "log",
  "serde",
@@ -2493,7 +2493,7 @@ dependencies = [
 
 [[package]]
 name = "hark-hotkey"
-version = "0.38.5"
+version = "0.39.0"
 dependencies = [
  "evdev",
  "libc",
@@ -2504,7 +2504,7 @@ dependencies = [
 
 [[package]]
 name = "hark-inject"
-version = "0.38.5"
+version = "0.39.0"
 dependencies = [
  "arboard",
  "enigo",
@@ -2515,7 +2515,7 @@ dependencies = [
 
 [[package]]
 name = "hark-keychain"
-version = "0.38.5"
+version = "0.39.0"
 dependencies = [
  "keyring",
  "thiserror 2.0.20",
@@ -2523,7 +2523,7 @@ dependencies = [
 
 [[package]]
 name = "hark-local-stt"
-version = "0.38.5"
+version = "0.39.0"
 dependencies = [
  "hark-config",
  "log",
@@ -2536,7 +2536,7 @@ dependencies = [
 
 [[package]]
 name = "hark-pipeline"
-version = "0.38.5"
+version = "0.39.0"
 dependencies = [
  "hark-audio",
  "hark-config",
@@ -2554,7 +2554,7 @@ dependencies = [
 
 [[package]]
 name = "hark-single-instance"
-version = "0.38.5"
+version = "0.39.0"
 dependencies = [
  "hark-config",
  "libc",
@@ -2565,7 +2565,7 @@ dependencies = [
 
 [[package]]
 name = "hark-spellbook"
-version = "0.38.5"
+version = "0.39.0"
 dependencies = [
  "rphonetic",
  "strsim",
@@ -2573,7 +2573,7 @@ dependencies = [
 
 [[package]]
 name = "hark-store"
-version = "0.38.5"
+version = "0.39.0"
 dependencies = [
  "rusqlite",
  "tempfile",
@@ -2582,7 +2582,7 @@ dependencies = [
 
 [[package]]
 name = "hark-stt"
-version = "0.38.5"
+version = "0.39.0"
 dependencies = [
  "base64 0.23.1",
  "hark-voice",
@@ -2596,11 +2596,10 @@ dependencies = [
 
 [[package]]
 name = "hark-update"
-version = "0.38.5"
+version = "0.39.0"
 dependencies = [
  "log",
  "reqwest",
- "self-replace",
  "semver",
  "serde",
  "serde_json",
@@ -2610,7 +2609,7 @@ dependencies = [
 
 [[package]]
 name = "hark-voice"
-version = "0.38.5"
+version = "0.39.0"
 dependencies = [
  "hark-stt",
  "log",
@@ -5047,17 +5046,6 @@ checksum = "6ce2691df843ecc5d231c0b14ece2acc3efb62c0a398c7e1d875f3983ce020e3"
 dependencies = [
  "core-foundation-sys",
  "libc",
-]
-
-[[package]]
-name = "self-replace"
-version = "1.5.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "03ec815b5eab420ab893f63393878d89c90fdd94c0bcc44c07abb8ad95552fb7"
-dependencies = [
- "fastrand",
- "tempfile",
- "windows-sys 0.52.0",
 ]
 
 [[package]]

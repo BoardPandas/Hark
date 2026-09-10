@@ -84,9 +84,14 @@ Download the latest **`Hark-<version>-windows-x64-setup.exe`** from the
 The installer is per user (no admin prompt), installs to
 `%LOCALAPPDATA%\Programs\Hark`, and adds a Start Menu shortcut. Unless you turn
 it off, Hark starts hidden in the system tray when you sign in to Windows;
-toggle that under **Settings → Behavior → "Launch Hark at login"**. A portable
-`Hark-<version>-windows-x64.exe` is attached to each release too, if you prefer
-not to install.
+toggle that under **Settings → Behavior → "Launch Hark at login"**.
+
+The installer is the only Windows download. A portable
+`Hark-<version>-windows-x64.exe` used to ship alongside it and no longer does:
+it produced an install Windows knew nothing about — no entry in Add or remove
+programs, and no upgrade path — while being the very file the in-app updater
+installed over itself. Updates now run the installer, so the version Windows
+reports and the version you are running stay the same thing.
 
 To remove Hark, use **Add or remove programs**. Your settings and history in
 `%APPDATA%\hark` are left in place.
