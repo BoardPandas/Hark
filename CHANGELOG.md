@@ -4,6 +4,18 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.38.2] - 2026-09-10
+
+### Fixed
+
+- **`cargo test` no longer goes red just because Hark is running.** The
+  single-instance test claimed the *real* app's lock, so on any machine where
+  Hark was actually running — that is, anyone using it while working on it —
+  the suite failed with "lock is free" for reasons that had nothing to do with
+  the change under test. It passed in CI only because no Hark runs there. The
+  test now claims a lock name of its own, so the result no longer depends on
+  what happens to be installed and running.
+
 ## [0.38.1] - 2026-09-10
 
 ### Added

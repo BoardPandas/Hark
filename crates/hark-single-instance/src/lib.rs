@@ -190,11 +190,20 @@ mod imp {
     }
 
     pub(super) fn acquire() -> Result<Option<Guard>, Error> {
+        acquire_named(MUTEX_NAME)
+    }
+
+    /// The name is a parameter purely so tests can claim one of their own.
+    /// `acquire()` takes the *installed app's* mutex, so a test calling it on
+    /// a machine where Hark is running would see `Ok(None)` and fail for a
+    /// reason that has nothing to do with the code under test — the Unix side
+    /// gets the same isolation from `acquire_at`'s temp path.
+    fn acquire_named(name: &str) -> Result<Option<Guard>, Error> {
         // `binitialowner: false` — we never take ownership. Existence of the
         // named object is the signal; not owning it means there is no
         // abandoned-mutex state to reason about if a Hark process is killed.
-        let handle = unsafe { CreateMutexW(None, false, &HSTRING::from(MUTEX_NAME)) }
-            .map_err(Error::Mutex)?;
+        let handle =
+            unsafe { CreateMutexW(None, false, &HSTRING::from(name)) }.map_err(Error::Mutex)?;
 
         // CreateMutexW succeeds either way when the name is taken, handing
         // back a second handle to the *existing* object and setting the last
@@ -315,17 +324,33 @@ mod imp {
     #[cfg(test)]
     mod tests {
         use super::*;
+        use std::sync::atomic::AtomicU32;
+
+        /// A mutex name nothing else can be holding: the pid rules out an
+        /// installed Hark and any concurrently running copy of this test
+        /// binary, the counter rules out two tests in this one.
+        fn unique_name() -> String {
+            static NEXT: AtomicU32 = AtomicU32::new(0);
+            format!(
+                r"Local\Hark-SingleInstance-test-{}-{}",
+                std::process::id(),
+                NEXT.fetch_add(1, Ordering::Relaxed)
+            )
+        }
 
         #[test]
         fn second_acquire_sees_the_first() {
-            let first = acquire().expect("first acquire").expect("lock is free");
+            let name = unique_name();
+            let first = acquire_named(&name)
+                .expect("first acquire")
+                .expect("lock is free");
             assert!(
-                acquire().expect("second acquire").is_none(),
+                acquire_named(&name).expect("second acquire").is_none(),
                 "a second claim must report the instance already running"
             );
             drop(first);
             assert!(
-                acquire().expect("third acquire").is_some(),
+                acquire_named(&name).expect("third acquire").is_some(),
                 "releasing the guard must free the name for the next launch"
             );
         }
