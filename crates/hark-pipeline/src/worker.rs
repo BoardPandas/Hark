@@ -122,20 +122,25 @@ pub(crate) fn run(mut worker: Worker, rx: Receiver<PttEvent>) {
             PttEvent::UpMissed => Event::PttUp { at_abs },
         };
         let (next, action) = advance(state, ev);
+        // Republish the edge as state for the overlay, and do it BEFORE
+        // announcing it below. The event wakes the UI thread, which paints the
+        // pill, and the pill reads this flag directly to decide whether to be
+        // on screen — so publishing the state after the announcement lets a
+        // fast UI pass observe "not recording" for the dictation it was just
+        // told about, and put the pill away for the whole hold. Derived from
+        // the state machine rather than tracked alongside it, so it cannot
+        // drift from what `PipelineEvent::Recording` says: every path out of
+        // Recording — release, abandoned hold, abort — passes through here.
+        worker.recording.store(
+            matches!(next, PipelineState::Recording { .. }),
+            Ordering::Relaxed,
+        );
         // Surface the two UI-visible edges: capture started, request in
         // flight. Everything after that is reported from dictate itself.
         if matches!(state, PipelineState::Idle) && matches!(next, PipelineState::Recording { .. }) {
             let _ = worker.events.send(PipelineEvent::Recording);
         }
         state = next;
-        // Republish the same edge as state, for the overlay. Derived from the
-        // state machine rather than tracked alongside it, so it cannot drift
-        // from what `PipelineEvent::Recording` says: every path out of
-        // Recording — release, abandoned hold, abort — passes through here.
-        worker.recording.store(
-            matches!(state, PipelineState::Recording { .. }),
-            Ordering::Relaxed,
-        );
         if let Action::Dictate { down_abs, up_abs } = action {
             let _ = worker.events.send(PipelineEvent::Processing);
             state = dictate(&mut worker, down_abs, up_abs, state);

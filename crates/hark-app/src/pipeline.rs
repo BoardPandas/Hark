@@ -57,9 +57,6 @@ pub struct PipelineController {
     /// so it can leave the screen without waiting for a UI pass. `None` while
     /// the pipeline is stopped.
     recording: Option<Arc<AtomicBool>>,
-    /// Bumped on every transition into `Recording`, so each dictation's overlay
-    /// gets its own viewport id (see `overlay::show`).
-    dictation: u64,
 }
 
 impl PipelineController {
@@ -75,7 +72,6 @@ impl PipelineController {
             storage,
             level: None,
             recording: None,
-            dictation: 0,
         }
     }
 
@@ -99,11 +95,6 @@ impl PipelineController {
     /// stays [`PipelineStatus`], which the event lane drives.
     pub fn recording_flag(&self) -> Option<Arc<AtomicBool>> {
         self.recording.clone()
-    }
-
-    /// Which dictation the overlay currently belongs to. Only ever increases.
-    pub fn dictation(&self) -> u64 {
-        self.dictation
     }
 
     pub fn injected_count(&self) -> u64 {
@@ -215,12 +206,6 @@ impl PipelineController {
             // to notice — the shape of a stranded recording overlay.
             if next != self.status {
                 log::info!("status: {} -> {}", label(&self.status), label(&next));
-                // A fresh dictation gets a fresh overlay window, so one that
-                // took itself off screen can never be handed to the next one
-                // still hidden.
-                if matches!(next, PipelineStatus::Recording) {
-                    self.dictation = self.dictation.wrapping_add(1);
-                }
             }
             self.status = next;
         }
@@ -429,50 +414,6 @@ mod tests {
         // a settings-save restart must not forget that.
         controller.stop();
         assert_eq!(controller.injected_count(), 2);
-    }
-
-    /// Each dictation must get its own overlay viewport id. The overlay hides
-    /// its own window when a dictation ends and only the UI thread destroys it,
-    /// so reusing the id across dictations can hand the next one a window that
-    /// is already hidden — a dictation with no pill at all.
-    #[test]
-    fn every_recording_starts_a_new_dictation_id() {
-        let (tx, rx) = mpsc::channel();
-        let mut controller = PipelineController::new(None);
-        controller.events = Some(rx);
-
-        tx.send(PipelineEvent::Recording).unwrap();
-        controller.drain_events();
-        let first = controller.dictation();
-
-        tx.send(PipelineEvent::Injected(record())).unwrap();
-        tx.send(PipelineEvent::Recording).unwrap();
-        controller.drain_events();
-        assert_ne!(
-            first,
-            controller.dictation(),
-            "second dictation reused the id"
-        );
-    }
-
-    /// ...and only a *new* recording bumps it: a repeated event, or the
-    /// processing/idle tail of the dictation already on screen, must not swap
-    /// the window out from under a pill that is still up.
-    #[test]
-    fn the_id_holds_still_within_one_dictation() {
-        let (tx, rx) = mpsc::channel();
-        let mut controller = PipelineController::new(None);
-        controller.events = Some(rx);
-
-        tx.send(PipelineEvent::Recording).unwrap();
-        controller.drain_events();
-        let during = controller.dictation();
-
-        for event in [PipelineEvent::Recording, PipelineEvent::Processing] {
-            tx.send(event).unwrap();
-        }
-        controller.drain_events();
-        assert_eq!(during, controller.dictation());
     }
 
     #[test]

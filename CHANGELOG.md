@@ -4,6 +4,41 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.38.1] - 2026-09-10
+
+### Added
+
+- **Crashes now explain themselves in the log.** A release build has no console,
+  so a panic went to a stderr that does not exist, and Windows Error Reporting
+  recorded nothing either — the log simply stopped mid-dictation, and the
+  destructors that ran on the way out made the tail of it look like a clean
+  shutdown. Panics are now written to `hark.log` with the thread and the exact
+  source location. GPU trouble names itself too: a lost graphics device is
+  reported explicitly instead of passing silently, and other GPU errors are
+  logged rather than taking the app down with them (capped per session, so one
+  bad frame cannot push the first cause out through the log's own rotation).
+
+### Fixed
+
+- **Hark no longer vanishes moments after pasting a dictation.** The recording
+  pill was a brand-new window, with its own GPU surface, created and destroyed
+  for *every single dictation* — dozens an hour in normal use. That churn was
+  losing the graphics device, and it happened as the pill was torn down: the
+  text you had just dictated would land, and the app would then disappear.
+  Nothing in the UI stack recovers from a lost device. The pill is now one
+  window that is shown and hidden, so there is nothing left to churn.
+- **The recording pill no longer flashes a larger window frame when you start
+  dictating.** Because a window was created per dictation, it could only be
+  placed, stripped of its frame and clipped to the pill's rounded outline
+  *after* Windows had already put it on screen — so every activation briefly
+  showed a default-placed, fully framed rectangle first. The single window is
+  created hidden and shaped once, before it can ever be seen.
+- **A release would have failed its own version check.** The workspace version
+  in `Cargo.toml` stayed at 0.36.6 while `package.json` moved on to 0.38.0, and
+  the release workflow refuses to build when the two disagree — so the next tag
+  would have stopped at the gate. Both now read 0.38.1, and the binary reports
+  its real version again.
+
 ## [0.38.0] - 2026-09-06
 
 ### Added
