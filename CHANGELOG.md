@@ -4,6 +4,33 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.38.3] - 2026-09-10
+
+### Fixed
+
+- **Saving a lesson or practice to the shared knowledge base no longer fails
+  once the index grows.** The helper that writes to GitHub passed the encoded
+  file as a command-line argument, and base64 makes a file a third larger
+  again, so the 56 KB master index arrived as a 75 KB argument and the command
+  died with "Argument list too long" before it reached GitHub. The threshold
+  was crossed silently as the index grew: individual entries, at a few KB, kept
+  working long after the index itself had stopped, so nothing looked broken
+  until a save failed outright. The content now travels on standard input,
+  which has no such limit -- verified with a 92 KB file, roughly four times the
+  size that used to fail.
+- **The same helper no longer sends a garbled revision id when creating a new
+  file.** It read the file's current revision to avoid clobbering a concurrent
+  edit, and treated "no such file yet" as an empty answer -- but the GitHub CLI
+  reports that error on the same stream as a real answer, so the error text was
+  being passed along as the revision. GitHub happened to ignore it when
+  creating a file, which is the only reason this was never visible. The value
+  is now used only when it actually is a revision id.
+- **The helper's optional branch argument now works for updates.** It looked up
+  the existing file on the default branch regardless of which branch was asked
+  for, so updating a file on any other branch failed as though the file were
+  new. Both knowledge-base skills only ever write to the default branch, so
+  this never surfaced in normal use.
+
 ## [0.38.2] - 2026-09-10
 
 ### Fixed
