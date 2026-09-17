@@ -139,6 +139,18 @@ pub fn setup_message(model: &str, bias_terms: &[String], mode: TranscribeMode) -
             "model": format!("models/{model}"),
             "generationConfig": { "responseModalities": ["TEXT"] },
             "inputAudioTranscription": transcription,
+            // Turn off the server's own voice-activity detection and mark the
+            // turn explicitly instead. Push-to-talk *knows* when speech starts
+            // and ends -- the key went down and came up -- so letting the
+            // server infer it from audio timing is guessing at something we
+            // already have exactly. It also makes the session insensitive to
+            // how fast audio arrives: a finished clip replayed at hundreds of
+            // times real time is not a realtime stream, and left to its own
+            // VAD the server can keep a turn open forever and never emit a
+            // final transcript.
+            "realtimeInputConfig": {
+                "automaticActivityDetection": { "disabled": true }
+            },
         }
     })
 }
@@ -160,6 +172,18 @@ pub fn audio_message(pcm_le_bytes: &[u8]) -> Value {
 /// push-to-talk: release is a fact, not something a VAD has to infer.
 pub fn audio_stream_end_message() -> Value {
     json!({ "realtimeInput": { "audioStreamEnd": true } })
+}
+
+/// Mark the start of speech. Required once automatic activity detection is
+/// disabled: without it the server has been told not to guess and has not
+/// been told the answer, so no turn ever opens.
+pub fn activity_start_message() -> Value {
+    json!({ "realtimeInput": { "activityStart": {} } })
+}
+
+/// Mark the end of speech: the key came up.
+pub fn activity_end_message() -> Value {
+    json!({ "realtimeInput": { "activityEnd": {} } })
 }
 
 /// Convert f32 samples in [-1.0, 1.0] to little-endian PCM16 bytes.
@@ -369,6 +393,11 @@ pub(crate) mod session {
                 _ => continue,
             }
         }
+        // Automatic detection is off, so the turn must be opened by hand.
+        socket
+            .send(Message::Text(activity_start_message().to_string().into()))
+            .await
+            .map_err(|e| fail(format!("activityStart send failed: {e}")))?;
         Ok(socket)
     }
 
@@ -687,6 +716,31 @@ mod tests {
             json!("audio/pcm;rate=16000")
         );
         assert!(m["realtimeInput"]["audio"]["data"].is_string());
+    }
+
+    #[test]
+    fn the_server_is_told_not_to_guess_turn_boundaries() {
+        // Push-to-talk knows exactly when speech starts and ends. Leaving the
+        // server's VAD on made the session sensitive to how fast audio
+        // arrived: a finished clip replayed far faster than real time could
+        // leave a turn open forever, emitting interims and no final.
+        let m = setup_message("m", &[], TranscribeMode::Verbatim);
+        assert_eq!(
+            m["setup"]["realtimeInputConfig"]["automaticActivityDetection"]["disabled"],
+            json!(true)
+        );
+    }
+
+    #[test]
+    fn the_turn_is_opened_and_closed_by_hand() {
+        assert_eq!(
+            activity_start_message(),
+            json!({ "realtimeInput": { "activityStart": {} } })
+        );
+        assert_eq!(
+            activity_end_message(),
+            json!({ "realtimeInput": { "activityEnd": {} } })
+        );
     }
 
     #[test]
