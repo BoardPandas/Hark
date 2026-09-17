@@ -4,6 +4,17 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Unreleased]
+
+### Fixed
+
+- **Gemini Live failed every dictation with an 8-second timeout.** Three separate bugs, all in the WebSocket handling, found by running a probe against the live API:
+  - **The server sends its JSON in binary WebSocket frames, not text ones.** Hark matched only text frames, so it ignored the entire conversation — the setup acknowledgement, every interim, and the transcript itself — and sat waiting for a reply that had already arrived.
+  - **A transcription turn ends with `generationComplete`, and `turnComplete` never arrives at all.** Hark waited for the documented one, so even after the frames were readable it would collect the finished transcript and then time out while discarding it.
+  - **Sending the whole clip without ever reading stalled the connection.** Interims start arriving immediately; a client that only writes lets them back up until the server stops making progress, and the end-of-audio signal is never acted on. Hark now keeps the receive side moving while it sends.
+- **Hark now waits for the Live API's setup acknowledgement before sending audio**, which the protocol requires, and reports a rejected setup with the server's own close reason instead of a bare timeout.
+- **An unrecognised Live API frame is no longer silently discarded.** Swallowing them is what made the above three bugs present as one indistinguishable timeout. Unhandled frames now log their top-level keys (keys only — a frame may carry transcript text), and a finalise timeout reports how many frames arrived and how many were interim.
+
 ## [0.42.1] - 2026-09-17
 
 ### Fixed

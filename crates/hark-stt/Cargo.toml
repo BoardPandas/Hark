@@ -54,6 +54,15 @@ live = ["dep:tokio", "dep:tokio-tungstenite", "dep:futures-util"]
 
 [dev-dependencies]
 hound = "3.5"
+# The live probe turns on the adapter's own diagnostics; without a logger
+# installed its log lines go nowhere and the probe proves less than it could.
+env_logger = "0.11"
 # The Gemini spike reuses the tuned voice prompts and the expansion guard
 # rather than reinventing either inside the STT crate.
 hark-voice = { path = "../hark-voice" }
+
+# The live probe needs the async stack the `live` feature brings in; without
+# it the example would fail to compile for anyone running a plain `cargo test`.
+[[example]]
+name = "gemini_live_probe"
+required-features = ["live"]

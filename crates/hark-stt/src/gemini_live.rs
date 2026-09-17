@@ -182,7 +182,12 @@ pub enum ServerEvent {
     Interim,
     /// The turn is complete; stop reading.
     TurnComplete,
-    /// Anything else (setup ack, keepalive, usage metadata).
+    /// The server has accepted `setup` and the session is usable. Nothing may
+    /// be sent before this arrives.
+    SetupComplete,
+    /// Anything else (keepalive, usage metadata). Carries the frame's
+    /// top-level keys so an unrecognised frame can be diagnosed without
+    /// logging its contents.
     Other,
 }
 
@@ -192,9 +197,19 @@ pub enum ServerEvent {
 pub fn parse_server_message(body: &str) -> Result<ServerEvent, SttError> {
     let v: Value = serde_json::from_str(body)
         .map_err(|e| fail(format!("server frame was not JSON ({e}): {body:.200}")))?;
+    if v.get("setupComplete").is_some() {
+        return Ok(ServerEvent::SetupComplete);
+    }
     let content = match v.get("serverContent") {
         Some(c) => c,
-        None => return Ok(ServerEvent::Other),
+        None => {
+            // Never silently swallow an unrecognised frame: this is exactly
+            // how a protocol mistake turns into an unexplained timeout. Keys
+            // only -- a frame may carry transcript text, which belongs in
+            // history, not in a log line.
+            log::debug!("gemini live: unhandled frame with keys {:?}", top_keys(&v));
+            return Ok(ServerEvent::Other);
+        }
     };
     if let Some(text) = content
         .get("inputTranscription")
@@ -206,14 +221,23 @@ pub fn parse_server_message(body: &str) -> Result<ServerEvent, SttError> {
     if content.get("interimInputTranscription").is_some() {
         return Ok(ServerEvent::Interim);
     }
-    if content
-        .get("turnComplete")
-        .and_then(|t| t.as_bool())
-        .unwrap_or(false)
-    {
-        return Ok(ServerEvent::TurnComplete);
+    // Observed against the real API: a transcription turn ends with
+    // `generationComplete`, and `turnComplete` never arrives at all. Both are
+    // accepted — waiting for only the documented one meant collecting the
+    // final transcript and then timing out while discarding it.
+    for done in ["generationComplete", "turnComplete"] {
+        if content.get(done).and_then(|t| t.as_bool()).unwrap_or(false) {
+            return Ok(ServerEvent::TurnComplete);
+        }
     }
     Ok(ServerEvent::Other)
+}
+
+/// The top-level keys of a frame, for diagnostics that never print content.
+pub fn top_keys(v: &Value) -> Vec<String> {
+    v.as_object()
+        .map(|o| o.keys().cloned().collect())
+        .unwrap_or_default()
 }
 
 /// Join finalised segments into one utterance, collapsing the seams.
@@ -268,6 +292,20 @@ pub(crate) mod session {
 
     pub type Socket = WebSocketStream<MaybeTlsStream<tokio::net::TcpStream>>;
 
+    /// The JSON body of a server frame, whichever frame type carried it.
+    ///
+    /// The Live API sends its JSON in **binary** frames, not text ones, so
+    /// matching only `Message::Text` silently ignores the entire conversation
+    /// — including `setupComplete` and the transcript itself. Text is accepted
+    /// too because nothing in the protocol promises it will stay binary.
+    pub fn frame_json(frame: &Message) -> Option<String> {
+        match frame {
+            Message::Text(body) => Some(body.to_string()),
+            Message::Binary(bytes) => String::from_utf8(bytes.to_vec()).ok(),
+            _ => None,
+        }
+    }
+
     /// Open the socket and send the opening `setup`. Everything after this is
     /// incremental, so the caller can start pushing audio immediately.
     pub async fn connect(url: String, setup: Value) -> Result<Socket, SttError> {
@@ -285,6 +323,52 @@ pub(crate) mod session {
             .send(Message::Text(setup.to_string().into()))
             .await
             .map_err(|e| fail(format!("setup send failed: {e}")))?;
+
+        // The Live API requires the client to wait for setupComplete before
+        // sending anything else. Audio pushed ahead of the ack is discarded,
+        // and the session then finalises an empty turn -- which surfaces as a
+        // finalise timeout with no hint of the real cause.
+        let deadline = Duration::from_millis(CONNECT_TIMEOUT_MS);
+        loop {
+            let frame = tokio::time::timeout(deadline, socket.next())
+                .await
+                .map_err(|_| SttError::Timeout {
+                    provider: "gemini-live".to_string(),
+                    configured_ms: CONNECT_TIMEOUT_MS,
+                })?;
+            let Some(frame) = frame else {
+                return Err(fail(
+                    "the session closed before acknowledging setup".to_string(),
+                ));
+            };
+            let frame = frame.map_err(|e| fail(format!("socket read failed: {e}")))?;
+            if let Some(body) = frame_json(&frame) {
+                match parse_server_message(&body)? {
+                    ServerEvent::SetupComplete => break,
+                    // A transcript before the ack would be extraordinary, but
+                    // treating it as noise would lose it.
+                    ServerEvent::Final(text) => {
+                        return Err(fail(format!(
+                            "server sent a transcript of {} chars before acknowledging setup",
+                            text.chars().count()
+                        )))
+                    }
+                    _ => continue,
+                }
+            }
+            match frame {
+                Message::Close(frame) => {
+                    // The close frame is where an invalid setup actually
+                    // reports itself; without this the failure is a timeout
+                    // with no reason attached.
+                    return Err(fail(match frame {
+                        Some(f) => format!("setup rejected: {} {}", f.code, f.reason),
+                        None => "the session closed during setup".to_string(),
+                    }));
+                }
+                _ => continue,
+            }
+        }
         Ok(socket)
     }
 
@@ -295,6 +379,10 @@ pub(crate) mod session {
                 .send(Message::Text(audio_message(chunk).to_string().into()))
                 .await
                 .map_err(|e| fail(format!("audio send failed: {e}")))?;
+            // Keep the receive side moving while sending. Interims start
+            // arriving immediately, and a client that only writes lets them
+            // back up until the connection stops making progress.
+            drain_pending(socket).await;
         }
         Ok(())
     }
@@ -323,24 +411,43 @@ pub(crate) mod session {
             .map_err(|e| fail(format!("audioStreamEnd send failed: {e}")))?;
 
         let mut segments: Vec<String> = Vec::new();
+        let mut frames = 0u32;
+        let mut interims = 0u32;
         let deadline = Duration::from_millis(FINALIZE_TIMEOUT_MS);
         loop {
             let frame = tokio::time::timeout(deadline, socket.next())
                 .await
-                .map_err(|_| SttError::Timeout {
-                    provider: "gemini-live".to_string(),
-                    configured_ms: FINALIZE_TIMEOUT_MS,
+                .map_err(|_| {
+                    // A bare timeout cannot distinguish "the server never
+                    // heard us" from "it is still thinking"; the counts can.
+                    log::warn!(
+                        "gemini live finalise timed out after {FINALIZE_TIMEOUT_MS} ms: \
+                         {frames} frames seen, {interims} interim, {} final",
+                        segments.len()
+                    );
+                    SttError::Timeout {
+                        provider: "gemini-live".to_string(),
+                        configured_ms: FINALIZE_TIMEOUT_MS,
+                    }
                 })?;
             let Some(frame) = frame else { break };
             let frame = frame.map_err(|e| fail(format!("socket read failed: {e}")))?;
-            match frame {
-                Message::Text(body) => match parse_server_message(&body)? {
+            frames += 1;
+            if let Some(body) = frame_json(&frame) {
+                if let Ok(v) = serde_json::from_str::<Value>(&body) {
+                    let inner = v.get("serverContent").map(top_keys).unwrap_or_default();
+                    log::debug!("gemini live frame {frames}: {:?} / {inner:?}", top_keys(&v));
+                }
+                match parse_server_message(&body)? {
                     ServerEvent::Final(text) => segments.push(text),
                     ServerEvent::TurnComplete => break,
-                    ServerEvent::Interim | ServerEvent::Other => {}
-                },
-                Message::Close(_) => break,
-                _ => {}
+                    ServerEvent::Interim => interims += 1,
+                    ServerEvent::SetupComplete | ServerEvent::Other => {}
+                }
+                continue;
+            }
+            if matches!(frame, Message::Close(_)) {
+                break;
             }
         }
         let _ = socket.close(None).await;
@@ -624,21 +731,52 @@ mod tests {
     }
 
     #[test]
+    fn generation_complete_ends_the_turn() {
+        // What the real API actually sends. Treating it as noise meant
+        // collecting the transcript and then timing out discarding it.
+        let event =
+            parse_server_message(r#"{"serverContent":{"generationComplete":true}}"#).unwrap();
+        assert_eq!(event, ServerEvent::TurnComplete);
+    }
+
+    #[test]
+    fn voice_activity_frames_are_not_mistaken_for_content() {
+        // {"serverContent":{}, "voiceActivity":{...}} brackets every turn.
+        let event = parse_server_message(
+            r#"{"serverContent":{},"voiceActivity":{"type":"ACTIVITY_END","audioOffset":"10.3s"}}"#,
+        )
+        .unwrap();
+        assert_eq!(event, ServerEvent::Other);
+    }
+
+    #[test]
     fn turn_complete_ends_the_read_loop() {
         let event = parse_server_message(r#"{"serverContent":{"turnComplete":true}}"#).unwrap();
         assert_eq!(event, ServerEvent::TurnComplete);
     }
 
     #[test]
-    fn setup_acks_and_unknown_frames_are_ignored_not_errors() {
+    fn the_setup_ack_is_recognised_rather_than_treated_as_noise() {
+        // Sending audio before this arrives gets it discarded, and the session
+        // then finalises an empty turn -- an 8 s timeout with no stated cause.
         assert_eq!(
             parse_server_message(r#"{"setupComplete":{}}"#).unwrap(),
-            ServerEvent::Other
+            ServerEvent::SetupComplete
         );
+    }
+
+    #[test]
+    fn unknown_frames_are_ignored_not_errors() {
         assert_eq!(
-            parse_server_message(r#"{"serverContent":{"generationComplete":true}}"#).unwrap(),
+            parse_server_message(r#"{"usageMetadata":{"totalTokenCount":5}}"#).unwrap(),
             ServerEvent::Other
         );
+    }
+
+    #[test]
+    fn diagnostics_name_a_frames_keys_without_printing_its_contents() {
+        let v: Value = serde_json::from_str(r#"{"usageMetadata":{"totalTokenCount":5}}"#).unwrap();
+        assert_eq!(top_keys(&v), vec!["usageMetadata".to_string()]);
     }
 
     #[test]
