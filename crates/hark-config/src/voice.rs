@@ -117,15 +117,19 @@ fn default_chat_model(kind: ProviderKind) -> &'static str {
     match kind {
         ProviderKind::Openai => "gpt-5-nano",
         ProviderKind::Groq => "llama-3.1-8b-instant",
+        // Flash Lite: a cleanup pass is a short, low-temperature rewrite, and
+        // the cheapest fast model that can follow the voice prompt is the
+        // right tool. Measured 554 ms for a one-sentence rewrite (2026-09-17).
+        ProviderKind::Gemini => "gemini-3.5-flash-lite",
         // Validation guarantees explicit config for openai-compatible and
-        // rejects deepgram/gemini outright; empty keeps the function total.
-        ProviderKind::OpenaiCompatible | ProviderKind::Deepgram | ProviderKind::Gemini => "",
+        // rejects deepgram outright; empty keeps the function total.
+        ProviderKind::OpenaiCompatible | ProviderKind::Deepgram => "",
     }
 }
 
 fn preset_temperature(kind: ProviderKind) -> Option<f32> {
     match kind {
-        ProviderKind::Groq => Some(0.2),
+        ProviderKind::Groq | ProviderKind::Gemini => Some(0.2),
         _ => None,
     }
 }
@@ -137,20 +141,31 @@ fn preset_reasoning_effort(kind: ProviderKind) -> Option<&'static str> {
     }
 }
 
+/// The per-kind default chat base URL. Shared by [`VoiceProvider`] and the
+/// inherit path in [`resolve_cleanup_provider`], so the two cannot drift.
+fn voice_default_base_url(kind: ProviderKind) -> Option<String> {
+    match kind {
+        ProviderKind::Openai => Some("https://api.openai.com/v1".to_string()),
+        ProviderKind::Groq => Some("https://api.groq.com/openai/v1".to_string()),
+        // Gemini publishes an OpenAI-compatible chat endpoint, so the same
+        // adapter reaches it unchanged -- note the `/openai` suffix, which
+        // the STT base URL does not carry.
+        ProviderKind::Gemini => {
+            Some("https://generativelanguage.googleapis.com/v1beta/openai".to_string())
+        }
+        // Deepgram does not speak the OpenAI chat contract hark-voice is
+        // built on, so it cannot host a cleanup pass on its own key.
+        ProviderKind::OpenaiCompatible | ProviderKind::Deepgram => None,
+    }
+}
+
 impl VoiceProvider {
     /// The effective base URL: explicit value, else the kind's default.
-    /// Chat and STT share base URLs on openai/groq.
     pub fn resolved_base_url(&self) -> Option<String> {
         if let Some(url) = &self.base_url {
             return Some(url.clone());
         }
-        match self.kind {
-            ProviderKind::Openai => Some("https://api.openai.com/v1".to_string()),
-            ProviderKind::Groq => Some("https://api.groq.com/openai/v1".to_string()),
-            // Neither speaks the OpenAI chat contract hark-voice is built on,
-            // so neither can host a cleanup pass on its own key.
-            ProviderKind::OpenaiCompatible | ProviderKind::Deepgram | ProviderKind::Gemini => None,
-        }
+        voice_default_base_url(self.kind)
     }
 
     /// The effective model: explicit value, else the kind's default.
@@ -287,19 +302,29 @@ pub fn resolve_cleanup_provider(
         });
     }
     match stt.kind {
-        ProviderKind::Openai | ProviderKind::Groq => {
+        // Gemini joins these: one key covers both the transcription and the
+        // cleanup call, so selecting Gemini no longer silently drops the
+        // configured voice.
+        ProviderKind::Openai | ProviderKind::Groq | ProviderKind::Gemini => {
             CleanupResolution::Resolved(ResolvedCleanupProvider {
                 kind: stt.kind,
-                base_url: stt
-                    .resolved_base_url()
-                    .expect("openai/groq always resolve a base URL"),
+                // An explicit STT base_url is a deliberate override (a proxy,
+                // a gateway) and cleanup must follow it. Only the *default*
+                // falls back to the per-kind chat URL, which matters for
+                // Gemini: its chat endpoint lives under a different path from
+                // its transcription API, so reusing the STT default would
+                // POST /chat/completions to the wrong place.
+                base_url: stt.base_url.clone().unwrap_or_else(|| {
+                    voice_default_base_url(stt.kind)
+                        .expect("openai/groq/gemini always resolve a chat base URL")
+                }),
                 model: default_chat_model(stt.kind).to_string(),
                 temperature: preset_temperature(stt.kind),
                 reasoning_effort: preset_reasoning_effort(stt.kind).map(str::to_string),
                 key_source: CleanupKeySource::ReuseSttKey,
             })
         }
-        ProviderKind::Deepgram | ProviderKind::Gemini | ProviderKind::OpenaiCompatible => {
+        ProviderKind::Deepgram | ProviderKind::OpenaiCompatible => {
             CleanupResolution::VerbatimWithWarning {
                 reason: format!(
                     "a non-verbatim voice is configured but the \"{}\" STT provider cannot \
@@ -402,6 +427,39 @@ mod tests {
                 assert!(reason.contains("openai-compatible"));
             }
             other => panic!("expected VerbatimWithWarning, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn gemini_hosts_cleanup_on_its_own_key() {
+        // Selecting Gemini used to silently drop the configured voice, because
+        // it was grouped with Deepgram as "cannot host chat cleanup". It
+        // publishes an OpenAI-compatible chat endpoint, so it can.
+        let s = Settings::from_toml("[provider]\nkind = \"gemini\"").unwrap();
+        match resolve_cleanup_provider(&s.provider, &s.voice, s.voice.default) {
+            CleanupResolution::Resolved(r) => {
+                assert_eq!(r.kind, ProviderKind::Gemini);
+                assert_eq!(r.model, "gemini-3.5-flash-lite");
+                assert_eq!(
+                    r.base_url,
+                    "https://generativelanguage.googleapis.com/v1beta/openai"
+                );
+                assert!(matches!(r.key_source, CleanupKeySource::ReuseSttKey));
+            }
+            other => panic!("expected a resolved cleanup provider, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn the_gemini_chat_url_is_not_the_gemini_stt_url() {
+        // The chat endpoint carries an /openai suffix the transcription API
+        // does not; reusing the STT base URL would POST /chat/completions to
+        // a path that does not exist.
+        let s = Settings::from_toml("[provider]\nkind = \"gemini\"").unwrap();
+        let stt = s.provider.resolved_base_url().unwrap();
+        match resolve_cleanup_provider(&s.provider, &s.voice, s.voice.default) {
+            CleanupResolution::Resolved(r) => assert_ne!(r.base_url, stt),
+            other => panic!("expected resolved, got {other:?}"),
         }
     }
 

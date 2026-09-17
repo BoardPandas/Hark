@@ -8,6 +8,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- **Gemini can now run your cleanup voice.** Selecting Gemini used to drop it silently — Gemini was grouped with Deepgram as a provider that cannot host chat cleanup, so a carefully written Concise or Custom prompt simply never ran, and the log claimed cleanup was "disabled ... running verbatim". Gemini publishes an OpenAI-compatible chat endpoint, so the existing adapter reaches it unchanged. Cleanup now runs on `gemini-3.5-flash-lite` using the same key as transcription, with nothing extra to configure.
+- **The Transcript setting is now the speed/fidelity choice it should be.** Smart keeps everything in one round trip and is fastest, but Gemini applies its own generic cleanup rather than your prompt. Verbatim takes a second call on Flash Lite (measured 554 ms for a sentence) and applies your voice and its prompt. Both options say which is which on hover.
+
 - Added Settings → General with an Always on top option and an Exit when the window is closed option. The X still hides Hark in the tray by default; enable the exit option and save to make it fully quit instead. Always on top is unavailable on Wayland.
 - Added a Close Program button in General that always fully exits Hark and stops background dictation, regardless of the window-close preference.
 

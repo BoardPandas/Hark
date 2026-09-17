@@ -90,13 +90,15 @@ fn live_mode_row(ui: &mut Ui, draft: &mut Settings) {
             "Verbatim",
         )
         .on_hover_text(
-            "Literal transcript, fillers intact. Your cleanup voice still runs as a second call.",
+            "Literal transcript from Gemini, then your cleanup voice runs as a second call on \
+             Gemini Flash Lite using the same key. Slower, but your voice and its prompt apply.",
         );
         ui.radio_value(&mut draft.provider.live_mode, LiveMode::Smart, "Smart")
             .on_hover_text(
-                "Gemini removes fillers and formats in the same call — one round trip instead of \
-                 two. History then stores the tidied text, not what you actually said, and \
-                 invocation triggers are matched against the tidied text.",
+                "Gemini tidies the text inside the transcription call — one round trip instead of \
+                 two, so it is faster. Your cleanup voice does NOT run: Gemini applies its own \
+                 generic cleanup, not your prompt. History stores the tidied text rather than \
+                 what you said, and invocation triggers match against it.",
             );
     });
 }
