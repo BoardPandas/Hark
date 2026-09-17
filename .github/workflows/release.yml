@@ -211,6 +211,14 @@ jobs:
       - name: Cache cargo build
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
 
+      # Keep in sync with ci.yml: rust-cache preserves stale build-script
+      # output and empty lib directories after pruning sherpa's native files.
+      - name: Reset sherpa-onnx native cache
+        shell: bash
+        run: |
+          cargo clean --package sherpa-onnx-sys
+          rm -rf target/sherpa-onnx-prebuilt
+
       # THE RELEASE GATE. These steps duplicate ci.yml on purpose.
       #
       # ci.yml and release.yml used to be wholly independent, so a tag shipped
@@ -455,6 +463,14 @@ jobs:
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           key: release-linux
+
+      # Keep in sync with ci.yml: rust-cache preserves stale build-script
+      # output and empty lib directories after pruning sherpa's native files.
+      - name: Reset sherpa-onnx native cache
+        shell: bash
+        run: |
+          cargo clean --package sherpa-onnx-sys
+          rm -rf target/sherpa-onnx-prebuilt
 
       - name: cargo fmt
         run: cargo fmt --all -- --check

@@ -4,6 +4,16 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.42.1] - 2026-09-17
+
+### Fixed
+
+- Restored CI tests and release builds after a Rust cache restore removed the on-device speech engine's native libraries while retaining stale build records.
+
+### Security
+
+- Updated rustls to 0.23.45 to fix TLS 1.3 handshake messages being accepted at the wrong encryption level (RUSTSEC-2026-0285).
+
 ## [0.42.0] - 2026-09-17
 
 ### Changed

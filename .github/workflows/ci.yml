@@ -194,6 +194,15 @@ jobs:
         with:
           key: ${{ matrix.os }}
 
+      # rust-cache prunes the downloaded native libraries but keeps sherpa's
+      # build-script output and empty lib directories. Reset both: cleaning
+      # only the crate still lets its downloader accept an empty lib directory.
+      - name: Reset sherpa-onnx native cache
+        shell: bash
+        run: |
+          cargo clean --package sherpa-onnx-sys
+          rm -rf target/sherpa-onnx-prebuilt
+
       # Verbatim the standard in CLAUDE.md, including --all-targets: without it
       # cargo skips test targets entirely, so lints in tests go unchecked
       # (LL-G rust/cargo-check-skips-test-targets).
