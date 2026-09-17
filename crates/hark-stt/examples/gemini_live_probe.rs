@@ -21,8 +21,8 @@
 
 use futures_util::{SinkExt, StreamExt};
 use hark_stt::gemini_live::{
-    audio_message, audio_stream_end_message, live_url, samples_to_pcm16_le, setup_message,
-    TranscribeMode, CHUNK_SAMPLES,
+    activity_end_message, activity_start_message, audio_message, audio_stream_end_message,
+    live_url, samples_to_pcm16_le, setup_message, TranscribeMode, CHUNK_SAMPLES,
 };
 use hark_stt::wav;
 use hark_stt::{ProviderConfig, ProviderKind};
@@ -75,7 +75,14 @@ async fn probe() -> (String, TranscribeMode, String, Vec<u8>) {
     let fixture = format!("{}/fixtures/spike_clip.wav", env!("CARGO_MANIFEST_DIR"));
     let wav_bytes = std::fs::read(&fixture).expect("fixtures/spike_clip.wav must exist");
     let info = wav::parse_wav_16k_mono(&wav_bytes).expect("fixture must be 16 kHz mono PCM16");
-    let pcm = samples_to_pcm16_le(&info.samples);
+    // Scale the fixture to imitate a quiet microphone: the streaming path
+    // sends audio at capture level, and a too-quiet signal may never trip the
+    // server's activity detection.
+    let gain: f32 = env("PROBE_GAIN")
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(1.0);
+    let scaled: Vec<f32> = info.samples.iter().map(|s| s * gain).collect();
+    let pcm = samples_to_pcm16_le(&scaled);
 
     println!("model: {model}  mode: {}", mode.wire());
     println!(
@@ -146,6 +153,14 @@ async fn probe() -> (String, TranscribeMode, String, Vec<u8>) {
         }
     }
 
+    // Activity detection is disabled in setup, so the turn must be opened
+    // explicitly or the server never starts one.
+    socket
+        .send(Message::Text(activity_start_message().to_string().into()))
+        .await
+        .expect("activityStart send");
+    println!("{} -> activityStart", at(&t0));
+
     let mut sent = 0;
     for chunk in pcm.chunks(CHUNK_SAMPLES * 2) {
         socket
@@ -163,10 +178,14 @@ async fn probe() -> (String, TranscribeMode, String, Vec<u8>) {
     println!("{} -> sent {sent} audio frames", at(&t0));
 
     socket
+        .send(Message::Text(activity_end_message().to_string().into()))
+        .await
+        .expect("activityEnd send");
+    socket
         .send(Message::Text(audio_stream_end_message().to_string().into()))
         .await
         .expect("audioStreamEnd send");
-    println!("{} -> audioStreamEnd", at(&t0));
+    println!("{} -> activityEnd + audioStreamEnd", at(&t0));
 
     loop {
         match tokio::time::timeout(Duration::from_secs(10), socket.next()).await {
