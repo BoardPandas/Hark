@@ -65,6 +65,9 @@ pub enum ProviderKind {
     Deepgram,
     Openai,
     Groq,
+    /// Gemini Live: a WebSocket session, not a REST POST. Selected here like
+    /// any other provider; the transport difference is the adapter's problem.
+    Gemini,
     OpenaiCompatible,
 }
 
@@ -75,6 +78,7 @@ impl ProviderKind {
             ProviderKind::Deepgram => "deepgram",
             ProviderKind::Openai => "openai",
             ProviderKind::Groq => "groq",
+            ProviderKind::Gemini => "gemini",
             ProviderKind::OpenaiCompatible => "openai-compatible",
         }
     }
@@ -90,6 +94,10 @@ pub struct Provider {
     /// Defaults per kind.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub model: Option<String>,
+    /// Gemini Live only: whether the provider hands back a literal transcript
+    /// or one it has already cleaned up. Ignored by every other provider.
+    #[serde(default)]
+    pub live_mode: LiveMode,
 }
 
 impl Default for Provider {
@@ -98,6 +106,36 @@ impl Default for Provider {
             kind: ProviderKind::Deepgram,
             base_url: None,
             model: None,
+            live_mode: LiveMode::default(),
+        }
+    }
+}
+
+/// How Gemini Live is asked to render the transcript.
+///
+/// Defaults to `Verbatim` rather than `Smart` on purpose. `Transcript::text` is
+/// the ground truth the spellbook corrector, the invocation matcher and the
+/// cleanup expansion guard all compare against; a provider that has already
+/// rewritten the utterance leaves those checks with nothing honest to check.
+/// `Smart` is a deliberate trade: one round trip instead of two, at the cost of
+/// never seeing what was actually said.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "kebab-case")]
+pub enum LiveMode {
+    /// Literal transcript; Hark's own cleanup pass still runs.
+    #[default]
+    Verbatim,
+    /// Provider removes disfluencies and formats in the same session, and the
+    /// pipeline then skips its own cleanup call.
+    Smart,
+}
+
+impl LiveMode {
+    /// Short label for logs and the UI.
+    pub fn label(self) -> &'static str {
+        match self {
+            LiveMode::Verbatim => "verbatim",
+            LiveMode::Smart => "smart",
         }
     }
 }
@@ -112,25 +150,50 @@ impl Provider {
             ProviderKind::Deepgram => Some("https://api.deepgram.com".to_string()),
             ProviderKind::Openai => Some("https://api.openai.com/v1".to_string()),
             ProviderKind::Groq => Some("https://api.groq.com/openai/v1".to_string()),
+            // The REST host, used by the batch/fused Gemini adapter. The Live
+            // adapter talks to a fixed `wss://` host instead and ignores this;
+            // the value is still resolved so every kind has a coherent config.
+            ProviderKind::Gemini => {
+                Some("https://generativelanguage.googleapis.com/v1beta".to_string())
+            }
             ProviderKind::OpenaiCompatible => None,
         }
     }
 
     /// The effective model: explicit value, else the kind's default.
     /// The spike verdict (2026-07-16) made Deepgram nova-3 the app default.
+    /// The OpenAI default moved to `gpt-transcribe` on 2026-09-17: OpenAI
+    /// documents it as the recommended model for file transcription and no
+    /// longer recommends `gpt-4o-transcribe`/`whisper-1` for new integrations.
     pub fn resolved_model(&self) -> String {
         if let Some(model) = &self.model {
             return model.clone();
         }
         match self.kind {
             ProviderKind::Deepgram => "nova-3",
-            ProviderKind::Openai => "gpt-4o-mini-transcribe",
+            ProviderKind::Openai => "gpt-transcribe",
             ProviderKind::Groq => "whisper-large-v3-turbo",
+            ProviderKind::Gemini => "gemini-3.5-transcribe-live",
             // Validation guarantees openai-compatible configs are explicit;
             // an empty model is still a valid request for some servers.
             ProviderKind::OpenaiCompatible => "",
         }
         .to_string()
+    }
+
+    /// Whether the resolved model speaks the gpt-transcribe biasing contract
+    /// (repeated `keywords[]` + plural `languages[]`) rather than the
+    /// Whisper-family one (a single 224-token `prompt`).
+    ///
+    /// Keyed on the model, not the provider kind, because the contract belongs
+    /// to the model: an `openai-compatible` base_url pointed at a gateway that
+    /// proxies gpt-transcribe needs the same treatment as OpenAI itself.
+    ///
+    /// `gpt-live-transcribe` deliberately does not match — it is realtime-only
+    /// (`v1/realtime/transcription_sessions`) and reaches no adapter here.
+    pub fn uses_keywords_biasing(&self) -> bool {
+        let model = self.resolved_model();
+        model == "gpt-transcribe" || model.starts_with("gpt-transcribe-")
     }
 }
 
@@ -913,7 +976,69 @@ mod tests {
         )
         .expect("unknown keys must not fail the parse");
         assert_eq!(s.provider.kind, ProviderKind::Openai);
-        assert_eq!(s.provider.resolved_model(), "gpt-4o-mini-transcribe");
+        assert_eq!(s.provider.resolved_model(), "gpt-transcribe");
+    }
+
+    #[test]
+    fn the_keywords_contract_is_keyed_on_the_model_not_the_kind() {
+        let openai_default = Settings::from_toml("[provider]\nkind = \"openai\"").unwrap();
+        assert!(openai_default.provider.uses_keywords_biasing());
+
+        let pinned_whisper =
+            Settings::from_toml("[provider]\nkind = \"openai\"\nmodel = \"whisper-1\"").unwrap();
+        assert!(!pinned_whisper.provider.uses_keywords_biasing());
+
+        let groq = Settings::from_toml("[provider]\nkind = \"groq\"").unwrap();
+        assert!(!groq.provider.uses_keywords_biasing());
+
+        let deepgram = Settings::default();
+        assert!(!deepgram.provider.uses_keywords_biasing());
+    }
+
+    #[test]
+    fn a_dated_gpt_transcribe_snapshot_keeps_the_keywords_contract() {
+        let dated = Settings::from_toml(
+            "[provider]\nkind = \"openai\"\nmodel = \"gpt-transcribe-2026-09-01\"",
+        )
+        .unwrap();
+        assert!(dated.provider.uses_keywords_biasing());
+    }
+
+    #[test]
+    fn gpt_live_transcribe_is_not_the_batch_keywords_contract() {
+        // Realtime-only model; it must not be mistaken for gpt-transcribe by a
+        // loose substring match.
+        let live =
+            Settings::from_toml("[provider]\nkind = \"openai\"\nmodel = \"gpt-live-transcribe\"")
+                .unwrap();
+        assert!(!live.provider.uses_keywords_biasing());
+    }
+
+    #[test]
+    fn gemini_defaults_to_the_live_model_and_a_verbatim_transcript() {
+        let s = Settings::from_toml("[provider]\nkind = \"gemini\"").unwrap();
+        assert_eq!(s.provider.kind, ProviderKind::Gemini);
+        assert_eq!(s.provider.resolved_model(), "gemini-3.5-transcribe-live");
+        assert_eq!(s.provider.kind.label(), "gemini");
+        // Verbatim by default: `text` has to stay the ground truth the
+        // spellbook, invocations and the expansion guard compare against.
+        assert_eq!(s.provider.live_mode, LiveMode::Verbatim);
+    }
+
+    #[test]
+    fn smart_mode_round_trips_through_toml() {
+        let s =
+            Settings::from_toml("[provider]\nkind = \"gemini\"\nlive_mode = \"smart\"").unwrap();
+        assert_eq!(s.provider.live_mode, LiveMode::Smart);
+        let out = toml::to_string_pretty(&s).expect("serializes");
+        let back = Settings::from_toml(&out).expect("re-parses");
+        assert_eq!(back.provider.live_mode, LiveMode::Smart);
+    }
+
+    #[test]
+    fn gemini_is_not_mistaken_for_the_gpt_transcribe_contract() {
+        let s = Settings::from_toml("[provider]\nkind = \"gemini\"").unwrap();
+        assert!(!s.provider.uses_keywords_biasing());
     }
 
     #[test]

@@ -150,6 +150,15 @@ fn provider_line(settings: &Settings) -> String {
             settings.provider.resolved_model()
         ),
     };
+    // A fused provider does its own cleanup, so the separate cleanup model is
+    // never called and must not be advertised as if it were.
+    if settings.provider.kind == hark_config::ProviderKind::Gemini
+        && settings.provider.live_mode == hark_config::LiveMode::Smart
+        && settings.local_stt.mode != LocalMode::Primary
+    {
+        line.push_str(" · smart");
+        return line;
+    }
     if let hark_config::CleanupResolution::Resolved(r) = hark_config::resolve_cleanup_provider(
         &settings.provider,
         &settings.voice,
@@ -178,7 +187,7 @@ mod tests {
         let settings = hark_config::Settings::from_toml("[provider]\nkind = \"openai\"").unwrap();
         assert_eq!(
             provider_line(&settings),
-            "openai · gpt-4o-mini-transcribe · cleanup gpt-5-nano"
+            "openai · gpt-transcribe · cleanup gpt-5-nano"
         );
     }
 
@@ -188,7 +197,7 @@ mod tests {
             "[provider]\nkind = \"openai\"\n[voice]\ndefault = \"verbatim\"",
         )
         .unwrap();
-        assert_eq!(provider_line(&settings), "openai · gpt-4o-mini-transcribe");
+        assert_eq!(provider_line(&settings), "openai · gpt-transcribe");
     }
 
     #[test]

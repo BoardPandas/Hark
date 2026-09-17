@@ -82,11 +82,12 @@ The `[provider]` block in the default config selects which adapter handles trans
 
 ```toml
 [provider]
-kind = "deepgram"    # deepgram | openai | groq | openai-compatible
+kind = "deepgram"    # deepgram | openai | groq | gemini | openai-compatible
 # base_url and model default per kind:
 #   deepgram -> https://api.deepgram.com, nova-3
-#   openai   -> https://api.openai.com/v1, gpt-4o-mini-transcribe
+#   openai   -> https://api.openai.com/v1, gpt-transcribe
 #   groq     -> https://api.groq.com/openai/v1, whisper-large-v3-turbo
+#   gemini   -> Live API WebSocket, gemini-3.5-transcribe-live
 # "openai-compatible" is the escape hatch for any other server speaking the
 # multipart /audio/transcriptions contract; it requires an explicit base_url.
 ```
@@ -96,8 +97,9 @@ Each `kind` carries its own default endpoint and model, and `openai-compatible` 
 | `kind` | Default `base_url` | Default `model` |
 |---|---|---|
 | `deepgram` | `https://api.deepgram.com` | `nova-3` |
-| `openai` | `https://api.openai.com/v1` | `gpt-4o-mini-transcribe` |
+| `openai` | `https://api.openai.com/v1` | `gpt-transcribe` |
 | `groq` | `https://api.groq.com/openai/v1` | `whisper-large-v3-turbo` |
+| `gemini` | Live API WebSocket (fixed host) | `gemini-3.5-transcribe-live` |
 | `openai-compatible` | none, must be set explicitly | none, must be set explicitly |
 
 Sources: [config/default-config.toml:9-22](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/config/default-config.toml#L9-L22)

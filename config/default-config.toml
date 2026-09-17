@@ -11,15 +11,22 @@
 # with the provider label as the account name (e.g. "deepgram").
 
 [provider]
-kind = "deepgram"    # deepgram | openai | groq | openai-compatible
+kind = "deepgram"    # deepgram | openai | groq | gemini | openai-compatible
 # base_url and model default per kind:
 #   deepgram -> https://api.deepgram.com, nova-3
-#   openai   -> https://api.openai.com/v1, gpt-4o-mini-transcribe
+#   openai   -> https://api.openai.com/v1, gpt-transcribe
 #   groq     -> https://api.groq.com/openai/v1, whisper-large-v3-turbo
+#   gemini   -> Live API WebSocket, gemini-3.5-transcribe-live
 # "openai-compatible" is the escape hatch for any other server speaking the
 # multipart /audio/transcriptions contract; it requires an explicit base_url.
 # base_url = "https://api.deepgram.com"
 # model = "nova-3"
+# Gemini only. "verbatim" (default) keeps the literal transcript and lets your
+# cleanup voice run as a second call. "smart" has Gemini strip fillers and
+# format in the same call -- one round trip instead of two, but history then
+# stores the tidied text rather than what you actually said, and invocation
+# triggers are matched against the tidied text.
+# live_mode = "verbatim"
 
 [hotkey]
 # Push-to-talk chord: hold ALL listed keys to record, release any to stop.

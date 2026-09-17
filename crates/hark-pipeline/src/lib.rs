@@ -127,6 +127,16 @@ pub fn provider_config(
 ) -> Result<ProviderConfig, PipelineError> {
     let kind = match settings.provider.kind {
         hark_config::ProviderKind::Deepgram => hark_stt::ProviderKind::Deepgram,
+        hark_config::ProviderKind::Gemini => hark_stt::ProviderKind::GeminiLive,
+        // Same endpoint, two contracts: the model decides which, so this arm is
+        // guarded on the model rather than split across the provider kinds.
+        hark_config::ProviderKind::Openai
+        | hark_config::ProviderKind::Groq
+        | hark_config::ProviderKind::OpenaiCompatible
+            if settings.provider.uses_keywords_biasing() =>
+        {
+            hark_stt::ProviderKind::OpenAiTranscribe
+        }
         hark_config::ProviderKind::Openai
         | hark_config::ProviderKind::Groq
         | hark_config::ProviderKind::OpenaiCompatible => hark_stt::ProviderKind::OpenAiCompatible,
@@ -142,9 +152,14 @@ pub fn provider_config(
         model: settings.provider.resolved_model(),
         api_key,
         bias_terms: settings.spellbook.terms(),
-        // No settings path selects the fused adapter yet: the Gemini prototype
-        // is driven by its spike, not by the app.
+        // No settings path selects the batch fused adapter: the Interactions
+        // API prototype is driven by its spike, not by the app. Gemini Live
+        // does its fusing through `live_mode` instead.
         cleanup_instruction: None,
+        live_mode: match settings.provider.live_mode {
+            hark_config::LiveMode::Verbatim => hark_stt::gemini_live::TranscribeMode::Verbatim,
+            hark_config::LiveMode::Smart => hark_stt::gemini_live::TranscribeMode::Smart,
+        },
     })
 }
 
@@ -455,21 +470,21 @@ mod tests {
     }
 
     #[test]
-    fn groq_and_openai_share_the_openai_compatible_adapter() {
+    fn whisper_family_models_share_the_openai_compatible_adapter() {
+        // Groq's default, and OpenAI pinned back to a Whisper-family model:
+        // both speak the single-`prompt` contract.
         for (kind, url, model) in [
             (
                 "groq",
                 "https://api.groq.com/openai/v1",
                 "whisper-large-v3-turbo",
             ),
-            (
-                "openai",
-                "https://api.openai.com/v1",
-                "gpt-4o-mini-transcribe",
-            ),
+            ("openai", "https://api.openai.com/v1", "whisper-1"),
         ] {
             let cfg = provider_config(
-                &settings_from(&format!("[provider]\nkind = \"{kind}\"")),
+                &settings_from(&format!(
+                    "[provider]\nkind = \"{kind}\"\nmodel = \"{model}\""
+                )),
                 "K".to_string(),
             )
             .unwrap();
@@ -478,6 +493,73 @@ mod tests {
             assert_eq!(cfg.base_url, url);
             assert_eq!(cfg.model, model);
         }
+    }
+
+    #[test]
+    fn gemini_routes_to_the_live_adapter_and_carries_the_mode() {
+        let cfg = provider_config(
+            &settings_from("[provider]\nkind = \"gemini\""),
+            "K".to_string(),
+        )
+        .unwrap();
+        assert_eq!(cfg.kind, hark_stt::ProviderKind::GeminiLive);
+        assert_eq!(cfg.model, "gemini-3.5-transcribe-live");
+        assert_eq!(
+            cfg.live_mode,
+            hark_stt::gemini_live::TranscribeMode::Verbatim
+        );
+
+        let smart = provider_config(
+            &settings_from("[provider]\nkind = \"gemini\"\nlive_mode = \"smart\""),
+            "K".to_string(),
+        )
+        .unwrap();
+        assert_eq!(
+            smart.live_mode,
+            hark_stt::gemini_live::TranscribeMode::Smart
+        );
+    }
+
+    #[test]
+    fn the_openai_default_routes_to_the_gpt_transcribe_adapter() {
+        let cfg = provider_config(
+            &settings_from("[provider]\nkind = \"openai\""),
+            "K".to_string(),
+        )
+        .unwrap();
+        assert_eq!(cfg.kind, hark_stt::ProviderKind::OpenAiTranscribe);
+        assert_eq!(cfg.label, "openai");
+        assert_eq!(cfg.base_url, "https://api.openai.com/v1");
+        assert_eq!(cfg.model, "gpt-transcribe");
+    }
+
+    #[test]
+    fn a_gateway_proxying_gpt_transcribe_gets_the_same_contract() {
+        // The contract follows the model, not the vendor: an openai-compatible
+        // base_url pointed at a gpt-transcribe proxy must not fall back to the
+        // Whisper `prompt` packing.
+        let cfg = provider_config(
+            &settings_from(
+                "[provider]\nkind = \"openai-compatible\"\n\
+                 base_url = \"https://gateway.example/v1\"\nmodel = \"gpt-transcribe\"",
+            ),
+            "K".to_string(),
+        )
+        .unwrap();
+        assert_eq!(cfg.kind, hark_stt::ProviderKind::OpenAiTranscribe);
+    }
+
+    #[test]
+    fn gpt_live_transcribe_never_reaches_a_batch_adapter_contract() {
+        // It is realtime-only (v1/realtime/transcription_sessions). Routing it
+        // to the keywords contract would imply the multipart endpoint accepts
+        // it, which it does not.
+        let cfg = provider_config(
+            &settings_from("[provider]\nkind = \"openai\"\nmodel = \"gpt-live-transcribe\""),
+            "K".to_string(),
+        )
+        .unwrap();
+        assert_eq!(cfg.kind, hark_stt::ProviderKind::OpenAiCompatible);
     }
 
     #[test]

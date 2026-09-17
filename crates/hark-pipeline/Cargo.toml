@@ -29,3 +29,5 @@ thiserror = "2"
 default = []
 # Forwarded by hark-app; pulls the ~28 MB native sherpa-onnx engine in.
 engine = ["hark-local-stt/engine"]
+# Forwarded by hark-app; pulls tokio + a WebSocket client in for Gemini Live.
+live = ["hark-stt/live"]
