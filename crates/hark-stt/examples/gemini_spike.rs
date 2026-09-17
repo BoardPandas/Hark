@@ -89,6 +89,7 @@ fn main() {
         api_key: gemini_key.clone(),
         bias_terms: bias.clone(),
         cleanup_instruction: Some(cleanup_instruction),
+        live_mode: hark_stt::gemini_live::TranscribeMode::Verbatim,
     };
     // Same provider with cleanup off, to see whether the fused prompt is what
     // makes the transcript drift or whether the model paraphrases regardless.
@@ -248,11 +249,12 @@ fn main() {
                 model: if *label == "groq" {
                     "whisper-large-v3-turbo".into()
                 } else {
-                    "gpt-4o-mini-transcribe".into()
+                    "gpt-transcribe".into()
                 },
                 api_key: key.clone(),
                 bias_terms: bias.clone(),
                 cleanup_instruction: None,
+                live_mode: hark_stt::gemini_live::TranscribeMode::Verbatim,
             };
             let cleanup_config = CleanupConfig {
                 label: (*label).into(),

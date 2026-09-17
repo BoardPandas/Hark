@@ -4,7 +4,7 @@ version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
-description = "Hark BYOK cloud speech-to-text: SttProvider trait with OpenAI-compatible and Deepgram adapters."
+description = "Hark BYOK cloud speech-to-text: SttProvider trait with OpenAI-compatible, Deepgram and Gemini adapters."
 
 [dependencies]
 # reqwest 0.13 renamed the 0.12 TLS umbrella features: "rustls-tls-webpki-roots"
@@ -24,6 +24,33 @@ log = "0.4"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 thiserror = "2"
+
+# The Gemini Live adapter is the only thing in this crate that needs an async
+# runtime: the Live API is a bidirectional WebSocket, with no REST equivalent
+# that accepts inline audio. The runtime is a private, current-thread instance
+# owned by that adapter and driven with block_on from the pipeline worker
+# thread, so it never becomes a process-wide executor and no other adapter's
+# blocking reqwest call ever runs on it (LL-G Rust HIGH, blocking-io-on-tokio).
+tokio = { version = "1.53", default-features = false, features = [
+    "rt",
+    "net",
+    "io-util",
+    "time",
+], optional = true }
+tokio-tungstenite = { version = "0.30", default-features = false, features = [
+    "connect",
+    "handshake",
+    "rustls-tls-webpki-roots",
+], optional = true }
+futures-util = { version = "0.3", default-features = false, features = [
+    "sink",
+], optional = true }
+
+[features]
+default = []
+# Pulls in tokio + a WebSocket client for the Gemini Live adapter. Off here so
+# the crate stays runtime-free by default; hark-app turns it on.
+live = ["dep:tokio", "dep:tokio-tungstenite", "dep:futures-util"]
 
 [dev-dependencies]
 hound = "3.5"

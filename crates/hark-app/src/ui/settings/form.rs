@@ -5,7 +5,7 @@
 
 use crate::theme;
 use egui::{CollapsingHeader, DragValue, Label, RichText, Sense, TextEdit, Ui};
-use hark_config::{Provider, ProviderKind, Settings, VoiceName};
+use hark_config::{LiveMode, Provider, ProviderKind, Settings, VoiceName};
 
 /// String buffers behind optional config fields (empty = unset) plus the
 /// one-shot flag that force-opens Model & endpoint for custom endpoints.
@@ -60,17 +60,54 @@ pub(crate) fn subhead(ui: &mut Ui, text: &str) {
     ui.label(RichText::new(text).text_style(theme::subheading()));
 }
 
+/// The provider kinds this build can actually run.
+///
+/// Gemini is omitted from a `--no-default-features` build: without the
+/// `gemini-live` feature there is no WebSocket client linked in, so offering
+/// the option would produce a provider that fails on the first dictation
+/// rather than one that is simply absent.
+pub fn provider_choices() -> Vec<(ProviderKind, &'static str)> {
+    let mut choices = vec![
+        (ProviderKind::Deepgram, "Deepgram"),
+        (ProviderKind::Openai, "OpenAI"),
+        (ProviderKind::Groq, "Groq"),
+    ];
+    if cfg!(feature = "gemini-live") {
+        choices.push((ProviderKind::Gemini, "Gemini"));
+    }
+    choices.push((ProviderKind::OpenaiCompatible, "OpenAI-compatible"));
+    choices
+}
+
+/// Gemini Live's transcript mode. Only meaningful for that provider, so it is
+/// drawn only when that provider is selected rather than greyed out everywhere.
+fn live_mode_row(ui: &mut Ui, draft: &mut Settings) {
+    ui.add_space(4.0);
+    ui.label(RichText::new("Transcript").weak());
+    ui.horizontal_wrapped(|ui| {
+        ui.radio_value(
+            &mut draft.provider.live_mode,
+            LiveMode::Verbatim,
+            "Verbatim",
+        )
+        .on_hover_text(
+            "Literal transcript, fillers intact. Your cleanup voice still runs as a second call.",
+        );
+        ui.radio_value(&mut draft.provider.live_mode, LiveMode::Smart, "Smart")
+            .on_hover_text(
+                "Gemini removes fillers and formats in the same call — one round trip instead of \
+                 two. History then stores the tidied text, not what you actually said, and \
+                 invocation triggers are matched against the tidied text.",
+            );
+    });
+}
+
 /// Provider kind radio row. Returns true when the kind changed.
 pub fn provider_section(ui: &mut Ui, draft: &mut Settings, bufs: &mut FormBufs) -> bool {
     subhead(ui, "Speech to text");
     let mut changed = false;
     ui.horizontal_wrapped(|ui| {
-        for (kind, label) in [
-            (ProviderKind::Deepgram, "Deepgram"),
-            (ProviderKind::Openai, "OpenAI"),
-            (ProviderKind::Groq, "Groq"),
-            (ProviderKind::OpenaiCompatible, "OpenAI-compatible"),
-        ] {
+        for (kind, label) in provider_choices() {
             if ui
                 .radio_value(&mut draft.provider.kind, kind, label)
                 .changed()
@@ -79,6 +116,9 @@ pub fn provider_section(ui: &mut Ui, draft: &mut Settings, bufs: &mut FormBufs) 
             }
         }
     });
+    if draft.provider.kind == ProviderKind::Gemini {
+        live_mode_row(ui, draft);
+    }
     if changed {
         // A model or URL typed for the previous provider almost certainly
         // does not exist on the new one; fall back to the per-kind default.
@@ -104,8 +144,7 @@ pub fn model_endpoint_section(ui: &mut Ui, draft: &mut Settings, bufs: &mut Form
         .show(ui, |ui| {
             let default_model = Provider {
                 kind: draft.provider.kind,
-                base_url: None,
-                model: None,
+                ..Default::default()
             }
             .resolved_model();
             ui.label(RichText::new("Model").weak());
@@ -121,8 +160,7 @@ pub fn model_endpoint_section(ui: &mut Ui, draft: &mut Settings, bufs: &mut Form
             } else {
                 Provider {
                     kind: draft.provider.kind,
-                    base_url: None,
-                    model: None,
+                    ..Default::default()
                 }
                 .resolved_base_url()
                 .map(|url| format!("{url} (default)"))
@@ -494,6 +532,21 @@ pub fn privacy_section(ui: &mut Ui, draft: &mut Settings) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn gemini_is_offered_exactly_when_this_build_can_run_it() {
+        let has_gemini = provider_choices()
+            .iter()
+            .any(|(kind, _)| *kind == ProviderKind::Gemini);
+        assert_eq!(has_gemini, cfg!(feature = "gemini-live"));
+    }
+
+    #[test]
+    fn the_custom_endpoint_stays_last_in_the_picker() {
+        // It is the escape hatch, not a peer of the named presets.
+        let choices = provider_choices();
+        assert_eq!(choices.last().unwrap().0, ProviderKind::OpenaiCompatible);
+    }
 
     #[test]
     fn empty_and_whitespace_inputs_mean_unset() {

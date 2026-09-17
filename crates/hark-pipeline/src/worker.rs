@@ -275,7 +275,15 @@ fn dictate(worker: &mut Worker, down_abs: u64, up_abs: u64, state: PipelineState
     // `cleaned_text` hit its passthrough on the first line, which is the
     // whole protection -- see `expanded_text` for why it must be control
     // flow and not a prompt clause.
-    let plan = worker.cleanup.as_ref().filter(|_| expanded.fired.is_none());
+    // A fused provider (Gemini Live in SMART mode) already returned cleaned
+    // text. Running a voice on top would rewrite an already-rewritten utterance
+    // and bill a second model to do it, so the plan is dropped rather than the
+    // call being made and discarded.
+    let provider_cleaned = transcript.cleaned.is_some();
+    let plan = worker
+        .cleanup
+        .as_ref()
+        .filter(|_| should_run_cleanup(expanded.fired.is_some(), provider_cleaned));
     let mut cleaned = cleaned_text(plan, &worker.corrector, expanded.text);
     // A single spoken word is almost never a sentence, so the trailing period
     // the provider or a cleanup voice adds is noise. Gated on the setting, and
@@ -302,6 +310,11 @@ fn dictate(worker: &mut Worker, down_abs: u64, up_abs: u64, state: PipelineState
             let cleanup_ran = cleaned.request_ms.is_some();
             let (voice, cleanup_model) = match worker.cleanup.as_ref().filter(|_| cleanup_ran) {
                 Some(plan) => (plan.voice.name().to_string(), Some(plan.model.clone())),
+                // A fused provider did the cleanup inside the transcription
+                // call, so the STT model is the cleanup model. Labelling this
+                // "verbatim" would tell the user nothing rewrote their text
+                // when something plainly did.
+                None if provider_cleaned => ("smart".to_string(), Some(worker.stt_model.clone())),
                 None => (Voice::Verbatim.name().to_string(), None),
             };
             // Name the engine that actually produced this line. A fallback
@@ -343,6 +356,16 @@ fn dictate(worker: &mut Worker, down_abs: u64, up_abs: u64, state: PipelineState
 pub(crate) struct CleanupOutcome {
     pub text: String,
     pub request_ms: Option<u64>,
+}
+
+/// Whether Hark should spend a cleanup call on this dictation.
+///
+/// Two independent reasons not to, both control flow rather than prompt
+/// wording: a fired invocation is authored text that must reach the cursor
+/// verbatim, and a fused provider has already done the rewrite in the
+/// transcription call.
+pub(crate) fn should_run_cleanup(fired_invocation: bool, provider_cleaned: bool) -> bool {
+    !fired_invocation && !provider_cleaned
 }
 
 /// The optional voice-cleanup pass between spellbook pass 1 and injection.
@@ -713,6 +736,24 @@ mod tests {
         fn label(&self) -> &str {
             "mock"
         }
+    }
+
+    #[test]
+    fn an_ordinary_dictation_runs_cleanup() {
+        assert!(should_run_cleanup(false, false));
+    }
+
+    #[test]
+    fn a_fired_invocation_never_reaches_a_cleanup_model() {
+        assert!(!should_run_cleanup(true, false));
+    }
+
+    #[test]
+    fn a_fused_provider_result_is_not_cleaned_twice() {
+        // Gemini Live in SMART mode already rewrote the utterance; a second
+        // voice pass would rewrite the rewrite and bill a second model.
+        assert!(!should_run_cleanup(false, true));
+        assert!(!should_run_cleanup(true, true));
     }
 
     #[test]

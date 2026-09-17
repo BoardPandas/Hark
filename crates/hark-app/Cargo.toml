@@ -171,5 +171,9 @@ assets = [
 # link, which is ~28 MB of binary (measured 2026-07-21, linux-x64), for a
 # slim cloud-only artifact. The Settings section explains itself in that
 # build rather than offering a toggle that cannot work.
-default = ["local-engine"]
+default = ["local-engine", "gemini-live"]
 local-engine = ["hark-local-stt/engine", "hark-pipeline/engine"]
+# On by default so a stock build can select the Gemini Live provider. Building
+# with --no-default-features drops tokio and the WebSocket client; the provider
+# is then hidden from Settings rather than offered and failing at runtime.
+gemini-live = ["hark-stt/live", "hark-pipeline/live"]

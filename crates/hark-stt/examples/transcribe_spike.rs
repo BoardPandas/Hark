@@ -7,7 +7,7 @@
 //! verdict. Providers without keys are skipped with an explicit message.
 //!
 //! Knobs: `SPIKE_RUNS` (default 20), `SPIKE_DELAY_MS` between timed runs
-//! (default 0), `OPENAI_STT_MODEL` (default gpt-4o-mini-transcribe),
+//! (default 0), `OPENAI_STT_MODEL` (default gpt-transcribe),
 //! `GROQ_STT_MODEL` (default whisper-large-v3-turbo), `SPIKE_SKIP_DRILLS=1`.
 
 use hark_stt::metrics::{contains_term, divergence_ratio, LatencyTally};
@@ -55,18 +55,19 @@ fn provider_configs() -> Vec<ProviderConfig> {
             api_key: key,
             bias_terms: bias.clone(),
             cleanup_instruction: None,
+            live_mode: hark_stt::gemini_live::TranscribeMode::Verbatim,
         });
     }
     if let Some(key) = env_nonempty("OPENAI_API_KEY") {
         configs.push(ProviderConfig {
-            kind: ProviderKind::OpenAiCompatible,
+            kind: ProviderKind::OpenAiTranscribe,
             label: "openai".into(),
             base_url: "https://api.openai.com/v1".into(),
-            model: env_nonempty("OPENAI_STT_MODEL")
-                .unwrap_or_else(|| "gpt-4o-mini-transcribe".into()),
+            model: env_nonempty("OPENAI_STT_MODEL").unwrap_or_else(|| "gpt-transcribe".into()),
             api_key: key,
             bias_terms: bias.clone(),
             cleanup_instruction: None,
+            live_mode: hark_stt::gemini_live::TranscribeMode::Verbatim,
         });
     }
     if let Some(key) = env_nonempty("DEEPGRAM_API_KEY") {
@@ -78,6 +79,7 @@ fn provider_configs() -> Vec<ProviderConfig> {
             api_key: key,
             bias_terms: bias.clone(),
             cleanup_instruction: None,
+            live_mode: hark_stt::gemini_live::TranscribeMode::Verbatim,
         });
     }
     configs
@@ -272,6 +274,7 @@ fn main() {
                 api_key: String::new(),
                 bias_terms: vec![],
                 cleanup_instruction: None,
+                live_mode: hark_stt::gemini_live::TranscribeMode::Verbatim,
             });
         let drills = [
             (

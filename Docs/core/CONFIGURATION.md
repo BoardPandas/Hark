@@ -94,7 +94,8 @@ pub fn resolved_model(&self) -> String {
     }
     match self.kind {
         ProviderKind::Deepgram => "nova-3",
-        ProviderKind::Openai => "gpt-4o-mini-transcribe",
+        ProviderKind::Openai => "gpt-transcribe",
+        ProviderKind::Gemini => "gemini-3.5-transcribe-live",
         ProviderKind::Groq => "whisper-large-v3-turbo",
         // Validation guarantees openai-compatible configs are explicit;
         // an empty model is still a valid request for some servers.

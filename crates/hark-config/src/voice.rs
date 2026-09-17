@@ -118,8 +118,8 @@ fn default_chat_model(kind: ProviderKind) -> &'static str {
         ProviderKind::Openai => "gpt-5-nano",
         ProviderKind::Groq => "llama-3.1-8b-instant",
         // Validation guarantees explicit config for openai-compatible and
-        // rejects deepgram outright; empty keeps the function total.
-        ProviderKind::OpenaiCompatible | ProviderKind::Deepgram => "",
+        // rejects deepgram/gemini outright; empty keeps the function total.
+        ProviderKind::OpenaiCompatible | ProviderKind::Deepgram | ProviderKind::Gemini => "",
     }
 }
 
@@ -147,7 +147,9 @@ impl VoiceProvider {
         match self.kind {
             ProviderKind::Openai => Some("https://api.openai.com/v1".to_string()),
             ProviderKind::Groq => Some("https://api.groq.com/openai/v1".to_string()),
-            ProviderKind::OpenaiCompatible | ProviderKind::Deepgram => None,
+            // Neither speaks the OpenAI chat contract hark-voice is built on,
+            // so neither can host a cleanup pass on its own key.
+            ProviderKind::OpenaiCompatible | ProviderKind::Deepgram | ProviderKind::Gemini => None,
         }
     }
 
@@ -297,7 +299,7 @@ pub fn resolve_cleanup_provider(
                 key_source: CleanupKeySource::ReuseSttKey,
             })
         }
-        ProviderKind::Deepgram | ProviderKind::OpenaiCompatible => {
+        ProviderKind::Deepgram | ProviderKind::Gemini | ProviderKind::OpenaiCompatible => {
             CleanupResolution::VerbatimWithWarning {
                 reason: format!(
                     "a non-verbatim voice is configured but the \"{}\" STT provider cannot \

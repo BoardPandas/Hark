@@ -4,6 +4,20 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.39.0] - 2026-09-17
+
+### Added
+
+- **Gemini Live as a speech-to-text provider** (`kind = "gemini"`). A WebSocket session against `gemini-3.5-transcribe-live` rather than a REST POST, picked because it is the only Gemini path that suits push-to-talk: the batch model (`gemini-3.5-transcribe`) requires uploading the clip to the Files API *before* transcription can start, which puts a whole extra round trip between releasing the key and seeing text. The Live API takes raw 16 kHz mono PCM straight over the socket — the exact format the ring buffer already holds — and ends the turn on an explicit `audioStreamEnd` signal, so key release decides when the transcript is final instead of a server-side silence detector guessing. Your spellbook rides along as `customVocabulary` (up to 1 000 phrases), which is a real biasing slot rather than terms packed into a prompt.
+- **A Smart transcript mode for Gemini Live.** Gemini can remove fillers and format the text inside the transcription call, so cleanup costs one round trip instead of two and no second model is billed. It is **off by default**, and the setting says why: in Smart mode history stores the tidied sentence rather than what you actually said, and invocation triggers are matched against the tidied text. Verbatim keeps the literal transcript and your cleanup voice as a separate pass, which is what every existing install keeps doing.
+- **`gpt-transcribe` support for OpenAI**, with its own adapter. It shares an endpoint with the Whisper-family models but not a contract: bias terms go out as repeated `keywords[]` fields and the language field is plural, where Whisper packs everything into a single 224-token `prompt` and silently drops the overflow. A large spellbook now survives intact on OpenAI for the first time.
+
+### Changed
+
+- **OpenAI's default model is now `gpt-transcribe`** (was `gpt-4o-mini-transcribe`). OpenAI documents it as the recommended model for file transcription and no longer recommends `gpt-4o-transcribe` or `whisper-1` for new integrations. Anyone who pinned a model explicitly keeps it, and a pinned Whisper-family model still uses the old contract. Deepgram `nova-3` remains the app default provider.
+- **A provider that cleans up its own transcript no longer gets cleaned twice.** The pipeline previously ignored the cleaned text a fused adapter returned and ran its own voice pass regardless. History now names the transcription model as the cleanup model in that case, rather than labelling a plainly rewritten dictation "verbatim".
+- **The Cargo workspace version is back in lockstep with `package.json`** (0.36.6 → 0.39.0). They had drifted, which `release.yml` is supposed to fail on.
+
 ## [0.38.0] - 2026-09-06
 
 ### Added

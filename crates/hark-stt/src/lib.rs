@@ -11,8 +11,10 @@ pub mod deepgram;
 mod error;
 pub mod fixture;
 pub mod gemini;
+pub mod gemini_live;
 pub mod metrics;
 pub mod openai_compatible;
+pub mod openai_transcribe;
 pub mod wav;
 
 pub use config::{ProviderConfig, ProviderKind};
@@ -57,7 +59,14 @@ pub fn build(
         ProviderKind::OpenAiCompatible => Ok(Box::new(openai_compatible::OpenAiCompatible::new(
             config, client,
         ))),
+        ProviderKind::OpenAiTranscribe => Ok(Box::new(openai_transcribe::OpenAiTranscribe::new(
+            config, client,
+        ))),
         ProviderKind::Deepgram => Ok(Box::new(deepgram::Deepgram::new(config, client)?)),
+        ProviderKind::GeminiLive => Ok(Box::new(gemini_live::GeminiLive::new(
+            config,
+            config.live_mode,
+        )?)),
         ProviderKind::Gemini => Ok(Box::new(gemini::Gemini::new(config, client))),
     }
 }
