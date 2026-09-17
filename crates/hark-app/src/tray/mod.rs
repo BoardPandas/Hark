@@ -144,6 +144,8 @@ impl Tray {
 fn build_menu(voice: VoiceName) -> Result<(Menu, Vec<(VoiceName, CheckMenuItem)>), String> {
     let err = |e: &dyn std::fmt::Display| e.to_string();
     let menu = Menu::new();
+    menu.append(&MenuItem::new("Voice", false, None))
+        .map_err(|e| err(&e))?;
     let mut voices = Vec::new();
     for v in VOICES {
         let item = CheckMenuItem::with_id(
@@ -158,12 +160,11 @@ fn build_menu(voice: VoiceName) -> Result<(Menu, Vec<(VoiceName, CheckMenuItem)>
     }
     menu.append(&PredefinedMenuItem::separator())
         .map_err(|e| err(&e))?;
-    #[cfg(target_os = "linux")]
-    menu.append(&MenuItem::with_id(SHOW_WINDOW_ID, "Show Hark", true, None))
+    menu.append(&MenuItem::with_id(SHOW_WINDOW_ID, "Open Hark", true, None))
         .map_err(|e| err(&e))?;
     menu.append(&MenuItem::with_id(
         OPEN_SETTINGS_ID,
-        "Open Settings",
+        "Settings…",
         true,
         None,
     ))

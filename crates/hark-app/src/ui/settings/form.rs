@@ -1,10 +1,9 @@
-//! The settings form sections (spec §3.6, §3.11). Progressive disclosure:
-//! provider row, key section, hotkey, and voice stay visible; everything
-//! else lives in `CollapsingHeader`s. Buffers sync into the draft at
+//! Provider, audio, and voice controls for grouped Settings. Advanced
+//! endpoint options retain progressive disclosure. Buffers sync into the draft at
 //! widget-render time, so the draft is always current when Save reads it.
 
 use crate::theme;
-use egui::{CollapsingHeader, DragValue, Label, RichText, Sense, TextEdit, Ui};
+use egui::{CollapsingHeader, Label, RichText, Sense, TextEdit, Ui};
 use hark_config::{LiveMode, Provider, ProviderKind, Settings, VoiceName};
 
 /// String buffers behind optional config fields (empty = unset) plus the
@@ -50,7 +49,7 @@ pub fn none_if_empty(text: &str) -> Option<String> {
 
 pub(crate) fn inline_error(ui: &mut Ui, text: &str) {
     ui.horizontal(|ui| {
-        ui.label(theme::icon_text(theme::icons::WARNING).color(theme::DANGER));
+        ui.label(theme::icon_text(theme::icons::WARNING).color(theme::danger(ui.visuals())));
         ui.label(RichText::new(text).small());
     });
 }
@@ -300,9 +299,9 @@ fn input_meter(ui: &mut Ui, peak: f32) {
             ui.visuals().weak_text_color(),
             "No input — is this the right microphone?",
         ),
-        InputLevel::TooQuiet => (theme::WARNING, TOO_QUIET),
-        InputLevel::Good => (theme::SUCCESS, "Good level."),
-        InputLevel::Hot => (theme::DANGER, TOO_LOUD),
+        InputLevel::TooQuiet => (theme::warning(ui.visuals()), TOO_QUIET),
+        InputLevel::Good => (theme::success(ui.visuals()), "Good level."),
+        InputLevel::Hot => (theme::danger(ui.visuals()), TOO_LOUD),
     };
     ui.add_space(6.0);
     // Amplitude is linear but hearing is not; a square root gives the quiet end
@@ -402,131 +401,6 @@ pub(crate) fn voice_display(name: VoiceName) -> &'static str {
         VoiceName::Pirate => "Pirate",
         VoiceName::Custom => "Custom",
     }
-}
-
-pub fn behavior_section(ui: &mut Ui, draft: &mut Settings) {
-    CollapsingHeader::new("Behavior")
-        .default_open(false)
-        .show(ui, |ui| {
-            ui.horizontal(|ui| {
-                ui.label("Skip cleanup below");
-                ui.add(DragValue::new(&mut draft.voice.skip_below_words).range(0..=50));
-                ui.label("words");
-            });
-            ui.label(
-                RichText::new("Short dictations stay verbatim; 0 sends everything to cleanup.")
-                    .small()
-                    .weak(),
-            );
-
-            ui.add_space(4.0);
-            // The range starts at 1.0, so fully disabling the guard stays a
-            // config-file edit (`max_expansion_ratio = 0`); the slider cannot
-            // reach a value config validation would reject.
-            ui.horizontal(|ui| {
-                ui.label("Reject cleanup longer than");
-                ui.add(
-                    DragValue::new(&mut draft.voice.max_expansion_ratio)
-                        .range(1.0..=5.0)
-                        .speed(0.05)
-                        .fixed_decimals(2),
-                );
-                ui.label("x what you said");
-            });
-            ui.label(
-                RichText::new(
-                    "Keeps a voice from turning a short remark into a paragraph: over the \
-                     limit, your uncleaned words are injected instead.",
-                )
-                .small()
-                .weak(),
-            );
-
-            ui.add_space(4.0);
-            ui.checkbox(
-                &mut draft.output.strip_single_word_period,
-                "Drop the trailing period on single words",
-            );
-            ui.label(
-                RichText::new(
-                    "When you dictate just one word, inject it without the trailing period a \
-                     provider or cleanup voice adds.",
-                )
-                .small()
-                .weak(),
-            );
-
-            ui.add_space(4.0);
-            ui.horizontal(|ui| {
-                ui.label("Theme");
-                let mut preference = ui.ctx().options(|o| o.theme_preference);
-                let mut changed = false;
-                for (value, label) in [
-                    (egui::ThemePreference::System, "System"),
-                    (egui::ThemePreference::Light, "Light"),
-                    (egui::ThemePreference::Dark, "Dark"),
-                ] {
-                    changed |= ui.radio_value(&mut preference, value, label).changed();
-                }
-                if changed {
-                    // Persists via egui memory (eframe `persistence`), not
-                    // config.toml; theme::apply preserves it on relaunch.
-                    ui.ctx().set_theme(preference);
-                }
-            });
-
-            ui.add_space(4.0);
-            // The registry reconcile happens on Save (settings::mod::save), so
-            // the checkbox only edits the draft here, like every other field.
-            ui.checkbox(&mut draft.startup.launch_at_login, "Launch Hark at login");
-            ui.label(
-                RichText::new(if cfg!(target_os = "linux") {
-                    // An XDG autostart entry runs when the desktop session
-                    // starts, which is not the same moment as signing in on
-                    // Windows and is worth being accurate about.
-                    "Starts hidden in the system tray when your desktop session starts."
-                } else {
-                    "Starts hidden in the system tray when you sign in to Windows."
-                })
-                .small()
-                .weak(),
-            );
-        });
-}
-
-pub fn privacy_section(ui: &mut Ui, draft: &mut Settings) {
-    CollapsingHeader::new("History & privacy")
-        .default_open(false)
-        .show(ui, |ui| {
-            ui.checkbox(
-                &mut draft.history.capture,
-                "Save dictation history on this device",
-            );
-            ui.label(
-                RichText::new(
-                    "Off: no transcript content is stored; the lifetime counters still tick.",
-                )
-                .small()
-                .weak(),
-            );
-            ui.horizontal(|ui| {
-                ui.label("Keep at most");
-                ui.add(DragValue::new(&mut draft.history.max_entries).range(1..=100_000));
-                ui.label("entries, for");
-                ui.add(DragValue::new(&mut draft.history.max_age_days).range(1..=3_650));
-                ui.label("days");
-            });
-            ui.add_space(6.0);
-            ui.label(
-                RichText::new(
-                    "Audio goes to your STT provider on every dictation. Text goes to \
-                     your cleanup provider on non-Verbatim voices. History, stats, and \
-                     the spellbook never leave this device.",
-                )
-                .small()
-                .weak(),
-            );
-        });
 }
 
 #[cfg(test)]

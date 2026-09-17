@@ -13,14 +13,12 @@ use hark_config::{LocalMode, Settings};
 use hark_local_stt::{format_bytes, ModelStatus};
 
 pub fn section(ui: &mut Ui, draft: &mut Settings, download: &mut ModelDownload) {
-    download.poll();
-
     ui.add_space(8.0);
     ui.label(RichText::new("On-device model").text_style(theme::subheading()));
     ui.label(
         RichText::new(
             "Transcribe without the internet. Runs entirely on this computer; \
-             nothing is sent to a provider.",
+             audio stays here. Optional cleanup may still send text to your cleanup provider.",
         )
         .small()
         .weak(),
@@ -59,46 +57,41 @@ pub fn section(ui: &mut Ui, draft: &mut Settings, download: &mut ModelDownload) 
 fn unavailable(ui: &mut Ui) {
     ui.add_space(4.0);
     ui.horizontal_wrapped(|ui| {
-        ui.label(theme::icon_text(theme::icons::WARNING).color(theme::WARNING));
+        ui.label(theme::icon_text(theme::icons::WARNING).color(theme::warning(ui.visuals())));
         ui.label(
             RichText::new(
                 "This build of Hark does not include the on-device engine. \
-                 Install the \"Hark + Local\" build to use it.",
+                 Install a build with on-device transcription to use it.",
             )
             .small(),
         );
     });
 }
 
-fn card(ui: &mut Ui, draft: &mut Settings, download: &mut ModelDownload) {
+pub(super) fn card(ui: &mut Ui, draft: &mut Settings, download: &mut ModelDownload) {
     let spec = download.spec();
     let status = download.status();
 
-    egui::Frame::default()
-        .fill(theme::surface(ui.visuals()))
-        .stroke(ui.visuals().widgets.noninteractive.bg_stroke)
-        .corner_radius(8)
-        .inner_margin(egui::Margin::symmetric(14, 12))
-        .show(ui, |ui| {
-            ui.horizontal_wrapped(|ui| {
-                ui.label(RichText::new(spec.display_name).monospace());
-                ui.label(
-                    RichText::new(format!("· {}", format_bytes(spec.total_bytes())))
-                        .small()
-                        .weak(),
-                );
-            });
-
-            state_line(ui, download, status);
-            controls(ui, draft, download, status);
-
-            ui.add_space(2.0);
+    theme::card(ui, |ui| {
+        ui.horizontal_wrapped(|ui| {
+            ui.label(RichText::new(spec.display_name).text_style(theme::subheading()));
             ui.label(
-                RichText::new(format!("Model weights: {}", spec.licence))
+                RichText::new(format!("· {}", format_bytes(spec.total_bytes())))
                     .small()
                     .weak(),
             );
         });
+
+        state_line(ui, download, status);
+        controls(ui, draft, download, status);
+
+        ui.add_space(2.0);
+        ui.label(
+            RichText::new(format!("Model weights: {}", spec.licence))
+                .small()
+                .weak(),
+        );
+    });
 }
 
 /// One status line, always icon + text so state is never carried by color
@@ -114,7 +107,7 @@ fn state_line(ui: &mut Ui, download: &ModelDownload, status: ModelStatus) {
             ui.add(
                 egui::ProgressBar::new(fraction)
                     .show_percentage()
-                    .desired_width(320.0),
+                    .desired_width(ui.available_width()),
             );
             ui.label(
                 RichText::new(format!(
@@ -126,24 +119,24 @@ fn state_line(ui: &mut Ui, download: &ModelDownload, status: ModelStatus) {
                 .weak(),
             );
         }
-        Phase::Failed(msg) => line(ui, theme::icons::X, theme::DANGER, msg),
+        Phase::Failed(msg) => line(ui, theme::icons::X, theme::danger(ui.visuals()), msg),
         Phase::Cancelled => line(
             ui,
             theme::icons::WARNING,
-            theme::WARNING,
+            theme::warning(ui.visuals()),
             "Download cancelled. Starting again resumes where it stopped.",
         ),
         Phase::Idle | Phase::Done => match status {
             ModelStatus::Ready => line(
                 ui,
                 theme::icons::CHECK,
-                theme::SUCCESS,
+                theme::success(ui.visuals()),
                 "Downloaded and ready.",
             ),
             ModelStatus::Partial { have_bytes } => line(
                 ui,
                 theme::icons::WARNING,
-                theme::WARNING,
+                theme::warning(ui.visuals()),
                 &format!(
                     "Partly downloaded ({} so far). Download resumes from here.",
                     format_bytes(have_bytes)
@@ -177,7 +170,11 @@ fn controls(ui: &mut Ui, draft: &mut Settings, download: &mut ModelDownload, sta
             }
             if status != ModelStatus::NotDownloaded
                 && ui
-                    .button(format!("{} Delete", theme::icons::TRASH))
+                    .button(theme::icon_label_job(
+                        ui.style(),
+                        theme::icons::TRASH,
+                        "Delete",
+                    ))
                     .clicked()
             {
                 if let Err(e) = download.delete() {
@@ -194,7 +191,7 @@ fn controls(ui: &mut Ui, draft: &mut Settings, download: &mut ModelDownload, sta
     if draft.local_stt.mode == LocalMode::Primary && status != ModelStatus::Ready {
         ui.add_space(4.0);
         ui.horizontal_wrapped(|ui| {
-            ui.label(theme::icon_text(theme::icons::WARNING).color(theme::WARNING));
+            ui.label(theme::icon_text(theme::icons::WARNING).color(theme::warning(ui.visuals())));
             ui.label(
                 RichText::new(
                     "Dictation will not work until this finishes downloading, \
@@ -208,7 +205,7 @@ fn controls(ui: &mut Ui, draft: &mut Settings, download: &mut ModelDownload, sta
 
 fn line(ui: &mut Ui, icon: &str, color: egui::Color32, text: &str) {
     ui.horizontal_wrapped(|ui| {
-        ui.label(RichText::new(icon).color(color));
+        ui.label(theme::icon_text(icon).color(color));
         ui.label(RichText::new(text).small());
     });
 }

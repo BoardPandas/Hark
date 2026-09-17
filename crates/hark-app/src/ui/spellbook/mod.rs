@@ -104,7 +104,9 @@ impl SpellbookPage {
 
         if let Some(error) = &self.notice {
             ui.horizontal_wrapped(|ui| {
-                ui.label(theme::icon_text(theme::icons::WARNING).color(theme::DANGER));
+                ui.label(
+                    theme::icon_text(theme::icons::WARNING).color(theme::danger(ui.visuals())),
+                );
                 ui.label(RichText::new(error).small());
             });
         }
@@ -114,12 +116,20 @@ impl SpellbookPage {
             widgets::empty_state(
                 ui,
                 theme::icons::BOOK_OPEN,
-                "No spellbook terms yet.",
+                "Make yourself understood.",
                 "Add names and terms your provider keeps missing.",
             );
             return changed;
         }
-        changed | self.entry_list(ui, entries)
+        ui.horizontal(|ui| {
+            ui.label(RichText::new("YOUR VOCABULARY").small().weak());
+            ui.label(
+                RichText::new(format!("{} terms · saved automatically", entries.len()))
+                    .small()
+                    .weak(),
+            );
+        });
+        changed | theme::card(ui, |ui| self.entry_list(ui, entries)).inner
     }
 
     /// The pinned add row, plus the Advanced alias field and its guard.
@@ -150,7 +160,7 @@ impl SpellbookPage {
         ui.horizontal(|ui| {
             let output = TextEdit::singleline(&mut self.add)
                 .hint_text("Add a term")
-                .desired_width(280.0)
+                .desired_width(theme::TOOLBAR_SEARCH_WIDTH.min(ui.available_width() * 0.6))
                 .show(ui);
             let response = output.response;
             if self.add_needs_focus {
@@ -213,12 +223,14 @@ impl SpellbookPage {
         let mut changed = false;
         ui.horizontal_wrapped(|ui| {
             ui.label(
-                RichText::new(format!(
-                    "{} Added \u{201C}{added}\u{201D}",
-                    theme::icons::CHECK
-                ))
-                .small()
-                .color(theme::SUCCESS),
+                theme::icon_text(theme::icons::CHECK)
+                    .small()
+                    .color(theme::success(ui.visuals())),
+            );
+            ui.label(
+                RichText::new(format!("Added \u{201C}{added}\u{201D}"))
+                    .small()
+                    .color(theme::success(ui.visuals())),
             );
             if ui.link(RichText::new("Undo").small()).clicked() {
                 changed = undo_add(entries, &added);
@@ -246,8 +258,9 @@ impl SpellbookPage {
                     ui.horizontal(|ui| {
                         if let Some((edit_index, buffer)) = &mut self.edit {
                             if *edit_index == index {
-                                let response =
-                                    ui.add(TextEdit::singleline(buffer).desired_width(280.0));
+                                let response = ui.add(TextEdit::singleline(buffer).desired_width(
+                                    theme::TOOLBAR_SEARCH_WIDTH.min(ui.available_width() * 0.6),
+                                ));
                                 if self.edit_needs_focus {
                                     response.request_focus();
                                     self.edit_needs_focus = false;
@@ -264,9 +277,12 @@ impl SpellbookPage {
                         // A flat, full-row button: click to edit in place.
                         if ui
                             .add(
-                                egui::Button::new(RichText::new(&entries[index].term).monospace())
-                                    .fill(egui::Color32::TRANSPARENT)
-                                    .stroke(egui::Stroke::NONE),
+                                egui::Button::new(
+                                    RichText::new(&entries[index].term)
+                                        .text_style(theme::subheading()),
+                                )
+                                .fill(egui::Color32::TRANSPARENT)
+                                .stroke(egui::Stroke::NONE),
                             )
                             .on_hover_text("Click to edit")
                             .clicked()
@@ -304,7 +320,7 @@ impl SpellbookPage {
                         changed |= self.alias_editor(ui, entries, index);
                     }
                     // Nocturne fading rule under each term row.
-                    theme::fading_rule(ui, 6.0);
+                    theme::fading_rule(ui, theme::ROW_GAP);
                 }
             });
         if let Some(index) = delete {
@@ -376,7 +392,7 @@ fn alias_warning(ui: &mut Ui, alias: &str) {
         ui.label(
             theme::icon_text(theme::icons::WARNING)
                 .small()
-                .color(theme::WARNING),
+                .color(theme::warning(ui.visuals())),
         );
         ui.label(
             RichText::new(

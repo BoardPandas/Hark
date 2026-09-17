@@ -233,6 +233,7 @@ impl HarkApp {
         if self.quitting || self.tray.is_none() {
             return;
         }
+        self.views.settings.leave(&mut self.pipeline);
         ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
         ctx.send_viewport_cmd(egui::ViewportCommand::Visible(false));
     }
@@ -249,17 +250,19 @@ impl HarkApp {
     /// a stopped pipeline drops the registration and the window with it, and a
     /// restart builds a fresh one.
     fn show_recording_overlay(&mut self, ctx: &egui::Context) {
-        let (Some(meter), Some(recording)) =
-            (self.pipeline.level_meter(), self.pipeline.recording_flag())
-        else {
+        let (Some(meter), Some(recording), Some(feedback)) = (
+            self.pipeline.level_meter(),
+            self.pipeline.recording_flag(),
+            self.pipeline.overlay_feedback(),
+        ) else {
             return;
         };
         let monitor = ctx.input(|i| i.viewport().monitor_size);
-        crate::overlay::register(ctx, meter, recording, monitor);
+        crate::overlay::register(ctx, meter, recording, feedback, monitor);
 
         // A hidden overlay sleeps, so the pill's first frame of a dictation has
         // to be asked for from here. Harmless once it is up: it then drives its
-        // own ~60 fps repaints.
+        // own ~30 fps repaints.
         if matches!(self.pipeline.status(), PipelineStatus::Recording) {
             ctx.request_repaint_of(crate::overlay::viewport_id());
         }
@@ -423,6 +426,7 @@ impl eframe::App for HarkApp {
         }
         self.ensure_tray(ctx);
         self.pipeline.drain_events();
+        self.views.settings.poll();
         self.updater.poll();
         self.handle_tray_actions(ctx);
         self.handle_activations(ctx);

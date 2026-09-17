@@ -12,6 +12,7 @@ use crate::ui::stats::StatsPage;
 use crate::update::Updater;
 use hark_config::Settings;
 
+use crate::theme;
 use egui::{RichText, Ui};
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -36,11 +37,11 @@ impl Page {
 
     fn description(self) -> &'static str {
         match self {
-            Page::History => "Your dictations, newest first. Everything stays on this device.",
-            Page::Spellbook => "Names and terms your STT provider keeps missing.",
-            Page::Invocations => "Say a phrase, type a block of text you wrote.",
-            Page::Stats => "Lifetime dictation figures. They survive a history clear.",
-            Page::Settings => "Provider, key, hotkey, and voice.",
+            Page::History => "Your words, ready when you need them. History stays on this device.",
+            Page::Spellbook => "A little context. A lot more accuracy.",
+            Page::Invocations => "Say a phrase. Type exactly what you wrote.",
+            Page::Stats => "A little less typing. A little more time.",
+            Page::Settings => "Set it up once. Stay in your flow.",
         }
     }
 }
@@ -55,15 +56,6 @@ pub struct Views {
     pub stats: StatsPage,
 }
 
-/// Content column widths (Nocturne): the settings form narrows to 620px, the
-/// list/detail pages run to 820px.
-fn max_width(page: Page) -> f32 {
-    match page {
-        Page::Settings => 620.0,
-        _ => 820.0,
-    }
-}
-
 #[allow(clippy::too_many_arguments)]
 pub fn show(
     ui: &mut Ui,
@@ -75,7 +67,7 @@ pub fn show(
     storage: Option<&StorageHandle>,
     storage_error: Option<&str>,
 ) {
-    let column = max_width(*page).min(ui.available_width());
+    let column = theme::CONTENT_WIDTH.min(ui.available_width());
     let pad = ((ui.available_width() - column) / 2.0).max(0.0);
     ui.horizontal_top(|ui| {
         ui.add_space(pad);
@@ -83,7 +75,7 @@ pub fn show(
             ui.set_max_width(column);
             ui.heading(page.label());
             ui.label(RichText::new(page.description()).weak());
-            ui.add_space(14.0);
+            ui.add_space(theme::SECTION_GAP);
             match *page {
                 Page::History => {
                     // Adding from a history selection is a two-page gesture:
@@ -103,24 +95,18 @@ pub fn show(
                 }
                 Page::Spellbook => spellbook(ui, settings, pipeline, views),
                 Page::Invocations => invocations(ui, settings, pipeline, views),
-                Page::Stats => views.stats.show(ui, storage, storage_error),
-                Page::Settings => {
-                    // Long forms need a scroll container; the sidebar and
-                    // footer stay put.
-                    //
-                    // Every page's scroll area is built on *this* Ui, and a
-                    // ScrollArea's id is its parent Ui's id plus its salt --
-                    // so without distinct salts all five share one stored
-                    // offset and a page switch lands scrolled where the
-                    // previous page was. The History -> Spellbook term
-                    // handoff hits that path every time.
+                Page::Stats => {
                     egui::ScrollArea::vertical()
-                        .id_salt("settings-form")
+                        .id_salt("lifetime-stats")
                         .auto_shrink([false, false])
                         .show(ui, |ui| {
-                            ui.set_max_width(column);
-                            views.settings.show(ui, settings, pipeline, updater);
+                            egui::Frame::new()
+                                .inner_margin(theme::SHADOW_MARGIN)
+                                .show(ui, |ui| views.stats.show(ui, storage, storage_error));
                         });
+                }
+                Page::Settings => {
+                    views.settings.show(ui, settings, pipeline, updater);
                 }
             }
         });

@@ -95,7 +95,11 @@ pub fn section(
     match hark_hotkey::PttChord::parse(&draft.hotkey.ptt_key) {
         Ok(chord) => match chord.rejection() {
             Some(why) => {
-                ui.label(RichText::new(why.message()).small().color(theme::WARNING));
+                ui.label(
+                    RichText::new(why.message())
+                        .small()
+                        .color(theme::warning(ui.visuals())),
+                );
             }
             None => {
                 ui.label(
@@ -104,7 +108,11 @@ pub fn section(
                         .weak(),
                 );
                 if let Some(known) = chord.known_shortcut() {
-                    ui.label(RichText::new(known.message()).small().color(theme::WARNING));
+                    ui.label(
+                        RichText::new(known.message())
+                            .small()
+                            .color(theme::warning(ui.visuals())),
+                    );
                 }
             }
         },
@@ -174,7 +182,11 @@ fn recording_box(
             // shortcut and discovering one.
             if let Some(known) = capture.held_collision() {
                 ui.add_space(4.0);
-                ui.label(RichText::new(known.message()).small().color(theme::WARNING));
+                ui.label(
+                    RichText::new(known.message())
+                        .small()
+                        .color(theme::warning(ui.visuals())),
+                );
             }
             // A combination that cannot be a shortcut says why and lets the
             // user try again, rather than silently setting something else or
@@ -184,7 +196,7 @@ fn recording_box(
                 ui.label(
                     RichText::new(rejected.message())
                         .small()
-                        .color(theme::WARNING),
+                        .color(theme::warning(ui.visuals())),
                 );
             }
             // Split on purpose. "I press keys and nothing happens" has several

@@ -101,7 +101,7 @@ impl HistoryPage {
             widgets::empty_state(
                 ui,
                 theme::icons::CLOCK_COUNTER_CLOCKWISE,
-                "Dictations appear here.",
+                "Your next thought starts here.",
                 &format!("Hold {chord} and speak into any text field."),
             );
             return None;
@@ -182,11 +182,8 @@ impl HistoryPage {
         ui.horizontal(|ui| {
             let response = ui.add(
                 TextEdit::singleline(&mut self.search)
-                    .hint_text(format!(
-                        "{}  Search dictations",
-                        theme::icons::MAGNIFYING_GLASS
-                    ))
-                    .desired_width(270.0),
+                    .hint_text("Search dictations · Ctrl+F")
+                    .desired_width(theme::TOOLBAR_SEARCH_WIDTH.min(ui.available_width() * 0.5)),
             );
             if self.focus_search {
                 response.request_focus();
@@ -201,12 +198,14 @@ impl HistoryPage {
             } else {
                 plural(self.matching, "match")
             };
-            ui.label(RichText::new(count).weak());
+            ui.label(RichText::new(count).small().weak());
 
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                 // Quiet danger button: destructive intent named, no fill.
-                let clear = egui::Button::new(RichText::new("Clear all").color(theme::DANGER))
-                    .fill(Color32::TRANSPARENT);
+                let clear = egui::Button::new(
+                    RichText::new("Clear all").color(theme::danger(ui.visuals())),
+                )
+                .fill(Color32::TRANSPARENT);
                 if ui.add_enabled(self.total > 0, clear).clicked() {
                     self.confirm = Some(widgets::Confirm::new(
                         "Clear history?",
@@ -219,7 +218,7 @@ impl HistoryPage {
                 }
             });
         });
-        ui.add_space(4.0);
+        ui.add_space(theme::ROW_GAP);
     }
 
     /// Returns a term the user asked to add, propagated from a row.

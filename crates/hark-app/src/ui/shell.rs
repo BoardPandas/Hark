@@ -9,12 +9,7 @@ use crate::ui::{footer, pages};
 use crate::update::{Phase, Updater};
 use hark_config::Settings;
 
-use egui::{
-    Color32, CursorIcon, Frame, Layout, Margin, Panel, Rangef, RichText, Sense, Stroke, TextStyle,
-    Ui, Vec2,
-};
-
-const TOPBAR_HEIGHT: f32 = 40.0;
+use egui::{Frame, Layout, Margin, Panel, RichText, Stroke, Ui};
 
 #[allow(clippy::too_many_arguments)]
 pub fn show(
@@ -32,6 +27,7 @@ pub fn show(
     let status = pipeline.status().clone();
     if footer::show(ui, &status, settings) {
         *page = pages::Page::Settings;
+        views.settings.open(crate::ui::settings::Section::Dictation);
     }
 
     // Stacked directly above the footer, outside the settings scroll area:
@@ -42,19 +38,22 @@ pub fn show(
 
     // The top navigation bar owns the outermost top strip; the update banner
     // (when visible) stacks directly beneath it.
+    let before = *page;
     topbar(ui, page);
+    if before == pages::Page::Settings && *page != before {
+        views.settings.leave(pipeline);
+    }
     if updater.banner_visible() {
-        banner(ui, updater, page);
+        banner(ui, updater, page, &mut views.settings);
     }
 
-    let panel_fill = ui.visuals().panel_fill;
+    let panel_fill = ui.visuals().window_fill;
     egui::CentralPanel::default()
-        .frame(Frame::default().fill(panel_fill).inner_margin(Margin {
-            left: 24,
-            right: 24,
-            top: 22,
-            bottom: 14,
-        }))
+        .frame(
+            Frame::default()
+                .fill(panel_fill)
+                .inner_margin(theme::CONTENT_MARGIN),
+        )
         .show(ui, |ui| {
             pages::show(
                 ui,
@@ -69,122 +68,72 @@ pub fn show(
         });
 }
 
-/// The slim top bar: accent mic glyph + "Hark" wordmark, then the page tabs,
-/// then the Settings button and version caption pinned to the right.
 fn topbar(ui: &mut Ui, page: &mut pages::Page) {
-    let window_fill = ui.visuals().window_fill;
+    let fill = ui.visuals().panel_fill;
     Panel::top("topbar")
-        .exact_size(TOPBAR_HEIGHT)
+        .exact_size(theme::TOPBAR_HEIGHT)
         .resizable(false)
-        .show_separator_line(true)
         .frame(
-            Frame::default()
-                .fill(window_fill)
-                .inner_margin(Margin::symmetric(20, 0)),
+            Frame::new()
+                .fill(fill)
+                .inner_margin(Margin::symmetric(20, 12)),
         )
         .show(ui, |ui| {
-            ui.horizontal_centered(|ui| {
-                ui.spacing_mut().item_spacing.x = 2.0;
-                let accent = theme::accent(ui.visuals());
+            ui.horizontal(|ui| {
                 ui.label(
-                    theme::icon_text(theme::icons::MICROPHONE)
-                        .size(17.0)
-                        .color(accent),
+                    theme::icon_text(theme::icons::WAVEFORM)
+                        .size(theme::BRAND_SIZE)
+                        .color(theme::accent(ui.visuals())),
                 );
-                ui.add_space(6.0);
                 ui.label(
                     RichText::new("Hark")
                         .text_style(theme::subheading())
-                        .size(17.0),
+                        .size(theme::BRAND_SIZE),
                 );
-                ui.add_space(14.0);
-
+                ui.add_space(theme::GAP);
                 for target in [
                     pages::Page::History,
                     pages::Page::Spellbook,
                     pages::Page::Invocations,
                     pages::Page::Stats,
                 ] {
-                    tab(ui, page, target);
+                    if theme::nav_button(ui, target.label(), *page == target).clicked() {
+                        *page = target;
+                    }
                 }
-
-                // Settings + version hug the right edge.
                 ui.with_layout(Layout::right_to_left(egui::Align::Center), |ui| {
-                    ui.label(
-                        RichText::new(concat!("v", env!("CARGO_PKG_VERSION")))
-                            .small()
-                            .color(ui.visuals().weak_text_color().gamma_multiply(0.85)),
-                    );
-                    ui.add_space(8.0);
-                    settings_tab(ui, page);
+                    let label = theme::icon_label_job(ui.style(), theme::icons::GEAR, "Settings");
+                    if theme::nav_button(ui, label, *page == pages::Page::Settings).clicked() {
+                        *page = pages::Page::Settings;
+                    }
+                    if ui.available_width() > theme::CONTROL_HEIGHT * 2.0 {
+                        ui.label(
+                            RichText::new(concat!("v", env!("CARGO_PKG_VERSION")))
+                                .small()
+                                .weak(),
+                        );
+                    }
                 });
             });
         });
 }
 
-/// One page tab: label text, accent when active or hovered, with a 2px accent
-/// underline under the active tab. No pill — hierarchy is the accent line.
-fn tab(ui: &mut Ui, page: &mut pages::Page, target: pages::Page) {
-    let selected = *page == target;
-    let font = TextStyle::Body.resolve(ui.style());
-    let galley =
-        ui.painter()
-            .layout_no_wrap(target.label().to_string(), font, Color32::PLACEHOLDER);
-    let pad = Vec2::new(11.0, 6.0);
-    let (rect, resp) = ui.allocate_exact_size(galley.size() + pad * 2.0, Sense::click());
-
-    let accent = theme::accent(ui.visuals());
-    let color = if selected || resp.hovered() {
-        accent
-    } else {
-        ui.visuals().text_color()
-    };
-    let text_pos = rect.center() - galley.size() / 2.0;
-    ui.painter().galley(text_pos, galley, color);
-    if selected {
-        let y = rect.bottom() - 1.0;
-        ui.painter().hline(
-            Rangef::new(rect.left() + pad.x, rect.right() - pad.x),
-            y,
-            Stroke::new(2.0, accent),
-        );
-    }
-    if resp.hovered() {
-        ui.ctx().set_cursor_icon(CursorIcon::PointingHand);
-    }
-    if resp.clicked() {
-        *page = target;
-    }
-}
-
-/// The Settings tab is an outlined button (gear + label); on the Settings
-/// page it takes the accent border + accent text.
-fn settings_tab(ui: &mut Ui, page: &mut pages::Page) {
-    let on_settings = *page == pages::Page::Settings;
-    // Two sections, not one format!: the gear needs the icon family (Inter
-    // claims that codepoint) while "Settings" needs the text family.
-    let label = theme::icon_label_job(ui.style(), theme::icons::GEAR, "Settings");
-    let clicked = if on_settings {
-        ui.add(theme::primary_button(ui.visuals(), label)).clicked()
-    } else {
-        ui.button(label).clicked()
-    };
-    if clicked {
-        *page = pages::Page::Settings;
-    }
-}
-
 /// The update strip beneath the top bar: an accent-900 ground with accent-800
 /// bottom edge, accent-200 message, a ghost "Details" jump, an outlined
 /// primary action, and a dismiss. Status is icon + label, never color alone.
-fn banner(ui: &mut Ui, updater: &mut Updater, page: &mut pages::Page) {
+fn banner(
+    ui: &mut Ui,
+    updater: &mut Updater,
+    page: &mut pages::Page,
+    settings: &mut crate::ui::settings::SettingsPage,
+) {
     Panel::top("update-banner")
         .resizable(false)
         .show_separator_line(false)
         .frame(
             Frame::default()
-                .fill(theme::ACCENT_900)
-                .stroke(Stroke::new(1.0, theme::ACCENT_800))
+                .fill(theme::tint(ui.visuals()))
+                .stroke(Stroke::new(1.0, theme::divider(ui.visuals())))
                 .inner_margin(Margin::symmetric(20, 9)),
         )
         .show(ui, |ui| {
@@ -194,7 +143,7 @@ fn banner(ui: &mut Ui, updater: &mut Updater, page: &mut pages::Page) {
                     .release()
                     .map(|r| r.version.clone())
                     .unwrap_or_default();
-                let tint = theme::ACCENT_200;
+                let tint = theme::accent(ui.visuals());
 
                 match updater.phase() {
                     Phase::Installing(_) => {
@@ -231,7 +180,7 @@ fn banner(ui: &mut Ui, updater: &mut Updater, page: &mut pages::Page) {
                     {
                         updater.dismiss_banner();
                     }
-                    banner_action(ui, updater, page);
+                    banner_action(ui, updater, page, settings);
                 });
             });
         });
@@ -239,7 +188,12 @@ fn banner(ui: &mut Ui, updater: &mut Updater, page: &mut pages::Page) {
 
 /// The banner's primary action, matched to the current phase. Outlined
 /// primary on the accent ground; "Details" is a ghost jump to Settings.
-fn banner_action(ui: &mut Ui, updater: &mut Updater, page: &mut pages::Page) {
+fn banner_action(
+    ui: &mut Ui,
+    updater: &mut Updater,
+    page: &mut pages::Page,
+    settings: &mut crate::ui::settings::SettingsPage,
+) {
     let visuals = ui.visuals().clone();
     match updater.phase() {
         Phase::Installing(_) => {}
@@ -267,12 +221,57 @@ fn banner_action(ui: &mut Ui, updater: &mut Updater, page: &mut pages::Page) {
             // "Details" jumps to the Settings section with the release notes.
             if ui
                 .add(
-                    egui::Button::new(RichText::new("Details").color(theme::ACCENT_200))
+                    egui::Button::new(RichText::new("Details").color(theme::accent(ui.visuals())))
                         .frame(false),
                 )
                 .clicked()
             {
                 *page = pages::Page::Settings;
+                settings.open(crate::ui::settings::Section::Updates);
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn navigation_labels_fit_the_minimum_window_in_both_themes() {
+        for preference in [egui::ThemePreference::Dark, egui::ThemePreference::Light] {
+            let ctx = egui::Context::default();
+            theme::apply(&ctx);
+            ctx.set_theme(preference);
+            let mut page = pages::Page::Settings;
+            for _ in 0..2 {
+                let mut output = ctx.run_ui(
+                    egui::RawInput {
+                        screen_rect: Some(egui::Rect::from_min_size(
+                            egui::Pos2::ZERO,
+                            egui::vec2(720.0, 480.0),
+                        )),
+                        ..Default::default()
+                    },
+                    |ui| topbar(ui, &mut page),
+                );
+                output.textures_delta.clear();
+                let mut labels = Vec::new();
+                for shape in output.shapes {
+                    if let egui::Shape::Text(text) = shape.shape {
+                        let rect = egui::Rect::from_min_size(text.pos, text.galley.size());
+                        assert!(
+                            rect.left() >= 0.0 && rect.right() <= 720.0,
+                            "label {:?} overflows: {rect:?}",
+                            text.galley.text()
+                        );
+                        labels.push(text.galley.text().to_owned());
+                    }
+                }
+                for page in ["History", "Spellbook", "Invocations", "Stats"] {
+                    assert!(labels.iter().any(|label| label == page), "missing {page}");
+                }
+                assert!(labels.iter().any(|label| label.contains("Settings")));
             }
         }
     }

@@ -180,7 +180,7 @@ No web env vars. Settings and secrets live in OS-standard locations:
 ## On-device transcription
 
 Optional, off by default, and included in every stock build. Under **Settings →
-On-device model** you can download a Parakeet model (~670 MB) and then run it in
+On-device** you can download a Parakeet model (~670 MB) and then run it in
 one of two modes:
 
 - **Backup** — the cloud provider stays primary; Hark falls back to the local

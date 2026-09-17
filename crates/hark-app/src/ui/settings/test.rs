@@ -39,33 +39,53 @@ enum State {
 
 pub struct TestConnection {
     state: State,
+    tested: Option<Settings>,
 }
 
 impl TestConnection {
     pub fn new() -> Self {
-        TestConnection { state: State::Idle }
+        TestConnection {
+            state: State::Idle,
+            tested: None,
+        }
     }
 
     pub fn stt_passed(&self) -> bool {
         matches!(&self.state, State::Done(r) if r.stt.is_ok())
     }
 
-    /// Poll + render. Returns true on the frame a test completes.
-    pub fn show(&mut self, ui: &mut Ui, draft: &Settings) -> bool {
-        let mut finished = false;
+    pub fn reset(&mut self) {
+        self.state = State::Idle;
+        self.tested = None;
+    }
+
+    pub fn passed_for(&self, draft: &Settings) -> bool {
+        self.stt_passed()
+            && self
+                .tested
+                .as_ref()
+                .is_some_and(|s| s.provider == draft.provider)
+    }
+
+    pub fn poll(&mut self) -> bool {
         if let State::Running(rx) = &self.state {
             if let Ok(report) = rx.try_recv() {
                 self.state = State::Done(report);
-                finished = true;
+                return true;
             }
         }
+        false
+    }
 
+    /// Rendering does not consume completion; SettingsPage polls from App::logic.
+    pub fn show(&mut self, ui: &mut Ui, draft: &Settings) {
         let running = matches!(self.state, State::Running(_));
         ui.horizontal(|ui| {
             if ui
                 .add_enabled(!running, egui::Button::new("Test connection"))
                 .clicked()
             {
+                self.tested = Some(draft.clone());
                 self.state = State::Running(spawn(draft.clone(), ui.ctx().clone()));
             }
             if running {
@@ -87,7 +107,6 @@ impl TestConnection {
         if let State::Done(report) = &self.state {
             show_report(ui, report);
         }
-        finished
     }
 }
 
@@ -95,7 +114,7 @@ fn show_report(ui: &mut Ui, report: &TestReport) {
     match &report.stt {
         Ok(pass) => {
             ui.horizontal(|ui| {
-                ui.label(theme::icon_text(theme::icons::CHECK).color(theme::SUCCESS));
+                ui.label(theme::icon_text(theme::icons::CHECK).color(theme::success(ui.visuals())));
                 ui.add(
                     egui::Label::new(RichText::new(format!("\u{201C}{}\u{201D}", pass.text)))
                         .truncate(),
@@ -112,7 +131,7 @@ fn show_report(ui: &mut Ui, report: &TestReport) {
         }
         Err(detail) => {
             ui.horizontal_wrapped(|ui| {
-                ui.label(theme::icon_text(theme::icons::X).color(theme::DANGER));
+                ui.label(theme::icon_text(theme::icons::X).color(theme::danger(ui.visuals())));
                 ui.label(detail);
             });
         }
@@ -120,14 +139,14 @@ fn show_report(ui: &mut Ui, report: &TestReport) {
     match &report.cleanup {
         Some(Ok(pass)) => {
             ui.horizontal(|ui| {
-                ui.label(theme::icon_text(theme::icons::CHECK).color(theme::SUCCESS));
+                ui.label(theme::icon_text(theme::icons::CHECK).color(theme::success(ui.visuals())));
                 ui.label(format!("Cleanup {}", pass.model));
                 ui.label(RichText::new(format!("{} ms", pass.ms)).monospace().weak());
             });
         }
         Some(Err(detail)) => {
             ui.horizontal_wrapped(|ui| {
-                ui.label(theme::icon_text(theme::icons::X).color(theme::DANGER));
+                ui.label(theme::icon_text(theme::icons::X).color(theme::danger(ui.visuals())));
                 ui.label(format!("Cleanup: {detail}"));
             });
         }
@@ -247,6 +266,32 @@ pub(super) fn cleanup_test(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn setup_readiness_requires_the_tested_provider_configuration_and_current_key() {
+        let mut settings = Settings::default();
+        let mut connection = TestConnection::new();
+        assert!(!connection.passed_for(&settings));
+        connection.tested = Some(settings.clone());
+        connection.state = State::Done(TestReport {
+            provider: settings.provider.kind.label().into(),
+            model: settings.provider.resolved_model(),
+            stt: Ok(SttPass {
+                text: "A test".into(),
+                ms: 20,
+            }),
+            cleanup: None,
+        });
+        assert!(connection.passed_for(&settings));
+        settings.provider.model = Some("different-model".into());
+        assert!(!connection.passed_for(&settings));
+        settings = Settings::default();
+        connection.reset();
+        assert!(
+            !connection.passed_for(&settings),
+            "replacing/removing a key invalidates success"
+        );
+    }
 
     // Only the resolution gate is testable without network or keychain:
     // both no-cleanup outcomes must return None before any key lookup.

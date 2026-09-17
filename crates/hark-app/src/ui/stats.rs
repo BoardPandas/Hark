@@ -5,7 +5,7 @@
 use crate::storage::{StorageCmd, StorageHandle};
 use crate::theme;
 use crate::ui::{format, widgets};
-use egui::{CornerRadius, Frame, Margin, ProgressBar, RichText, Ui};
+use egui::{ProgressBar, RichText, Ui};
 use hark_store::Stats;
 use jiff::tz::TimeZone;
 
@@ -68,14 +68,14 @@ impl StatsPage {
         }
 
         cards(ui, &stats);
-        ui.add_space(10.0);
+        ui.add_space(theme::SECTION_GAP);
         ui.label(format!(
-            "About {} saved vs typing at 40 WPM.",
+            "About {} saved compared with typing at 40 WPM.",
             format::duration(format::time_saved_ms(stats.words, stats.audio_ms))
         ));
         ui.label(
             RichText::new(format!(
-                "Since {}.",
+                "Lifetime totals since {}. Clearing history does not reset these numbers.",
                 format::date(stats.since_ts_ms, &self.tz)
             ))
             .small()
@@ -85,7 +85,10 @@ impl StatsPage {
         ui.add_space(16.0);
         // Danger-outlined button; the confirm names what survives (§3.3
         // independence rule: reset never touches history entries).
-        if ui.add(theme::danger_button("Reset stats")).clicked() {
+        if ui
+            .add(theme::danger_button(ui.visuals(), "Reset stats"))
+            .clicked()
+        {
             self.confirm = Some(widgets::Confirm::new(
                 "Reset stats?",
                 "Sets every counter to zero and restarts the since-date. \
@@ -147,57 +150,64 @@ fn gate(ui: &mut Ui, dictations: i64) {
 /// 2x2 lifetime cards: dictations, words, speaking time, average
 /// release-to-inject (derived from the migration-002 sum).
 fn cards(ui: &mut Ui, stats: &Stats) {
-    let gap = ui.spacing().item_spacing.x;
-    let width = ((ui.available_width() - gap) / 2.0).clamp(140.0, 340.0);
-    ui.horizontal(|ui| {
-        card(
-            ui,
-            width,
-            &format::count(stats.dictations),
+    let values = [
+        (
+            format::count(stats.dictations),
             "Dictations",
-            false,
-        );
-        card(ui, width, &format::count(stats.words), "Words", false);
-    });
-    ui.horizontal(|ui| {
-        card(
-            ui,
-            width,
-            &format::duration(stats.audio_ms),
+            theme::icons::MICROPHONE,
+        ),
+        (format::count(stats.words), "Words", theme::icons::BOOK_OPEN),
+        (
+            format::duration(stats.audio_ms),
             "Speaking time",
-            false,
-        );
-        let (avg, mono) = match average_total_ms(stats) {
-            // Latency reads in ms, mono font (§3.10 copy voice).
-            Some(avg) => (format!("{avg} ms"), true),
-            // An upgraded pre-002 database has no total sum yet; an average
-            // of zero would be a lie, so admit there is no data.
-            None => ("n/a".to_string(), false),
-        };
-        card(ui, width, &avg, "Avg release-to-inject", mono);
-    });
-}
-
-fn card(ui: &mut Ui, width: f32, value: &str, label: &str, mono: bool) {
-    Frame::default()
-        .fill(ui.visuals().faint_bg_color)
-        .stroke(ui.visuals().widgets.noninteractive.bg_stroke)
-        .corner_radius(CornerRadius::same(8))
-        .inner_margin(Margin::same(14))
-        .show(ui, |ui| {
-            ui.set_width(width - 28.0);
-            // Big value: Inter Medium 26px, or JetBrains Mono 23px for the
-            // latency figure (§3.10 copy voice).
-            let value = if mono {
-                RichText::new(value).monospace().size(23.0)
-            } else {
-                RichText::new(value)
-                    .text_style(theme::subheading())
-                    .size(26.0)
-            };
-            ui.label(value);
-            ui.label(RichText::new(label).small().weak());
+            theme::icons::CLOCK,
+        ),
+        (
+            average_total_ms(stats).map_or_else(|| "n/a".to_string(), |ms| format!("{ms} ms")),
+            "Avg. release to insert",
+            theme::icons::LIGHTNING,
+        ),
+    ];
+    let columns = if ui.available_width() >= theme::MIN_CARD_WIDTH * 2.0 {
+        2
+    } else {
+        1
+    };
+    for row in values.chunks(columns) {
+        let width = (ui.available_width() - theme::ROW_GAP * (columns - 1) as f32) / columns as f32;
+        ui.horizontal_top(|ui| {
+            ui.spacing_mut().item_spacing.x = theme::ROW_GAP;
+            for (value, label, icon) in row {
+                ui.allocate_ui_with_layout(
+                    egui::vec2(width, 0.0),
+                    egui::Layout::top_down(egui::Align::Min),
+                    |ui| {
+                        theme::card(ui, |ui| {
+                            ui.horizontal(|ui| {
+                                ui.label(RichText::new(*label).small().weak());
+                                ui.with_layout(
+                                    egui::Layout::right_to_left(egui::Align::Center),
+                                    |ui| {
+                                        ui.label(
+                                            theme::icon_text(icon)
+                                                .color(ui.visuals().weak_text_color()),
+                                        );
+                                    },
+                                );
+                            });
+                            ui.add_space(theme::ROW_GAP);
+                            ui.label(
+                                RichText::new(value)
+                                    .text_style(theme::subheading())
+                                    .size(theme::STAT_SIZE),
+                            );
+                        });
+                    },
+                );
+            }
         });
+        ui.add_space(theme::GAP);
+    }
 }
 
 /// Average release-to-inject; `None` until the total sum carries data

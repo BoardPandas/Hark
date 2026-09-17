@@ -60,7 +60,7 @@ impl InvocationsPage {
         if ui
             .add(theme::primary_button(
                 ui.visuals(),
-                format!("{}  New invocation", theme::icons::LIGHTNING),
+                theme::icon_label_job(ui.style(), theme::icons::LIGHTNING, "New invocation"),
             ))
             .clicked()
         {
@@ -70,7 +70,9 @@ impl InvocationsPage {
         if let Some(error) = &self.notice {
             ui.add_space(6.0);
             ui.horizontal_wrapped(|ui| {
-                ui.label(theme::icon_text(theme::icons::WARNING).color(theme::DANGER));
+                ui.label(
+                    theme::icon_text(theme::icons::WARNING).color(theme::danger(ui.visuals())),
+                );
                 ui.label(RichText::new(error).small());
             });
         }
@@ -106,7 +108,9 @@ impl InvocationsPage {
                                     theme::icon_text(theme::icons::LIGHTNING)
                                         .color(theme::accent(ui.visuals())),
                                 );
-                                ui.label(RichText::new(&entry.phrase).monospace());
+                                ui.label(
+                                    RichText::new(&entry.phrase).text_style(theme::subheading()),
+                                );
                                 ui.label(RichText::new(entry.scope.label()).small().weak());
                             });
                             let preview =
@@ -123,9 +127,13 @@ impl InvocationsPage {
                                     ui.label(
                                         theme::icon_text(theme::icons::WARNING)
                                             .small()
-                                            .color(theme::WARNING),
+                                            .color(theme::warning(ui.visuals())),
                                     );
-                                    ui.label(RichText::new(reason).small().color(theme::WARNING));
+                                    ui.label(
+                                        RichText::new(reason)
+                                            .small()
+                                            .color(theme::warning(ui.visuals())),
+                                    );
                                 });
                             }
                         });
@@ -142,7 +150,7 @@ impl InvocationsPage {
                             }
                         });
                     });
-                    theme::fading_rule(ui, 8.0);
+                    theme::fading_rule(ui, theme::ROW_GAP);
                 }
             });
 

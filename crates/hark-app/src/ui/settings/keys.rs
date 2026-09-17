@@ -57,9 +57,9 @@ impl KeySection {
     pub fn show(&mut self, ui: &mut Ui) -> bool {
         let mut changed = false;
 
-        let (icon, color, text) = status_line(&self.status, &self.account);
+        let (icon, color, text) = status_line(ui.visuals(), &self.status, &self.account);
         ui.horizontal(|ui| {
-            ui.label(RichText::new(icon).color(color));
+            ui.label(theme::icon_text(icon).color(color));
             ui.label(text);
         });
 
@@ -102,11 +102,19 @@ impl KeySection {
 
         if let Some(notice) = &self.notice {
             let (icon, color, text) = match notice {
-                Ok(t) => (theme::icons::CHECK, theme::SUCCESS, t.as_str()),
-                Err(t) => (theme::icons::WARNING, theme::DANGER, t.as_str()),
+                Ok(t) => (
+                    theme::icons::CHECK,
+                    theme::success(ui.visuals()),
+                    t.as_str(),
+                ),
+                Err(t) => (
+                    theme::icons::WARNING,
+                    theme::danger(ui.visuals()),
+                    t.as_str(),
+                ),
             };
             ui.horizontal(|ui| {
-                ui.label(RichText::new(icon).color(color));
+                ui.label(theme::icon_text(icon).color(color));
                 ui.label(RichText::new(text).small());
             });
         }
@@ -134,21 +142,25 @@ impl KeySection {
 
 /// Pure status -> (icon, color, copy) mapping (the testable seam). Status is
 /// never conveyed by color alone; the icon and copy carry it too.
-fn status_line(status: &KeyStatus, account: &str) -> (&'static str, Color32, String) {
+fn status_line(
+    visuals: &egui::Visuals,
+    status: &KeyStatus,
+    account: &str,
+) -> (&'static str, Color32, String) {
     match status {
         KeyStatus::Stored => (
             theme::icons::CHECK,
-            theme::SUCCESS,
+            theme::success(visuals),
             format!("Key stored for {account}"),
         ),
         KeyStatus::Missing => (
             theme::icons::KEY,
-            theme::WARNING,
+            theme::warning(visuals),
             format!("No key for {account} yet"),
         ),
         KeyStatus::Backend(detail) => (
             theme::icons::WARNING,
-            theme::DANGER,
+            theme::danger(visuals),
             format!("Keychain unavailable: {detail}"),
         ),
     }
@@ -160,16 +172,19 @@ mod tests {
 
     #[test]
     fn status_lines_name_the_account_and_never_leak_key_material() {
-        let (icon, _, text) = status_line(&KeyStatus::Stored, "deepgram");
+        let (icon, _, text) = status_line(&egui::Visuals::dark(), &KeyStatus::Stored, "deepgram");
         assert_eq!(icon, theme::icons::CHECK);
         assert_eq!(text, "Key stored for deepgram");
 
-        let (icon, _, text) = status_line(&KeyStatus::Missing, "groq");
+        let (icon, _, text) = status_line(&egui::Visuals::dark(), &KeyStatus::Missing, "groq");
         assert_eq!(icon, theme::icons::KEY);
         assert_eq!(text, "No key for groq yet");
 
-        let (icon, _, text) =
-            status_line(&KeyStatus::Backend("locked vault".to_string()), "openai");
+        let (icon, _, text) = status_line(
+            &egui::Visuals::dark(),
+            &KeyStatus::Backend("locked vault".to_string()),
+            "openai",
+        );
         assert_eq!(icon, theme::icons::WARNING);
         assert_eq!(text, "Keychain unavailable: locked vault");
     }

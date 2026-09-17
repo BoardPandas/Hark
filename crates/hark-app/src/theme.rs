@@ -3,14 +3,16 @@
 //! icon glyphs. `apply` runs once at startup; no panel sets ad-hoc colors,
 //! sizes, or spacing inline.
 
-use egui::epaint::{Mesh, Shadow, Vertex, WHITE_UV};
+use egui::epaint::Shadow;
 use egui::style::{Selection, WidgetVisuals, Widgets};
 use egui::{
-    Color32, Context, CornerRadius, FontData, FontDefinitions, FontFamily, FontId, Margin, Pos2,
-    Rect, RichText, Sense, Stroke, TextStyle, Theme, Ui, Vec2, Visuals,
+    Color32, Context, CornerRadius, FontFamily, FontId, Margin, Rect, RichText, Sense, Stroke,
+    TextStyle, Theme, Ui, Vec2, Visuals,
 };
 use std::collections::BTreeMap;
-use std::sync::Arc;
+mod fonts;
+use fonts::font_definitions;
+pub use fonts::{icon, icon_label_job, icon_text};
 
 /// Phosphor glyphs, vendored from the egui-phosphor 0.12.0 crate package
 /// (regular variant) because that crate still pins egui 0.34. Codepoints
@@ -44,88 +46,185 @@ pub mod icons {
     pub const X: &str = "\u{E4F6}";
 }
 
-// --- palette (Nocturne design language; values from nocturne-styles.css) ---
-//
-// The ground is a near-neutral blue-grey; surfaces (cards, inputs, expanded
-// panels, dialogs) sit one step lighter. Hierarchy is size and space, not
-// weight; the single blurple accent appears as a line/glow, never a flood —
-// buttons are outlined, not filled (see the button helpers below).
-
-/// Ground `--color-bg`: top bar, footer, content — the whole window base.
-const DARK_WINDOW: Color32 = Color32::from_rgb(0x16, 0x18, 0x26);
-/// Content region; the same ground — panels are separated by hairline rules,
-/// not a tonal step.
-const DARK_PANEL: Color32 = DARK_WINDOW;
-/// `--color-surface`: cards, inputs, expanded detail panels, dialogs.
-const DARK_SURFACE: Color32 = Color32::from_rgb(0x23, 0x25, 0x32);
-/// Box outlines / control borders (neutral-800, the shadow-sm edge).
-const DARK_HAIRLINE: Color32 = Color32::from_rgb(0x3F, 0x42, 0x4D);
-/// A brighter hairline on hover/press (neutral-700, the shadow-md edge).
-const DARK_HAIRLINE_STRONG: Color32 = Color32::from_rgb(0x59, 0x5D, 0x6C);
-/// `--color-text`.
-const DARK_TEXT: Color32 = Color32::from_rgb(0xE9, 0xE9, 0xED);
-/// neutral-100.
-const DARK_TEXT_STRONG: Color32 = Color32::from_rgb(0xF3, 0xF5, 0xFE);
-/// Muted text (neutral-500) — the design's ~50% text step, solid so it clears
-/// WCAG AA on both ground and surface.
-const DARK_TEXT_WEAK: Color32 = Color32::from_rgb(0x93, 0x97, 0xAB);
-/// Interactive accent `--color-accent`: links, focus, selection, outlined
-/// primary buttons, active nav.
-const DARK_ACCENT: Color32 = Color32::from_rgb(0x91, 0x84, 0xD9);
-/// A solid accent fill for the rare non-text accent surface (progress fill):
-/// accent-700, deep enough that white text keeps >= 4.5:1.
-const DARK_ACCENT_FILL: Color32 = Color32::from_rgb(0x5D, 0x52, 0x94);
-/// Subtle neutral tint used as the resting hover fill (≈ the surface step).
-const DARK_FILL_HOVER: Color32 = Color32::from_rgb(0x23, 0x25, 0x32);
-const DARK_FILL_PRESS: Color32 = Color32::from_rgb(0x2B, 0x2E, 0x3C);
-
-// Light theme derives from the same OKLCH ramps (neutral / accent).
-const LIGHT_WINDOW: Color32 = Color32::from_rgb(0xF3, 0xF5, 0xFE); // neutral-100
-const LIGHT_PANEL: Color32 = LIGHT_WINDOW;
-const LIGHT_SURFACE: Color32 = Color32::from_rgb(0xFF, 0xFF, 0xFF);
-const LIGHT_HAIRLINE: Color32 = Color32::from_rgb(0xCF, 0xD3, 0xE5); // neutral-300
-const LIGHT_HAIRLINE_STRONG: Color32 = Color32::from_rgb(0xB2, 0xB6, 0xCA); // neutral-400
-const LIGHT_TEXT: Color32 = Color32::from_rgb(0x29, 0x2B, 0x31); // neutral-900
-const LIGHT_TEXT_STRONG: Color32 = Color32::from_rgb(0x16, 0x18, 0x26);
-const LIGHT_TEXT_WEAK: Color32 = Color32::from_rgb(0x59, 0x5D, 0x6C); // neutral-700
-const LIGHT_ACCENT: Color32 = Color32::from_rgb(0x5D, 0x52, 0x94); // accent-700
+// Refined Nocturne: neutral canvas, raised charcoal surfaces, restrained violet.
+const DARK_WINDOW: Color32 = Color32::from_rgb(0x1A, 0x1C, 0x20);
+const DARK_PANEL: Color32 = Color32::from_rgb(0x15, 0x17, 0x1B);
+const DARK_SURFACE: Color32 = Color32::from_rgb(0x23, 0x26, 0x2C);
+const DARK_HAIRLINE: Color32 = Color32::from_rgb(0x38, 0x3C, 0x45);
+const DARK_HAIRLINE_STRONG: Color32 = Color32::from_rgb(0x58, 0x5D, 0x69);
+const DARK_TEXT: Color32 = Color32::from_rgb(0xED, 0xEE, 0xF3);
+const DARK_TEXT_STRONG: Color32 = Color32::from_rgb(0xF5, 0xF6, 0xFA);
+const DARK_TEXT_WEAK: Color32 = Color32::from_rgb(0xA8, 0xAD, 0xBB);
+const DARK_ACCENT: Color32 = Color32::from_rgb(0xB7, 0xA3, 0xF7);
+const DARK_ACCENT_FILL: Color32 = DARK_ACCENT;
+const DARK_FILL_HOVER: Color32 = Color32::from_rgb(0x2D, 0x30, 0x38);
+const DARK_FILL_PRESS: Color32 = Color32::from_rgb(0x34, 0x2D, 0x48);
+const LIGHT_WINDOW: Color32 = Color32::from_rgb(0xF3, 0xF3, 0xF6);
+const LIGHT_PANEL: Color32 = Color32::from_rgb(0xFA, 0xFA, 0xFB);
+const LIGHT_SURFACE: Color32 = Color32::WHITE;
+const LIGHT_HAIRLINE: Color32 = Color32::from_rgb(0xDE, 0xDF, 0xE6);
+const LIGHT_HAIRLINE_STRONG: Color32 = Color32::from_rgb(0xAF, 0xB1, 0xBE);
+const LIGHT_TEXT: Color32 = Color32::from_rgb(0x23, 0x24, 0x2D);
+const LIGHT_TEXT_STRONG: Color32 = Color32::from_rgb(0x18, 0x19, 0x21);
+const LIGHT_TEXT_WEAK: Color32 = Color32::from_rgb(0x62, 0x65, 0x74);
+const LIGHT_ACCENT: Color32 = Color32::from_rgb(0x68, 0x47, 0xC4);
 const LIGHT_ACCENT_FILL: Color32 = LIGHT_ACCENT;
-const LIGHT_FILL_HOVER: Color32 = Color32::from_rgb(0xE4, 0xE7, 0xF5); // neutral-200
-const LIGHT_FILL_PRESS: Color32 = Color32::from_rgb(0xCF, 0xD3, 0xE5); // neutral-300
+const LIGHT_FILL_HOVER: Color32 = Color32::from_rgb(0xEE, 0xEE, 0xF3);
+const LIGHT_FILL_PRESS: Color32 = Color32::from_rgb(0xEC, 0xE6, 0xFD);
 
-/// Accent ramp stops used by name (the update banner, tags).
-pub const ACCENT_200: Color32 = Color32::from_rgb(0xE7, 0xE5, 0xFE);
-pub const ACCENT_800: Color32 = Color32::from_rgb(0x42, 0x3A, 0x6A);
-pub const ACCENT_900: Color32 = Color32::from_rgb(0x2B, 0x27, 0x41);
+pub const DANGER: Color32 = Color32::from_rgb(0xF1, 0x9C, 0xAB);
+pub const SUCCESS: Color32 = Color32::from_rgb(0x8B, 0xD5, 0xAF);
+pub const WARNING: Color32 = Color32::from_rgb(0xE5, 0xBC, 0x75);
+const LIGHT_DANGER: Color32 = Color32::from_rgb(0xB6, 0x3B, 0x50);
+const LIGHT_SUCCESS: Color32 = Color32::from_rgb(0x23, 0x75, 0x4F);
+const LIGHT_WARNING: Color32 = Color32::from_rgb(0x91, 0x5C, 0x10);
+const ON_DARK_ACCENT: Color32 = Color32::from_rgb(0x23, 0x1A, 0x38);
 
-/// Semantic colors (harmonized in OKLCH), shared by both themes; always
-/// paired with an icon or label (guardrails §3), never the sole carrier of a
-/// state. danger oklch(0.68 0.15 15), success oklch(0.72 0.12 155),
-/// warning oklch(0.78 0.13 75).
-pub const DANGER: Color32 = Color32::from_rgb(0xE7, 0x6A, 0x78);
-pub const SUCCESS: Color32 = Color32::from_rgb(0x45, 0xB4, 0x87);
-pub const WARNING: Color32 = Color32::from_rgb(0xD9, 0xA0, 0x40);
-
-/// Tray icon fills (CP5): drawn into RGBA bitmaps, not painted by egui, so
-/// they cannot follow the theme. Mid-tones legible on both light and dark
-/// taskbars; the dark accent doubles as the tray accent.
-pub const TRAY_ACCENT: Color32 = DARK_ACCENT;
+pub const TRAY_MARK: Color32 = ON_DARK_ACCENT;
+pub const TRAY_ACCENT: Color32 = Color32::from_rgb(0x91, 0x84, 0xD9);
 pub const TRAY_STOPPED: Color32 = Color32::from_rgb(0x8A, 0x8F, 0x98);
-
-/// Recording overlay tokens (the Phase 5 "floating recording pill"): a
-/// floating always-on-top viewport shown while the push-to-talk chord is
-/// held. It is always dark and reads over arbitrary desktop content, so its
-/// palette is fixed rather than theme-paired. The accent is the tray/brand
-/// purple.
 pub const OVERLAY_ACCENT: Color32 = DARK_ACCENT;
-/// The dark "pill" capsule behind the pulsing circle: near-black translucent
-/// (#101120 @ 92%) so it blends over the desktop through the transparent
-/// overlay window. Stored premultiplied.
-pub const OVERLAY_PILL_FILL: Color32 = Color32::from_rgba_premultiplied(0x0F, 0x10, 0x1D, 0xEB);
-/// A hairline rim on the pill so it stays legible on same-tone backgrounds.
-pub const OVERLAY_PILL_STROKE: Color32 = Color32::from_rgba_premultiplied(0x2E, 0x30, 0x3B, 0x80);
-/// The pill's "Listening…" label sits in neutral-200.
-pub const OVERLAY_TEXT: Color32 = Color32::from_rgb(0xE4, 0xE7, 0xF5);
+pub const OVERLAY_PILL_FILL: Color32 = DARK_SURFACE;
+pub const OVERLAY_PILL_STROKE: Color32 = DARK_HAIRLINE;
+pub const OVERLAY_TEXT: Color32 = DARK_TEXT;
+pub const OVERLAY_SIZE: Vec2 = Vec2::new(192.0, 46.0);
+pub const OVERLAY_SPINNER_STROKE: f32 = 2.0;
+pub const OVERLAY_ICON_SIZE: f32 = 20.0;
+pub const OVERLAY_HIGHLIGHT: Color32 = Color32::from_rgb(0x46, 0x48, 0x52);
+pub const OVERLAY_FONT: f32 = 13.0;
+pub const OVERLAY_WAVE_WIDTH: f32 = 3.0;
+pub const OVERLAY_WAVE_GAP: f32 = 3.0;
+pub const OVERLAY_WAVE_HEIGHT: f32 = 22.0;
+pub const OVERLAY_INSET: f32 = 24.0;
+pub const OVERLAY_LABEL_OFFSET: f32 = 36.0;
+pub const TOPBAR_HEIGHT: f32 = 60.0;
+pub const FOOTER_HEIGHT: f32 = 38.0;
+pub const CONTENT_WIDTH: f32 = 860.0;
+pub const SETTINGS_NAV_WIDTH: f32 = 156.0;
+pub const SETTINGS_BREAKPOINT: f32 = 670.0;
+pub const CONTROL_HEIGHT: f32 = 34.0;
+pub const CONTROL_RADIUS: u8 = 7;
+pub const SURFACE_RADIUS: u8 = 9;
+pub const DIALOG_RADIUS: u8 = 12;
+pub const GAP: f32 = 8.0;
+pub const SECTION_GAP: f32 = 24.0;
+pub const ROW_GAP: f32 = 16.0;
+pub const SHADOW_MARGIN: Margin = Margin::same(4);
+pub const CARD_PADDING: i8 = 18;
+pub const CONTENT_MARGIN: Margin = Margin {
+    left: 28,
+    right: 28,
+    top: 30,
+    bottom: 20,
+};
+pub const TITLE_SIZE: f32 = 26.0;
+pub const STAT_SIZE: f32 = 34.0;
+pub const BRAND_SIZE: f32 = 18.0;
+pub const META_SIZE: f32 = 12.0;
+pub const EMPTY_ICON_SIZE: f32 = 30.0;
+pub const EMPTY_GAP: f32 = 48.0;
+pub const DIALOG_WIDTH: f32 = 400.0;
+pub const DIALOG_TITLE_SIZE: f32 = 20.0;
+pub const TOOLBAR_SEARCH_WIDTH: f32 = 320.0;
+pub const LIST_ACTIONS_WIDTH: f32 = 116.0;
+pub const MIN_CARD_WIDTH: f32 = 240.0;
+
+pub fn danger(v: &Visuals) -> Color32 {
+    if v.dark_mode {
+        DANGER
+    } else {
+        LIGHT_DANGER
+    }
+}
+pub fn success(v: &Visuals) -> Color32 {
+    if v.dark_mode {
+        SUCCESS
+    } else {
+        LIGHT_SUCCESS
+    }
+}
+pub fn warning(v: &Visuals) -> Color32 {
+    if v.dark_mode {
+        WARNING
+    } else {
+        LIGHT_WARNING
+    }
+}
+pub fn on_accent(v: &Visuals) -> Color32 {
+    if v.dark_mode {
+        ON_DARK_ACCENT
+    } else {
+        Color32::WHITE
+    }
+}
+pub fn tint(v: &Visuals) -> Color32 {
+    if v.dark_mode {
+        DARK_FILL_PRESS
+    } else {
+        LIGHT_FILL_PRESS
+    }
+}
+pub fn edge(v: &Visuals) -> Color32 {
+    Color32::from_white_alpha(if v.dark_mode { 18 } else { 220 })
+}
+pub fn surface_shadow(v: &Visuals) -> Shadow {
+    Shadow {
+        offset: [0, 3],
+        blur: 10,
+        spread: 0,
+        color: Color32::from_black_alpha(if v.dark_mode { 48 } else { 13 }),
+    }
+}
+pub fn surface_frame(v: &Visuals) -> egui::Frame {
+    egui::Frame::new()
+        .fill(surface(v))
+        .stroke(v.widgets.noninteractive.bg_stroke)
+        .corner_radius(SURFACE_RADIUS)
+        .inner_margin(Margin::same(CARD_PADDING))
+        .shadow(surface_shadow(v))
+}
+pub fn card<R>(ui: &mut Ui, add_contents: impl FnOnce(&mut Ui) -> R) -> egui::InnerResponse<R> {
+    let response = surface_frame(ui.visuals()).show(ui, |ui| {
+        ui.set_min_width(ui.available_width());
+        add_contents(ui)
+    });
+    highlight(ui, response.response.rect);
+    response
+}
+pub fn highlight(ui: &Ui, rect: Rect) {
+    ui.painter().hline(
+        rect.left() + SURFACE_RADIUS as f32..=rect.right() - SURFACE_RADIUS as f32,
+        rect.top() + 1.0,
+        Stroke::new(1.0, edge(ui.visuals())),
+    );
+}
+pub fn dialog_frame(v: &Visuals) -> egui::Frame {
+    surface_frame(v)
+        .inner_margin(Margin::same(24))
+        .corner_radius(DIALOG_RADIUS)
+        .shadow(v.window_shadow)
+}
+pub fn nav_button(
+    ui: &mut Ui,
+    label: impl Into<egui::WidgetText>,
+    selected: bool,
+) -> egui::Response {
+    let mut button = egui::Button::new(label)
+        .min_size(Vec2::new(0.0, CONTROL_HEIGHT))
+        .selected(selected)
+        .frame_when_inactive(selected);
+    if selected {
+        button = button
+            .fill(surface(ui.visuals()))
+            .stroke(ui.visuals().widgets.noninteractive.bg_stroke);
+    }
+    let response = ui.add(button);
+    if selected {
+        highlight(ui, response.rect);
+    }
+    focus_ring(ui, &response);
+    response
+}
 
 /// The section-head text style (15 px Inter Medium — Nocturne heads are
 /// medium, never bolder; hierarchy is size and space).
@@ -149,8 +248,7 @@ pub fn accent(visuals: &Visuals) -> Color32 {
     }
 }
 
-/// A solid accent fill (progress bars, meter "good" band): the rare place a
-/// filled accent surface is wanted. Buttons never use it — they are outlined.
+/// Accent fill for primary actions, progress bars, and the microphone meter.
 pub fn accent_fill(visuals: &Visuals) -> Color32 {
     if visuals.dark_mode {
         DARK_ACCENT_FILL
@@ -159,7 +257,7 @@ pub fn accent_fill(visuals: &Visuals) -> Color32 {
     }
 }
 
-/// `--color-surface`: cards, inputs, expanded detail panels, dialogs — one
+/// Cards, expanded detail panels, and dialogs — one
 /// step lighter than the ground.
 pub fn surface(visuals: &Visuals) -> Color32 {
     if visuals.dark_mode {
@@ -175,64 +273,57 @@ pub fn divider(visuals: &Visuals) -> Color32 {
     Color32::from_rgba_unmultiplied(base.r(), base.g(), base.b(), 41)
 }
 
-/// A Nocturne signature: a 1px separator that fades to transparent over its
-/// last 48px at each end (or a third of its width, whichever is smaller).
-/// Used under every list row (history, spellbook, invocations). Allocates a
-/// full-width, `gap`-tall strip and paints the rule centered in it.
+/// Quiet, crisp row divider. The former fading edges made list alignment fuzzy.
 pub fn fading_rule(ui: &mut Ui, gap: f32) {
-    let width = ui.available_width();
-    let (rect, _) = ui.allocate_exact_size(Vec2::new(width, gap.max(1.0)), Sense::hover());
+    let (rect, _) = ui.allocate_exact_size(
+        Vec2::new(ui.available_width(), gap.max(1.0)),
+        Sense::hover(),
+    );
     paint_fading_rule(ui, rect);
 }
-
-/// Paint the fading rule centered in `rect` (the row strip), without
-/// allocating — for callers that already own the strip's geometry.
 pub fn paint_fading_rule(ui: &Ui, rect: Rect) {
-    let color = divider(ui.visuals());
-    let fade = 48.0_f32.min(rect.width() / 3.0);
-    let y = rect.center().y.round();
-    let (l, r) = (rect.left(), rect.right());
-    let clear = Color32::TRANSPARENT;
-    let stops = [(l, clear), (l + fade, color), (r - fade, color), (r, clear)];
-    let mut mesh = Mesh::default();
-    let vert = |x: f32, y: f32, c: Color32| Vertex {
-        pos: Pos2::new(x, y),
-        uv: WHITE_UV,
-        color: c,
-    };
-    for pair in stops.windows(2) {
-        let (x0, c0) = pair[0];
-        let (x1, c1) = pair[1];
-        let base = mesh.vertices.len() as u32;
-        mesh.vertices.push(vert(x0, y - 0.5, c0));
-        mesh.vertices.push(vert(x1, y - 0.5, c1));
-        mesh.vertices.push(vert(x1, y + 0.5, c1));
-        mesh.vertices.push(vert(x0, y + 0.5, c0));
-        mesh.indices
-            .extend_from_slice(&[base, base + 1, base + 2, base, base + 2, base + 3]);
+    ui.painter().hline(
+        rect.x_range(),
+        rect.center().y.round(),
+        Stroke::new(1.0, divider(ui.visuals())),
+    );
+}
+
+/// The single high-emphasis action in a form; text and fill are a tested pair.
+pub fn primary_button(visuals: &Visuals, text: impl Into<egui::WidgetText>) -> ActionButton {
+    ActionButton(
+        egui::Button::new(text.into().color(on_accent(visuals)))
+            .fill(accent_fill(visuals))
+            .stroke(Stroke::new(1.0, edge(visuals)))
+            .min_size(Vec2::new(0.0, CONTROL_HEIGHT)),
+    )
+}
+pub fn danger_button(visuals: &Visuals, text: impl Into<String>) -> ActionButton {
+    ActionButton(
+        egui::Button::new(RichText::new(text.into()).color(danger(visuals)))
+            .stroke(visuals.widgets.noninteractive.bg_stroke),
+    )
+}
+
+/// Keep native button interaction/accessibility and add a visible focus ring
+/// outside the custom fill, where it cannot disappear against the accent.
+pub struct ActionButton(egui::Button<'static>);
+impl egui::Widget for ActionButton {
+    fn ui(self, ui: &mut Ui) -> egui::Response {
+        let response = ui.add(self.0);
+        focus_ring(ui, &response);
+        response
     }
-    ui.painter().add(mesh);
 }
-
-/// An outlined "primary" button: accent border + accent text, transparent
-/// fill (the Nocturne rule — buttons are outlined, never flooded). Hover adds
-/// the quiet neutral tint from the widget visuals; focus is the accent ring.
-pub fn primary_button(
-    visuals: &Visuals,
-    text: impl Into<egui::WidgetText>,
-) -> egui::Button<'static> {
-    let accent = accent(visuals);
-    // The caller may pass a plain string (tinted here) or a LayoutJob that
-    // already carries its own per-section colours, e.g. an icon + label whose
-    // two halves need different font families.
-    egui::Button::new(text.into().color(accent)).stroke(Stroke::new(1.0, accent))
-}
-
-/// An outlined destructive button: danger text, danger-at-~50% border, no
-/// fill. Used for confirm actions and "Reset stats" / "Delete".
-pub fn danger_button(text: impl Into<String>) -> egui::Button<'static> {
-    egui::Button::new(RichText::new(text.into()).color(DANGER))
-        .stroke(Stroke::new(1.0, DANGER.gamma_multiply(0.5)))
+fn focus_ring(ui: &Ui, response: &egui::Response) {
+    if response.has_focus() {
+        ui.painter().rect_stroke(
+            response.rect.expand(3.0),
+            CONTROL_RADIUS,
+            ui.visuals().selection.stroke,
+            egui::StrokeKind::Outside,
+        );
+    }
 }
 
 /// Install fonts, type scale, spacing, and both theme palettes. Called once
@@ -253,120 +344,13 @@ pub fn apply(ctx: &Context) {
     ctx.set_theme(preference);
 }
 
-/// Inter Regular/Medium/SemiBold each as their own family (egui cannot
-/// interpolate variable-font weights, emilk/egui#1862), JetBrains Mono for
-/// transcripts and latency figures, Phosphor for icons. egui's default
-/// fonts stay appended as emoji/coverage fallback.
-fn font_definitions() -> FontDefinitions {
-    let mut fonts = FontDefinitions::default();
-    for (name, bytes) in [
-        ("Inter", &include_bytes!("../assets/Inter-Regular.ttf")[..]),
-        (
-            "InterMedium",
-            &include_bytes!("../assets/Inter-Medium.ttf")[..],
-        ),
-        (
-            "InterSemiBold",
-            &include_bytes!("../assets/Inter-SemiBold.ttf")[..],
-        ),
-        (
-            "JetBrainsMono",
-            &include_bytes!("../assets/JetBrainsMono-Regular.ttf")[..],
-        ),
-        ("Phosphor", &include_bytes!("../assets/Phosphor.ttf")[..]),
-    ] {
-        fonts
-            .font_data
-            .insert(name.to_string(), Arc::new(FontData::from_static(bytes)));
-    }
-
-    let fallback = fonts
-        .families
-        .get(&FontFamily::Proportional)
-        .cloned()
-        .unwrap_or_default();
-    let with_fallback = |primary: &str| {
-        let mut list = vec![primary.to_string(), "Phosphor".to_string()];
-        list.extend(fallback.iter().cloned());
-        list
-    };
-
-    // Icons get a family that leads with Phosphor, and it is not optional.
-    // Inter ships 745 Private-Use-Area glyphs of its own, five of which sit on
-    // codepoints Phosphor uses (ARROW_UP, BOOK_OPEN, CHART_BAR, GEAR, KEY), so
-    // in any family where Inter comes first egui resolves those five to
-    // Inter's glyph and never reaches Phosphor: the Settings tab rendered a
-    // stray letter instead of a gear. Phosphor cannot simply lead the shared
-    // families in return — it maps a..z and would swallow ordinary lowercase
-    // text — so icons need their own family and `icon_text` to reach it.
-    let mut icons = vec!["Phosphor".to_string(), "Inter".to_string()];
-    icons.extend(fallback.iter().cloned());
-    fonts.families.insert(icon(), icons);
-
-    fonts
-        .families
-        .insert(FontFamily::Proportional, with_fallback("Inter"));
-    fonts
-        .families
-        .insert(medium(), with_fallback("InterMedium"));
-    fonts
-        .families
-        .insert(semibold(), with_fallback("InterSemiBold"));
-    let mut mono = with_fallback("JetBrainsMono");
-    // Keep egui's default monospace fonts reachable after ours.
-    if let Some(default_mono) = fonts.families.get(&FontFamily::Monospace) {
-        mono.extend(default_mono.iter().cloned());
-    }
-    fonts.families.insert(FontFamily::Monospace, mono);
-    fonts
-}
-
-/// The family icons must render in: Phosphor first, so Inter's Private-Use
-/// glyphs cannot shadow one. Only ever use it for glyphs — Phosphor maps the
-/// lowercase Latin range, so ordinary text set in this family renders wrong.
-pub fn icon() -> FontFamily {
-    FontFamily::Name("Icon".into())
-}
-
-/// One icon glyph, in the family that actually resolves it. Every icon must go
-/// through here; `RichText::new(icons::GEAR)` silently renders Inter's glyph.
-pub fn icon_text(glyph: &str) -> RichText {
-    RichText::new(glyph).family(icon())
-}
-
-/// An icon followed by a label, as one widget. Two sections rather than one
-/// string, because the icon and the text need different families and a single
-/// `format!` can only have one.
-pub fn icon_label_job(style: &egui::Style, glyph: &str, text: &str) -> egui::text::LayoutJob {
-    use egui::text::{LayoutJob, TextFormat};
-    let size = TextStyle::Button.resolve(style).size;
-    // PLACEHOLDER lets a caller recolour the whole job (primary_button tints
-    // it accent); a concrete colour here would win and ignore them.
-    let color = Color32::PLACEHOLDER;
-    let mut job = LayoutJob::default();
-    job.append(
-        glyph,
-        0.0,
-        TextFormat::simple(FontId::new(size, icon()), color),
-    );
-    job.append(
-        text,
-        6.0,
-        TextFormat::simple(FontId::new(size, medium()), color),
-    );
-    job
-}
-
-/// The Nocturne type scale. Body 15px Inter Regular; page titles 24px and
-/// section heads 15px both in Inter Medium (never bolder). Secondary text
-/// uses `weak_text_color`, never an ad-hoc smaller size. Mono (transcripts,
-/// latency, terms, triggers) is JetBrains Mono 13px.
+/// Inter hierarchy for readable text; JetBrains Mono for technical values.
 fn text_styles() -> BTreeMap<TextStyle, FontId> {
     BTreeMap::from([
-        (TextStyle::Heading, FontId::new(24.0, medium())),
+        (TextStyle::Heading, FontId::new(TITLE_SIZE, medium())),
         (subheading(), FontId::new(15.0, medium())),
-        (TextStyle::Body, FontId::new(15.0, FontFamily::Proportional)),
-        (TextStyle::Button, FontId::new(14.0, medium())),
+        (TextStyle::Body, FontId::new(14.0, FontFamily::Proportional)),
+        (TextStyle::Button, FontId::new(13.0, medium())),
         (
             TextStyle::Small,
             FontId::new(12.0, FontFamily::Proportional),
@@ -378,15 +362,14 @@ fn text_styles() -> BTreeMap<TextStyle, FontId> {
     ])
 }
 
-/// Compact 0.7× density (Nocturne spacing scale). Buttons are outlined, so a
-/// snug button padding keeps the border tight to the label.
+/// Consistent spacing and comfortable native control targets.
 fn spacing(spacing: &mut egui::style::Spacing) {
     spacing.item_spacing = Vec2::new(8.0, 8.0);
     spacing.button_padding = Vec2::new(12.0, 6.0);
-    spacing.window_margin = Margin::same(14);
-    spacing.menu_margin = Margin::same(14);
+    spacing.window_margin = Margin::same(24);
+    spacing.menu_margin = Margin::same(8);
     spacing.indent = 18.0;
-    spacing.interact_size.y = 28.0;
+    spacing.interact_size.y = CONTROL_HEIGHT;
 }
 
 struct Palette {
@@ -398,8 +381,7 @@ struct Palette {
     surface: Color32,
     hairline: Color32,
     hairline_strong: Color32,
-    /// Hovered / pressed fills (the quiet neutral tint; resting is
-    /// transparent so buttons read as outlines on the ground).
+    /// Hovered and pressed fills.
     fill_hover: Color32,
     fill_press: Color32,
     accent: Color32,
@@ -414,18 +396,17 @@ fn build_visuals(base: Visuals, p: &Palette) -> Visuals {
         weak_bg_fill: bg,
         bg_stroke,
         fg_stroke: Stroke::new(1.0, fg),
-        corner_radius: CornerRadius::same(8),
+        corner_radius: CornerRadius::same(CONTROL_RADIUS),
         expansion: 0.0,
     };
     Visuals {
         weak_text_color: Some(p.text_weak),
         widgets: Widgets {
             noninteractive: widget(p.panel, p.text, hairline),
-            // Resting buttons are outline-only (transparent fill, hairline
-            // border) — the Nocturne look.
-            inactive: widget(Color32::TRANSPARENT, p.text, hairline),
+            // Neutral controls sit above the recessed inputs.
+            inactive: widget(p.surface, p.text, hairline),
             hovered: widget(p.fill_hover, p.text_strong, hairline_strong),
-            active: widget(p.fill_press, p.text_strong, hairline_strong),
+            active: widget(p.fill_press, p.text_strong, Stroke::new(2.0, p.accent)),
             open: widget(p.fill_hover, p.text, hairline),
         },
         selection: Selection {
@@ -436,11 +417,11 @@ fn build_visuals(base: Visuals, p: &Palette) -> Visuals {
         hyperlink_color: p.accent,
         // Cards / group panels / table stripes pick up the surface step.
         faint_bg_color: p.surface,
-        // Text inputs sit on the surface fill.
-        extreme_bg_color: p.surface,
-        warn_fg_color: WARNING,
-        error_fg_color: DANGER,
-        window_corner_radius: CornerRadius::same(14),
+        // Text inputs sit below the raised surface.
+        extreme_bg_color: p.panel,
+        warn_fg_color: warning(&base),
+        error_fg_color: danger(&base),
+        window_corner_radius: CornerRadius::same(DIALOG_RADIUS),
         window_shadow: Shadow {
             offset: [0, 16],
             blur: 40,
@@ -449,7 +430,7 @@ fn build_visuals(base: Visuals, p: &Palette) -> Visuals {
         },
         window_fill: p.window,
         window_stroke: hairline_strong,
-        menu_corner_radius: CornerRadius::same(8),
+        menu_corner_radius: CornerRadius::same(CONTROL_RADIUS),
         panel_fill: p.panel,
         popup_shadow: Shadow {
             offset: [0, 6],
@@ -502,176 +483,4 @@ fn light_visuals() -> Visuals {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    /// WCAG 2.x relative luminance of an sRGB color.
-    fn luminance(c: Color32) -> f64 {
-        let channel = |v: u8| {
-            let v = v as f64 / 255.0;
-            if v <= 0.04045 {
-                v / 12.92
-            } else {
-                ((v + 0.055) / 1.055).powf(2.4)
-            }
-        };
-        0.2126 * channel(c.r()) + 0.7152 * channel(c.g()) + 0.0722 * channel(c.b())
-    }
-
-    fn contrast(a: Color32, b: Color32) -> f64 {
-        let (la, lb) = (luminance(a), luminance(b));
-        (la.max(lb) + 0.05) / (la.min(lb) + 0.05)
-    }
-
-    #[test]
-    fn body_and_weak_text_meet_wcag_aa_in_both_themes() {
-        for (label, text, weak, window, panel) in [
-            ("dark", DARK_TEXT, DARK_TEXT_WEAK, DARK_WINDOW, DARK_PANEL),
-            (
-                "light",
-                LIGHT_TEXT,
-                LIGHT_TEXT_WEAK,
-                LIGHT_WINDOW,
-                LIGHT_PANEL,
-            ),
-        ] {
-            for (surface_label, surface) in [("window", window), ("panel", panel)] {
-                let body = contrast(text, surface);
-                let weak_ratio = contrast(weak, surface);
-                assert!(body >= 4.5, "{label} body on {surface_label}: {body:.2}");
-                assert!(
-                    weak_ratio >= 4.5,
-                    "{label} weak text on {surface_label}: {weak_ratio:.2}"
-                );
-            }
-        }
-    }
-
-    #[test]
-    fn accent_surfaces_meet_contrast_requirements() {
-        // The accent is a non-text indicator (focus ring, outlined-button
-        // border, active-tab underline; links carry an underline affordance):
-        // it must clear 3:1 against the ground so the line is always visible.
-        // White on the solid accent_fill (used behind progress fills) keeps a
-        // body-text margin in case a label ever lands there.
-        for (label, fill, accent, window) in [
-            ("dark", DARK_ACCENT_FILL, DARK_ACCENT, DARK_WINDOW),
-            ("light", LIGHT_ACCENT_FILL, LIGHT_ACCENT, LIGHT_WINDOW),
-        ] {
-            let on_fill = contrast(Color32::WHITE, fill);
-            let ring = contrast(accent, window);
-            assert!(on_fill >= 4.5, "{label} white on accent fill: {on_fill:.2}");
-            assert!(ring >= 3.0, "{label} accent on window: {ring:.2}");
-        }
-    }
-
-    #[test]
-    fn danger_reads_on_surface() {
-        // The destructive confirm/reset buttons are outlined — danger text on
-        // the surface fill. Keep that label legible (body size, 4.5:1).
-        let ratio = contrast(DANGER, DARK_SURFACE);
-        assert!(ratio >= 4.5, "DANGER on surface: {ratio:.2}");
-    }
-
-    #[test]
-    fn apply_preserves_a_restored_theme_preference() {
-        // eframe restores egui memory (with a persisted Light/Dark/System
-        // choice) before the app constructs; apply() must not reset it.
-        let ctx = Context::default();
-        ctx.set_theme(egui::ThemePreference::Dark);
-        apply(&ctx);
-        assert_eq!(
-            ctx.options(|o| o.theme_preference),
-            egui::ThemePreference::Dark
-        );
-    }
-
-    #[test]
-    fn type_scale_matches_the_spec() {
-        let styles = text_styles();
-        assert_eq!(styles.len(), 6);
-        assert_eq!(styles[&TextStyle::Heading].size, 24.0);
-        assert_eq!(styles[&TextStyle::Heading].family, medium());
-        assert_eq!(styles[&subheading()].size, 15.0);
-        assert_eq!(styles[&subheading()].family, medium());
-        assert_eq!(styles[&TextStyle::Body].size, 15.0);
-        assert_eq!(styles[&TextStyle::Button].family, medium());
-        assert_eq!(styles[&TextStyle::Small].size, 12.0);
-        assert_eq!(styles[&TextStyle::Monospace].size, 13.0);
-        assert_eq!(styles[&TextStyle::Monospace].family, FontFamily::Monospace);
-    }
-
-    /// The bug this pins: Inter ships 745 Private-Use-Area glyphs, five of
-    /// which collide with Phosphor's (ARROW_UP, BOOK_OPEN, CHART_BAR, GEAR,
-    /// KEY). egui resolves a glyph through the family list in order, so in any
-    /// family led by Inter those five render as Inter's glyph and Phosphor is
-    /// never consulted — the Settings tab showed a stray letter where the gear
-    /// should be, and nothing anywhere reported a problem.
-    #[test]
-    fn the_icon_family_leads_with_phosphor() {
-        let fonts = font_definitions();
-        let list = &fonts.families[&icon()];
-        assert_eq!(
-            list[0], "Phosphor",
-            "icons must resolve to Phosphor BEFORE any text font, or Inter's \
-             private-use glyphs shadow them"
-        );
-        // ...and Inter stays reachable, so an icon string that also contains
-        // text does not fall all the way through to egui's defaults.
-        assert!(list.contains(&"Inter".to_string()));
-    }
-
-    /// Phosphor maps the lowercase Latin range, which is why it cannot simply
-    /// lead the shared families and why `icon_text` exists at all. If this ever
-    /// stops being true the whole icon family could be retired.
-    #[test]
-    fn phosphor_would_swallow_lowercase_text_if_it_led_a_text_family() {
-        let fonts = font_definitions();
-        for family in [FontFamily::Proportional, medium(), semibold()] {
-            assert_ne!(
-                fonts.families[&family][0], "Phosphor",
-                "{family:?} must lead with a text font"
-            );
-        }
-    }
-
-    #[test]
-    fn every_family_resolves_and_leads_with_the_intended_font() {
-        let fonts = font_definitions();
-        for name in [
-            "Inter",
-            "InterMedium",
-            "InterSemiBold",
-            "JetBrainsMono",
-            "Phosphor",
-        ] {
-            assert!(fonts.font_data.contains_key(name), "missing font {name}");
-        }
-        let leads = |family: &FontFamily, expected: &str| {
-            let list = &fonts.families[family];
-            assert_eq!(list[0], expected, "family {family:?}");
-            assert_eq!(list[1], "Phosphor", "icons must fall back in {family:?}");
-        };
-        leads(&FontFamily::Proportional, "Inter");
-        leads(&medium(), "InterMedium");
-        leads(&semibold(), "InterSemiBold");
-        leads(&FontFamily::Monospace, "JetBrainsMono");
-    }
-
-    #[test]
-    fn both_visuals_pin_the_spec_hexes() {
-        let dark = dark_visuals();
-        assert!(dark.dark_mode);
-        assert_eq!(dark.window_fill, DARK_WINDOW);
-        assert_eq!(dark.panel_fill, DARK_PANEL);
-        assert_eq!(dark.window_stroke.color, DARK_HAIRLINE_STRONG);
-        assert_eq!(dark.extreme_bg_color, DARK_SURFACE);
-        assert_eq!(dark.hyperlink_color, DARK_ACCENT);
-
-        let light = light_visuals();
-        assert!(!light.dark_mode);
-        assert_eq!(light.window_fill, LIGHT_WINDOW);
-        assert_eq!(light.panel_fill, LIGHT_PANEL);
-        assert_eq!(light.selection.stroke.width, 2.0);
-    }
-}
+mod tests;

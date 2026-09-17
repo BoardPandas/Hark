@@ -88,24 +88,31 @@ impl Draft {
                         ui.label(
                             theme::icon_text(theme::icons::WARNING)
                                 .small()
-                                .color(theme::DANGER),
+                                .color(theme::danger(ui.visuals())),
                         );
-                        ui.label(RichText::new(problem).small().color(theme::DANGER));
+                        ui.label(
+                            RichText::new(problem)
+                                .small()
+                                .color(theme::danger(ui.visuals())),
+                        );
                     });
                 }
-                ui.add_space(12.0);
+                ui.add_space(theme::SECTION_GAP);
 
                 self.scope_field(ui);
-                ui.add_space(12.0);
+                ui.add_space(theme::SECTION_GAP);
                 self.expansion_field(ui);
-                ui.add_space(12.0);
-                self.test_panel(ui);
+                ui.add_space(theme::SECTION_GAP);
+                theme::card(ui, |ui| self.test_panel(ui));
                 ui.add_space(16.0);
 
                 ui.horizontal(|ui| {
                     let saveable = problem.is_none() && !self.expansion.is_empty();
                     if ui
-                        .add_enabled(saveable, theme::primary_button(ui.visuals(), "Save"))
+                        .add_enabled(
+                            saveable,
+                            theme::primary_button(ui.visuals(), "Save invocation"),
+                        )
                         .clicked()
                     {
                         outcome = Outcome::Saved(
@@ -123,10 +130,7 @@ impl Draft {
                     if let Some(index) = self.index {
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                             if ui
-                                .add(theme::danger_button(format!(
-                                    "{}  Delete",
-                                    theme::icons::TRASH
-                                )))
+                                .add(theme::danger_button(ui.visuals(), "Delete"))
                                 .clicked()
                             {
                                 outcome = Outcome::Deleted(index);
@@ -247,8 +251,8 @@ impl Draft {
         ui.add_space(4.0);
         if preview.expand(&self.probe).fired.is_some() {
             ui.horizontal_wrapped(|ui| {
-                ui.label(theme::icon_text(theme::icons::CHECK).color(theme::SUCCESS));
-                ui.label(RichText::new("Would fire").color(theme::SUCCESS));
+                ui.label(theme::icon_text(theme::icons::CHECK).color(theme::success(ui.visuals())));
+                ui.label(RichText::new("Would fire").color(theme::success(ui.visuals())));
             });
             return;
         }

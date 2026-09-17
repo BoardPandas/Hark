@@ -1,7 +1,5 @@
-//! The recording overlay (the Phase 5 "floating recording pill"): a small
-//! always-on-top "pill" that appears near the bottom of the screen while the
-//! push-to-talk chord is held, with a purple circle that pulses to the mic
-//! input (the WhisperFlow-style cue).
+//! Floating dictation feedback: a live waveform while recording, processing
+//! and model-loading states, followed by brief insertion or error feedback.
 //!
 //! It is an egui **deferred viewport** (a second borderless OS window driven
 //! by the same main-thread event loop), so it honours the one hard rule: no
@@ -38,9 +36,8 @@
 //! `WM_PAINT` is the lowest priority message Windows has, and a 60 fps sibling
 //! with a vsync-blocking buffer swap keeps the message queue from ever being
 //! empty long enough. So `paint` reads the pipeline's recording flag directly
-//! and hides this window the instant a dictation ends, rather than waiting for
-//! a parent that may be seconds away. Hiding also ends the queue pressure that
-//! was keeping the parent asleep in the first place.
+//! and reads the event pump's feedback snapshot directly. Its own pass expires
+//! terminal feedback and hides the window without waiting for the parent.
 //!
 //! Placement is platform-split on purpose. egui only ever exposes a monitor
 //! *size*, never its origin or its own DPI, which is not enough to position a
@@ -61,8 +58,8 @@
 //! hardware surface never fills with per-pixel alpha — so the transparent area
 //! renders as an opaque white (or black) box around the pill instead of showing
 //! the desktop (egui #2537). That is a DWM/Win32 property, not a renderer one,
-//! so it holds whichever backend eframe picked. The pill is only *visible*
-//! while the chord is held and never activates, so the small bottom-centre rect
+//! so it holds whichever backend eframe picked. The pill is visible during
+//! dictation and brief result feedback, and never activates; the small bottom-centre rect
 //! briefly swallowing a click matters far less than a broken-looking box.
 //!
 //! **On backends:** the reasoning here used to be written against the glow
@@ -87,9 +84,11 @@
 
 use crate::theme;
 use hark_pipeline::LevelMeter;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
-use std::time::Duration;
+mod feedback;
+mod paint;
+pub use feedback::Feedback;
 
 /// Logical size of the overlay window. The window *is* the capsule: it is
 /// filled edge to edge with the pill and, on Windows, clipped to that rounded
@@ -97,14 +96,9 @@ use std::time::Duration;
 /// transparency instead renders an opaque box around the pill rather than the
 /// desktop, so we do not rely on it and cut the window to the pill's outline
 /// instead. The pulse glow is clipped to the capsule.
-const WINDOW: egui::Vec2 = egui::vec2(160.0, 40.0);
-/// Circle radius at rest and the extra radius at a full-scale pulse.
-const CIRCLE_BASE: f32 = 6.5;
-const CIRCLE_PULSE: f32 = 6.5;
+const WINDOW: egui::Vec2 = theme::OVERLAY_SIZE;
 /// Fraction of the screen height to float above the bottom edge.
 const BOTTOM_MARGIN_FRAC: f32 = 0.09;
-/// A gentle idle "breathing" so the dot is alive even in silence.
-const BREATH_HZ: f32 = 0.8;
 
 /// The overlay's viewport id. One window for the life of the pipeline, so this
 /// is a constant — see the module docs for what keying it per dictation cost.
@@ -130,6 +124,7 @@ pub fn register(
     ctx: &egui::Context,
     meter: Arc<LevelMeter>,
     recording: Arc<AtomicBool>,
+    feedback: Arc<Feedback>,
     monitor: Option<egui::Vec2>,
 ) {
     let id = viewport_id();
@@ -164,7 +159,7 @@ pub fn register(
     };
 
     ctx.show_viewport_deferred(id, builder, move |ui, _class| {
-        paint(ui, &meter, &recording, monitor);
+        paint::paint(ui, &meter, &recording, &feedback, monitor);
     });
 }
 
@@ -445,116 +440,4 @@ fn strip_frame_styles(hwnd: windows::Win32::Foundation::HWND) -> bool {
         );
     }
     true
-}
-
-/// Draw one frame of the pill + pulsing circle, and schedule the next frame.
-fn paint(
-    ui: &mut egui::Ui,
-    meter: &LevelMeter,
-    recording: &AtomicBool,
-    monitor: Option<egui::Vec2>,
-) {
-    let ctx = ui.ctx();
-
-    // Ask the parent for a pass: only a parent pass drains pipeline events and
-    // updates the tray, and while this window animates the parent may not get
-    // one on its own. Asked for first so it is asked for on the way out too.
-    ctx.request_repaint_after_for(Duration::from_millis(100), egui::ViewportId::ROOT);
-
-    // Take the frame off and clip to the capsule before anything else, and
-    // unconditionally: the pass that *creates* this window runs while it is
-    // still hidden (eframe paints invisible windows), so the very first call
-    // here shapes the window before it can ever be seen. That is what removed
-    // the framed, unclipped rectangle that used to flash on every activation.
-    // Idempotent per window and size — see `shape_to_capsule`.
-    #[cfg(windows)]
-    shape_to_capsule();
-
-    // The dictation is over, or has not started. Go away now, on this window's
-    // own pass, rather than waiting for a parent that may be seconds from its
-    // next one — that gap is the whole "the pill stays up until I minimise
-    // Hark" bug. Nothing is requested on the way out: a hidden window with no
-    // repaint scheduled sleeps (eframe only throttles repaints already asked
-    // for, it does not invent them), which is what makes a permanently
-    // registered overlay cost nothing between dictations. The parent wakes it
-    // again when the next dictation starts.
-    if !recording.load(Ordering::Relaxed) {
-        ctx.send_viewport_cmd(egui::ViewportCommand::Visible(false));
-        return;
-    }
-
-    // Place, then reveal — in that order, because viewport commands are applied
-    // in the order they were queued, and revealing first would show the pill at
-    // the previous dictation's position before it jumped.
-    //
-    // Both commands are sent every frame rather than tracked. winit returns
-    // early when the flag it is handed is unchanged, so the repeats cost
-    // nothing, and it shows this window with `SW_SHOWNOACTIVATE` every time
-    // (its one activating branch keys off a marker that `apply_diff` mutates on
-    // a by-value copy and never stores back) — so no repeat can steal the focus
-    // that injection is about to target. Tracking the state here instead would
-    // buy nothing and could drift out of step with a recreated window.
-    place(ctx, monitor);
-    ctx.send_viewport_cmd(egui::ViewportCommand::Visible(true));
-
-    // Keep the pulse animating while the parent window sleeps. ~60 fps is
-    // plenty for a breathing dot and stays light during a short hold.
-    ctx.request_repaint_after(Duration::from_millis(16));
-
-    let time = ui.input(|i| i.time) as f32;
-
-    // Raw peak (0..=1) is small for normal speech; a square-root curve lifts
-    // conversational levels into a visible range without pinning loud peaks.
-    let raw = meter.level();
-    let target = (raw.sqrt() * 1.25).clamp(0.0, 1.0);
-    // Ease the displayed amplitude so block-to-block jitter reads as a smooth
-    // swell; egui caches the animation state by id across frames.
-    let amp = ctx.animate_value_with_time(egui::Id::new("hark_overlay_amp"), target, 0.09);
-    let breath = 0.5 + 0.5 * (time * BREATH_HZ * std::f32::consts::TAU).sin();
-    // Audio dominates; the breath keeps a faint life in silence.
-    let pulse = (amp * 0.9 + breath * 0.12).clamp(0.0, 1.0);
-
-    let painter = ui.painter();
-    let rect = ui.max_rect();
-    let center = rect.center();
-
-    // The capsule fills the whole window. On Windows the OS clips the window
-    // to this shape (`clip_to_capsule`); on macOS the window is transparent
-    // outside it. Either way there is no opaque margin around the pill.
-    let corner = egui::CornerRadius::same((rect.height() / 2.0) as u8);
-    painter.rect_filled(rect, corner, theme::OVERLAY_PILL_FILL);
-    painter.rect_stroke(
-        rect,
-        corner,
-        egui::Stroke::new(1.0, theme::OVERLAY_PILL_STROKE),
-        egui::StrokeKind::Inside,
-    );
-
-    let accent = theme::OVERLAY_ACCENT;
-    let radius = CIRCLE_BASE + pulse * CIRCLE_PULSE;
-    // The dot sits at the capsule's left; the label follows it.
-    let dot = egui::pos2(rect.left() + 22.0, center.y);
-
-    // A soft glow: two translucent rings that bloom with the pulse.
-    for (scale, base_alpha) in [(2.1_f32, 26.0_f32), (1.5, 44.0)] {
-        let alpha = (base_alpha * pulse) as u8;
-        if alpha > 0 {
-            painter.circle_filled(
-                dot,
-                radius * scale,
-                egui::Color32::from_rgba_unmultiplied(accent.r(), accent.g(), accent.b(), alpha),
-            );
-        }
-    }
-    // The core dot.
-    painter.circle_filled(dot, radius, accent);
-
-    // "Listening…" in neutral-200, to the right of the dot.
-    painter.text(
-        egui::pos2(dot.x + 18.0, center.y),
-        egui::Align2::LEFT_CENTER,
-        "Listening\u{2026}",
-        egui::FontId::proportional(13.0),
-        theme::OVERLAY_TEXT,
-    );
 }

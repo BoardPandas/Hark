@@ -6,7 +6,6 @@
 
 use crate::pipeline::PipelineStatus;
 use crate::theme;
-use egui::Color32;
 
 /// Icon bitmap edge in pixels; the OS scales down as needed.
 pub const SIZE: u32 = 32;
@@ -122,7 +121,7 @@ pub fn rgba(state: TrayState) -> Vec<u8> {
                 continue;
             }
             let px = if bang && in_bang(x, y) {
-                Color32::WHITE
+                theme::TRAY_MARK
             } else {
                 color
             };
@@ -179,14 +178,19 @@ mod tests {
     }
 
     #[test]
-    fn failure_states_carry_the_white_exclamation_mark() {
+    fn failure_states_carry_a_contrasting_exclamation_mark() {
         for state in [TrayState::NeedsKey, TrayState::Error, TrayState::Stopped] {
-            let [r, g, b, a] = pixel(&rgba(state), 16, 12);
-            assert_eq!((r, g, b, a), (255, 255, 255, 255), "{state:?}");
+            assert_eq!(
+                pixel(&rgba(state), 16, 12),
+                theme::TRAY_MARK.to_array(),
+                "{state:?}"
+            );
         }
         // Recording is a plain disc: same spot stays the fill color.
-        let [r, g, b, _] = pixel(&rgba(TrayState::Recording), 16, 12);
-        assert_ne!((r, g, b), (255, 255, 255));
+        assert_eq!(
+            pixel(&rgba(TrayState::Recording), 16, 12),
+            theme::DANGER.to_array()
+        );
     }
 
     #[test]

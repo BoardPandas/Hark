@@ -4,6 +4,15 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.42.0] - 2026-09-17
+
+### Changed
+
+- Refreshed every native app surface with refined light/dark palettes, clearer type, recessed fields, raised cards, fine edge highlights, and restrained shadows. History, Spellbook, Invocations, Stats, navigation, status/update bars, menus, and confirmation dialogs share the same design.
+- Grouped Settings into Dictation, Audio & shortcut, On-device, Behavior, Privacy, and Updates, with responsive navigation, independent scroll positions, and a persistent Save changes / Discard bar. Background downloads and connection tests continue updating across pages. Shortcut capture cancels when leaving its section or hiding the window.
+- Replaced the first-run checklist with cloud/on-device selection, actual connection or model readiness, platform permission guidance, and a first-dictation step. Testing a connection does not save settings; Save & continue is explicit. Privacy copy distinguishes cloud audio, local audio, cleanup text, and vocabulary hints.
+- Added live waveform, processing, model-loading, inserted, and brief error feedback to the persistent dictation pill. Terminal feedback expires independently of main-window painting; the pill stays nonactivating and sleeps while hidden. The native tray now offers Open Hark on all platforms.
+
 ## [0.41.0] - 2026-09-17
 
 ### Added

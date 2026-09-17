@@ -149,13 +149,15 @@ impl CleanupTest {
         CleanupTest { state: State::Idle }
     }
 
-    fn show(&mut self, ui: &mut Ui, draft: &Settings) {
+    pub fn poll(&mut self) {
         if let State::Running(rx) = &self.state {
             if let Ok(outcome) = rx.try_recv() {
                 self.state = State::Done(outcome);
             }
         }
+    }
 
+    fn show(&mut self, ui: &mut Ui, draft: &Settings) {
         // Resolution is pure and cheap, so the button can say up front why
         // it would do nothing instead of running and reporting silence.
         let voice = probe_voice(draft);
@@ -200,14 +202,14 @@ fn report(ui: &mut Ui, outcome: &Outcome, default_voice: VoiceName) {
     match &outcome.result {
         Ok(pass) => {
             ui.horizontal_wrapped(|ui| {
-                ui.label(theme::icon_text(theme::icons::CHECK).color(theme::SUCCESS));
+                ui.label(theme::icon_text(theme::icons::CHECK).color(theme::success(ui.visuals())));
                 ui.label(format!("Cleanup reached {}", pass.model));
                 ui.label(RichText::new(format!("{} ms", pass.ms)).monospace().weak());
             });
         }
         Err(detail) => {
             ui.horizontal_wrapped(|ui| {
-                ui.label(theme::icon_text(theme::icons::X).color(theme::DANGER));
+                ui.label(theme::icon_text(theme::icons::X).color(theme::danger(ui.visuals())));
                 ui.label(detail);
             });
         }
@@ -257,7 +259,9 @@ fn inherited_line(ui: &mut Ui, draft: &Settings) {
         }
         CleanupResolution::VerbatimWithWarning { reason } => {
             ui.horizontal_wrapped(|ui| {
-                ui.label(theme::icon_text(theme::icons::WARNING).color(theme::WARNING));
+                ui.label(
+                    theme::icon_text(theme::icons::WARNING).color(theme::warning(ui.visuals())),
+                );
                 ui.label(RichText::new(format!(
                     "{reason} Text is injected as transcribed."
                 )));

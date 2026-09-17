@@ -57,6 +57,7 @@ pub struct PipelineController {
     /// so it can leave the screen without waiting for a UI pass. `None` while
     /// the pipeline is stopped.
     recording: Option<Arc<AtomicBool>>,
+    feedback: Option<Arc<crate::overlay::Feedback>>,
 }
 
 impl PipelineController {
@@ -72,6 +73,7 @@ impl PipelineController {
             storage,
             level: None,
             recording: None,
+            feedback: None,
         }
     }
 
@@ -95,6 +97,10 @@ impl PipelineController {
     /// stays [`PipelineStatus`], which the event lane drives.
     pub fn recording_flag(&self) -> Option<Arc<AtomicBool>> {
         self.recording.clone()
+    }
+
+    pub fn overlay_feedback(&self) -> Option<Arc<crate::overlay::Feedback>> {
+        self.feedback.clone()
     }
 
     pub fn injected_count(&self) -> u64 {
@@ -140,7 +146,14 @@ impl PipelineController {
                 self.level = Some(handle.level_meter());
                 self.recording = Some(handle.recording_flag());
                 self.handle = Some(handle);
-                self.events = Some(spawn_repaint_pump(rx, ctx.clone(), tee));
+                let feedback = Arc::new(crate::overlay::Feedback::new());
+                self.events = Some(spawn_repaint_pump(
+                    rx,
+                    ctx.clone(),
+                    tee,
+                    Some(feedback.clone()),
+                ));
+                self.feedback = Some(feedback);
                 self.status = PipelineStatus::Idle;
             }
             Err(e) => {
@@ -174,6 +187,9 @@ impl PipelineController {
     /// Drop the handle; its Drop stops hook -> worker -> capture in order.
     /// The worker's sender drops with it, which ends the repaint pump.
     pub fn stop(&mut self) {
+        if let Some(feedback) = self.feedback.take() {
+            feedback.disable();
+        }
         self.handle = None;
         self.events = None;
         self.level = None;
@@ -273,12 +289,17 @@ fn spawn_repaint_pump(
     rx: Receiver<PipelineEvent>,
     ctx: egui::Context,
     storage: Option<(Sender<StorageCmd>, RecordPolicy)>,
+    feedback: Option<Arc<crate::overlay::Feedback>>,
 ) -> Receiver<PipelineEvent> {
     let (tx, ui_rx) = mpsc::channel();
     std::thread::Builder::new()
         .name("hark-ui-event-pump".to_string())
         .spawn(move || {
             while let Ok(event) = rx.recv() {
+                if let Some(feedback) = &feedback {
+                    feedback.publish(&event);
+                    ctx.request_repaint_of(crate::overlay::viewport_id());
+                }
                 if let (PipelineEvent::Injected(record), Some((storage_tx, policy))) =
                     (&event, &storage)
                 {
@@ -440,6 +461,7 @@ mod tests {
             pipeline_rx,
             egui::Context::default(),
             Some((storage_tx, policy)),
+            None,
         );
 
         pipeline_tx.send(PipelineEvent::Recording).unwrap();
@@ -470,7 +492,7 @@ mod tests {
     #[test]
     fn pump_without_storage_still_forwards_events() {
         let (pipeline_tx, pipeline_rx) = mpsc::channel();
-        let ui_rx = spawn_repaint_pump(pipeline_rx, egui::Context::default(), None);
+        let ui_rx = spawn_repaint_pump(pipeline_rx, egui::Context::default(), None, None);
         pipeline_tx.send(PipelineEvent::Injected(record())).unwrap();
         drop(pipeline_tx);
         assert_eq!(ui_rx.iter().count(), 1);

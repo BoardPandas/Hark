@@ -5,7 +5,7 @@
 use crate::theme;
 use crate::ui::format;
 use crate::ui::selectable::{selectable_text, Selection};
-use egui::{Align, Frame, Id, Label, Layout, Margin, RichText, Sense, Ui};
+use egui::{Align, Id, Label, Layout, RichText, Sense, Ui};
 use hark_store::Entry;
 use jiff::tz::TimeZone;
 
@@ -35,7 +35,7 @@ pub fn copied_id(entry_id: i64) -> Id {
 const PREVIEW_CHARS: usize = 160;
 /// Room reserved for the add/copy/delete buttons and the "Copied"
 /// affirmation. Three buttons now, not two.
-const ACTIONS_WIDTH: f32 = 128.0;
+const ACTIONS_WIDTH: f32 = theme::LIST_ACTIONS_WIDTH;
 
 /// Per-row display state. Grouped because a row renderer accumulates these
 /// faster than a parameter list stays readable.
@@ -62,7 +62,21 @@ pub fn show(
         selected,
     } = view;
     let mut action = None;
-    ui.horizontal(|ui| {
+    ui.add_space(theme::GAP);
+    let timestamp_column = ui.available_width() > theme::SETTINGS_BREAKPOINT;
+    ui.horizontal_top(|ui| {
+        if timestamp_column {
+            ui.allocate_ui(
+                egui::vec2(theme::CONTROL_HEIGHT * 2.0, theme::CONTROL_HEIGHT),
+                |ui| {
+                    ui.label(
+                        RichText::new(format::relative_time(entry.ts_ms, now_ms))
+                            .small()
+                            .weak(),
+                    );
+                },
+            );
+        }
         let text_width = (ui.available_width() - ACTIONS_WIDTH).max(120.0);
         ui.vertical(|ui| {
             ui.set_width(text_width);
@@ -74,11 +88,28 @@ pub fn show(
             if response.clicked() {
                 action = Some(Action::Toggle(entry.id));
             }
-            ui.label(RichText::new(caption(entry, now_ms)).small().weak());
+            ui.add_space(theme::GAP);
+            ui.horizontal_wrapped(|ui| {
+                if entry.invocation.is_some() {
+                    ui.label(
+                        theme::icon_text(theme::icons::LIGHTNING)
+                            .small()
+                            .color(theme::accent(ui.visuals())),
+                    );
+                }
+                if !timestamp_column {
+                    ui.label(
+                        RichText::new(format::relative_time(entry.ts_ms, now_ms))
+                            .small()
+                            .weak(),
+                    );
+                }
+                ui.label(RichText::new(caption(entry)).small().weak());
+            });
         });
         ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
             if ui
-                .button(theme::icon_text(theme::icons::TRASH))
+                .add(egui::Button::new(theme::icon_text(theme::icons::TRASH)).frame(false))
                 .on_hover_text("Delete entry")
                 .clicked()
             {
@@ -90,7 +121,7 @@ pub fn show(
             let add = ui
                 .add_enabled(
                     selected.is_some(),
-                    egui::Button::new(theme::icon_text(theme::icons::BOOK_OPEN)),
+                    egui::Button::new(theme::icon_text(theme::icons::BOOK_OPEN)).frame(false),
                 )
                 .on_hover_text(match selected {
                     Some(term) => format!("Add \u{201C}{term}\u{201D} to your Spellbook"),
@@ -100,7 +131,7 @@ pub fn show(
                 action = Some(Action::AddTerm(term.to_string()));
             }
             if ui
-                .button(theme::icon_text(theme::icons::COPY))
+                .add(egui::Button::new(theme::icon_text(theme::icons::COPY)).frame(false))
                 .on_hover_text("Copy text")
                 .clicked()
             {
@@ -114,9 +145,9 @@ pub fn show(
                     .animate_value_with_time(copied_id(entry.id), 0.0, 0.8);
                 if alpha > 0.02 {
                     ui.label(
-                        RichText::new(format!("{} Copied", theme::icons::CHECK))
+                        RichText::new("Copied")
                             .small()
-                            .color(theme::SUCCESS.gamma_multiply(alpha)),
+                            .color(theme::success(ui.visuals()).gamma_multiply(alpha)),
                     );
                 }
             }
@@ -127,7 +158,7 @@ pub fn show(
     }
     // The Nocturne signature: a 1px rule fading to transparent at both ends,
     // in an 8px strip that gives each row its breathing room.
-    theme::fading_rule(ui, 8.0);
+    theme::fading_rule(ui, theme::ROW_GAP);
     action
 }
 
@@ -136,81 +167,76 @@ pub fn show(
 /// the provider label (disappointing output must have an obvious cause).
 fn details(ui: &mut Ui, entry: &Entry, tz: &TimeZone, selection: &mut Option<Selection>) {
     ui.add_space(4.0);
-    Frame::default()
-        .fill(theme::surface(ui.visuals()))
-        .stroke(ui.visuals().widgets.noninteractive.bg_stroke)
-        .corner_radius(8)
-        .inner_margin(Margin {
-            left: 14,
-            right: 14,
-            top: 11,
-            bottom: 11,
-        })
-        .show(ui, |ui| {
-            // Naming the trigger explains why the entry reads nothing like the
-            // raw transcript directly below it.
-            if let Some(trigger) = &entry.invocation {
-                ui.horizontal_wrapped(|ui| {
-                    ui.label(
-                        theme::icon_text(theme::icons::LIGHTNING)
-                            .small()
-                            .color(theme::accent(ui.visuals())),
-                    );
-                    ui.label(
-                        RichText::new(format!("Invocation \u{201C}{trigger}\u{201D} fired"))
-                            .small()
-                            .weak(),
-                    );
-                });
-                ui.add_space(2.0);
-            }
-            ui.label(RichText::new("RAW TRANSCRIPT").size(10.5).weak());
-            // Selectable, snapping to whole spellbook tokens. The row's Add
-            // button turns the live selection into a Spellbook term; the
-            // hint below is the only thing that advertises the gesture.
-            let raw = entry.raw_text.trim();
-            selectable_text(
-                ui,
-                selection_id(entry.id),
-                raw,
-                RichText::new(raw).monospace(),
-                selection,
-            );
-            ui.label(
-                RichText::new(format!(
-                    "Select a misheard name above, then click {} to add it to your Spellbook.",
-                    theme::icons::BOOK_OPEN
-                ))
-                .small()
+    theme::card(ui, |ui| {
+        // Naming the trigger explains why the entry reads nothing like the
+        // raw transcript directly below it.
+        if let Some(trigger) = &entry.invocation {
+            ui.horizontal_wrapped(|ui| {
+                ui.label(
+                    theme::icon_text(theme::icons::LIGHTNING)
+                        .small()
+                        .color(theme::accent(ui.visuals())),
+                );
+                ui.label(
+                    RichText::new(format!("Invocation \u{201C}{trigger}\u{201D} fired"))
+                        .small()
+                        .weak(),
+                );
+            });
+            ui.add_space(2.0);
+        }
+        ui.label(
+            RichText::new("RAW TRANSCRIPT")
+                .size(theme::META_SIZE)
                 .weak(),
-            );
-            ui.add_space(4.0);
-            ui.label(RichText::new(timing_line(entry)).monospace().small());
-            ui.label(
-                RichText::new(format!(
-                    "{} · {}",
-                    format::full_timestamp(entry.ts_ms, tz),
-                    entry.stt_provider
-                ))
-                .small()
-                .weak(),
-            );
-        });
+        );
+        // Selectable, snapping to whole spellbook tokens. The row's Add
+        // button turns the live selection into a Spellbook term; the
+        // hint below is the only thing that advertises the gesture.
+        let raw = entry.raw_text.trim();
+        selectable_text(
+            ui,
+            selection_id(entry.id),
+            raw,
+            RichText::new(raw),
+            selection,
+        );
+        ui.label(
+            RichText::new(
+                "Select a misheard name above, then use Add to Spellbook in the row actions.",
+            )
+            .small()
+            .weak(),
+        );
+        ui.add_space(4.0);
+        ui.label(RichText::new(timing_line(entry)).monospace().small());
+        ui.label(
+            RichText::new(format!(
+                "{} · {}",
+                format::full_timestamp(entry.ts_ms, tz),
+                entry.stt_provider
+            ))
+            .small()
+            .weak(),
+        );
+    });
 }
 
-/// "4m ago · clean · nova-3", with a leading "⚡ Invocation" segment when the
+/// Voice and actual provider/model, with a leading "Invocation" segment when the
 /// text was pasted from an invocation rather than transcribed. Without it a
 /// row of canned text looks like a suspiciously articulate dictation.
-fn caption(entry: &Entry, now_ms: i64) -> String {
+fn caption(entry: &Entry) -> String {
     let base = format!(
         "{} · {} · {}",
-        format::relative_time(entry.ts_ms, now_ms),
-        entry.voice,
-        entry.stt_model
+        entry.voice, entry.stt_provider, entry.stt_model
     );
+    let base = match &entry.cleanup_model {
+        Some(model) if entry.cleanup_ms.is_some() => format!("{base} · {model}"),
+        _ => base,
+    };
     match entry.invocation {
         // Icon + label, never color alone (design system rule).
-        Some(_) => format!("{} Invocation · {base}", theme::icons::LIGHTNING),
+        Some(_) => format!("Invocation · {base}"),
         None => base,
     }
 }
@@ -278,7 +304,7 @@ mod tests {
     #[test]
     fn caption_badges_invocations_and_leaves_ordinary_rows_alone() {
         let plain = entry(false);
-        let caption_plain = caption(&plain, plain.ts_ms);
+        let caption_plain = caption(&plain);
         assert!(
             !caption_plain.contains("Invocation"),
             "an ordinary dictation must not be badged: {caption_plain}"
@@ -287,8 +313,8 @@ mod tests {
 
         let mut fired = entry(false);
         fired.invocation = Some("access granted".to_string());
-        let badged = caption(&fired, fired.ts_ms);
-        assert!(badged.starts_with(theme::icons::LIGHTNING), "{badged}");
+        let badged = caption(&fired);
+        assert!(badged.starts_with("Invocation"), "{badged}");
         assert!(badged.contains("Invocation"));
         // The badge is additive: the usual segments still read the same.
         assert!(badged.ends_with(&caption_plain), "{badged}");

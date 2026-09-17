@@ -11,8 +11,12 @@ pub mod get_started;
 pub mod hotkey;
 pub mod keys;
 pub mod local;
+mod onboarding;
+mod preferences;
+mod sections;
 pub mod test;
 pub mod updates;
+pub use sections::Section;
 
 use crate::model_download::ModelDownload;
 use crate::pipeline::PipelineController;
@@ -22,6 +26,7 @@ use egui::{RichText, Ui};
 use hark_config::Settings;
 
 pub struct SettingsPage {
+    section: Section,
     /// The model being edited; `saved` (in `HarkApp`) only changes on Save.
     pub draft: Settings,
     bufs: form::FormBufs,
@@ -56,6 +61,7 @@ impl SettingsPage {
     /// key-related): the Get Started card latches active.
     pub fn new(settings: &Settings, onboarding: bool) -> Self {
         SettingsPage {
+            section: Section::default(),
             draft: settings.clone(),
             bufs: form::FormBufs::from_settings(settings),
             stt_keys: keys::KeySection::new("stt", settings.provider.kind.label()),
@@ -84,85 +90,37 @@ impl SettingsPage {
         pipeline: &mut PipelineController,
         updater: &mut Updater,
     ) {
-        // The key section follows the draft's provider account.
+        if self.section != Section::Audio {
+            self.leave(pipeline);
+        }
         self.stt_keys.sync_account(self.draft.provider.kind.label());
+        if self.onboarding(ui, saved, pipeline) {
+            return;
+        }
+        if ui.available_width() < theme::SETTINGS_BREAKPOINT {
+            ui.horizontal_wrapped(|ui| self.navigation(ui, pipeline));
+            ui.add_space(theme::SECTION_GAP);
+            self.section_body(ui, saved, pipeline, updater);
+        } else {
+            ui.horizontal_top(|ui| {
+                ui.vertical(|ui| {
+                    ui.set_width(theme::SETTINGS_NAV_WIDTH);
+                    self.navigation(ui, pipeline);
+                });
+                ui.add_space(theme::SECTION_GAP);
+                ui.vertical(|ui| {
+                    ui.set_width(ui.available_width());
+                    self.section_body(ui, saved, pipeline, updater);
+                });
+            });
+        }
+    }
 
-        let card_view = get_started::view(
-            &self.get_started,
-            self.stt_keys.stored(),
-            pipeline.is_running(),
-            pipeline.injected_count() > 0,
-        );
-        if get_started::show(
-            ui,
-            &card_view,
-            &hark_hotkey::pretty_chord(&self.draft.hotkey.ptt_key),
-        ) {
-            self.get_started.dismissed = true;
-        }
-
-        if form::provider_section(ui, &mut self.draft, &mut self.bufs) {
-            self.get_started.provider_touched = true;
-        }
-        form::model_endpoint_section(ui, &mut self.draft, &mut self.bufs);
-        // A stored or removed key takes effect now, not at the next Save:
-        // the pipeline resolves keys only at start, so a key change for the
-        // running provider restarts it immediately (else dictation keeps
-        // failing against the old key with no sign why).
-        if self.stt_keys.show(ui) && self.draft.provider.kind == saved.provider.kind {
-            pipeline.start(saved, ui.ctx());
-        }
-        let test_finished = self.test.show(ui, &self.draft);
-        // Recording taps the running listener in place: the pipeline is no
-        // longer stopped and restarted around it, which is what used to make
-        // this fragile (a stop posts a quit message to a listener thread id,
-        // and a hook installed before it lands can be caught by it).
-        let ctx = ui.ctx().clone();
-        match hotkey::section(ui, &mut self.draft, &mut self.hotkey, pipeline) {
-            capture::HotkeyAction::StartRequested => {
-                self.hotkey.begin(&ctx, pipeline);
-            }
-            capture::HotkeyAction::Ended | capture::HotkeyAction::None => {}
-        }
-        // The capture stream runs continuously while the pipeline is up, so
-        // the meter is live here without starting anything extra.
-        let level = pipeline.level_meter().map(|m| m.level());
-        if form::mic_section(
-            ui,
-            &mut self.draft,
-            &self.mic_devices,
-            level,
-            self.comms_default.as_deref(),
-        ) {
-            self.mic_devices = hark_audio::list_input_devices();
-            self.comms_default = hark_audio::communications_default_device();
-        }
-        local::section(ui, &mut self.draft, &mut self.download);
-        form::voice_section(ui, &mut self.draft, &mut self.voice_secret_clicks);
-        cleanup::section(
-            ui,
-            &mut self.draft,
-            &mut self.bufs,
-            &mut self.cleanup_keys,
-            &mut self.cleanup_test,
-        );
-        form::behavior_section(ui, &mut self.draft);
-        form::privacy_section(ui, &mut self.draft);
-        updates::section(ui, updater, &mut self.draft);
-        // Save lives in the sticky bar above the footer (`unsaved_bar`), not
-        // at the end of a long scrolling form where a changed field can push
-        // it out of sight.
-        ui.add_space(12.0);
-
-        if test_finished {
-            self.get_started.test_passed = self.test.stt_passed();
-            // Onboarding promise (§3.11): a passing test flips the card to
-            // "hold the chord and speak", so make that true by running the
-            // save-restart flow the user has not learned to look for yet.
-            if self.get_started.test_passed && self.get_started.active && !pipeline.is_running() {
-                self.save(saved, pipeline, ui.ctx());
-            }
-        }
+    /// Completion polling is independent of the visible Settings section.
+    pub(crate) fn poll(&mut self) {
+        self.download.poll();
+        self.cleanup_test.poll();
+        self.test.poll();
     }
 
     /// Surface the outcome of a save that happened outside the form (a
@@ -191,13 +149,17 @@ impl SettingsPage {
         // information on the bar. Resolved before the panel so the left side
         // holds no borrow of `self` while the buttons need it mutably.
         let (icon, color, text) = match (&self.save_notice, dirty) {
-            (Some(Err(t)), _) => (theme::icons::WARNING, theme::DANGER, t.clone()),
+            (Some(Err(t)), _) => (
+                theme::icons::WARNING,
+                theme::danger(ui.visuals()),
+                t.clone(),
+            ),
             (_, true) => (
                 theme::icons::WARNING,
-                theme::WARNING,
+                theme::warning(ui.visuals()),
                 "Unsaved changes".to_string(),
             ),
-            (Some(Ok(t)), false) => (theme::icons::CHECK, theme::SUCCESS, t.clone()),
+            (Some(Ok(t)), false) => (theme::icons::CHECK, theme::success(ui.visuals()), t.clone()),
             // Guarded by the early return above.
             (None, false) => return,
         };
@@ -217,13 +179,13 @@ impl SettingsPage {
                 egui::Sides::new().height(24.0).show(
                     ui,
                     |ui| {
-                        ui.label(RichText::new(icon).color(color));
+                        ui.label(theme::icon_text(icon).color(color));
                         ui.add(egui::Label::new(RichText::new(text).small()).truncate());
                     },
                     |ui| {
                         if dirty {
                             if ui
-                                .add(theme::primary_button(ui.visuals(), "Save"))
+                                .add(theme::primary_button(ui.visuals(), "Save changes"))
                                 .clicked()
                             {
                                 let ctx = ui.ctx().clone();
@@ -268,7 +230,7 @@ impl SettingsPage {
                 *saved = self.draft.clone();
                 pipeline.start(saved, ctx);
                 self.save_notice = Some(Ok(if pipeline.is_running() {
-                    "Saved. Pipeline restarted.".to_string()
+                    "Saved. Dictation is ready.".to_string()
                 } else {
                     "Saved. Pipeline stopped; see the status bar for the cause.".to_string()
                 }));

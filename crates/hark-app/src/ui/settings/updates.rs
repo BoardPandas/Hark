@@ -79,12 +79,12 @@ fn result(ui: &mut Ui, updater: &mut Updater) {
         Kind::UpToDate => status(
             ui,
             theme::icons::CHECK,
-            theme::SUCCESS,
+            theme::success(ui.visuals()),
             "You're on the latest version.",
         ),
         Kind::Failed(msg) => {
             ui.horizontal_wrapped(|ui| {
-                ui.label(theme::icon_text(theme::icons::X).color(theme::DANGER));
+                ui.label(theme::icon_text(theme::icons::X).color(theme::danger(ui.visuals())));
                 ui.label(&msg);
             });
         }
@@ -123,7 +123,7 @@ fn result(ui: &mut Ui, updater: &mut Updater) {
             status(
                 ui,
                 theme::icons::CHECK,
-                theme::SUCCESS,
+                theme::success(ui.visuals()),
                 &format!("Hark {version} downloaded and verified."),
             );
             notes_view(ui, &notes);
@@ -136,12 +136,12 @@ fn result(ui: &mut Ui, updater: &mut Updater) {
 
 fn status(ui: &mut Ui, icon: &str, color: egui::Color32, text: &str) {
     ui.horizontal(|ui| {
-        ui.label(RichText::new(icon).color(color));
+        ui.label(theme::icon_text(icon).color(color));
         ui.label(text);
     });
 }
 
-fn accent_button(ui: &Ui, text: &str) -> egui::Button<'static> {
+fn accent_button(ui: &Ui, text: &str) -> theme::ActionButton {
     theme::primary_button(ui.visuals(), text)
 }
 

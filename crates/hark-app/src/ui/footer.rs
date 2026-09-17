@@ -12,23 +12,27 @@ use egui::{Frame, Margin, Panel, RichText, Sense, Sides, Ui, Vec2};
 /// Render the footer. Returns true when the user clicked the "Open
 /// Settings" jump on a key-related problem.
 pub fn show(ui: &mut Ui, status: &PipelineStatus, settings: &Settings) -> bool {
-    let window_fill = ui.visuals().window_fill;
+    let window_fill = ui.visuals().panel_fill;
     let mut jump = false;
     Panel::bottom("status_footer")
-        .exact_size(28.0)
+        .min_size(theme::FOOTER_HEIGHT)
         .resizable(false)
         .show_separator_line(true)
         .frame(
             Frame::default()
                 .fill(window_fill)
-                .inner_margin(Margin::symmetric(12, 4)),
+                .inner_margin(Margin::symmetric(20, 8)),
         )
         .show(ui, |ui| {
             Sides::new().height(20.0).show(
                 ui,
                 |ui| jump = state_side(ui, status, settings),
                 |ui| {
-                    ui.label(RichText::new(provider_line(settings)).small().weak());
+                    ui.add(
+                        egui::Label::new(RichText::new(provider_line(settings)).small().weak())
+                            .truncate(),
+                    )
+                    .on_hover_text(provider_line(settings));
                 },
             );
         });
@@ -48,13 +52,13 @@ fn state_side(ui: &mut Ui, status: &PipelineStatus, settings: &Settings) -> bool
                 theme::icons::MICROPHONE,
                 weak,
                 &format!(
-                    "Listening for {}",
+                    "Ready · Hold {} to dictate",
                     hark_hotkey::pretty_chord(&settings.hotkey.ptt_key)
                 ),
             );
         }
         PipelineStatus::Recording => {
-            pulsing_dot(ui, theme::DANGER);
+            pulsing_dot(ui, theme::danger(ui.visuals()));
             ui.add(egui::Label::new(RichText::new("Recording").small()).truncate());
         }
         PipelineStatus::Processing => {
@@ -72,11 +76,21 @@ fn state_side(ui: &mut Ui, status: &PipelineStatus, settings: &Settings) -> bool
             detail,
             key_related,
         } => {
-            icon_label(ui, theme::icons::WARNING, theme::DANGER, detail);
+            icon_label(
+                ui,
+                theme::icons::WARNING,
+                theme::danger(ui.visuals()),
+                detail,
+            );
             jump = *key_related && settings_jump(ui);
         }
         PipelineStatus::Hint { detail } => {
-            icon_label(ui, theme::icons::MICROPHONE, theme::WARNING, detail);
+            icon_label(
+                ui,
+                theme::icons::MICROPHONE,
+                theme::warning(ui.visuals()),
+                detail,
+            );
             jump = settings_jump(ui);
         }
         PipelineStatus::Stopped {
@@ -84,8 +98,13 @@ fn state_side(ui: &mut Ui, status: &PipelineStatus, settings: &Settings) -> bool
             key_related: true,
         } => {
             // Short, honest copy up front; the full cause on hover.
-            icon_label(ui, theme::icons::KEY, theme::WARNING, "No STT key yet.")
-                .on_hover_text(detail);
+            icon_label(
+                ui,
+                theme::icons::KEY,
+                theme::warning(ui.visuals()),
+                "No STT key yet.",
+            )
+            .on_hover_text(detail);
             jump = settings_jump(ui);
         }
         PipelineStatus::Stopped {
@@ -95,7 +114,7 @@ fn state_side(ui: &mut Ui, status: &PipelineStatus, settings: &Settings) -> bool
             icon_label(
                 ui,
                 theme::icons::WARNING,
-                theme::DANGER,
+                theme::danger(ui.visuals()),
                 &format!("Pipeline stopped: {detail}"),
             );
         }
@@ -104,7 +123,7 @@ fn state_side(ui: &mut Ui, status: &PipelineStatus, settings: &Settings) -> bool
 }
 
 fn icon_label(ui: &mut Ui, icon: &str, icon_color: egui::Color32, text: &str) -> egui::Response {
-    ui.label(RichText::new(icon).color(icon_color));
+    ui.label(theme::icon_text(icon).color(icon_color));
     ui.add(egui::Label::new(RichText::new(text).small()).truncate())
 }
 
