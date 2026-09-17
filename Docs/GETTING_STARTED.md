@@ -102,6 +102,8 @@ Each `kind` carries its own default endpoint and model, and `openai-compatible` 
 | `gemini` | Live API WebSocket (fixed host) | `gemini-3.5-transcribe-live` |
 | `openai-compatible` | none, must be set explicitly | none, must be set explicitly |
 
+`gemini` is the only provider that streams: the session opens when you press the chord and audio goes up as you speak, so releasing the key leaves only the tail outstanding. If the session cannot open — or fails at any point during the hold — Hark falls back to the ordinary single-request path with no dictation lost. Streamed audio is sent at capture level, because the batch path's whole-clip gain normalization has no streaming equivalent; on a very quiet microphone the batch path may still transcribe slightly better.
+
 Sources: [config/default-config.toml:9-22](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/config/default-config.toml#L9-L22)
 <!-- END:AUTOGEN hark_03_getting_started_firstrun -->
 

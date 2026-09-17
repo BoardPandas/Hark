@@ -260,19 +260,17 @@ pub fn transcript_for(mode: TranscribeMode, text: String, request_ms: u128) -> T
 }
 
 #[cfg(feature = "live")]
-mod session {
+pub(crate) mod session {
     use super::*;
     use futures_util::{SinkExt, StreamExt};
     use tokio_tungstenite::tungstenite::Message;
+    use tokio_tungstenite::{MaybeTlsStream, WebSocketStream};
 
-    /// Run one complete session: connect, configure, stream every chunk, end
-    /// the turn, and collect the finalised transcript.
-    pub async fn run(
-        url: String,
-        setup: Value,
-        pcm: Vec<u8>,
-        mode: TranscribeMode,
-    ) -> Result<String, SttError> {
+    pub type Socket = WebSocketStream<MaybeTlsStream<tokio::net::TcpStream>>;
+
+    /// Open the socket and send the opening `setup`. Everything after this is
+    /// incremental, so the caller can start pushing audio immediately.
+    pub async fn connect(url: String, setup: Value) -> Result<Socket, SttError> {
         let connect = tokio_tungstenite::connect_async(&url);
         let (mut socket, _) =
             tokio::time::timeout(Duration::from_millis(CONNECT_TIMEOUT_MS), connect)
@@ -283,22 +281,42 @@ mod session {
                 })?
                 // tungstenite's Display echoes the URL, which carries the key.
                 .map_err(|e| fail(format!("websocket connect failed: {e}")))?;
-
         socket
             .send(Message::Text(setup.to_string().into()))
             .await
             .map_err(|e| fail(format!("setup send failed: {e}")))?;
+        Ok(socket)
+    }
 
-        // 100 ms frames. Sent back to back here because this adapter is handed
-        // a finished clip; a future streaming-while-holding path feeds the same
-        // socket from the ring buffer instead and changes nothing below.
+    /// Push one batch of PCM as 100 ms frames.
+    pub async fn send_audio(socket: &mut Socket, pcm: &[u8]) -> Result<(), SttError> {
         for chunk in pcm.chunks(CHUNK_SAMPLES * 2) {
             socket
                 .send(Message::Text(audio_message(chunk).to_string().into()))
                 .await
                 .map_err(|e| fail(format!("audio send failed: {e}")))?;
         }
+        Ok(())
+    }
 
+    /// Discard whatever the server has already sent without waiting for more.
+    ///
+    /// Interim hypotheses arrive throughout the hold and Hark ignores them, but
+    /// left unread they accumulate in the socket's receive buffer for the whole
+    /// dictation. Bounded so a chatty server cannot turn a drain into a stall.
+    pub async fn drain_pending(socket: &mut Socket) {
+        for _ in 0..64 {
+            match tokio::time::timeout(Duration::ZERO, socket.next()).await {
+                Ok(Some(Ok(_))) => continue,
+                // Timed out (nothing buffered), stream ended, or a read error:
+                // all mean "stop draining". A real error resurfaces in finish.
+                _ => return,
+            }
+        }
+    }
+
+    /// End the turn and read until the transcript is final.
+    pub async fn finish(socket: &mut Socket, mode: TranscribeMode) -> Result<String, SttError> {
         socket
             .send(Message::Text(audio_stream_end_message().to_string().into()))
             .await
@@ -336,6 +354,19 @@ mod session {
         }
         Ok(text)
     }
+
+    /// One complete session from a finished clip: the non-streaming path, used
+    /// when the pipeline could not stream during the hold.
+    pub async fn run(
+        url: String,
+        setup: Value,
+        pcm: Vec<u8>,
+        mode: TranscribeMode,
+    ) -> Result<String, SttError> {
+        let mut socket = connect(url, setup).await?;
+        send_audio(&mut socket, &pcm).await?;
+        finish(&mut socket, mode).await
+    }
 }
 
 /// The Gemini Live adapter.
@@ -349,7 +380,7 @@ pub struct GeminiLive {
     bias_terms: Vec<String>,
     mode: TranscribeMode,
     #[cfg(feature = "live")]
-    runtime: tokio::runtime::Runtime,
+    runtime: std::sync::Arc<tokio::runtime::Runtime>,
 }
 
 impl GeminiLive {
@@ -365,10 +396,12 @@ impl GeminiLive {
             bias_terms: config.bias_terms.clone(),
             mode,
             #[cfg(feature = "live")]
-            runtime: tokio::runtime::Builder::new_current_thread()
-                .enable_all()
-                .build()
-                .map_err(|e| fail(format!("could not start the Live API runtime: {e}")))?,
+            runtime: std::sync::Arc::new(
+                tokio::runtime::Builder::new_current_thread()
+                    .enable_all()
+                    .build()
+                    .map_err(|e| fail(format!("could not start the Live API runtime: {e}")))?,
+            ),
         })
     }
 }
@@ -404,6 +437,76 @@ impl SttProvider for GeminiLive {
 
     fn label(&self) -> &str {
         &self.label
+    }
+}
+
+/// One open session, fed incrementally by the pipeline's streaming pump.
+#[cfg(feature = "live")]
+pub struct GeminiLiveSession {
+    runtime: std::sync::Arc<tokio::runtime::Runtime>,
+    socket: Option<session::Socket>,
+    mode: TranscribeMode,
+    /// Wall clock from the first pushed sample, so `request_ms` stays
+    /// comparable with the batch adapters' full round trip.
+    started: Instant,
+    /// Samples pushed so far, for the log line only.
+    pushed: usize,
+}
+
+#[cfg(feature = "live")]
+impl crate::LiveSession for GeminiLiveSession {
+    fn push(&mut self, samples_16k: &[f32]) -> Result<(), SttError> {
+        let Some(socket) = self.socket.as_mut() else {
+            return Err(fail("push after the session was finished".to_string()));
+        };
+        if samples_16k.is_empty() {
+            return Ok(());
+        }
+        let pcm = samples_to_pcm16_le(samples_16k);
+        self.pushed += samples_16k.len();
+        self.runtime.block_on(async {
+            session::send_audio(socket, &pcm).await?;
+            // Interims pile up in the receive buffer over a long hold.
+            session::drain_pending(socket).await;
+            Ok::<_, SttError>(())
+        })
+    }
+
+    fn finish(&mut self) -> Result<Transcript, SttError> {
+        let Some(mut socket) = self.socket.take() else {
+            return Err(fail("the session was already finished".to_string()));
+        };
+        let mode = self.mode;
+        let text = self
+            .runtime
+            .block_on(async move { session::finish(&mut socket, mode).await })?;
+        log::info!(
+            "gemini live session: {} ms of audio streamed during the hold",
+            self.pushed as u64 * 1_000 / 16_000
+        );
+        Ok(transcript_for(
+            mode,
+            text,
+            self.started.elapsed().as_millis(),
+        ))
+    }
+}
+
+#[cfg(feature = "live")]
+impl crate::LiveStt for GeminiLive {
+    fn start_session(&self) -> Result<Box<dyn crate::LiveSession>, SttError> {
+        let setup = setup_message(&self.model, &self.bias_terms, self.mode);
+        let url = live_url(&self.api_key);
+        let socket = self
+            .runtime
+            .block_on(async move { session::connect(url, setup).await })?;
+        Ok(Box::new(GeminiLiveSession {
+            runtime: self.runtime.clone(),
+            socket: Some(socket),
+            mode: self.mode,
+            started: Instant::now(),
+            pushed: 0,
+        }))
     }
 }
 
