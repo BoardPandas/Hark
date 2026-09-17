@@ -630,7 +630,7 @@ jobs:
       - name: Install build dependencies
         run: |
           pacman -Syu --noconfirm --needed \
-            git rust cargo pkgconf cmake clang \
+            git github-cli rust cargo pkgconf cmake clang \
             alsa-lib gtk3 libappindicator-gtk3 libxkbcommon libx11 libxcb xdotool
 
       - name: Check out the tagged commit
@@ -649,6 +649,10 @@ jobs:
           set -euo pipefail
           useradd -m builder
           cp packaging/PKGBUILD packaging/hark.install /home/builder/
+          # makepkg records pkgver inside the archive; renaming the asset does
+          # not update it. Use the version already checked against the tag.
+          sed -i "s/^pkgver=.*/pkgver=${VERSION}/" /home/builder/PKGBUILD
+          grep -Fxq "pkgver=${VERSION}" /home/builder/PKGBUILD
           chown -R builder:builder /home/builder "$GITHUB_WORKSPACE"
           # git refuses to operate on a tree owned by another user; makepkg's
           # .BUILDINFO generation reads the repo.
@@ -685,6 +689,8 @@ jobs:
           pkg="dist/Hark-${VERSION}-linux-x64.pkg.tar.zst"
           info=$(tar --zstd -xOf "$pkg" .PKGINFO)
           echo "$info" | grep -E '^(pkgname|pkgver|depend)'
+          echo "$info" | grep -Fxq "pkgver = ${VERSION}-1" \
+            || { echo "::error::Arch package version does not match the release"; exit 1; }
           for want in alsa-lib gtk3 xdotool libappindicator-gtk3 libx11 libxkbcommon; do
             echo "$info" | grep -qx "depend = $want" \
               || { echo "::error::PKGBUILD depends is missing $want"; exit 1; }
@@ -714,7 +720,40 @@ jobs:
             || { echo "::error::package does not install the udev rule; paste will fail on Wayland"; exit 1; }
 
       - name: Attach the Arch package to the release
-        uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228 # v3.0.2
-        with:
-          tag_name: ${{ needs.version.outputs.tag }}
-          files: dist/Hark-${{ needs.version.outputs.version }}-linux-x64.pkg.tar.zst
+        shell: bash
+        timeout-minutes: 7
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          # Recovery completed over HTTP/1.1 after HTTP/2 uploads stalled.
+          GODEBUG: http2client=0
+          TAG: ${{ needs.version.outputs.tag }}
+          VERSION: ${{ needs.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          name="Hark-${VERSION}-linux-x64.pkg.tar.zst"
+          pkg="dist/${name}"
+          test -s "$pkg"
+          digest="sha256:$(sha256sum "$pkg" | cut -d ' ' -f 1)"
+
+          # v0.42.0 built successfully but GitHub rejected the asset with
+          # "Error saving asset". Retry the upload without rebuilding, and
+          # replace any incomplete asset left behind by a failed attempt.
+          # Bound each request so a stalled upload leaves time for retries.
+          for attempt in 1 2 3; do
+            if timeout 90s gh release upload "$TAG" "$pkg" --clobber; then
+              if remote_digest=$(timeout 30s gh release view "$TAG" --json assets \
+                --jq ".assets[] | select(.name == \"${name}\" and .state == \"uploaded\") | .digest") \
+                && [ "$remote_digest" = "$digest" ]; then
+                echo "Verified uploaded asset ${name}: ${digest}"
+                exit 0
+              fi
+              echo "::warning::Could not verify the uploaded asset's SHA-256 digest"
+            fi
+            if [ "$attempt" -lt 3 ]; then
+              echo "::warning::Arch asset upload attempt ${attempt} failed; retrying"
+              sleep "$((attempt * 5))"
+            fi
+          done
+          echo "::error::Arch asset upload failed after 3 attempts"
+          exit 1

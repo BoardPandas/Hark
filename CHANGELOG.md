@@ -14,6 +14,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   - **Sending the whole clip without ever reading stalled the connection.** Interims start arriving immediately; a client that only writes lets them back up until the server stops making progress, and the end-of-audio signal is never acted on. Hark now keeps the receive side moving while it sends.
 - **Hark now waits for the Live API's setup acknowledgement before sending audio**, which the protocol requires, and reports a rejected setup with the server's own close reason instead of a bare timeout.
 - **An unrecognised Live API frame is no longer silently discarded.** Swallowing them is what made the above three bugs present as one indistinguishable timeout. Unhandled frames now log their top-level keys (keys only — a frame may carry transcript text), and a finalise timeout reports how many frames arrived and how many were interim.
+- Retry failed Arch release uploads and verify the uploaded package's SHA-256 digest before reporting success.
+- Set the Arch package's internal version to the release version so pacman sees the correct version instead of the stale PKGBUILD default.
 
 ## [0.42.1] - 2026-09-17
 
