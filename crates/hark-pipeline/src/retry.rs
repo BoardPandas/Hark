@@ -61,7 +61,11 @@ mod tests {
 
     #[test]
     fn auth_never_retries() {
-        assert!(!should_retry(&SttError::Auth { provider: p() }));
+        assert!(!should_retry(&SttError::Auth {
+            provider: p(),
+            status: 401,
+            detail: String::new(),
+        }));
     }
 
     #[test]
