@@ -177,6 +177,73 @@ fn status_401_and_403_map_to_auth_without_echoing_body() {
 }
 
 #[test]
+fn an_auth_error_carries_the_status_so_403_is_not_reported_as_a_bad_key() {
+    // 401 and 403 mean different things: 401 is "this key is not valid", 403
+    // is usually quota, project model access, or an org policy. Collapsing
+    // both into "check your API key" sends a 403 to the one place the answer
+    // is not, and used to be indistinguishable in the UI.
+    for want in [401u16, 403] {
+        match error_for_status("openai", want, None, "{}") {
+            SttError::Auth { status, .. } => assert_eq!(status, want),
+            other => panic!("expected Auth, got {other}"),
+        }
+    }
+}
+
+#[test]
+fn the_providers_reason_code_reaches_the_message() {
+    // The slug is the whole diagnostic value: "insufficient_quota" and
+    // "invalid_api_key" call for completely different actions.
+    let err = error_for_status(
+        "openai",
+        403,
+        None,
+        r#"{"error":{"message":"You exceeded your quota","type":"insufficient_quota","code":"insufficient_quota"}}"#,
+    );
+    let rendered = err.to_string();
+    assert!(rendered.contains("insufficient_quota"), "{rendered}");
+    assert!(rendered.contains("403"), "{rendered}");
+    // The prose message is still not echoed -- only the enumerated slug.
+    assert!(!rendered.contains("You exceeded"), "{rendered}");
+}
+
+#[test]
+fn a_key_quoted_back_in_an_error_body_never_reaches_the_message() {
+    // OpenAI's own invalid-key error quotes the key it was given. Taking the
+    // enumerated code rather than the body is what keeps this safe.
+    let err = error_for_status(
+        "openai",
+        401,
+        None,
+        r#"{"error":{"message":"Incorrect API key provided: sk-proj-abc123. ","code":"invalid_api_key"}}"#,
+    );
+    let rendered = err.to_string();
+    assert!(!rendered.contains("sk-proj-abc123"), "{rendered}");
+    assert!(rendered.contains("invalid_api_key"), "{rendered}");
+}
+
+#[test]
+fn a_prose_reason_field_is_dropped_rather_than_printed() {
+    // Only short, whitespace-free enumerated slugs are safe to surface; a
+    // free-text field could be anything, including a quoted credential.
+    let err = error_for_status(
+        "openai",
+        403,
+        None,
+        r#"{"error":{"code":"your key sk-proj-leak is not allowed here"}}"#,
+    );
+    assert!(!err.to_string().contains("sk-proj-leak"), "{err}");
+}
+
+#[test]
+fn an_unparseable_body_still_yields_a_usable_auth_error() {
+    let err = error_for_status("openai", 401, None, "<html>403 Forbidden</html>");
+    let rendered = err.to_string();
+    assert!(rendered.contains("401"), "{rendered}");
+    assert!(rendered.contains("check your API key"), "{rendered}");
+}
+
+#[test]
 fn status_429_maps_to_rate_limited_with_retry_after() {
     let err = error_for_status("groq", 429, Some(7), "slow down");
     match err {

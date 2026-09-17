@@ -682,6 +682,8 @@ mod tests {
         fn auth() -> Result<Transcript, SttError> {
             Err(SttError::Auth {
                 provider: "mock".to_string(),
+                status: 401,
+                detail: String::new(),
             })
         }
     }

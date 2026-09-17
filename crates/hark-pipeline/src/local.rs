@@ -243,6 +243,8 @@ mod tests {
     fn auth() -> SttError {
         SttError::Auth {
             provider: "cloud".to_string(),
+            status: 401,
+            detail: String::new(),
         }
     }
 

@@ -187,14 +187,25 @@ fn parse_response_rejects_junk_with_snippet() {
 
 #[test]
 fn status_401_and_403_map_to_auth_without_body_echo() {
-    for status in [401, 403] {
-        let err = error_for_status("openai", status, None, r#"{"error":{"message":"bad key"}}"#);
+    for want in [401, 403] {
+        let err = error_for_status("openai", want, None, r#"{"error":{"message":"bad key"}}"#);
         match err {
-            CleanupError::Auth { ref provider } => assert_eq!(provider, "openai"),
+            CleanupError::Auth {
+                ref provider,
+                status,
+                ..
+            } => {
+                assert_eq!(provider, "openai");
+                // The status is carried now: 403 is usually quota or project
+                // access, and telling that user to check their key is wrong.
+                assert_eq!(status, want);
+            }
             ref other => panic!("expected Auth, got {other}"),
         }
-        // The rendered message must not echo the response body.
+        // The rendered message must not echo the response body: a provider's
+        // auth error routinely quotes the key back.
         assert!(!err.to_string().contains("bad key"));
+        assert!(err.to_string().contains(&want.to_string()));
     }
 }
 

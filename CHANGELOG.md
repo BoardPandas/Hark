@@ -17,6 +17,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- **A provider's 403 no longer tells you to check a key that is fine.** `401` and `403` were rendered with the same sentence — "check your API key" — which is right for a 401 (the key really is invalid) and actively misleading for a 403, which is normally quota, project model access, or an org policy. Auth errors now carry the status and the provider's own reason code, so a failure reads `authentication rejected by openai (HTTP 403): insufficient_quota` and points at the actual problem. Cleanup auth failures say "cleanup authentication rejected", which previously rendered word-for-word identically to a transcription failure and was impossible to tell apart in the UI.
+- **Added a long-clip diagnostic** (`cargo run -p hark-stt --example long_clip_probe`), which posts progressively longer clips and reports where an endpoint starts refusing them. Length-dependent failures were invisible to every existing harness: the committed fixture is 10 s, so nothing here exercised paragraph-length dictation.
+
 - **Gemini Live failed every dictation with an 8-second timeout.** Three separate bugs, all in the WebSocket handling, found by running a probe against the live API:
   - **The server sends its JSON in binary WebSocket frames, not text ones.** Hark matched only text frames, so it ignored the entire conversation — the setup acknowledgement, every interim, and the transcript itself — and sat waiting for a reply that had already arrived.
   - **A transcription turn ends with `generationComplete`, and `turnComplete` never arrives at all.** Hark waited for the documented one, so even after the frames were readable it would collect the finished transcript and then time out while discarding it.
