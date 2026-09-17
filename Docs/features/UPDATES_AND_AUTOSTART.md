@@ -20,24 +20,30 @@ The following files were used as evidence for this page:
 <!-- BEGIN:AUTOGEN hark_11_updates_autostart_overview -->
 ## Overview
 
-Hark ships as a single signed portable `.exe` published as a GitHub release asset, and updates itself in place rather than relying on a package manager or store (`crates/hark-update/src/lib.rs:1-18`). A separate crate, `hark-autostart`, registers Hark to launch hidden into the tray at login by writing directly to the Windows `Run` registry key (`crates/hark-autostart/src/lib.rs:1-21`).
+Hark ships on Windows as a signed Inno Setup installer, `Hark-<version>-windows-x64-setup.exe`, published as a GitHub release asset ([lib.rs:11](../../crates/hark-update/src/lib.rs#L11)). A separate crate, `hark-autostart`, registers Hark to launch hidden into the tray at login by writing directly to the Windows `Run` registry key ([lib.rs:1-5](../../crates/hark-autostart/src/lib.rs#L1-L5)).
 
-The update lifecycle has four stages, each blocking and run on a worker thread so the UI thread never stalls: check the GitHub Releases API against the running SemVer, download the signed Windows asset next to the running exe, verify its Authenticode signature and publisher against the running exe, then swap the exe and relaunch ([lib.rs:1-18](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/crates/hark-update/src/lib.rs#L1-L18)). On non-Windows targets, signature verification always refuses and the app falls back to opening the GitHub release page instead of self-installing ([verify.rs:11-23](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/crates/hark-update/src/verify.rs#L11-L23)).
+The update lifecycle has four stages, each blocking and run on a worker thread so the UI thread never stalls: check the GitHub Releases API against the running SemVer, download the signed installer next to the running exe, verify its Authenticode signature and publisher against the running exe, then start the installer and exit ([lib.rs:11-20](../../crates/hark-update/src/lib.rs#L11-L20)). On non-Windows targets, signature verification always refuses and the app falls back to opening the GitHub release page instead of self-installing ([verify.rs:18-23](../../crates/hark-update/src/verify.rs#L18-L23)).
+
+**The last stage is an install, not a swap.** Earlier versions downloaded a portable `.exe` and replaced the running image with `self-replace`. That updated the binary while leaving Inno's uninstall record pinned at whatever version first installed Hark, so Add or remove programs and the running build disagreed after every update ([lib.rs:22-29](../../crates/hark-update/src/lib.rs#L22-L29)). `install` now starts the downloaded installer with `/SILENT /SUPPRESSMSGBOXES /NORESTART /relaunch=yes` and returns so the caller can exit ([lib.rs:74-79](../../crates/hark-update/src/lib.rs#L74-L79)), and the asset picker matches `-windows-x64-setup.exe` rather than the portable name ([lib.rs:67](../../crates/hark-update/src/lib.rs#L67)).
+
+Exiting promptly is part of the contract: Windows will not overwrite a running image, so `hark.iss` sets `CloseApplications=yes` and lets the Restart Manager close Hark ([hark.iss:63](../../installer/hark.iss#L63)). Because the installer's interactive launch entry is `skipifsilent`, a silent update would otherwise finish with Hark closed and nothing restarting it; a second `[Run]` entry gated on `RelaunchRequested` starts it again with `--hidden --relaunched-after-update` ([hark.iss:112-120](../../installer/hark.iss#L112-L120)).
 
 ```mermaid
 graph TD
     A["Startup or manual check"] --> B["Query GitHub releases/latest"]
     B --> C{"Newer than running version?"}
     C -->|"No"| D["Up to date"]
-    C -->|"Yes"| E["Download Windows asset"]
+    C -->|"Yes"| E["Download signed installer"]
     E --> F["Verify Authenticode + signer"]
     F --> G{"Signature valid?"}
-    G -->|"No"| H["Fail, stay on running exe"]
-    G -->|"Yes"| I["Replace running exe"]
-    I --> J["Relaunch, no console window"]
+    G -->|"No"| H["Fail, stay on running build"]
+    G -->|"Yes"| I["Start installer silently"]
+    I --> J["Hark exits, Restart Manager closes it"]
+    J --> K["Setup replaces files"]
+    K --> L["Setup relaunches Hark hidden"]
 ```
 
-Sources: [lib.rs:1-18](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/crates/hark-update/src/lib.rs#L1-L18), [verify.rs:1-23](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/crates/hark-update/src/verify.rs#L1-L23)
+Sources: [lib.rs:1-29](../../crates/hark-update/src/lib.rs#L1-L29), [lib.rs:67-79](../../crates/hark-update/src/lib.rs#L67-L79), [lib.rs:259-263](../../crates/hark-update/src/lib.rs#L259-L263), [verify.rs:18-23](../../crates/hark-update/src/verify.rs#L18-L23), [hark.iss:63](../../installer/hark.iss#L63), [hark.iss:112-120](../../installer/hark.iss#L112-L120)
 <!-- END:AUTOGEN hark_11_updates_autostart_overview -->
 
 ---
@@ -73,7 +79,7 @@ pub fn check(
 
 Sources: [lib.rs:118-158](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/crates/hark-update/src/lib.rs#L118-L158)
 
-GitHub requires a `User-Agent` header on every API request or it returns 403, so `check` and `download` both set one derived from the crate's own version (`hark-update/<version> (BoardPandas/Hark)`) ([lib.rs:32-37](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/crates/hark-update/src/lib.rs#L32-L37)). The published asset is matched by filename suffix (`-windows-x64.exe`), not an exact name, so a version bump in the middle of the filename never breaks the picker ([lib.rs:39-41](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/crates/hark-update/src/lib.rs#L39-L41), [lib.rs:139-142](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/crates/hark-update/src/lib.rs#L139-L142)). `Ok(None)` is returned when the release is not strictly newer, so callers cannot show a stale or same-version update prompt ([lib.rs:133-137](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/crates/hark-update/src/lib.rs#L133-L137)).
+GitHub requires a `User-Agent` header on every API request or it returns 403, so `check` and `download` both set one derived from the crate's own version (`hark-update/<version> (BoardPandas/Hark)`) ([lib.rs:32-37](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/crates/hark-update/src/lib.rs#L32-L37)). The published asset is matched by filename suffix (`-windows-x64-setup.exe`), not an exact name, so a version bump in the middle of the filename never breaks the picker ([lib.rs:59-67](../../crates/hark-update/src/lib.rs#L59-L67), [lib.rs:184-186](../../crates/hark-update/src/lib.rs#L184-L186)). The suffix was `-windows-x64.exe` until 0.39.0, when the portable build stopped being published. The two do not overlap — the installer's name ends `-setup.exe` — so a build from before that change, meeting a release from after it, matches nothing and falls back to offering the release page ([lib.rs:59-66](../../crates/hark-update/src/lib.rs#L59-L66)). `Ok(None)` is returned when the release is not strictly newer, so callers cannot show a stale or same-version update prompt ([lib.rs:133-137](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/crates/hark-update/src/lib.rs#L133-L137)).
 
 `ReleaseInfo` is the shared shape both the checker and the app UI operate on:
 
@@ -173,7 +179,7 @@ pub fn can_self_install(&self) -> bool {
 }
 ```
 
-The startup banner and the Settings page share `banner_visible()`, which only raises the banner for `Available`, `Installing`, or `Ready`, and stays hidden once the user calls `dismiss_banner()` until the next successful check re-arms it ([update.rs:96-109](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/crates/hark-app/src/update.rs#L96-L109), [update.rs:207-210](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/crates/hark-app/src/update.rs#L207-L210)). `restart()` calls `hark_update::apply` then `hark_update::relaunch`; on success the process exits and never returns, and if relaunch fails after the exe was already swapped, the failure message tells the user to reopen Hark manually rather than silently leaving them on the old, now-deleted build ([update.rs:174-194](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/crates/hark-app/src/update.rs#L174-L194)).
+The startup banner and the Settings page share `banner_visible()`, which only raises the banner for `Available`, `Installing`, or `Ready`, and stays hidden once the user calls `dismiss_banner()` until the next successful check re-arms it ([update.rs:96-109](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/crates/hark-app/src/update.rs#L96-L109), [update.rs:207-210](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/crates/hark-app/src/update.rs#L207-L210)). `restart()` calls `hark_update::install` and then exits the process immediately; there is no relaunch step here, because Setup starts Hark again itself once it has replaced the files ([update.rs:183-193](../../crates/hark-app/src/update.rs#L183-L193)). Exiting is the contract rather than tidiness: Windows will not overwrite a running image, and lingering only means waiting to be closed by the Restart Manager. If the installer cannot be started at all, the phase lands back in `Failed` with the reason, and the running build is untouched ([update.rs:188-191](../../crates/hark-app/src/update.rs#L188-L191)).
 
 Sources: [update.rs:1-228](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/crates/hark-app/src/update.rs#L1-L228)
 <!-- END:AUTOGEN hark_11_updates_autostart_appglue -->

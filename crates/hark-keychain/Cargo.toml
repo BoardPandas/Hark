@@ -8,8 +8,12 @@ description = "Hark BYOK key resolution: HARK_STT_KEY env override first, then t
 
 [dependencies]
 # Exact-patch pin: keyring 4.x changed its backend model from the 2.x/3.x
-# cargo-feature style and shipped 3 releases in ~2 days around 4.1.x. The `v1`
-# umbrella feature bundles the native backends (Windows Credential Manager,
-# macOS Keychain). Re-verify at the packaging milestone (spec §2.4/§12).
-keyring = { version = "=4.1.5", features = ["v1"] }
+# cargo-feature style and shipped 3 releases in ~2 days around 4.1.x, so the
+# version is pinned rather than caret-ranged and moves only deliberately. The
+# `v1` umbrella feature bundles the native backends (Windows Credential
+# Manager, macOS Keychain). Moved 4.1.5 -> 4.2.0 in the 2026-09-10 dependency
+# sweep; the release line has been stable since. Still worth re-verifying on
+# real hardware at the packaging milestone (spec §2.4/§12), because nothing on
+# a build-only machine exercises an actual OS keychain.
+keyring = { version = "=4.2.0", features = ["v1"] }
 thiserror = "2"

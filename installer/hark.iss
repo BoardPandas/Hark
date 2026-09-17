@@ -93,3 +93,29 @@ Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; \
 ; unattended installs headless.
 Filename: "{app}\{#AppExeName}"; Description: "{cm:LaunchProgram,{#AppName}}"; \
     Flags: nowait postinstall skipifsilent
+
+; The in-app updater's relaunch. It runs this installer with /SILENT, which
+; makes the entry above skipifsilent itself out -- so without this one an
+; update would end with Hark closed by the Restart Manager and nothing
+; starting it again. Gated on our own /relaunch=yes so a genuinely unattended
+; install (a scripted rollout) stays headless, which is what skipifsilent is
+; there to protect.
+;
+; --hidden, unlike the interactive entry: an update should put Hark back in
+; the tray it was living in, not throw a window in front of whatever the user
+; was doing. --relaunched-after-update makes the new process wait out the
+; single-instance lock rather than lose the race and exit; Setup has closed the
+; old process by now, but the lock can outlive it by a moment.
+;
+; Both flags are pinned against hark-update by a test there. If you rename one,
+; that test fails rather than the update silently ending with no Hark running.
+Filename: "{app}\{#AppExeName}"; Parameters: "--hidden --relaunched-after-update"; \
+    Flags: nowait; Check: RelaunchRequested
+
+[Code]
+// True when Hark's own updater invoked this installer and wants the app
+// started again afterwards (see [Run] above).
+function RelaunchRequested: Boolean;
+begin
+  Result := CompareText(ExpandConstant('{param:relaunch|no}'), 'yes') = 0;
+end;

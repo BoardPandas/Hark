@@ -45,20 +45,186 @@ SCAN=$(printf '%s' "$CMD" \
   | tr '\n' ';' \
   | sed -e 's/[;&|()][;&|()]*/ ; /g')
 
-# Match on intent, not on one tool. Add this project's own deploy command here;
-# the list travels with the repo, so keep it accurate rather than broad.
+# Match on intent, not on one tool. Add this project's own deploy command to
+# `segment_deploys`; the list travels with the repo, so keep it accurate rather
+# than broad.
 is_production_deploy() {
   case "$SCAN" in
     *--dry-run*|*--help*|*" -h"*) return 1 ;;
   esac
-  case "$SCAN" in
-    *wrangler*deploy*|*wrangler*publish*)          return 0 ;;
-    *railway*up*|*railway*redeploy*)               return 0 ;;
-    *"vercel --prod"*|*"vercel deploy --prod"*)    return 0 ;;
-    *fly*deploy*)                                  return 0 ;;
-    *"kubectl apply"*prod*|*helm*upgrade*prod*)    return 0 ;;
-    *terraform*apply*)                             return 0 ;;
-    *npm*run*deploy:prod*|*pnpm*deploy:prod*)      return 0 ;;
+  is_release_command
+}
+
+# True when the command actually runs a production deploy.
+#
+#   git push origin v1.2.3                      -> yes
+#   git push --follow-tags                      -> yes
+#   git -C /repo push origin refs/tags/v1       -> yes
+#   gh release create v1.2.3                    -> yes
+#   wrangler deploy                             -> yes
+#   git push origin main                        -> NO (publishes nothing to users)
+#   sed -i s/x/y/ .github/workflows/rel.yml     -> NO
+#   git commit -m "gate wrangler deploy pushes" -> NO
+#
+# This walks the token stream instead of globbing the whole command, for the
+# same reason `_git-commit-filter.sh` does. Both halves of this gate proved the
+# point the hard way:
+#
+#   - A first draft matched `*git*push*v[0-9]*.[0-9]*` and blocked an ordinary
+#     heredoc writing a workflow file, because `.github` supplied "git", the
+#     word "push" appeared in a comment, and an action's `# v2.9.2` SHA pin
+#     supplied the version.
+#   - The original tool list matched `*wrangler*deploy*` and `*fly*deploy*`
+#     against the whole command, so a COMMIT whose message merely discussed
+#     deploy tooling was refused as a deploy. A gate that fires on writing
+#     about deploys is one people switch off.
+#
+# Globs cannot tell a command position from prose. The walk models argv: it
+# splits on command separators, skips env-assignment prefixes, resolves the
+# program name (so `/usr/bin/git` counts and `mygit` does not), and only then
+# looks at that program's own arguments.
+# (LL-G kb/claude-code/hook-git-commit-filter-needs-argv-walk.md)
+is_release_command() {
+  local normalized restore_glob segment tok result
+
+  # Quoted regions collapse to ONE opaque token rather than being deleted:
+  # `git -C "/path with space" push` must not become `git -C  push`, where -C
+  # would swallow `push` as its own value. Newlines become separators so line
+  # two of a script is still a command position.
+  normalized=$(printf '%s' "$CMD" \
+    | sed -e "s/'[^']*'/__RQ__/g" -e 's/"[^"]*"/__RQ__/g' \
+    | tr '\n' ';' \
+    | sed -e 's/[;&|()][;&|()]*/ ; /g')
+
+  # Unquoted word splitting below would otherwise glob-expand a token like `*`
+  # against the working directory.
+  restore_glob=0
+  case $- in
+    *f*) ;;
+    *)   restore_glob=1; set -f ;;
+  esac
+
+  result=1
+  segment=""
+  for tok in $normalized; do
+    if [ "$tok" = ";" ]; then
+      if segment_deploys $segment; then result=0; break; fi
+      segment=""
+      continue
+    fi
+    segment="$segment $tok"
+  done
+  # The last segment has no trailing separator to flush it.
+  if [ "$result" != 0 ] && [ -n "$segment" ]; then
+    segment_deploys $segment && result=0
+  fi
+
+  [ "$restore_glob" = 1 ] && set +f
+  return "$result"
+}
+
+# True when ONE command segment is a production deploy. The segment's argv
+# arrives as positional arguments.
+#
+# ADD THIS PROJECT'S DEPLOY COMMAND HERE. The list travels with the repo, so
+# keep it accurate rather than broad.
+segment_deploys() {
+  local prog
+
+  # Skip env-assignment prefixes: `RELEASE_AUTHORIZED_BY=x git push ...` is
+  # still a git invocation, and so is `GIT_AUTHOR_NAME=x git push`.
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      *=*) shift ;;
+      *)   break ;;
+    esac
+  done
+  [ "$#" -gt 0 ] || return 1
+
+  # Resolve the program name out of a path, so /usr/bin/git counts. Exact after
+  # that: `mygit` and `deploy-notes.md` are not git.
+  prog=${1##*/}
+  prog=${prog%.exe}
+  shift
+
+  case "$prog" in
+    git)           git_pushes_a_tag "$@" ;;
+    gh)            gh_publishes "$@" ;;
+    wrangler)      has_token "deploy publish" "$@" ;;
+    railway)       has_token "up redeploy" "$@" ;;
+    vercel)        has_token "--prod" "$@" ;;
+    fly|flyctl)    has_token "deploy" "$@" ;;
+    terraform)     has_token "apply" "$@" ;;
+    kubectl)       has_token "apply" "$@" && has_prod "$@" ;;
+    helm)          has_token "upgrade" "$@" && has_prod "$@" ;;
+    npm|pnpm|yarn) has_token "deploy:prod" "$@" ;;
+    *)             return 1 ;;
+  esac
+}
+
+# has_token "<space-separated wanted>" <args...>
+has_token() {
+  local wanted=$1 a w
+  shift
+  for a in "$@"; do
+    for w in $wanted; do
+      [ "$a" = "$w" ] && return 0
+    done
+  done
+  return 1
+}
+
+# True if any argument names a production environment.
+has_prod() {
+  local a
+  for a in "$@"; do
+    case "$a" in *prod*) return 0 ;; esac
+  done
+  return 1
+}
+
+# True when a `git push`'s arguments carry a tag. A branch refspec (`main`,
+# `HEAD:main`) is not a deploy: it publishes nothing to users.
+git_pushes_a_tag() {
+  local tok saw_push=0 skip=0
+  for tok in "$@"; do
+    if [ "$skip" = 1 ]; then skip=0; continue; fi
+    if [ "$saw_push" = 0 ]; then
+      case "$tok" in
+        # Global flags that consume the NEXT token as their value. Missing one
+        # here would let its value be read as the subcommand, and the gate
+        # would stop firing for every command that uses it.
+        -C|-c|--git-dir|--work-tree|--namespace) skip=1 ;;
+        push)                                    saw_push=1 ;;
+        -*)                                      ;;  # self-contained flag
+        *)                                       return 1 ;;  # other subcommand
+      esac
+      continue
+    fi
+    case "$tok" in
+      --tags|--follow-tags|--mirror) return 0 ;;
+      tag)                           return 0 ;;
+      *refs/tags/*)                  return 0 ;;
+      v[0-9]*)                       return 0 ;;
+    esac
+  done
+  return 1
+}
+
+# True when a `gh` invocation publishes a release, or re-runs the workflow that
+# does (release.yml's workflow_dispatch takes an existing tag).
+gh_publishes() {
+  local tok sub="" verb=""
+  for tok in "$@"; do
+    case "$tok" in -*) continue ;; esac
+    if [ -z "$sub" ]; then sub=$tok; continue; fi
+    if [ -z "$verb" ]; then verb=$tok; continue; fi
+    if [ "$sub" = workflow ] && [ "$verb" = run ]; then
+      case "$tok" in *release*) return 0 ;; esac
+    fi
+  done
+  case "$sub/$verb" in
+    release/create|release/upload|release/edit|release/delete) return 0 ;;
   esac
   return 1
 }

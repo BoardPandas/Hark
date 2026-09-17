@@ -61,6 +61,7 @@ pub struct HarkApp {
 impl HarkApp {
     pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
         theme::apply(&cc.egui_ctx);
+        install_gpu_diagnostics(cc);
 
         let (settings, load_error) = load_settings();
         reconcile_autostart(settings.startup.launch_at_login);
@@ -236,24 +237,76 @@ impl HarkApp {
         ctx.send_viewport_cmd(egui::ViewportCommand::Visible(false));
     }
 
-    /// While the chord is held, register the recording overlay viewport;
-    /// otherwise leave it unregistered so egui tears the window down. Called
+    /// Keep the recording overlay viewport registered for as long as the
+    /// pipeline is live — not just while the chord is held. The overlay is one
+    /// window that is shown and hidden (see `crate::overlay`), and egui retires
+    /// a deferred viewport at the end of the first parent pass that stops
+    /// registering it, so registration has to outlast the dictation. Called
     /// from `logic`, which runs even while the main window is hidden, so the
-    /// overlay works during normal tray-daemon operation. The overlay only
-    /// exists while a meter does (i.e. the pipeline is live), so a Recording
-    /// status without one is impossible in practice and simply shows nothing.
+    /// overlay works during normal tray-daemon operation.
+    ///
+    /// The overlay only exists while a meter does (i.e. the pipeline is live);
+    /// a stopped pipeline drops the registration and the window with it, and a
+    /// restart builds a fresh one.
     fn show_recording_overlay(&mut self, ctx: &egui::Context) {
-        if !matches!(self.pipeline.status(), PipelineStatus::Recording) {
-            return;
-        }
-        if let (Some(meter), Some(recording)) =
+        let (Some(meter), Some(recording)) =
             (self.pipeline.level_meter(), self.pipeline.recording_flag())
-        {
-            let monitor = ctx.input(|i| i.viewport().monitor_size);
-            let dictation = self.pipeline.dictation();
-            crate::overlay::show(ctx, meter, recording, dictation, monitor);
+        else {
+            return;
+        };
+        let monitor = ctx.input(|i| i.viewport().monitor_size);
+        crate::overlay::register(ctx, meter, recording, monitor);
+
+        // A hidden overlay sleeps, so the pill's first frame of a dictation has
+        // to be asked for from here. Harmless once it is up: it then drives its
+        // own ~60 fps repaints.
+        if matches!(self.pipeline.status(), PipelineStatus::Recording) {
+            ctx.request_repaint_of(crate::overlay::viewport_id());
         }
     }
+}
+
+/// Make GPU trouble name itself in the log.
+///
+/// Both of the paths this covers are silent by construction. wgpu reports a
+/// *lost device* by returning early from its error path without logging
+/// anything at all, so the only trace one leaves is egui-wgpu's `Dropped frame
+/// with error: Validation` — a warning indistinguishable from the harmless
+/// kind. And neither eframe nor egui-wgpu installs an error handler or recovers
+/// from device loss, so for every *other* wgpu error the default handler runs:
+/// a bare `panic!` whose message goes to a stderr a windowed release build does
+/// not have. A crash with no cause in the log was the result.
+///
+/// So name the device loss, and downgrade the fatal-by-default handler to a
+/// logged error: a resident dictation daemon that drops a frame is better than
+/// one that vanishes mid-sentence. The cap matters because a lost device makes
+/// every later frame fail too, and a line per frame at 60 fps would push the
+/// first cause out through the log's own rotation.
+fn install_gpu_diagnostics(cc: &eframe::CreationContext<'_>) {
+    let Some(render_state) = cc.wgpu_render_state.as_ref() else {
+        log::warn!("no wgpu render state; GPU errors will go unreported");
+        return;
+    };
+
+    render_state
+        .device
+        .set_device_lost_callback(|reason, message| {
+            log::error!("wgpu device lost ({reason:?}): {message}");
+        });
+
+    const MAX_REPORTED: usize = 10;
+    let reported = std::sync::atomic::AtomicUsize::new(0);
+    render_state.device.on_uncaptured_error(std::sync::Arc::new(
+        move |error: eframe::wgpu::Error| match reported
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+        {
+            n if n < MAX_REPORTED => log::error!("wgpu error: {error}"),
+            n if n == MAX_REPORTED => {
+                log::error!("wgpu error: further errors suppressed for this session");
+            }
+            _ => {}
+        },
+    ));
 }
 
 /// Start the activation listener, or log why not. Failure is not fatal: Hark

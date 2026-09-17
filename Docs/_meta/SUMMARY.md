@@ -147,3 +147,90 @@ Whole-file citations written by the original `init` run are off by one
 untouched AUTOGEN blocks and in "Relevant source files" lists whose file sets
 did not change, so the incremental-update policy forbids rewriting them here.
 Citations emitted by this run use exact line counts.
+
+---
+
+## Incremental Update — 2026-09-10 17:17
+
+- **Mode:** update (scoped)
+- **Commit range:** `bcfcc3f..edda9d9`
+- **Trigger:** 0.39.0 removed the portable Windows download and changed the
+  in-app updater to run the signed Inno installer instead of self-replacing the
+  running exe, falsifying four sections.
+
+### Phase A — TOC drift
+
+- New pages: 0
+- Removed pages: 0
+- Added sections: 0
+- Removed sections: 0
+- `project.ref_commit_hash` and `updated_at` advanced to `edda9d9` / 2026-09-10.
+
+### Phase B — Source diff
+
+- Sections touched: 6, across 3 pages — 4 fully regenerated, 2 surgically
+  corrected.
+
+| Page | Section | Was wrong because |
+|---|---|---|
+| `GETTING_STARTED.md` | `hark_03_getting_started_install` | Told readers a portable exe is attached to each release |
+| `features/UPDATES_AND_AUTOSTART.md` | `hark_11_updates_autostart_overview` | "ships as a single signed portable `.exe` … updates itself in place", and a four-stage lifecycle ending "swap the exe and relaunch" |
+| `operations/RELEASE_AND_PACKAGING.md` | `hark_13_release_packaging_overview` | Described a single-job workflow publishing installer + portable exe |
+| `operations/RELEASE_AND_PACKAGING.md` | `hark_13_release_packaging_workflow` | Every citation derived from a 223-line `release.yml`; the file is now 704 lines across four jobs, so the line numbers pointed at unrelated code |
+| `features/UPDATES_AND_AUTOSTART.md` | `hark_11_updates_autostart_checker` | Named the old `-windows-x64.exe` asset suffix |
+| `features/UPDATES_AND_AUTOSTART.md` | `hark_11_updates_autostart_appglue` | Described `restart()` calling `hark_update::apply` then `hark_update::relaunch` — both functions no longer exist |
+
+**Two of these were not in the requested set.** The brief named four sections;
+`_checker` and `_appglue` were found during validation, and both are covered by
+the same Phase B rule — their `source_files` include `crates/hark-update/src/lib.rs`
+and `crates/hark-app/src/update.rs`, which changed. `_appglue` was the worse of
+the two: it documented the call sequence of two deleted functions, which is the
+kind of claim a reader would act on.
+
+The workflow section was the expensive one. It was not merely worded wrong — its
+whole citation set had rotted, because `release.yml` was restructured into
+`version` / `release` / `linux` / `linux-arch` and more than tripled in length.
+Every step's range was re-derived from the current file rather than adjusted.
+
+### Validation
+
+- Structure errors: 0. All AUTOGEN markers across `Docs/` balanced and in order.
+- Internal links: 102 checked across `Docs/`, 0 broken.
+- Citations: 57 repo-relative citations verified — each resolves to a file that
+  exists, with a line span inside it and no inverted ranges. 36 pinned absolute
+  URLs in the two surgically corrected blocks were left untouched by design.
+  Two defects were caught by this check rather than by review:
+  - **An off-by-one.** A two-line header edit to `release.yml` shifted a
+    PowerShell snippet, and the cited range had drifted a line off the code it
+    quoted.
+  - **A wrong base for every new citation.** They were first written
+    repo-root-relative (`crates/...`), which is how the paths are written in
+    prose but not how markdown resolves them — from `Docs/features/` that
+    points at `Docs/features/crates/...`. All 52 were rewritten to page-relative
+    (`../../crates/...`), matching the convention already used in
+    `ON_DEVICE_STT.md`. A link check that only looked at `.md` targets missed
+    this; checking every citation target is what surfaced it.
+- Mermaid: 1 diagram regenerated (the update lifecycle, now ending in an install
+  rather than a swap). `mmdc` is not on PATH, so it was checked statically per
+  `references/mermaid-policy.md`: `graph TD`, every node and edge label quoted,
+  no special characters in node IDs. Syntactic validation was skipped.
+- Coverage gap: 0 new source files unmapped by the TOC.
+
+### Known gap left open, deliberately
+
+Citation style is now mixed across the wiki: this run emitted repo-relative
+links (the policy's preferred form), while untouched sections still carry
+absolute blob URLs pinned to `1c17387` or `bcfcc3f`. Those older links are not
+wrong — each points at the code its section was written from — but the wiki will
+read inconsistently until a full run reconciles it.
+
+`_checker` and `_appglue` are mixed *within* a single block, which the citation
+policy ("pick one style per page") would not choose deliberately. It is the
+honest option here: the surrounding sentences are still accurate, and their
+pinned URLs point at the code those sentences were written from. Rewriting them
+to repo-relative without re-deriving every line number would silently repoint
+them at unrelated current code — a worse outcome than visible inconsistency.
+They should be fully regenerated on the next unscoped run.
+
+The "Highest-value next run" note above (`hark-hotkey` / `AUDIO_CAPTURE.md`)
+still stands and is unaffected by this run.

@@ -41,13 +41,13 @@ Sources: [README.md:3](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd75
 
 The simplest way to run Hark on Windows is the signed setup executable published with each release.
 
-- Download `Hark-<version>-windows-x64-setup.exe` from the [Releases page](https://github.com/BoardPandas/Hark/releases/latest) and run it ([README.md:69-70](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/README.md#L69-L70)).
-- The installer runs per-user with no admin prompt, and installs to `%LOCALAPPDATA%\Programs\Hark` ([README.md:71-72](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/README.md#L71-L72)).
-- It adds a Start Menu shortcut, and by default Hark starts hidden in the system tray at Windows sign-in; this is controlled by **Settings → Behavior → "Launch Hark at login"** ([README.md:72-74](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/README.md#L72-L74)).
-- A portable `Hark-<version>-windows-x64.exe` is attached to each release for anyone who prefers not to install ([README.md:75-76](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/README.md#L75-L76)).
-- To remove Hark, use **Add or remove programs**; settings and history in `%APPDATA%\hark` are left in place ([README.md:78-79](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/README.md#L78-L79)).
+- Download `Hark-<version>-windows-x64-setup.exe` from the [Releases page](https://github.com/BoardPandas/Hark/releases/latest) and run it ([README.md:82-83](../README.md#L82-L83)).
+- The installer runs per-user with no admin prompt, and installs to `%LOCALAPPDATA%\Programs\Hark` ([README.md:84-85](../README.md#L84-L85)).
+- It adds a Start Menu shortcut, and by default Hark starts hidden in the system tray at Windows sign-in; this is controlled by **Settings → Behavior → "Launch Hark at login"** ([README.md:85-87](../README.md#L85-L87)).
+- The installer is the **only** Windows download. A portable `Hark-<version>-windows-x64.exe` used to be attached to each release and no longer is: it produced an install Windows had no record of — no entry in Add or remove programs, no upgrade path — and it was also the file the in-app updater installed over itself ([README.md:89-94](../README.md#L89-L94)).
+- To remove Hark, use **Add or remove programs**; settings and history in `%APPDATA%\hark` are left in place ([README.md:96-97](../README.md#L96-L97)).
 
-Sources: [README.md:67-79](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/README.md#L67-L79)
+Sources: [README.md:80-97](../README.md#L80-L97)
 <!-- END:AUTOGEN hark_03_getting_started_install -->
 
 ---

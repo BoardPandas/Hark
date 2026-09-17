@@ -15,7 +15,7 @@ cpal = "0.18.1"
 # the FFT startup delay and yields exact output frame counts, which our unit
 # tests assert on. Do NOT call process() once with chunk_size == clip length;
 # that leaves the delay in and truncates the tail.
-rubato = "4.0"
+rubato = "5.0"
 log = "0.4"
 thiserror = "2"
 

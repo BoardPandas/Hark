@@ -37,6 +37,7 @@ const LOG_MAX_BYTES: u64 = 2 * 1024 * 1024;
 
 fn main() -> eframe::Result {
     init_logging();
+    install_panic_hook();
 
     // The autostart entry launches Hark with `--hidden` (hark-autostart). The
     // window already starts hidden into the tray, so this is informational
@@ -143,6 +144,37 @@ fn init_logging() {
     if let Some(path) = log_path() {
         log::info!("log file: {}", path.display());
     }
+}
+
+/// Write panics to the log file instead of dropping them on the floor.
+///
+/// The default hook prints to stderr, and a release build is
+/// `windows_subsystem = "windows"`: there is no stderr, so a panic that killed
+/// the app left the log ending mid-dictation with nothing to say why. Nor does
+/// the OS fill the gap — a panic that unwinds out of `main` is an ordinary exit
+/// (code 101), so Windows Error Reporting records nothing either, and the
+/// destructors that run on the way out make the tail of the log look like a
+/// clean shutdown. The log is the only place this can be written down, which is
+/// exactly the guessing game `init_logging` exists to prevent.
+///
+/// The payload is a panic message — lengths, indices and type names — so it
+/// carries no key material, audio, or transcript text, and logging it keeps
+/// this module's hygiene rule.
+fn install_panic_hook() {
+    let previous = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        let thread = std::thread::current();
+        let name = thread.name().unwrap_or("<unnamed>").to_string();
+        let location = match info.location() {
+            Some(l) => format!("{}:{}:{}", l.file(), l.line(), l.column()),
+            None => "an unknown location".to_string(),
+        };
+        log::error!(
+            "PANIC on thread '{name}' at {location}: {}",
+            info.payload_as_str().unwrap_or("<non-string payload>")
+        );
+        previous(info);
+    }));
 }
 
 fn log_path() -> Option<std::path::PathBuf> {

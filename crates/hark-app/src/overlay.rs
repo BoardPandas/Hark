@@ -7,23 +7,40 @@
 //! by the same main-thread event loop), so it honours the one hard rule: no
 //! UI off the main thread. It is registered from [`crate::app`]'s `logic`
 //! (which runs even while Hark's main window is hidden in the tray, unlike
-//! `ui`), so the overlay works during normal daemon operation. Once
-//! registered it animates on its own repaint requests while the parent window
-//! sleeps; dropping the registration on chord release tears the window down.
+//! `ui`), so the overlay works during normal daemon operation.
 //!
-//! **The parent cannot be relied on to be awake, so this window takes itself
-//! off screen.** Only a parent pass can *retire* a deferred viewport, and while
-//! this one animates the parent may not get one for seconds: a visible window
-//! is painted only when the OS delivers a paint, `WM_PAINT` is the lowest
-//! priority message Windows has, and a 60 fps sibling with a vsync-blocking
-//! buffer swap keeps the message queue from ever being empty long enough. (A
-//! hidden or minimized main window is immune — eframe paints those straight
-//! from its own loop, which is why a stranded pill used to clear the moment you
-//! minimised Hark and not before.) So `paint` reads the pipeline's recording
-//! flag directly and hides this window the instant a dictation ends. Retiring
-//! it for real still waits for the parent, which is fine: by then nothing is on
-//! screen, and hiding this window ends the queue pressure that was keeping the
-//! parent asleep in the first place.
+//! **It is ONE window for the life of the pipeline, shown and hidden — never a
+//! window per dictation.** It used to be the latter, keyed on a per-dictation
+//! viewport id, and that cost us both of the bugs this design exists to avoid:
+//!
+//! 1. *A crash.* A new viewport is a new OS window and a new `wgpu::Surface`,
+//!    created and destroyed on **every dictation** — dozens an hour in real
+//!    use. That churn is what eventually lost the GPU device, and it landed at
+//!    teardown, so a dictation would paste its text and the app would then
+//!    vanish. Nothing in eframe or egui-wgpu recovers from a lost device.
+//! 2. *A visible flash.* A window created per dictation is necessarily created,
+//!    placed, stripped and clipped **while already on screen** (`reposition`,
+//!    `strip_frame_styles` and `shape_to_capsule` can only run once the window
+//!    exists). Every activation therefore flashed a default-placed, fully
+//!    framed, unclipped rectangle before it became a pill.
+//!
+//! One persistent window fixes both: it is created hidden, shaped once while
+//! nobody can see it, and thereafter only moved and toggled. This works because
+//! **eframe paints invisible windows** — `run.rs` calls `run_ui_and_paint` on
+//! them directly, precisely so a queued `Visible(true)` is processed (egui
+//! #5229) — so the callback still runs while hidden and can do its Win32 work
+//! there. A window with no repaint scheduled simply sleeps, so an idle overlay
+//! costs nothing.
+//!
+//! **The parent cannot be relied on to be awake, so this window still takes
+//! itself off screen.** While the pill animates the parent may not get a pass
+//! for seconds: a visible window is painted only when the OS delivers a paint,
+//! `WM_PAINT` is the lowest priority message Windows has, and a 60 fps sibling
+//! with a vsync-blocking buffer swap keeps the message queue from ever being
+//! empty long enough. So `paint` reads the pipeline's recording flag directly
+//! and hides this window the instant a dictation ends, rather than waiting for
+//! a parent that may be seconds away. Hiding also ends the queue pressure that
+//! was keeping the parent asleep in the first place.
 //!
 //! Placement is platform-split on purpose. egui only ever exposes a monitor
 //! *size*, never its origin or its own DPI, which is not enough to position a
@@ -41,13 +58,21 @@
 //! It deliberately does NOT set `with_mouse_passthrough`. On Windows winit
 //! implements passthrough by adding `WS_EX_LAYERED` to the window, and a
 //! layered window is composited by DWM from a redirection bitmap that our
-//! hardware GL surface never fills with per-pixel alpha — so the transparent
-//! area renders as an opaque white (or black) box around the pill instead of
-//! showing the desktop (egui #2537). Per-pixel transparency and passthrough
-//! are mutually exclusive here, and a floating capsule needs the
-//! transparency. The overlay only exists while the push-to-talk chord is
-//! held and never activates, so the small bottom-centre rect briefly
-//! swallowing a click matters far less than a broken-looking box.
+//! hardware surface never fills with per-pixel alpha — so the transparent area
+//! renders as an opaque white (or black) box around the pill instead of showing
+//! the desktop (egui #2537). That is a DWM/Win32 property, not a renderer one,
+//! so it holds whichever backend eframe picked. The pill is only *visible*
+//! while the chord is held and never activates, so the small bottom-centre rect
+//! briefly swallowing a click matters far less than a broken-looking box.
+//!
+//! **On backends:** the reasoning here used to be written against the glow
+//! backend. This build does not use it — eframe 0.35's default features select
+//! **wgpu** (`glow` is not among them), and the runtime logs confirm
+//! wgpu/Vulkan. Nothing below depends on which one it is: the window region
+//! (`shape_to_capsule`) sidesteps window transparency altogether, which is why
+//! it works either way. Treat any surviving claim about GL framebuffer configs
+//! as void, and re-verify on real hardware before trading the region for
+//! per-pixel alpha.
 //!
 //! `with_decorations(false)` is not enough on Windows, either. winit keeps
 //! `WS_CAPTION | WS_BORDER | WS_SYSMENU` on every window it creates ("required
@@ -66,13 +91,12 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
-/// Logical size of the overlay window. The window *is* the capsule now: it is
+/// Logical size of the overlay window. The window *is* the capsule: it is
 /// filled edge to edge with the pill and, on Windows, clipped to that rounded
-/// shape by the OS (`clip_to_capsule`). Per-pixel window transparency does not
-/// work there with the glow backend — a larger transparent window renders an
-/// opaque box (black, or white once the framebuffer has alpha) around the
-/// pill instead of the desktop — so we stop relying on it and cut the window
-/// to the pill's outline instead. The pulse glow is clipped to the capsule.
+/// shape by the OS (`shape_to_capsule`). Relying on per-pixel window
+/// transparency instead renders an opaque box around the pill rather than the
+/// desktop, so we do not rely on it and cut the window to the pill's outline
+/// instead. The pulse glow is clipped to the capsule.
 const WINDOW: egui::Vec2 = egui::vec2(160.0, 40.0);
 /// Circle radius at rest and the extra radius at a full-scale pulse.
 const CIRCLE_BASE: f32 = 6.5;
@@ -82,27 +106,33 @@ const BOTTOM_MARGIN_FRAC: f32 = 0.09;
 /// A gentle idle "breathing" so the dot is alive even in silence.
 const BREATH_HZ: f32 = 0.8;
 
-/// Register (or keep alive) the overlay viewport for this frame. Call every
-/// frame the chord is held; stop calling it to dismiss the overlay.
+/// The overlay's viewport id. One window for the life of the pipeline, so this
+/// is a constant — see the module docs for what keying it per dictation cost.
+pub fn viewport_id() -> egui::ViewportId {
+    egui::ViewportId::from_hash_of("hark_recording_overlay")
+}
+
+/// Register (or keep alive) the overlay viewport for this frame. Call it on
+/// every parent pass while the pipeline is live, whether or not a dictation is
+/// running: egui retires a deferred viewport at the end of the first parent
+/// pass that stops registering it, and this window is meant to outlive
+/// individual dictations. Visibility is `paint`'s business, not registration's.
 ///
-/// `recording` is the pipeline's live capture flag, which `paint` uses to take
-/// this window off screen without waiting for a parent pass (see the module
-/// docs). `dictation` changes with every dictation, so the viewport id does
-/// too: a window that hid itself can then never be handed to the *next*
-/// dictation still hidden, which would show no pill at all.
+/// `recording` is the pipeline's live capture flag, which `paint` uses both to
+/// reveal the pill and to take it off screen without waiting for a parent pass
+/// (see the module docs).
 ///
 /// `monitor` is a monitor's logical size when known. It is only good enough to
 /// place the pill off Windows; on Windows `reposition` moves the window from
 /// the real work area once it exists, because a size with no origin cannot
 /// place a window on a multi-monitor desktop.
-pub fn show(
+pub fn register(
     ctx: &egui::Context,
     meter: Arc<LevelMeter>,
     recording: Arc<AtomicBool>,
-    dictation: u64,
     monitor: Option<egui::Vec2>,
 ) {
-    let id = egui::ViewportId::from_hash_of(("hark_recording_overlay", dictation));
+    let id = viewport_id();
 
     let builder = egui::ViewportBuilder::default()
         .with_title("Hark recording")
@@ -112,29 +142,72 @@ pub fn show(
         .with_resizable(false)
         .with_always_on_top()
         .with_taskbar(false)
+        // Created hidden, and left that way in the builder for the life of the
+        // window: `paint` drives visibility with explicit viewport commands
+        // instead. egui diffs this builder against the stored one each pass and
+        // emits commands only for what changed, so a value that never changes
+        // never fights the commands. Being born hidden is what lets the window
+        // be placed, stripped and clipped before anyone can see it.
+        .with_visible(false)
         // Never take focus: injection targets the previously focused app.
         // (No `with_mouse_passthrough`: on Windows it forces a layered window
-        // that breaks per-pixel GL transparency — see the module docs.)
+        // that breaks per-pixel transparency — see the module docs.)
         .with_active(false);
 
     // Windows places the pill itself, from the real work area of the monitor
-    // the user is on (`reposition`); a creation-time guess would only make it
-    // flash somewhere wrong first.
-    #[cfg(windows)]
-    let _ = monitor;
+    // the user is on (`place`); a creation-time guess would only put it
+    // somewhere wrong until the first paint moves it.
     #[cfg(not(windows))]
     let builder = match monitor {
-        Some(monitor) => {
-            let x = (monitor.x - WINDOW.x) / 2.0;
-            let y = monitor.y - WINDOW.y - monitor.y * BOTTOM_MARGIN_FRAC;
-            builder.with_position(egui::pos2(x.max(0.0), y.max(0.0)))
-        }
+        Some(monitor) => builder.with_position(bottom_centre(monitor)),
         None => builder,
     };
 
     ctx.show_viewport_deferred(id, builder, move |ui, _class| {
-        paint(ui, &meter, &recording);
+        paint(ui, &meter, &recording, monitor);
     });
+}
+
+/// Bottom-centre of a monitor of this logical size, in logical points.
+///
+/// Only meaningful off Windows: a size with no origin assumes the monitor
+/// starts at (0, 0) and shares the primary's DPI, which a multi-monitor Windows
+/// desktop breaks. `work_area_position` is the Windows answer.
+#[cfg(not(windows))]
+fn bottom_centre(monitor: egui::Vec2) -> egui::Pos2 {
+    let x = (monitor.x - WINDOW.x) / 2.0;
+    let y = monitor.y - WINDOW.y - monitor.y * BOTTOM_MARGIN_FRAC;
+    egui::pos2(x.max(0.0), y.max(0.0))
+}
+
+/// Place the pill for the dictation that is starting.
+///
+/// This has to happen per dictation rather than at creation: the window now
+/// outlives individual dictations, and between two of them the user may have
+/// moved to another monitor. Both arms compare against where the window
+/// actually is and send nothing when it is already there, because this runs on
+/// every frame of a hold and a redundant move is a window-manager round trip
+/// per frame.
+#[cfg(windows)]
+fn place(ctx: &egui::Context, monitor: Option<egui::Vec2>) {
+    // Windows reads the real work area instead; a size alone cannot place a
+    // window on a multi-monitor desktop.
+    let _ = monitor;
+    reposition(ctx);
+}
+
+#[cfg(not(windows))]
+fn place(ctx: &egui::Context, monitor: Option<egui::Vec2>) {
+    let Some(monitor) = monitor else {
+        return;
+    };
+    let target = bottom_centre(monitor);
+    let placed = ctx
+        .input(|i| i.viewport().outer_rect)
+        .is_some_and(|r| (r.min.x - target.x).abs() <= 2.0 && (r.min.y - target.y).abs() <= 2.0);
+    if !placed {
+        ctx.send_viewport_cmd(egui::ViewportCommand::OuterPosition(target));
+    }
 }
 
 /// Put the pill on the bottom-centre of the monitor the user is working on.
@@ -243,11 +316,12 @@ fn work_area_position(zoom: f32) -> Option<egui::Pos2> {
 /// pill fall through to the app underneath instead of being swallowed.
 ///
 /// The region is idempotent per window: we cache the last handle+size we
-/// clipped, so it runs once per dictation's fresh window (and again only if its
-/// size or DPI changes), not every frame. `strip_frame_styles` reports whether
+/// clipped, so it runs once when the window is created and again only if its
+/// size or DPI changes, not every frame. `strip_frame_styles` reports whether
 /// it just restyled the window, which is exactly the "this handle is a window we
 /// have not shaped yet" signal — needed because Windows recycles HWND values, so
-/// a fresh window can otherwise match the cached key and never get its region.
+/// a window rebuilt after a pipeline restart could otherwise match the cached
+/// key and never get its region.
 #[cfg(windows)]
 fn shape_to_capsule() {
     use std::cell::Cell;
@@ -258,12 +332,18 @@ fn shape_to_capsule() {
 
     thread_local! {
         // (HWND as isize, width_px, height_px) of the last window we clipped.
-        // A fresh dictation is a new window (new handle), which re-triggers.
+        // The window persists across dictations, so after the first call this
+        // only re-triggers on a size or DPI change.
         static LAST: Cell<(isize, i32, i32)> = const { Cell::new((0, 0, 0)) };
     }
 
     // The overlay is the only window titled "Hark recording" (the main window
-    // is "Hark"), and single-instance guarantees one Hark process.
+    // is "Hark"), and single-instance guarantees one Hark process. That is only
+    // true because there is one overlay window: keyed per dictation, the
+    // previous pill lingered — hidden but not yet destroyed — while the next
+    // one was created, and this lookup could return the stale handle. It would
+    // then find it already stripped, take the cached-key early return, and
+    // leave the *live* pill an unshaped rectangle.
     // SAFETY: plain Win32 getters; the handle is validated before use and the
     // RECT out-param is a fully initialized local.
     let hwnd = match unsafe { FindWindowW(PCWSTR::null(), w!("Hark recording")) } {
@@ -368,32 +448,55 @@ fn strip_frame_styles(hwnd: windows::Win32::Foundation::HWND) -> bool {
 }
 
 /// Draw one frame of the pill + pulsing circle, and schedule the next frame.
-fn paint(ui: &mut egui::Ui, meter: &LevelMeter, recording: &AtomicBool) {
+fn paint(
+    ui: &mut egui::Ui,
+    meter: &LevelMeter,
+    recording: &AtomicBool,
+    monitor: Option<egui::Vec2>,
+) {
     let ctx = ui.ctx();
 
-    // Ask the parent for a pass: only a parent pass can retire this viewport
-    // for real (egui tears a deferred viewport down at the end of the pass that
-    // stopped registering it, and this viewport's own repaints are not that
-    // pass). Asked for first so it is asked for on the way out too.
+    // Ask the parent for a pass: only a parent pass drains pipeline events and
+    // updates the tray, and while this window animates the parent may not get
+    // one on its own. Asked for first so it is asked for on the way out too.
     ctx.request_repaint_after_for(Duration::from_millis(100), egui::ViewportId::ROOT);
 
-    // The dictation is over. Go away now, on this window's own pass, rather
-    // than waiting for a parent that may be seconds from its next one — that
-    // gap is the whole "the pill stays up until I minimise Hark" bug. Hiding
-    // also stops this callback running at all (eframe skips the viewport
-    // callback for an invisible window), which ends the 60 fps repaint that was
-    // starving the parent of paints in the first place. The window itself is
-    // destroyed by the parent, whenever it gets there, with nothing on screen
-    // in the meantime.
+    // Take the frame off and clip to the capsule before anything else, and
+    // unconditionally: the pass that *creates* this window runs while it is
+    // still hidden (eframe paints invisible windows), so the very first call
+    // here shapes the window before it can ever be seen. That is what removed
+    // the framed, unclipped rectangle that used to flash on every activation.
+    // Idempotent per window and size — see `shape_to_capsule`.
+    #[cfg(windows)]
+    shape_to_capsule();
+
+    // The dictation is over, or has not started. Go away now, on this window's
+    // own pass, rather than waiting for a parent that may be seconds from its
+    // next one — that gap is the whole "the pill stays up until I minimise
+    // Hark" bug. Nothing is requested on the way out: a hidden window with no
+    // repaint scheduled sleeps (eframe only throttles repaints already asked
+    // for, it does not invent them), which is what makes a permanently
+    // registered overlay cost nothing between dictations. The parent wakes it
+    // again when the next dictation starts.
     if !recording.load(Ordering::Relaxed) {
         ctx.send_viewport_cmd(egui::ViewportCommand::Visible(false));
         return;
     }
 
-    #[cfg(windows)]
-    reposition(ctx);
-    #[cfg(windows)]
-    shape_to_capsule();
+    // Place, then reveal — in that order, because viewport commands are applied
+    // in the order they were queued, and revealing first would show the pill at
+    // the previous dictation's position before it jumped.
+    //
+    // Both commands are sent every frame rather than tracked. winit returns
+    // early when the flag it is handed is unchanged, so the repeats cost
+    // nothing, and it shows this window with `SW_SHOWNOACTIVATE` every time
+    // (its one activating branch keys off a marker that `apply_diff` mutates on
+    // a by-value copy and never stores back) — so no repeat can steal the focus
+    // that injection is about to target. Tracking the state here instead would
+    // buy nothing and could drift out of step with a recreated window.
+    place(ctx, monitor);
+    ctx.send_viewport_cmd(egui::ViewportCommand::Visible(true));
+
     // Keep the pulse animating while the parent window sleeps. ~60 fps is
     // plenty for a breathing dot and stays light during a short hold.
     ctx.request_repaint_after(Duration::from_millis(16));

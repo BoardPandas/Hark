@@ -1,10 +1,15 @@
 # Releasing Hark
 
 Hark ships as a signed Windows **installer** (`Hark-<version>-windows-x64-setup.exe`,
-built from [`installer/hark.iss`](../installer/hark.iss) with Inno Setup) plus the
-signed portable `.exe`, both built and published by
-[`.github/workflows/release.yml`](workflows/release.yml). Signing uses Azure
-Trusted Signing (now branded "Artifact Signing").
+built from [`installer/hark.iss`](../installer/hark.iss) with Inno Setup), built
+and published by [`.github/workflows/release.yml`](workflows/release.yml).
+Signing uses Azure Trusted Signing (now branded "Artifact Signing").
+
+A signed portable `Hark-<version>-windows-x64.exe` used to ship beside it and no
+longer does. It was a second artifact of the same binary that left users with an
+install Windows had no record of, and it was also what the in-app updater
+self-replaced with — so an updated Hark disagreed with its own uninstall entry.
+Updates now download this installer and run it (`hark-update`).
 
 ## Cutting a release
 
@@ -21,9 +26,8 @@ Trusted Signing (now branded "Artifact Signing").
    it into a per-user installer (Inno Setup, installed on the runner via
    `choco install innosetup`) and signs the installer too. Both signatures are
    verified (valid + timestamped). It publishes a GitHub release named
-   `Hark <version>` with the installer `Hark-<version>-windows-x64-setup.exe`
-   (headline) and the portable `Hark-<version>-windows-x64.exe` attached, plus
-   auto-generated notes.
+   `Hark <version>` with `Hark-<version>-windows-x64-setup.exe` attached — the
+   only Windows download — plus auto-generated notes.
 
    The installer is per user (no admin), installs to `%LOCALAPPDATA%\Programs\Hark`,
    and seeds the launch-at-login registry entry the app then manages. See

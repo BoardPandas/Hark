@@ -1,6 +1,5 @@
-# Build, sign, and publish a release of Hark: a signed Windows installer and
-# portable exe, plus Linux packages for Debian/Ubuntu, Fedora/RHEL/openSUSE and
-# Arch.
+# Build, sign, and publish a release of Hark: a signed Windows installer, plus
+# Linux packages for Debian/Ubuntu, Fedora/RHEL/openSUSE and Arch.
 #
 # Trigger: push a SemVer tag (v0.13.0). The tag's version must match
 # package.json (the repo's version source of truth, per
@@ -180,11 +179,11 @@ jobs:
           generate_release_notes: true
 
   # ---------------------------------------------------------------------------
-  # Windows: the signed installer and the signed portable exe, the headline
-  # downloads. Runs in parallel with `linux`; both only append to the release
-  # `version` already created.
+  # Windows: the signed installer, and the only Windows download. Runs in
+  # parallel with `linux`; both only append to the release `version` already
+  # created.
   release:
-    name: Windows (signed installer + portable exe)
+    name: Windows (signed installer)
     needs: version
     runs-on: windows-latest
     steps:
@@ -371,29 +370,29 @@ jobs:
           if ($sig.Status -ne 'Valid') { throw "Installer signature not valid: $($sig.Status) - $($sig.StatusMessage)" }
           if (-not $sig.TimeStamperCertificate) { throw "Installer signature carries no trusted timestamp." }
 
-      # Rename the portable exe for a friendly asset name. Authenticode lives
-      # in the PE, not the filename, so the copy stays signed. The installer
-      # keeps its built name. Both ship: installer is the headline download.
-      - name: Stage the signed assets
+      # The installer is the only Windows download now. A portable copy of the
+      # raw exe used to ship beside it, and it is deliberately gone: it was a
+      # second artifact of the same binary that produced an install Windows knew
+      # nothing about (no uninstall entry, no upgrade path), and the in-app
+      # updater used to self-replace with it -- which updated the binary while
+      # leaving Inno's uninstall record pinned at whatever version installed
+      # first. hark-update now downloads THIS asset and runs it.
+      - name: Stage the signed installer
         id: asset
         shell: pwsh
         run: |
-          $portable = "Hark-${{ needs.version.outputs.version }}-windows-x64.exe"
-          Copy-Item target\release\hark-app.exe $portable
           $installer = "installer\Output\Hark-${{ needs.version.outputs.version }}-windows-x64-setup.exe"
-          Add-Content -Path $env:GITHUB_OUTPUT -Value "portable=$portable"
+          if (-not (Test-Path $installer)) { throw "Installer not found at $installer" }
           Add-Content -Path $env:GITHUB_OUTPUT -Value "installer=$installer"
 
       # Append only. No name and no generate_release_notes: the `version` job
       # set both when it created the release, and passing them again here would
       # overwrite the body every time an asset lands.
-      - name: Attach the Windows assets to the release
+      - name: Attach the Windows installer to the release
         uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228 # v3.0.2
         with:
           tag_name: ${{ needs.version.outputs.tag }}
-          files: |
-            ${{ steps.asset.outputs.installer }}
-            ${{ steps.asset.outputs.portable }}
+          files: ${{ steps.asset.outputs.installer }}
 
   # ---------------------------------------------------------------------------
   # Linux: .deb, .rpm and a portable .tar.gz, built and gated on ubuntu.

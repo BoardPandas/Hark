@@ -4,7 +4,7 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## [0.39.0] - 2026-09-17
+## [0.40.0] - 2026-09-17
 
 ### Added
 
@@ -16,7 +16,215 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 - **OpenAI's default model is now `gpt-transcribe`** (was `gpt-4o-mini-transcribe`). OpenAI documents it as the recommended model for file transcription and no longer recommends `gpt-4o-transcribe` or `whisper-1` for new integrations. Anyone who pinned a model explicitly keeps it, and a pinned Whisper-family model still uses the old contract. Deepgram `nova-3` remains the app default provider.
 - **A provider that cleans up its own transcript no longer gets cleaned twice.** The pipeline previously ignored the cleaned text a fused adapter returned and ran its own voice pass regardless. History now names the transcription model as the cleanup model in that case, rather than labelling a plainly rewritten dictation "verbatim".
-- **The Cargo workspace version is back in lockstep with `package.json`** (0.36.6 → 0.39.0). They had drifted, which `release.yml` is supposed to fail on.
+## [0.39.1] - 2026-09-10
+
+### Fixed
+
+- **The documentation wiki still described the old Windows distribution.** Six
+  generated sections said a portable download ships with each release and that
+  updates swap the running program in place — both untrue as of 0.39.0. Two of
+  them were worse than out of date: one documented the call sequence of two
+  functions that no longer exist, and the release-workflow page had every line
+  number derived from a version of the workflow file that has since been
+  restructured into four jobs and more than tripled in length, so its citations
+  pointed at unrelated code. All six are regenerated from current source, and
+  every citation was checked to resolve to a real file and a real line range.
+
+## [0.39.0] - 2026-09-10
+
+### Removed
+
+- **The portable Windows download is gone; the installer is the only one.** It
+  was a second copy of the same binary that left you with an install Windows had
+  no record of — nothing in Add or remove programs, no upgrade path — and it was
+  also the file the in-app updater quietly installed over itself. That is why an
+  updated Hark could report one version while Add or remove programs reported
+  another: the binary moved and the install record did not.
+
+### Changed
+
+- **Updates now run the installer instead of swapping the running program.**
+  "Download & install" fetches the signed installer, checks its signature and
+  publisher exactly as before, then hands over to it and closes Hark; the
+  installer replaces the files and starts Hark again, hidden in the tray where
+  it was. Shortcuts, the launch-at-login entry and the uninstall record all stay
+  in step with the version you are actually running.
+
+### Upgrading
+
+- **This one update has to be installed by hand, and only this one.** Every
+  build up to 0.38.5 looks for the portable download that no longer exists, so
+  those copies will report that a new version is available and offer the release
+  page rather than installing it themselves. Download
+  `Hark-<version>-windows-x64-setup.exe` once and run it; in-app updating works
+  normally from then on. Nothing breaks in the meantime — dictation carries on,
+  the update just does not apply itself.
+- **If you were running the portable exe**, the installer will not find it, so
+  it installs a fresh copy to `%LOCALAPPDATA%\Programs\Hark`. Your settings and
+  history in `%APPDATA%\hark` are shared and carry over untouched; delete the
+  old portable exe once you are happy.
+
+## [0.38.5] - 2026-09-10
+
+### Fixed
+
+- **The release authorisation gate did not cover the way this project actually
+  releases.** It was written to pause a production deploy until a named person
+  authorises it, and its match list named wrangler, railway, vercel, fly,
+  kubectl, helm and terraform — none of which this repo uses. Hark deploys by
+  pushing a `v*` tag, which builds, signs and publishes the installers the
+  in-app updater then offers to every install. That command went straight
+  through the gate built to stop it, and the 0.38.4 tag push proved it by
+  sailing past unchallenged. Tag pushes, `gh release create/upload/edit` and
+  re-running the release workflow are now all gated.
+- **The same gate refused ordinary commits.** It matched patterns like
+  "wrangler … deploy" against the whole command text, with no notion of where a
+  command actually starts — so committing with a message that merely *discussed*
+  deploy tooling was refused as though it were a deploy. Both halves of the
+  matching now walk the command the way a shell does, checking what is in
+  command position rather than what words appear somewhere in the text. A gate
+  that fires on writing about deploys is one people learn to switch off.
+- **The weekly security scan was not auditing dependencies at all.** Its
+  dependency step ran `npm audit`, guarded by a check for a `package-lock.json`
+  this repo has never had, so every Monday it printed "No lockfile; skipping
+  dependency audit" and moved on. The Rust crates Hark actually ships were
+  never scanned on a schedule — only on pushes, which is exactly the coverage
+  the scheduled scan exists to supplement, since advisories are published
+  upstream without anyone touching the code. It now runs `cargo audit` against
+  the same ignore list CI uses.
+
+### Changed
+
+- **Two suppressed advisories were retired rather than left to rot.** The
+  quick-xml denial-of-service pair was ignored on the argument that it was
+  reached only through a build-time proc macro; the dependency update in 0.38.4
+  moved quick-xml to the version both advisories name as fixed, which is the
+  exact re-evaluation trigger that entry was written with. The entries are gone,
+  because an ignore that no longer matches anything is not harmless — it
+  silently suppresses that advisory ID if it ever returns against something
+  else. The remaining entry (an unmaintained font parser reached through the
+  Wayland titlebar renderer) was re-checked against the new UI toolkit and still
+  holds.
+
+### Added
+
+- **An eval case covering the release gate.** The gate had no case, which is how
+  it stayed wrong: the wiring guard proves a hook is *wired*, and nothing proved
+  this one would refuse the command it exists to refuse.
+
+## [0.38.4] - 2026-09-10
+
+### Changed
+
+- **Dependencies brought up to date.** A full audit found no vulnerabilities in
+  any of the 725 packages Hark builds against, so this is maintenance rather
+  than a security fix. Updated in place: the UI toolkit (egui/eframe 0.35 →
+  0.36, which also moves the graphics layer from wgpu 29 to 30), the audio
+  resampler (rubato 4 → 5), the phonetic matcher behind the spellbook
+  (rphonetic 3 → 4), the OS keychain binding (keyring 4.1.5 → 4.2.0), the
+  on-device speech engine (sherpa-onnx 1.13.4 → 1.13.7), the SQLite binding,
+  the HTTP stack's supporting crates, and around a hundred smaller ones.
+- **Two advisories cleared.** A dependency of the QUIC stack had been pulled
+  from the registry by its author, and a concurrency primitive used by the
+  Linux keychain and accessibility paths carried a soundness advisory
+  (RUSTSEC-2026-0221). Both had fixed releases available; both are taken.
+
+### Fixed
+
+- **The keychain pin comment now records why it is where it is.** It described
+  a pin at a version the file no longer held, which is worse than no comment:
+  the next person to read it would have trusted a stale reason.
+
+### Known gaps
+
+- **Two advisories remain and cannot be closed from here.** Both sit in the
+  GTK stack that only the Linux tray uses, and both are held there by
+  `libappindicator`, which requires the older GTK line. Moving Hark's own GTK
+  dependency alone would put two copies of the same C binding in one process,
+  where `gtk::init()` would initialise one and the tray widgets would use the
+  other — it compiles cleanly and breaks the tray at runtime. They clear when
+  `tray-icon` updates upstream, not before.
+- **The HTTP client stays on its current release deliberately.** The newer one
+  removes the build option Hark uses to pin its TLS trust roots to a fixed,
+  bundled set, and falls back to the operating system's certificate store
+  instead. Restoring the current behaviour there means asking for those roots
+  in code, in four places, where it can be forgotten — so it is a deliberate
+  decision to make rather than a version to bump. The current release carries
+  no known vulnerability.
+
+## [0.38.3] - 2026-09-10
+
+### Fixed
+
+- **Saving a lesson or practice to the shared knowledge base no longer fails
+  once the index grows.** The helper that writes to GitHub passed the encoded
+  file as a command-line argument, and base64 makes a file a third larger
+  again, so the 56 KB master index arrived as a 75 KB argument and the command
+  died with "Argument list too long" before it reached GitHub. The threshold
+  was crossed silently as the index grew: individual entries, at a few KB, kept
+  working long after the index itself had stopped, so nothing looked broken
+  until a save failed outright. The content now travels on standard input,
+  which has no such limit -- verified with a 92 KB file, roughly four times the
+  size that used to fail.
+- **The same helper no longer sends a garbled revision id when creating a new
+  file.** It read the file's current revision to avoid clobbering a concurrent
+  edit, and treated "no such file yet" as an empty answer -- but the GitHub CLI
+  reports that error on the same stream as a real answer, so the error text was
+  being passed along as the revision. GitHub happened to ignore it when
+  creating a file, which is the only reason this was never visible. The value
+  is now used only when it actually is a revision id.
+- **The helper's optional branch argument now works for updates.** It looked up
+  the existing file on the default branch regardless of which branch was asked
+  for, so updating a file on any other branch failed as though the file were
+  new. Both knowledge-base skills only ever write to the default branch, so
+  this never surfaced in normal use.
+
+## [0.38.2] - 2026-09-10
+
+### Fixed
+
+- **`cargo test` no longer goes red just because Hark is running.** The
+  single-instance test claimed the *real* app's lock, so on any machine where
+  Hark was actually running — that is, anyone using it while working on it —
+  the suite failed with "lock is free" for reasons that had nothing to do with
+  the change under test. It passed in CI only because no Hark runs there. The
+  test now claims a lock name of its own, so the result no longer depends on
+  what happens to be installed and running.
+
+## [0.38.1] - 2026-09-10
+
+### Added
+
+- **Crashes now explain themselves in the log.** A release build has no console,
+  so a panic went to a stderr that does not exist, and Windows Error Reporting
+  recorded nothing either — the log simply stopped mid-dictation, and the
+  destructors that ran on the way out made the tail of it look like a clean
+  shutdown. Panics are now written to `hark.log` with the thread and the exact
+  source location. GPU trouble names itself too: a lost graphics device is
+  reported explicitly instead of passing silently, and other GPU errors are
+  logged rather than taking the app down with them (capped per session, so one
+  bad frame cannot push the first cause out through the log's own rotation).
+
+### Fixed
+
+- **Hark no longer vanishes moments after pasting a dictation.** The recording
+  pill was a brand-new window, with its own GPU surface, created and destroyed
+  for *every single dictation* — dozens an hour in normal use. That churn was
+  losing the graphics device, and it happened as the pill was torn down: the
+  text you had just dictated would land, and the app would then disappear.
+  Nothing in the UI stack recovers from a lost device. The pill is now one
+  window that is shown and hidden, so there is nothing left to churn.
+- **The recording pill no longer flashes a larger window frame when you start
+  dictating.** Because a window was created per dictation, it could only be
+  placed, stripped of its frame and clipped to the pill's rounded outline
+  *after* Windows had already put it on screen — so every activation briefly
+  showed a default-placed, fully framed rectangle first. The single window is
+  created hidden and shaped once, before it can ever be seen.
+- **A release would have failed its own version check.** The workspace version
+  in `Cargo.toml` stayed at 0.36.6 while `package.json` moved on to 0.38.0, and
+  the release workflow refuses to build when the two disagree — so the next tag
+  would have stopped at the gate. Both now read 0.38.1, and the binary reports
+  its real version again.
 
 ## [0.38.0] - 2026-09-06
 

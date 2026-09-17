@@ -1,24 +1,32 @@
 //! In-app update checking and self-update against GitHub Releases.
 //!
-//! **Self-update is Windows-only, on purpose.** There, Hark ships as a single
-//! signed portable `.exe` that owns its own install directory, so swapping it
-//! is Hark's job. A Linux build is installed by `apt`/`dnf`/`pacman` from the
-//! `.deb`/`.rpm`/`.pkg.tar.zst` this repo publishes, and those files belong to
-//! the package manager: overwriting one in place would fail its integrity
-//! checks and be silently reverted by the next `upgrade`. So on Linux this
-//! crate does step 1 and stops — `hark-app`'s updater reports the new version
-//! and offers the release page, and the package manager does the installing.
+//! **Self-update is Windows-only, on purpose.** A Linux build is installed by
+//! `apt`/`dnf`/`pacman` from the `.deb`/`.rpm`/`.pkg.tar.zst` this repo
+//! publishes, and those files belong to the package manager: overwriting one in
+//! place would fail its integrity checks and be silently reverted by the next
+//! `upgrade`. So on Linux this crate does step 1 and stops — `hark-app`'s
+//! updater reports the new version and offers the release page, and the package
+//! manager does the installing.
 //!
-//! On Windows, where Hark ships as `Hark-<version>-windows-x64.exe`:
+//! On Windows, where Hark ships as `Hark-<version>-windows-x64-setup.exe`:
 //!
 //! 1. `check` — asks the Releases API for the latest tag and compares it, by
 //!    SemVer, to the running version.
-//! 2. `download` — streams the signed asset next to the running exe.
+//! 2. `download` — streams the signed installer next to the running exe.
 //! 3. `verify` (Windows) — WinVerifyTrust plus a signer-subject match against
 //!    the running exe, so only a validly-signed build from the same publisher
 //!    is ever installed. See [`verify`].
-//! 4. `apply` + `relaunch` — swap the running exe (via `self-replace`) and start
-//!    the new one with no console window.
+//! 4. `install` — start the installer silently and exit, letting Setup close
+//!    this process, replace the files and start Hark again.
+//!
+//! **Step 4 used to swap the exe in place** with `self-replace`, against a
+//! portable `.exe` published alongside the installer. That portable build is no
+//! longer published: it was a second artifact of the same binary, and a user who
+//! took it got an install Windows knew nothing about. Self-replacing also left
+//! Inno's uninstall entry pinned at whatever version first installed Hark, so
+//! Add/Remove Programs and the running build disagreed after every update.
+//! Running the real installer keeps the install record, shortcuts and autostart
+//! value consistent, at the cost of handing the last step to Setup.
 //!
 //! Everything here is blocking; callers run it on a worker thread and pass the
 //! process-wide `reqwest::blocking::Client` (keep-alive + TLS resumption). No
@@ -44,11 +52,31 @@ const USER_AGENT: &str = concat!(
     " (BoardPandas/Hark)"
 );
 
-/// The published asset is named `Hark-<version>-windows-x64.exe`; match by
-/// suffix so a version change in the middle does not break the picker. The
+/// The published asset is named `Hark-<version>-windows-x64-setup.exe`; match
+/// by suffix so a version change in the middle does not break the picker. The
 /// Linux assets on the same release are deliberately NOT matched here: see
 /// the module docs on why nothing self-installs over a packaged file.
-const WINDOWS_ASSET_SUFFIX: &str = "-windows-x64.exe";
+///
+/// This used to be `-windows-x64.exe`, the portable build, which is no longer
+/// published. Note the two are not merely different names for one artifact:
+/// the suffix below does NOT match the old portable asset, and the old suffix
+/// did not match this installer either (it ends `-setup.exe`). So a build from
+/// before this change, meeting a release from after it, finds no asset and
+/// falls back to offering the release page — a one-time manual install, not a
+/// failure.
+const WINDOWS_ASSET_SUFFIX: &str = "-windows-x64-setup.exe";
+
+/// Parameters passed to the downloaded installer by [`install`]. `relaunch=yes`
+/// is Hark's own, read by `installer/hark.iss`; the rest are Inno Setup's.
+/// Pinned against the installer script by a test below, because a rename on
+/// either side would leave the app silently not restarting after an update.
+const INSTALLER_RELAUNCH_ARG: &str = "/relaunch=yes";
+const INSTALLER_ARGS: &[&str] = &[
+    "/SILENT",
+    "/SUPPRESSMSGBOXES",
+    "/NORESTART",
+    INSTALLER_RELAUNCH_ARG,
+];
 
 /// Passed to the process [`relaunch`] spawns so it knows to wait for this
 /// (outgoing) instance to release the single-instance lock instead of losing
@@ -202,34 +230,35 @@ pub fn download(
     Ok(staged)
 }
 
-/// Replace the running executable with the (already verified) staged file,
-/// remove the staging copy, and return the path the running exe occupied. Call
-/// [`verify`] first, and pass the returned path to [`relaunch`].
+/// Start the (already verified) installer and return so the caller can exit.
+/// Call [`verify`] first.
 ///
-/// The path is captured *before* the swap on purpose: once `self_replace` has
-/// renamed the running image aside, `current_exe()` follows that rename (on
-/// Windows `GetModuleFileNameW` resolves to the renamed backup), so reading it
-/// afterward would point at the old binary, not the freshly-installed one.
-pub fn apply(staged: &Path) -> Result<PathBuf, UpdateError> {
-    // Capture the original path while the running image still lives there.
-    let exe = current_exe()?;
-    self_replace::self_replace(staged)?;
-    // The swap copied the contents into place; the staging file is now spent.
-    if let Err(e) = std::fs::remove_file(staged) {
-        log::warn!("could not remove staged update {}: {e}", staged.display());
-    }
-    log::info!("update applied; running exe replaced");
-    Ok(exe)
-}
-
-/// Launch the freshly-replaced executable at `exe` (the path [`apply`] returned)
-/// and return so the caller can exit. Spawns with `CREATE_NO_WINDOW` on Windows
-/// so no console flashes (the release binary is `windows_subsystem = "windows"`;
-/// LL-G Rust HIGH), and passes [`RELAUNCHED_FLAG`] so the new process waits out
-/// the single-instance lock this one still holds until it exits.
-pub fn relaunch(exe: &Path) -> Result<(), UpdateError> {
-    spawn_detached(exe)?;
-    log::info!("relaunched {}", exe.display());
+/// **The caller MUST exit promptly.** The installer replaces `Hark.exe`, and
+/// Windows will not overwrite a running image: `hark.iss` sets
+/// `CloseApplications=yes`, so Setup asks the Restart Manager to close this
+/// process. Lingering turns a silent update into a stall.
+///
+/// Nothing is swapped here, which is the whole point of installing rather than
+/// self-replacing. The previous design downloaded a portable exe and swapped it
+/// in with `self_replace`; that updated the binary but left Inno's uninstall
+/// entry pinned at whatever version first installed it, so Add/Remove Programs
+/// disagreed with the running build. Handing the job to Setup keeps the install
+/// record, the shortcuts and the autostart value consistent by construction.
+///
+/// The flags, and why each one:
+///   /SILENT             no wizard, but still a progress window, so a user who
+///                       clicked "Download & install" sees that something is
+///                       happening. /VERYSILENT would look like nothing did.
+///   /SUPPRESSMSGBOXES   an unattended run must never block on a dialog.
+///   /NORESTART          Hark is per-user and needs no reboot; Setup must not
+///                       ask for one.
+///   {RELAUNCH_ARG}      our own parameter, read by hark.iss's `[Run]` check.
+///                       `[Run]`'s interactive entry is `skipifsilent`, so
+///                       without this nothing would start Hark again and the
+///                       update would end with the app simply gone.
+pub fn install(staged: &Path) -> Result<(), UpdateError> {
+    spawn_detached(staged, INSTALLER_ARGS)?;
+    log::info!("installer started: {}", staged.display());
     Ok(())
 }
 
@@ -258,22 +287,20 @@ fn parse_version(value: &str) -> Result<semver::Version, UpdateError> {
 }
 
 #[cfg(windows)]
-fn spawn_detached(exe: &Path) -> Result<(), UpdateError> {
+fn spawn_detached(exe: &Path, args: &[&str]) -> Result<(), UpdateError> {
     use std::os::windows::process::CommandExt;
     // CREATE_NO_WINDOW: no console window for the child (LL-G Rust HIGH #2).
     const CREATE_NO_WINDOW: u32 = 0x0800_0000;
     std::process::Command::new(exe)
-        .arg(RELAUNCHED_FLAG)
+        .args(args)
         .creation_flags(CREATE_NO_WINDOW)
         .spawn()?;
     Ok(())
 }
 
 #[cfg(not(windows))]
-fn spawn_detached(exe: &Path) -> Result<(), UpdateError> {
-    std::process::Command::new(exe)
-        .arg(RELAUNCHED_FLAG)
-        .spawn()?;
+fn spawn_detached(exe: &Path, args: &[&str]) -> Result<(), UpdateError> {
+    std::process::Command::new(exe).args(args).spawn()?;
     Ok(())
 }
 
@@ -291,7 +318,7 @@ mod tests {
             tag: "v9.9.9".into(),
             notes: String::new(),
             html_url: String::new(),
-            asset_name: "Hark-9.9.9-windows-x64.exe".into(),
+            asset_name: "Hark-9.9.9-windows-x64-setup.exe".into(),
             asset_url: "https://example.invalid/a.exe".into(),
         }
     }
@@ -323,8 +350,15 @@ mod tests {
                     name: "Hark-0.14.0-macos.dmg".into(),
                     browser_download_url: "https://example.invalid/mac".into(),
                 },
+                // The portable build the picker used to match. No longer
+                // published, and kept in this fixture deliberately: the picker
+                // must not fall back to it, because nothing installs it.
                 GhAsset {
                     name: "Hark-0.14.0-windows-x64.exe".into(),
+                    browser_download_url: "https://example.invalid/portable".into(),
+                },
+                GhAsset {
+                    name: "Hark-0.14.0-windows-x64-setup.exe".into(),
                     browser_download_url: "https://example.invalid/win".into(),
                 },
             ],
@@ -335,6 +369,64 @@ mod tests {
             .find(|a| a.name.ends_with(WINDOWS_ASSET_SUFFIX))
             .unwrap();
         assert_eq!(asset.browser_download_url, "https://example.invalid/win");
+    }
+
+    /// The installer script and this crate have to agree on three strings, and
+    /// nothing at compile time makes them: one is Rust, the other is Pascal in
+    /// a `.iss`. Every disagreement fails the same silent way — the update
+    /// installs, Setup closes Hark, and nothing starts it again, leaving the
+    /// user with no running app and no error. So pin them here.
+    ///
+    /// Same reasoning as the `Hark`-prefixed device-name match between
+    /// hark-inject and hark-hotkey: two ends keyed off one string, each with a
+    /// test holding it still.
+    fn installer_script() -> String {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../installer/hark.iss")
+            .canonicalize()
+            .expect("installer/hark.iss is part of this repo");
+        std::fs::read_to_string(path).expect("installer/hark.iss is readable")
+    }
+
+    #[test]
+    fn installer_reads_the_relaunch_parameter_we_pass() {
+        let iss = installer_script();
+        // `/relaunch=yes` on our side; `{param:relaunch|no}` on the script's.
+        let name = INSTALLER_RELAUNCH_ARG
+            .trim_start_matches('/')
+            .split('=')
+            .next()
+            .expect("the arg is /name=value");
+        assert!(
+            iss.contains(&format!("{{param:{name}|")),
+            "hark.iss does not read a `{name}` parameter, but `install` passes \
+             {INSTALLER_RELAUNCH_ARG}; an update would end with Hark closed and \
+             nothing restarting it"
+        );
+    }
+
+    #[test]
+    fn installer_relaunches_with_the_flag_main_understands() {
+        let iss = installer_script();
+        assert!(
+            iss.contains(RELAUNCHED_FLAG),
+            "hark.iss must relaunch Hark with {RELAUNCHED_FLAG} so the new \
+             process waits out the single-instance lock instead of exiting"
+        );
+    }
+
+    #[test]
+    fn installer_output_name_matches_the_asset_we_look_for() {
+        let iss = installer_script();
+        // OutputBaseFilename has no extension; the published asset adds .exe.
+        let base = WINDOWS_ASSET_SUFFIX
+            .strip_suffix(".exe")
+            .expect("the asset is an .exe");
+        assert!(
+            iss.contains(&format!("OutputBaseFilename=Hark-{{#AppVersion}}{base}")),
+            "hark.iss builds a different filename than {WINDOWS_ASSET_SUFFIX}, \
+             so the updater would find no asset on a release"
+        );
     }
 
     #[test]
