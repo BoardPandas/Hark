@@ -19,6 +19,7 @@ mod theme;
 mod tray;
 mod ui;
 mod update;
+mod window_behavior;
 mod window_state;
 
 use std::time::{Duration, Instant};

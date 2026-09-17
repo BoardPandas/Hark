@@ -1,7 +1,79 @@
-//! Behavior, appearance, and history/privacy preferences.
+//! General, dictation behavior, and history/privacy preferences.
 use super::form::subhead;
 use egui::{DragValue, RichText, Ui};
 use hark_config::Settings;
+
+/// Returns true for an explicit exit, independently of the draft preferences.
+pub fn general_section(ui: &mut Ui, draft: &mut Settings) -> bool {
+    subhead(ui, "General");
+    ui.checkbox(&mut draft.startup.launch_at_login, "Launch Hark at startup");
+    ui.label(
+        RichText::new(if cfg!(target_os = "linux") {
+            "Starts hidden in the system tray when your desktop session starts."
+        } else {
+            "Starts hidden in the system tray when you sign in."
+        })
+        .small()
+        .weak(),
+    );
+
+    ui.add_space(crate::theme::GAP);
+    ui.checkbox(&mut draft.general.always_on_top, "Always on top");
+    ui.label(
+        RichText::new(if cfg!(target_os = "linux") {
+            "Keep the Hark window above other windows (unavailable on Wayland)."
+        } else {
+            "Keep the Hark window above other windows."
+        })
+        .small()
+        .weak(),
+    );
+
+    ui.add_space(crate::theme::GAP);
+    ui.checkbox(
+        &mut draft.general.exit_on_close,
+        "Exit when the window is closed",
+    );
+    ui.label(
+        RichText::new("On: the X exits Hark. Off: the X hides Hark in the system tray.")
+            .small()
+            .weak(),
+    );
+
+    ui.add_space(crate::theme::SECTION_GAP);
+    appearance_section(ui);
+
+    ui.add_space(crate::theme::SECTION_GAP);
+    ui.separator();
+    ui.add_space(crate::theme::GAP);
+    let close = ui.button("Close Program").clicked();
+    ui.label(
+        RichText::new("Fully exit Hark and stop dictation. Unsaved settings will be discarded.")
+            .small()
+            .weak(),
+    );
+    close
+}
+
+fn appearance_section(ui: &mut Ui) {
+    subhead(ui, "Appearance");
+    ui.horizontal(|ui| {
+        ui.label("Theme");
+        let mut preference = ui.ctx().options(|o| o.theme_preference);
+        let mut changed = false;
+        for (value, label) in [
+            (egui::ThemePreference::System, "System"),
+            (egui::ThemePreference::Light, "Light"),
+            (egui::ThemePreference::Dark, "Dark"),
+        ] {
+            changed |= ui.radio_value(&mut preference, value, label).changed();
+        }
+        if changed {
+            // Persists via egui memory, independently of the settings draft.
+            ui.ctx().set_theme(preference);
+        }
+    });
+}
 
 pub fn behavior_section(ui: &mut Ui, draft: &mut Settings) {
     ui.vertical(|ui| {
@@ -50,42 +122,6 @@ pub fn behavior_section(ui: &mut Ui, draft: &mut Settings) {
                 "When you dictate just one word, inject it without the trailing period a \
                      provider or cleanup voice adds.",
             )
-            .small()
-            .weak(),
-        );
-
-        ui.add_space(4.0);
-        ui.horizontal(|ui| {
-            ui.label("Theme");
-            let mut preference = ui.ctx().options(|o| o.theme_preference);
-            let mut changed = false;
-            for (value, label) in [
-                (egui::ThemePreference::System, "System"),
-                (egui::ThemePreference::Light, "Light"),
-                (egui::ThemePreference::Dark, "Dark"),
-            ] {
-                changed |= ui.radio_value(&mut preference, value, label).changed();
-            }
-            if changed {
-                // Persists via egui memory (eframe `persistence`), not
-                // config.toml; theme::apply preserves it on relaunch.
-                ui.ctx().set_theme(preference);
-            }
-        });
-
-        ui.add_space(4.0);
-        // The registry reconcile happens on Save (settings::mod::save), so
-        // the checkbox only edits the draft here, like every other field.
-        ui.checkbox(&mut draft.startup.launch_at_login, "Launch Hark at login");
-        ui.label(
-            RichText::new(if cfg!(target_os = "linux") {
-                // An XDG autostart entry runs when the desktop session
-                // starts, which is not the same moment as signing in on
-                // Windows and is worth being accurate about.
-                "Starts hidden in the system tray when your desktop session starts."
-            } else {
-                "Starts hidden in the system tray when you sign in."
-            })
             .small()
             .weak(),
         );

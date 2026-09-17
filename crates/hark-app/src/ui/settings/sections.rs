@@ -9,6 +9,7 @@ use hark_config::Settings;
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub enum Section {
     #[default]
+    General,
     Dictation,
     Audio,
     OnDevice,
@@ -18,7 +19,8 @@ pub enum Section {
 }
 
 impl Section {
-    pub const ALL: [Self; 6] = [
+    pub const ALL: [Self; 7] = [
+        Self::General,
         Self::Dictation,
         Self::Audio,
         Self::OnDevice,
@@ -29,6 +31,7 @@ impl Section {
 
     pub fn label(self) -> &'static str {
         match self {
+            Self::General => "General",
             Self::Dictation => "Dictation",
             Self::Audio => "Audio & shortcut",
             Self::OnDevice => "On-device",
@@ -40,6 +43,7 @@ impl Section {
 
     fn icon(self) -> &'static str {
         match self {
+            Self::General => theme::icons::GEAR,
             Self::Dictation => theme::icons::WAVEFORM,
             Self::Audio => theme::icons::MICROPHONE,
             Self::OnDevice => theme::icons::WAVEFORM,
@@ -88,6 +92,12 @@ impl SettingsPage {
                 egui::Frame::new()
                     .inner_margin(theme::SHADOW_MARGIN)
                     .show(ui, |ui| match self.section {
+                        Section::General => {
+                            theme::card(ui, |ui| {
+                                self.close_requested |=
+                                    preferences::general_section(ui, &mut self.draft);
+                            });
+                        }
                         Section::Dictation => self.dictation_section(ui, saved, pipeline),
                         Section::Audio => self.audio_section(ui, pipeline),
                         Section::OnDevice => {

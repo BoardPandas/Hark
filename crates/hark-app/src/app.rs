@@ -12,7 +12,7 @@ use crate::ui::spellbook::SpellbookPage;
 use crate::ui::stats::StatsPage;
 use crate::ui::{pages, settings, shell};
 use crate::update::Updater;
-use crate::{storage, theme, tray, window_state};
+use crate::{storage, theme, tray, window_behavior, window_state};
 use hark_config::{Settings, VoiceName};
 use std::sync::mpsc::{self, Receiver};
 
@@ -32,9 +32,7 @@ pub struct HarkApp {
     /// a failed attempt (`tray_failed` stops retries).
     tray: Option<tray::Tray>,
     tray_failed: bool,
-    /// Set by the tray's Quit: lets the close request through instead of
-    /// hiding the window.
-    quitting: bool,
+    window_behavior: window_behavior::Behavior,
     page: pages::Page,
     views: pages::Views,
     /// Update check/self-update state, shared by the startup banner and the
@@ -131,7 +129,7 @@ impl HarkApp {
             storage_error,
             tray: None,
             tray_failed: false,
-            quitting: false,
+            window_behavior: window_behavior::Behavior::default(),
             page,
             views,
             updater,
@@ -180,8 +178,7 @@ impl HarkApp {
                 }
                 tray::TrayAction::ShowWindow => show_window(ctx),
                 tray::TrayAction::Quit => {
-                    self.quitting = true;
-                    ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                    self.window_behavior.quit(ctx);
                 }
             }
         }
@@ -223,19 +220,14 @@ impl HarkApp {
         show_window(ctx);
     }
 
-    /// Close = hide once the tray exists (Quit lives in the tray menu).
-    /// With no tray, or after Quit, the close request passes through and
-    /// `run_native` returns.
+    /// A close that hides the window also cancels shortcut capture.
     fn handle_close(&mut self, ctx: &egui::Context) {
-        if !ctx.input(|i| i.viewport().close_requested()) {
-            return;
+        if self
+            .window_behavior
+            .handle_close(ctx, &self.settings.general, self.tray.is_some())
+        {
+            self.views.settings.leave(&mut self.pipeline);
         }
-        if self.quitting || self.tray.is_none() {
-            return;
-        }
-        self.views.settings.leave(&mut self.pipeline);
-        ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
-        ctx.send_viewport_cmd(egui::ViewportCommand::Visible(false));
     }
 
     /// Keep the recording overlay viewport registered for as long as the
@@ -421,6 +413,7 @@ impl eframe::App for HarkApp {
         // through its own callback), so this is the one place that sees the
         // main window's geometry and nothing else's.
         self.window.tick(ctx);
+        self.window_behavior.apply(ctx, &self.settings.general);
         if std::mem::take(&mut self.show_at_startup) {
             show_window(ctx);
         }
@@ -467,11 +460,16 @@ impl eframe::App for HarkApp {
             self.storage.as_ref(),
             self.storage_error.as_deref(),
         );
+        self.window_behavior.apply(ui.ctx(), &self.settings.general);
+        if self.views.settings.take_close_request() {
+            self.window_behavior.quit(ui.ctx());
+        }
     }
 }
 
-// Clean shutdown is structural: when `run_native` returns (tray Quit, or a
-// window close while trayless), `HarkApp` drops field by field.
+// Clean shutdown is structural: when `run_native` returns (an explicit exit,
+// or a window close configured to exit / while trayless), `HarkApp` drops
+// field by field.
 // `PipelineController` drops the `PipelineHandle` (hook, worker, capture
 // stop in order; the event pump follows), then `StorageHandle` joins the
 // storage worker so the last history write commits before the process

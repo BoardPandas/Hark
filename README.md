@@ -84,7 +84,12 @@ Download the latest **`Hark-<version>-windows-x64-setup.exe`** from the
 The installer is per user (no admin prompt), installs to
 `%LOCALAPPDATA%\Programs\Hark`, and adds a Start Menu shortcut. Unless you turn
 it off, Hark starts hidden in the system tray when you sign in to Windows;
-toggle that under **Settings → Behavior → "Launch Hark at login"**.
+toggle that under **Settings → General → "Launch Hark at startup"**.
+
+**Settings → General** also includes **Always on top** and **Exit when the
+window is closed**. By default, the X hides Hark in the system tray; enable
+the exit option and save to make it shut down Hark instead. **Close Program**
+always fully exits Hark, including background dictation.
 
 The installer is the only Windows download. A portable
 `Hark-<version>-windows-x64.exe` used to ship alongside it and no longer does:

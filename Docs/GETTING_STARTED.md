@@ -43,7 +43,7 @@ The simplest way to run Hark on Windows is the signed setup executable published
 
 - Download `Hark-<version>-windows-x64-setup.exe` from the [Releases page](https://github.com/BoardPandas/Hark/releases/latest) and run it ([README.md:82-83](../README.md#L82-L83)).
 - The installer runs per-user with no admin prompt, and installs to `%LOCALAPPDATA%\Programs\Hark` ([README.md:84-85](../README.md#L84-L85)).
-- It adds a Start Menu shortcut, and by default Hark starts hidden in the system tray at Windows sign-in; this is controlled by **Settings → Behavior → "Launch Hark at login"** ([README.md:85-87](../README.md#L85-L87)).
+- It adds a Start Menu shortcut, and by default Hark starts hidden in the system tray at Windows sign-in; this is controlled by **Settings → General → "Launch Hark at startup"** ([README.md](../README.md#install-windows)).
 - The installer is the **only** Windows download. A portable `Hark-<version>-windows-x64.exe` used to be attached to each release and no longer is: it produced an install Windows had no record of — no entry in Add or remove programs, no upgrade path — and it was also the file the in-app updater installed over itself ([README.md:89-94](../README.md#L89-L94)).
 - To remove Hark, use **Add or remove programs**; settings and history in `%APPDATA%\hark` are left in place ([README.md:96-97](../README.md#L96-L97)).
 

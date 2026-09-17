@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+
+- Added Settings → General with an Always on top option and an Exit when the window is closed option. The X still hides Hark in the tray by default; enable the exit option and save to make it fully quit instead. Always on top is unavailable on Wayland.
+- Added a Close Program button in General that always fully exits Hark and stops background dictation, regardless of the window-close preference.
+
+### Changed
+
+- Moved launch-at-startup and appearance controls into General. Startup and window preferences use Save changes / Discard and are remembered across launches.
+
 ### Fixed
 
 - **Gemini Live failed every dictation with an 8-second timeout.** Three separate bugs, all in the WebSocket handling, found by running a probe against the live API:

@@ -54,6 +54,8 @@ pub struct SettingsPage {
     /// Session-scoped click tally on the Voice heading; unlocks the hidden
     /// voices once it crosses the threshold. Intentionally not persisted.
     voice_secret_clicks: u32,
+    /// Consumed by the app root, which shares the tray's clean shutdown path.
+    close_requested: bool,
 }
 
 impl SettingsPage {
@@ -80,6 +82,7 @@ impl SettingsPage {
                     .unwrap_or(&hark_local_stt::PARAKEET_V3_INT8),
             ),
             voice_secret_clicks: 0,
+            close_requested: false,
         }
     }
 
@@ -121,6 +124,10 @@ impl SettingsPage {
         self.download.poll();
         self.cleanup_test.poll();
         self.test.poll();
+    }
+
+    pub(crate) fn take_close_request(&mut self) -> bool {
+        std::mem::take(&mut self.close_requested)
     }
 
     /// Surface the outcome of a save that happened outside the form (a

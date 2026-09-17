@@ -92,14 +92,17 @@ Settings' Save changes / Discard bar stays outside its scroll area. The update b
 
 | Section | Controls |
 |---|---|
+| General | Launch at startup, always on top, exit when the window is closed, appearance, Close Program |
 | Dictation | Speech provider, key, connection test, model/endpoint, voice, cleanup |
 | Audio & shortcut | Shortcut recording/manual entry, microphone picker and input meter |
 | On-device | Off/Backup/Primary modes, model download/progress/cancel/delete |
-| Behavior | Cleanup limits, single-word punctuation, appearance, launch at login |
+| Behavior | Cleanup limits, single-word punctuation |
 | Privacy | History capture, retention, audio/text/provider disclosures |
 | Updates | Version, checking, download/install status, release details |
 
 Section navigation is vertical when space permits and wraps above the content in narrow windows. Each section retains its own scroll position and shares one draft. Save validates, persists TOML, and restarts the pipeline; Discard restores saved fields. Theme changes, key actions, and model downloads remain immediate. Download and test completions are polled from root logic even when their section is hidden. Leaving shortcut settings or hiding the window cancels shortcut capture.
+
+General opens by default after setup. Startup and window preferences take effect on Save. Always on top affects the main window; the recording overlay keeps its own behavior. With **Exit when the window is closed** off (the default), the X hides Hark in the tray. With it on, the X exits. Without a working tray, the X always exits so Hark cannot become inaccessible. **Close Program** and the tray's **Quit** always use the full shutdown path, stopping dictation and flushing pending history writes; unsaved settings are discarded.
 
 ### First run
 

@@ -435,6 +435,16 @@ impl Default for Startup {
     }
 }
 
+/// Main-window preferences. Defaults preserve the existing tray behavior.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+#[serde(default)]
+pub struct General {
+    pub always_on_top: bool,
+    /// Exit on the window's close button; otherwise hide in the system tray.
+    /// An explicit Quit / Close Program action always exits.
+    pub exit_on_close: bool,
+}
+
 /// Post-transcription text shaping applied just before injection, after any
 /// cleanup pass. Independent of the STT provider and of cleanup, so it behaves
 /// the same whether or not a voice ran.
@@ -476,6 +486,7 @@ pub struct Settings {
     pub history: History,
     pub updates: Updates,
     pub startup: Startup,
+    pub general: General,
     pub local_stt: LocalStt,
     /// Text shaping applied just before injection (see [`Output`]).
     pub output: Output,
@@ -497,6 +508,7 @@ impl Default for Settings {
             history: History::default(),
             updates: Updates::default(),
             startup: Startup::default(),
+            general: General::default(),
             local_stt: LocalStt::default(),
             output: Output::default(),
             invocations: Invocations::default(),
@@ -1155,6 +1167,18 @@ mod tests {
     }
 
     #[test]
+    fn older_configs_keep_normal_window_and_close_to_tray() {
+        for text in ["", "[startup]\nlaunch_at_login = false", "[general]"] {
+            let settings = Settings::from_toml(text).unwrap();
+            assert!(!settings.general.always_on_top);
+            assert!(!settings.general.exit_on_close);
+        }
+        let partial = Settings::from_toml("[general]\nalways_on_top = true").unwrap();
+        assert!(partial.general.always_on_top);
+        assert!(!partial.general.exit_on_close);
+    }
+
+    #[test]
     fn output_defaults_to_stripping_single_word_periods_and_round_trips() {
         // Default on: a fresh install and a config file predating [output]
         // both strip the lone-word period until the user opts out.
@@ -1223,6 +1247,8 @@ mod tests {
         s.spellbook.entries = vec![SpellbookEntry::new("Hark"), SpellbookEntry::new("Modero")];
         s.history.capture = false;
         s.history.max_entries = 250;
+        s.general.always_on_top = true;
+        s.general.exit_on_close = true;
         s.voice.default = VoiceName::Professional;
         s.voice.provider = Some(VoiceProvider {
             kind: ProviderKind::Openai,
@@ -1248,6 +1274,8 @@ mod tests {
         assert_eq!(loaded.spellbook.terms(), vec!["Hark", "Modero"]);
         assert!(!loaded.history.capture);
         assert_eq!(loaded.history.max_entries, 250);
+        assert!(loaded.general.always_on_top);
+        assert!(loaded.general.exit_on_close);
         assert_eq!(loaded.voice.default, VoiceName::Professional);
         let p = loaded.voice.provider.expect("provider table round-trips");
         assert_eq!(p.kind, ProviderKind::Openai);

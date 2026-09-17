@@ -10,6 +10,16 @@
 # variable (dev), or store a key in the OS keychain under service "hark"
 # with the provider label as the account name (e.g. "deepgram").
 
+[startup]
+# Launch hidden in the system tray when you sign in.
+launch_at_login = true
+
+[general]
+always_on_top = false
+# false: the X hides Hark in the tray; true: the X exits the program.
+# Settings -> General -> Close Program always exits, regardless of this option.
+exit_on_close = false
+
 [provider]
 kind = "deepgram"    # deepgram | openai | groq | gemini | openai-compatible
 # base_url and model default per kind:
