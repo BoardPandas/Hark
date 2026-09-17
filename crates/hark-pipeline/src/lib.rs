@@ -12,6 +12,7 @@ mod events;
 mod local;
 mod retry;
 mod state;
+mod stream;
 mod worker;
 
 pub use events::{DictationRecord, FailStage, PipelineEvent};
@@ -424,6 +425,15 @@ pub fn run(
         window,
         inject: inject_settings(&settings.inject),
         provider,
+        // Only ever consulted while a key is held; a provider without a
+        // streaming path simply leaves this None and nothing changes.
+        // Gated on the same `uses_cloud` as the batch adapter: primary local
+        // mode promises no provider is contacted, and a live session opened on
+        // key-down would break that promise before a single sample was sent.
+        live: mode
+            .uses_cloud()
+            .then(|| hark_stt::build_live(&provider_cfg))
+            .flatten(),
         cloud_label: provider_cfg.label.clone(),
         local,
         corrector: hark_spellbook::Corrector::new(&settings.spellbook.corrector_entries()),

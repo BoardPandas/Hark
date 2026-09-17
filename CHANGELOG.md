@@ -4,6 +4,18 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.41.0] - 2026-09-17
+
+### Added
+
+- **Gemini Live now streams while you hold the key.** Previously the session opened at release and the whole clip went up at once, which used a streaming API without getting anything from it. Hark now opens the session on key-down and pushes audio as the microphone captures it, so at release only the tail plus the provider's finalise remain instead of the entire upload. The log line reports what fraction of the window was already uploaded when you let go — at 100% the wait you feel is just Gemini finishing its sentence.
+
+### Changed
+
+- **Streaming is an accelerator, never the spine.** No live adapter, a refused connection, a socket that dies mid-hold, a reader that falls behind the ring buffer — every one of them silently drops the stream and lets the ordinary batch request run. This is safe because the pump *reads* the ring rather than consuming it, so the same window is still assembled afterwards, the same silence and hold gates still apply, and every sample is still there to POST. A dictation is never lost to the optimisation.
+- **Streamed audio goes up at capture level.** The batch path normalizes a finished clip against its own peak, which cannot be done while streaming because the peak is not known until the clip exists. On a quiet microphone the batch path would have applied a boost the live path cannot, so the skipped gain is logged rather than left to be discovered as a mysterious accuracy gap.
+- **Primary on-device mode never opens a live session.** That mode promises no provider is contacted; a session opened on key-down would have broken the promise before a single sample was sent.
+
 ## [0.40.0] - 2026-09-17
 
 ### Added

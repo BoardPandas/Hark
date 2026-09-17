@@ -11,12 +11,12 @@ use hark_audio::WindowParams;
 use hark_hotkey::PttEvent;
 use hark_inject::InjectSettings;
 use hark_spellbook::{Corrector, Expander, Expansion};
-use hark_stt::{SttError, SttProvider, Transcript};
+use hark_stt::{LiveStt, SttError, SttProvider, Transcript};
 use hark_voice::{over_expanded, skips_cleanup, CleanupProvider, Voice};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::mpsc::{Receiver, Sender};
+use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender};
 use std::sync::Arc;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 /// The resolved cleanup step: adapter, effective voice, and gate threshold.
 /// `None` on the worker means Verbatim (or degraded-to-Verbatim): no cleanup
@@ -45,6 +45,10 @@ pub(crate) struct Worker {
     /// The cloud adapter. `None` when `[local_stt] mode = "primary"`: that
     /// mode never contacts a provider and does not even require an API key.
     pub provider: Option<Box<dyn SttProvider>>,
+    /// The same adapter again when it can also stream, so audio can go up
+    /// while the key is still held. `None` for every batch-only provider, and
+    /// for a build without the live feature.
+    pub live: Option<Box<dyn LiveStt>>,
     /// Provider label for the dictation record. Kept separately because
     /// `provider` may be absent while the record still needs a label.
     pub cloud_label: String,
@@ -95,7 +99,34 @@ pub(crate) fn run(mut worker: Worker, rx: Receiver<PttEvent>) {
     }
 
     let mut state = PipelineState::Idle;
-    while let Ok(event) = rx.recv() {
+    // The open live session, if this dictation is streaming. Dropped on every
+    // path out of Recording, so a session can never outlive its dictation.
+    let mut pump: Option<crate::stream::LivePump> = None;
+    loop {
+        // While recording, wake regularly to push whatever the ring has
+        // gained; otherwise block, so an idle Hark costs nothing.
+        let event = if matches!(state, PipelineState::Recording { .. }) && pump.is_some() {
+            match rx.recv_timeout(PUMP_INTERVAL) {
+                Ok(event) => event,
+                Err(RecvTimeoutError::Timeout) => {
+                    if let Some(p) = pump.as_mut() {
+                        // u64::MAX: send everything captured so far. The real
+                        // window end is only known at release.
+                        if let Err(e) = p.pump(u64::MAX) {
+                            log::warn!("live stream failed mid-hold, falling back to batch: {e}");
+                            pump = None;
+                        }
+                    }
+                    continue;
+                }
+                Err(RecvTimeoutError::Disconnected) => break,
+            }
+        } else {
+            match rx.recv() {
+                Ok(event) => event,
+                Err(_) => break,
+            }
+        };
         // Correlate the edge with the audio clock at processing time. The
         // pre-roll absorbs hook->worker latency; a Down processed late while
         // a previous dictation was still in flight is ignored by the state
@@ -137,13 +168,32 @@ pub(crate) fn run(mut worker: Worker, rx: Receiver<PttEvent>) {
         );
         // Surface the two UI-visible edges: capture started, request in
         // flight. Everything after that is reported from dictate itself.
-        if matches!(state, PipelineState::Idle) && matches!(next, PipelineState::Recording { .. }) {
-            let _ = worker.events.send(PipelineEvent::Recording);
+        if matches!(state, PipelineState::Idle) {
+            if let PipelineState::Recording { down_abs } = next {
+                let _ = worker.events.send(PipelineEvent::Recording);
+                // Open the session now so the handshake overlaps the hold
+                // rather than the release. `None` simply means no streaming
+                // for this dictation.
+                pump = worker.live.as_deref().and_then(|live| {
+                    crate::stream::LivePump::start(
+                        live,
+                        &worker.consumer,
+                        down_abs,
+                        worker.sample_rate,
+                        &worker.window,
+                    )
+                });
+            }
         }
         state = next;
         if let Action::Dictate { down_abs, up_abs } = action {
             let _ = worker.events.send(PipelineEvent::Processing);
-            state = dictate(&mut worker, down_abs, up_abs, state);
+            state = dictate(&mut worker, down_abs, up_abs, state, pump.take());
+        }
+        // Any other way out of Recording (abort, abandoned hold) ends the
+        // session too: an orphaned socket would keep billing and never inject.
+        if !matches!(state, PipelineState::Recording { .. }) {
+            pump = None;
         }
     }
     // The hook is gone; nothing is being captured. Belt and braces for an
@@ -151,6 +201,11 @@ pub(crate) fn run(mut worker: Worker, rx: Receiver<PttEvent>) {
     worker.recording.store(false, Ordering::Relaxed);
     log::debug!("ptt channel closed; pipeline worker exiting");
 }
+
+/// How often the worker wakes during a hold to push newly captured audio.
+/// Short enough that the socket stays close to real time, long enough that a
+/// two-minute hold is not thousands of wake-ups.
+const PUMP_INTERVAL: Duration = Duration::from_millis(20);
 
 /// Has this recording already outlived the longest hold the window math will
 /// keep (`max_hold_s`)? Only asked of a release the hook never delivered: past
@@ -184,7 +239,13 @@ fn prewarm(client: &reqwest::blocking::Client, url: &str) {
 /// One full dictation: assemble -> gate -> encode -> transcribe -> inject.
 /// Always returns the post-dictation state (Idle via Injected or Aborted).
 /// Every exit reports its outcome on the events channel (best-effort).
-fn dictate(worker: &mut Worker, down_abs: u64, up_abs: u64, state: PipelineState) -> PipelineState {
+fn dictate(
+    worker: &mut Worker,
+    down_abs: u64,
+    up_abs: u64,
+    state: PipelineState,
+    pump: Option<crate::stream::LivePump>,
+) -> PipelineState {
     let released = Instant::now();
     // Cloned up front so reporting a failure does not hold a borrow of
     // `worker` across the transcription step, which needs `&mut` for the
@@ -227,10 +288,39 @@ fn dictate(worker: &mut Worker, down_abs: u64, up_abs: u64, state: PipelineState
     // Only the cloud adapters need a WAV; the on-device engine consumes the
     // f32 samples directly. In primary mode there is no cloud adapter, so
     // encoding one would be pure waste on the hot path.
+
+    // Finish the live session first, when there is one: most of this window is
+    // already uploaded, so all that remains is the tail plus the provider's
+    // finalise. Only if that fails does the clip need a WAV at all.
+    let streamed = pump.and_then(|p| {
+        let (_, end_abs) =
+            hark_audio::window::window_bounds(down_abs, up_abs, worker.sample_rate, &worker.window);
+        let window_len = end_abs.saturating_sub(
+            hark_audio::window::window_bounds(down_abs, up_abs, worker.sample_rate, &worker.window).0,
+        );
+        let before_finish = p.sent();
+        match p.finish(end_abs, clip.applied_gain) {
+            Ok(transcript) => {
+                log::info!(
+                    "live stream: {:.0}% of the window was already uploaded at release;                      finalise took {} ms",
+                    crate::stream::streamed_fraction(before_finish, window_len) * 100.0,
+                    transcript.request_ms
+                );
+                Some(transcript)
+            }
+            Err(e) => {
+                log::warn!("live stream failed at finalise, falling back to batch: {e}");
+                None
+            }
+        }
+    });
+
     let encode_started = Instant::now();
-    let wav = match worker.provider {
-        Some(_) => hark_stt::wav::encode_wav_16k_mono(&clip.samples_16k),
-        None => Vec::new(),
+    let wav = match (&streamed, &worker.provider) {
+        // The stream produced the transcript; nothing will read a WAV.
+        (Some(_), _) => Vec::new(),
+        (None, Some(_)) => hark_stt::wav::encode_wav_16k_mono(&clip.samples_16k),
+        (None, None) => Vec::new(),
     };
     log::debug!(
         "clip: {} samples at 16 kHz ({} bytes WAV, encoded in {} ms)",
@@ -252,16 +342,20 @@ fn dictate(worker: &mut Worker, down_abs: u64, up_abs: u64, state: PipelineState
         samples: &clip.samples_16k,
         events: &events,
     };
-    let outcome = match crate::local::transcribe(mode, local_ready, &mut engines) {
-        Ok(o) => o,
-        Err(e) => {
-            log::error!("transcription failed: {e}");
-            fail(FailStage::Transcribe, e.to_string());
-            return advance(state, Event::Aborted).0;
+    let (source, transcript) = match streamed {
+        Some(transcript) => (Source::Cloud, transcript),
+        None => {
+            let outcome = match crate::local::transcribe(mode, local_ready, &mut engines) {
+                Ok(o) => o,
+                Err(e) => {
+                    log::error!("transcription failed: {e}");
+                    fail(FailStage::Transcribe, e.to_string());
+                    return advance(state, Event::Aborted).0;
+                }
+            };
+            (outcome.source, outcome.transcript)
         }
     };
-    let source = outcome.source;
-    let transcript = outcome.transcript;
     let state = advance(state, Event::TranscriptReady).0;
 
     if transcript.text.trim().is_empty() {

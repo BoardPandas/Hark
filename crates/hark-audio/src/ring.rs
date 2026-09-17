@@ -93,12 +93,32 @@ impl Producer {
     }
 }
 
-/// Read half. Exactly one thread (the pipeline worker) may hold this.
+/// Read half. Held by the pipeline worker.
+///
+/// A second handle may be taken with [`Consumer::reader`] for the streaming
+/// pump; see that method for why a second reader is sound.
 pub struct Consumer {
     ring: Arc<Ring>,
 }
 
 impl Consumer {
+    /// Take an additional read handle onto the same ring.
+    ///
+    /// Reading is genuinely concurrent-safe: the ring has exactly one producer,
+    /// every read is bounded by the `written` counter loaded with `Acquire`,
+    /// and [`read_range`](Self::read_range) already re-checks that counter
+    /// afterwards so a reader lapped mid-copy gets a clean `Overwritten` error
+    /// rather than torn samples. Readers hold no state of their own and never
+    /// mutate the ring, so N of them cannot interfere with each other.
+    ///
+    /// This exists for the streaming pump, which reads the same samples the
+    /// worker will later assemble into the clip — deliberately, since the clip
+    /// must stay authoritative for the gates and for the batch fallback.
+    pub fn reader(&self) -> Consumer {
+        Consumer {
+            ring: self.ring.clone(),
+        }
+    }
     /// Total samples ever produced (the absolute counter).
     pub fn total_written(&self) -> u64 {
         self.ring.written.load(Ordering::Acquire)
@@ -214,6 +234,30 @@ mod tests {
                 oldest: 12
             }
         );
+    }
+
+    #[test]
+    fn a_second_reader_sees_the_same_samples() {
+        // The streaming pump and the worker read the same ring; they must not
+        // be able to disagree about what was captured.
+        let (producer, consumer) = ring(1024);
+        producer.push(&[0.1, 0.2, 0.3, 0.4]);
+        let pump = consumer.reader();
+        assert_eq!(pump.total_written(), consumer.total_written());
+        assert_eq!(
+            pump.read_range(0, 4).unwrap(),
+            consumer.read_range(0, 4).unwrap()
+        );
+    }
+
+    #[test]
+    fn a_second_reader_follows_later_writes() {
+        let (producer, consumer) = ring(1024);
+        let pump = consumer.reader();
+        producer.push(&[1.0, 2.0]);
+        assert_eq!(pump.read_range(0, 2).unwrap(), vec![1.0, 2.0]);
+        producer.push(&[3.0]);
+        assert_eq!(pump.total_written(), 3);
     }
 
     #[test]

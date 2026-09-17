@@ -39,6 +39,35 @@ pub struct Transcript {
     pub request_ms: u128,
 }
 
+/// A transcription session fed while the speaker is still talking.
+///
+/// This exists because [`SttProvider::transcribe`] takes a finished clip, and
+/// a finished clip is only available after the key is released — at which
+/// point every byte still has to be uploaded before any text can come back.
+/// A session is opened on key-down instead and fed as audio is captured, so
+/// release-to-inject shrinks to whatever is left rather than the whole clip.
+///
+/// Sessions are single-use and single-threaded: the pump thread owns one for
+/// the length of one dictation and drops it afterwards.
+pub trait LiveSession: Send {
+    /// Push 16 kHz mono samples. Blocking, but only for one socket write.
+    fn push(&mut self, samples_16k: &[f32]) -> Result<(), SttError>;
+
+    /// End the turn and wait for the final transcript.
+    fn finish(&mut self) -> Result<Transcript, SttError>;
+}
+
+/// An adapter that can open a [`LiveSession`].
+///
+/// Deliberately separate from [`SttProvider`] rather than a method on it: most
+/// adapters are a single HTTP POST and have nothing to stream into, and giving
+/// them a `start_session` that always fails would put a runtime error where a
+/// compile-time absence belongs.
+pub trait LiveStt: Send + Sync {
+    /// Open a session. Blocking (connect + handshake + setup).
+    fn start_session(&self) -> Result<Box<dyn LiveSession>, SttError>;
+}
+
 /// A configured, reusable cloud transcription adapter.
 pub trait SttProvider: Send {
     /// Blocking; called from the pipeline worker thread. `wav_bytes` is a
@@ -68,6 +97,31 @@ pub fn build(
             config.live_mode,
         )?)),
         ProviderKind::Gemini => Ok(Box::new(gemini::Gemini::new(config, client))),
+    }
+}
+
+/// The streaming adapter for a config, when the provider has one.
+///
+/// Separate from [`build`] rather than folded into it because the two are
+/// used at different moments: this one is opened on key-down, the batch
+/// adapter only if streaming could not carry the dictation. The pair costs a
+/// second adapter instance, which for Gemini Live means a second idle
+/// `current_thread` runtime — no extra threads, and the alternative is
+/// downcasting a `dyn SttProvider` to find out whether it also streams.
+///
+/// `None` means "this provider does not stream", which is every batch adapter
+/// and any build without the `live` feature.
+pub fn build_live(config: &ProviderConfig) -> Option<Box<dyn LiveStt>> {
+    match config.kind {
+        #[cfg(feature = "live")]
+        ProviderKind::GeminiLive => match gemini_live::GeminiLive::new(config, config.live_mode) {
+            Ok(adapter) => Some(Box::new(adapter) as Box<dyn LiveStt>),
+            Err(e) => {
+                log::warn!("no live session available for {}: {e}", config.label);
+                None
+            }
+        },
+        _ => None,
     }
 }
 
