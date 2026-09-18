@@ -65,6 +65,15 @@ pub const FINALIZE_TIMEOUT_MS: u64 = 8_000;
 /// ordinary one.
 pub const FINALIZE_TOTAL_MS: u64 = 15_000;
 
+// The two budgets are only meaningful in relation to each other, and both are
+// constants — so the relationship is checked when the crate compiles rather
+// than when a test happens to run. A total at or below the per-frame wait
+// would cut off a finalise that was still making progress, and one that did
+// not match the batch adapters' budget would mean a dictation could wait
+// longer on the streaming path than on the ordinary one.
+const _: () = assert!(FINALIZE_TOTAL_MS > FINALIZE_TIMEOUT_MS);
+const _: () = assert!(FINALIZE_TOTAL_MS == crate::TOTAL_TIMEOUT_MS);
+
 /// How long any single socket write may take.
 ///
 /// `SinkExt::send` has no timeout of its own, and these writes happen on the
@@ -493,9 +502,8 @@ pub(crate) mod session {
             };
             // A malformed frame is not worth failing a live dictation over
             // mid-hold; finish reads the same socket and will report it.
-            match absorb(&body, segments) {
-                Ok(ServerEvent::TurnComplete) => return true,
-                _ => continue,
+            if let Ok(ServerEvent::TurnComplete) = absorb(&body, segments) {
+                return true;
             }
         }
         false
@@ -1051,18 +1059,10 @@ mod tests {
         assert_eq!(segments, vec!["keep me".to_string()]);
     }
 
-    #[test]
-    fn the_finalise_ceiling_outlasts_one_frame_wait_but_still_bounds_the_wait() {
-        // The per-frame timeout is renewed by every frame that arrives, so on
-        // its own it is not a bound at all: a server that keeps talking without
-        // closing the turn holds the worker thread -- and the whole app -- for
-        // as long as it likes. The total is the bound that cannot be renewed.
-        assert!(
-            FINALIZE_TOTAL_MS > FINALIZE_TIMEOUT_MS,
-            "a total below the per-frame wait would cut off healthy finalises"
-        );
-        assert_eq!(FINALIZE_TOTAL_MS, crate::TOTAL_TIMEOUT_MS);
-    }
+    // The relationship between FINALIZE_TOTAL_MS and FINALIZE_TIMEOUT_MS is
+    // asserted where those constants are defined, not here: both are consts,
+    // so it holds at compile time and a violation is a build error rather than
+    // a test failure.
 
     #[test]
     fn segments_join_with_a_space_so_a_breath_does_not_fuse_words() {
