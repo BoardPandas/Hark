@@ -581,16 +581,64 @@ jobs:
           cp "$(ls target/generate-rpm/*.rpm)" "dist/Hark-${VERSION}-linux-x64.rpm"
           ls -la dist
 
-      # Append only, same as the Windows job: the `version` job owns the release
-      # body, and asking for notes again would overwrite it on every upload.
+      # Uploaded one file at a time with `gh`, NOT softprops/action-gh-release.
+      #
+      # That action starts every path in `files:` at once, and each upload
+      # creates its own asset temp directory. With three files racing, one of
+      # them loses and the step dies with "Error creating asset temp dir".
+      # v0.44.0 shipped without its .rpm exactly this way -- the .deb and the
+      # tarball uploaded fine, so which file loses is luck, and the failure
+      # then skipped the Arch job that `needs:` this one. Appending is still
+      # append-only: the `version` job owns the release body and nothing here
+      # asks for notes.
+      #
+      # This is the loop the Arch job already uses, for the same reasons:
+      # `--clobber` replaces a partial asset left by a failed attempt, the
+      # digest check catches a silent truncation rather than publishing one,
+      # and every request is bounded so a stall leaves time to retry.
       - name: Attach the Linux assets to the release
-        uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228 # v3.0.2
-        with:
-          tag_name: ${{ needs.version.outputs.tag }}
-          files: |
-            dist/Hark-${{ needs.version.outputs.version }}-linux-x64.deb
-            dist/Hark-${{ needs.version.outputs.version }}-linux-x64.rpm
-            dist/Hark-${{ needs.version.outputs.version }}-linux-x64.tar.gz
+        shell: bash
+        timeout-minutes: 12
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          # Recovery completed over HTTP/1.1 after HTTP/2 uploads stalled.
+          GODEBUG: http2client=0
+          TAG: ${{ needs.version.outputs.tag }}
+          VERSION: ${{ needs.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          # Deliberately unquoted below: these names never contain spaces, and
+          # word splitting is how the list becomes three iterations.
+          names="Hark-${VERSION}-linux-x64.deb"
+          names="${names} Hark-${VERSION}-linux-x64.rpm"
+          names="${names} Hark-${VERSION}-linux-x64.tar.gz"
+          for name in $names; do
+            asset="dist/${name}"
+            test -s "$asset"
+            digest="sha256:$(sha256sum "$asset" | cut -d ' ' -f 1)"
+            query=".assets[] | select(.name == \"${name}\" and .state == \"uploaded\") | .digest"
+            uploaded=""
+            for attempt in 1 2 3; do
+              if timeout 90s gh release upload "$TAG" "$asset" --clobber; then
+                remote_digest=$(timeout 30s gh release view "$TAG" --json assets --jq "$query") || remote_digest=""
+                if [ "$remote_digest" = "$digest" ]; then
+                  echo "Verified uploaded asset ${name}: ${digest}"
+                  uploaded=yes
+                  break
+                fi
+                echo "::warning::Could not verify the SHA-256 digest of ${name}"
+              fi
+              if [ "$attempt" -lt 3 ]; then
+                echo "::warning::${name} upload attempt ${attempt} failed; retrying"
+                sleep "$((attempt * 5))"
+              fi
+            done
+            if [ -z "$uploaded" ]; then
+              echo "::error::${name} upload failed after 3 attempts"
+              exit 1
+            fi
+          done
 
   # ---------------------------------------------------------------------------
   # Arch: a real .pkg.tar.zst, built by makepkg inside an Arch container.

@@ -6,9 +6,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
-## [0.45.0] - 2026-09-18
+## [0.45.1] - 2026-09-18
 
 ### Fixed
+
+- **Linux releases could ship missing a package.** The release job uploaded the `.deb`, `.rpm` and tarball simultaneously, and the uploader gave each one a working directory chosen the same way — so when they raced, one lost and the upload failed. 0.44.0 shipped with no `.rpm` for exactly this reason, and because the step failed, the Arch package was never built either. Which file lost was luck. Assets are now uploaded one at a time, each verified against its checksum and retried if the upload fails.
 
 - **Hark could freeze on "Processing…" until you force-quit it, and an ordinary contraction was enough to do it.** The spellbook's phonetic matcher indexed words one byte at a time, which is only safe for plain ASCII. Cleanup models write a typographic apostrophe, so a transcript containing "it’s" — or a curly quote, an em dash, an ellipsis, an accented name — crashed the thread that runs every dictation. Nothing was watching that thread, so Hark did not close or report anything: it sat on "Processing…", ignored every later keypress, and had to be killed and reopened. One user hit this eight times. Typographic punctuation is now treated exactly as its plain equivalent, so "it’s" and "it's" behave identically, and accented letters match as their base letter.
 - **A failed dictation can no longer take the session with it.** Even with the crash above fixed, any future one would have frozen Hark the same silent way. A dictation that fails unexpectedly now reports the failure, returns to idle, and leaves Hark listening for the next one.
