@@ -488,10 +488,49 @@ mod tests {
     // assumptions need re-checking before anything else.
 
     #[test]
+    fn a_typographic_apostrophe_does_not_take_the_pipeline_down() {
+        // The regression, and it was not a rare one: cleanup models write
+        // "it’s" with U+2019, rphonetic 4.0.0 indexed it by byte, and the
+        // resulting char-boundary panic killed the pipeline worker thread --
+        // leaving the app stuck on "Processing…" until it was force-quit.
+        // `correct` documents that it never fails; this is that promise.
+        let corrector = Corrector::from_terms(&["Hark".to_string()]);
+        for text in [
+            "it’s fine",
+            "don’t worry",
+            "we’ve seen it, and that’s that",
+            "“quoted” and — dashed",
+            "wait… really?",
+            "a naïve café façade",
+        ] {
+            let (out, _) = corrector.correct(text);
+            assert!(!out.is_empty(), "{text:?} produced nothing");
+        }
+    }
+
+    #[test]
+    fn typographic_and_ascii_punctuation_match_identically() {
+        // They differ only in how they are rendered. A spellbook that
+        // corrected "it's Hark" but not "it’s Hark" would be a coin toss
+        // decided by whether cleanup had run yet.
+        let corrector = Corrector::from_terms(&["Hark".to_string()]);
+        let (ascii, ascii_n) = corrector.correct("it's HARC to me");
+        let (typographic, typographic_n) = corrector.correct("it’s HARC to me");
+        assert_eq!(ascii_n, typographic_n);
+        assert_eq!(ascii.replace('\'', "’"), typographic);
+    }
+
+    #[test]
     fn rphonetic_does_not_panic_on_edge_inputs() {
         let dm = DoubleMetaphone::default();
         // Empty, non-ASCII, digits, hyphens: all must encode without
         // panicking (the values themselves are unspecified by the docs).
+        //
+        // NOTE: this tests rphonetic directly and so proves nothing about
+        // what Hark feeds it. It passed throughout the release in which a
+        // typographic apostrophe panicked the worker, because every input
+        // here is at most two bytes per char. Reach for `matcher::encode`,
+        // not `dm.encode`, when the question is whether Hark is safe.
         for input in ["", "müller", "nova3", "hark-stt", "3", "ü"] {
             let primary = dm.encode(input);
             let alternate = dm.encode_alternate(input);

@@ -65,6 +65,11 @@ pub enum FailStage {
     /// transcribed. Informational: nothing is broken, and the audio after the
     /// user actually let go is whatever the room was doing.
     Abandoned,
+    /// The dictation panicked. Always a bug in Hark, never the user's doing,
+    /// and reported rather than swallowed because the alternative is what this
+    /// replaced: a dead worker thread and an app that sat on "Processing…"
+    /// until it was force-quit.
+    Internal,
 }
 
 /// What the pipeline tells the UI. Events are advisory: emitting one never

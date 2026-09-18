@@ -11,7 +11,7 @@
 use crate::level::LevelMeter;
 use crate::ring::{ring, Consumer, Producer};
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{mpsc, Arc};
 use std::time::Duration;
 use thiserror::Error;
@@ -39,6 +39,7 @@ pub enum CaptureError {
 pub struct CaptureHandle {
     sample_rate: u32,
     stream_error: Arc<AtomicBool>,
+    discontinuities: Arc<AtomicU64>,
     shutdown: Arc<AtomicBool>,
     level: Arc<LevelMeter>,
     thread: Option<std::thread::JoinHandle<()>>,
@@ -58,10 +59,28 @@ impl CaptureHandle {
         self.level.clone()
     }
 
-    /// True once the stream has reported an error (device unplugged, etc.).
-    /// Phase 5 adds live recovery; Phase 1 surfaces it.
+    /// True once the stream has reported an error capture cannot come back
+    /// from on its own: the device was disconnected, rerouted, or the stream
+    /// was invalidated. Latching, and deliberately **not** set by a recovered
+    /// glitch — see the error callback in [`build_stream`] for why that
+    /// distinction is the whole point of this flag.
+    ///
+    /// This is the signal worth acting on. When capture really does die the
+    /// ring's counter simply stops advancing, so every later dictation
+    /// measures a zero-length hold and assembles the same stale sliver of
+    /// audio: the app looks alive, hears nothing, and says nothing about it.
     pub fn stream_errored(&self) -> bool {
         self.stream_error.load(Ordering::Relaxed)
+    }
+
+    /// Total capture discontinuities since the stream opened — moments where
+    /// the driver discarded captured audio before Hark ever saw it.
+    ///
+    /// Cheap to clone (an `Arc`); the pipeline samples it at both ends of a
+    /// hold so a dictation can report how many fell inside it. Monotonic, so
+    /// only differences are meaningful.
+    pub fn discontinuities(&self) -> Arc<AtomicU64> {
+        self.discontinuities.clone()
     }
 }
 
@@ -179,11 +198,13 @@ pub fn start(
 ) -> Result<(CaptureHandle, Consumer), CaptureError> {
     let shutdown = Arc::new(AtomicBool::new(false));
     let stream_error = Arc::new(AtomicBool::new(false));
+    let discontinuities = Arc::new(AtomicU64::new(0));
     let level = LevelMeter::new();
     let (result_tx, result_rx) = mpsc::sync_channel::<Result<(Consumer, u32), CaptureError>>(1);
 
     let thread_shutdown = shutdown.clone();
     let thread_error = stream_error.clone();
+    let thread_discontinuities = discontinuities.clone();
     let thread_level = level.clone();
     let thread = std::thread::Builder::new()
         .name("hark-audio-capture".to_string())
@@ -192,6 +213,7 @@ pub fn start(
                 ring_seconds,
                 input_device,
                 thread_error,
+                thread_discontinuities,
                 thread_shutdown,
                 thread_level,
                 result_tx,
@@ -204,6 +226,7 @@ pub fn start(
             CaptureHandle {
                 sample_rate,
                 stream_error,
+                discontinuities,
                 shutdown,
                 level,
                 thread: Some(thread),
@@ -224,11 +247,18 @@ fn capture_thread(
     ring_seconds: u32,
     input_device: Option<String>,
     stream_error: Arc<AtomicBool>,
+    discontinuities: Arc<AtomicU64>,
     shutdown: Arc<AtomicBool>,
     level: Arc<LevelMeter>,
     result_tx: mpsc::SyncSender<Result<(Consumer, u32), CaptureError>>,
 ) {
-    let built = build_stream(ring_seconds, input_device.as_deref(), stream_error, level);
+    let built = build_stream(
+        ring_seconds,
+        input_device.as_deref(),
+        stream_error,
+        discontinuities,
+        level,
+    );
     match built {
         Ok((stream, consumer, rate)) => {
             if let Err(e) = stream.play() {
@@ -278,6 +308,27 @@ fn select_device(
     host.default_input_device().ok_or(CaptureError::NoDevice)
 }
 
+/// Has capture stopped, or did it glitch and carry on?
+///
+/// The one decision the stream error callback makes, kept apart from the
+/// callback so it can be tested without a sound card — `capture_win` is glue,
+/// and this is the part that is not.
+///
+/// Only [`cpal::ErrorKind::Xrun`] is survivable. It reports that the driver
+/// discarded some captured audio, and cpal emits it from the capture loop
+/// *after* WASAPI flags the discontinuity on the next packet — the loop then
+/// delivers that packet and keeps going, so by the time Hark hears about it
+/// the stream is already healthy again. Every other kind means capture is
+/// over until something rebuilds it: the device was disconnected, the route
+/// changed, the stream was invalidated, the backend failed.
+///
+/// Defaults to fatal for kinds cpal may add later. A new error treated as a
+/// glitch would be silently counted and ignored; treated as fatal it at worst
+/// over-reports, and over-reporting is the direction to be wrong in here.
+fn stops_capture(kind: cpal::ErrorKind) -> bool {
+    !matches!(kind, cpal::ErrorKind::Xrun)
+}
+
 /// Pick the input device's f32 config at its default rate and build the
 /// stream. SampleFormat::F32 is required explicitly (spec §2.4): we do not
 /// trust default heuristics, and Phase 1 does not add integer-format
@@ -286,6 +337,7 @@ fn build_stream(
     ring_seconds: u32,
     input_device: Option<&str>,
     stream_error: Arc<AtomicBool>,
+    discontinuities: Arc<AtomicU64>,
     level: Arc<LevelMeter>,
 ) -> Result<(cpal::Stream, Consumer, u32), CaptureError> {
     let host = cpal::default_host();
@@ -341,6 +393,7 @@ fn build_stream(
         ring(ring_seconds as usize * sample_rate as usize);
 
     let error_flag = stream_error.clone();
+    let discontinuity_count = discontinuities.clone();
     let stream = device
         .build_input_stream(
             config,
@@ -352,14 +405,65 @@ fn build_stream(
                 level.observe(data);
             },
             move |err| {
-                // Called on stream failure (device lost). Not the data path;
-                // a store is all we do.
-                error_flag.store(true, Ordering::Relaxed);
-                log::error!("input stream error: {err}");
+                // Not the data path; counters and one log line at most.
+                //
+                // The kind matters, because these two are nothing alike.
+                // `Xrun` means the driver discarded some captured audio and
+                // told us on the next packet -- cpal has already carried on
+                // delivering, and the stream is healthy. Reporting that at
+                // ERROR put 1816 alarming lines in one user's log for a
+                // condition that had recovered before it was announced, and
+                // latched `stream_error` permanently on the first one, which
+                // left the flag unable to mean what it says. Everything else
+                // -- disconnected, rerouted, invalidated -- is capture
+                // actually stopping, and nothing downstream notices on its
+                // own: the ring counter just stops advancing.
+                if stops_capture(err.kind()) {
+                    error_flag.store(true, Ordering::Relaxed);
+                    log::error!("input stream error: {err}");
+                } else {
+                    discontinuity_count.fetch_add(1, Ordering::Relaxed);
+                    // Debug, not error: the pipeline reports the count that
+                    // fell inside a dictation, which is the form this is
+                    // actually diagnostic in.
+                    log::debug!("capture discontinuity: {err}");
+                }
             },
             None,
         )
         .map_err(|e| CaptureError::BuildStream(e.to_string()))?;
 
     Ok((stream, consumer, sample_rate))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_recovered_glitch_is_not_capture_stopping() {
+        // The distinction the whole error path rests on. One user's log held
+        // 1816 of these, every one of them reported at ERROR and every one of
+        // them already over; the first also latched `stream_errored` for the
+        // rest of the session, so the flag could no longer mean what its own
+        // documentation says.
+        assert!(!stops_capture(cpal::ErrorKind::Xrun));
+    }
+
+    #[test]
+    fn losing_the_device_is_capture_stopping() {
+        // These are the ones nothing downstream can notice on its own: the
+        // ring's counter simply stops advancing, and every later dictation
+        // assembles the same stale sliver of audio.
+        for kind in [
+            cpal::ErrorKind::DeviceNotAvailable,
+            cpal::ErrorKind::DeviceChanged,
+            cpal::ErrorKind::StreamInvalidated,
+            cpal::ErrorKind::DeviceBusy,
+            cpal::ErrorKind::BackendError,
+            cpal::ErrorKind::Other,
+        ] {
+            assert!(stops_capture(kind), "{kind:?} must latch the error flag");
+        }
+    }
 }

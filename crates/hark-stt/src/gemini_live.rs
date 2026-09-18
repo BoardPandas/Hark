@@ -47,10 +47,32 @@ pub const LIVE_HOST: &str =
 /// 100 ms of 16 kHz mono audio, the chunk size the Live API documents.
 pub const CHUNK_SAMPLES: usize = 1_600;
 
-/// How long to wait for the final transcript after `audioStreamEnd`. Shorter
-/// than the REST budget: by this point the audio is already uploaded, so a
-/// slow finalise is a stall, not a large transfer still in flight.
+/// How long to wait for the next frame while finalising. Shorter than the REST
+/// budget: by this point the audio is already uploaded, so a slow finalise is a
+/// stall, not a large transfer still in flight.
 pub const FINALIZE_TIMEOUT_MS: u64 = 8_000;
+
+/// The whole finalise budget, independent of [`FINALIZE_TIMEOUT_MS`].
+///
+/// A per-frame timeout alone is not a bound: it is reset by every frame that
+/// arrives, so a server that keeps talking without ever closing the turn holds
+/// the read loop open forever. The pipeline worker thread is inside `block_on`
+/// for that whole time, and it is the only consumer of push-to-talk events —
+/// so an unbounded finalise is not a slow dictation, it is an app that has
+/// stopped responding until it is killed. This is the ceiling that cannot be
+/// pushed back, and it matches the batch adapters' total request budget so no
+/// dictation can wait longer on the streaming path than it would have on the
+/// ordinary one.
+pub const FINALIZE_TOTAL_MS: u64 = 15_000;
+
+/// How long any single socket write may take.
+///
+/// `SinkExt::send` has no timeout of its own, and these writes happen on the
+/// pipeline worker thread via `block_on`. A socket that stops accepting bytes
+/// — a stalled peer, a dead link the OS has not given up on yet — would wedge
+/// that thread with no way out. Generous, because a write that cannot complete
+/// in this long is not slow, it is stuck.
+pub const SEND_TIMEOUT_MS: u64 = 5_000;
 
 /// Connect + setup budget. A Live session that cannot hand-shake quickly has
 /// already lost to the batch adapters.
@@ -257,6 +279,21 @@ pub fn parse_server_message(body: &str) -> Result<ServerEvent, SttError> {
     Ok(ServerEvent::Other)
 }
 
+/// Classify one server frame and keep anything it contributed.
+///
+/// The single place a transcript is collected. Both read paths — the drain
+/// that runs throughout the hold and the loop that finalises the turn — go
+/// through here, because the bug this replaced was one path keeping frames and
+/// the other silently dropping them, which cost users everything they said
+/// before the last pause. Returns the event so callers can still act on it.
+pub fn absorb(body: &str, segments: &mut Vec<String>) -> Result<ServerEvent, SttError> {
+    let event = parse_server_message(body)?;
+    if let ServerEvent::Final(text) = &event {
+        segments.push(text.clone());
+    }
+    Ok(event)
+}
+
 /// The top-level keys of a frame, for diagnostics that never print content.
 pub fn top_keys(v: &Value) -> Vec<String> {
     v.as_object()
@@ -330,6 +367,24 @@ pub(crate) mod session {
         }
     }
 
+    /// Send one JSON message, bounded by [`SEND_TIMEOUT_MS`].
+    ///
+    /// Every write in this module goes through here. A bare `send().await` is
+    /// unbounded, and these run on the pipeline worker thread inside
+    /// `block_on` — see [`SEND_TIMEOUT_MS`].
+    pub async fn send_json(socket: &mut Socket, value: Value, what: &str) -> Result<(), SttError> {
+        tokio::time::timeout(
+            Duration::from_millis(SEND_TIMEOUT_MS),
+            socket.send(Message::Text(value.to_string().into())),
+        )
+        .await
+        .map_err(|_| SttError::Timeout {
+            provider: "gemini-live".to_string(),
+            configured_ms: SEND_TIMEOUT_MS,
+        })?
+        .map_err(|e| fail(format!("{what} send failed: {e}")))
+    }
+
     /// Open the socket and send the opening `setup`. Everything after this is
     /// incremental, so the caller can start pushing audio immediately.
     pub async fn connect(url: String, setup: Value) -> Result<Socket, SttError> {
@@ -343,10 +398,7 @@ pub(crate) mod session {
                 })?
                 // tungstenite's Display echoes the URL, which carries the key.
                 .map_err(|e| fail(format!("websocket connect failed: {e}")))?;
-        socket
-            .send(Message::Text(setup.to_string().into()))
-            .await
-            .map_err(|e| fail(format!("setup send failed: {e}")))?;
+        send_json(&mut socket, setup, "setup").await?;
 
         // The Live API requires the client to wait for setupComplete before
         // sending anything else. Audio pushed ahead of the ack is discarded,
@@ -394,57 +446,101 @@ pub(crate) mod session {
             }
         }
         // Automatic detection is off, so the turn must be opened by hand.
-        socket
-            .send(Message::Text(activity_start_message().to_string().into()))
-            .await
-            .map_err(|e| fail(format!("activityStart send failed: {e}")))?;
+        send_json(&mut socket, activity_start_message(), "activityStart").await?;
         Ok(socket)
     }
 
-    /// Push one batch of PCM as 100 ms frames.
-    pub async fn send_audio(socket: &mut Socket, pcm: &[u8]) -> Result<(), SttError> {
+    /// Push one batch of PCM as 100 ms frames, collecting anything the server
+    /// says back into `segments`.
+    pub async fn send_audio(
+        socket: &mut Socket,
+        pcm: &[u8],
+        segments: &mut Vec<String>,
+    ) -> Result<bool, SttError> {
+        let mut complete = false;
         for chunk in pcm.chunks(CHUNK_SAMPLES * 2) {
-            socket
-                .send(Message::Text(audio_message(chunk).to_string().into()))
-                .await
-                .map_err(|e| fail(format!("audio send failed: {e}")))?;
+            send_json(socket, audio_message(chunk), "audio").await?;
             // Keep the receive side moving while sending. Interims start
             // arriving immediately, and a client that only writes lets them
             // back up until the connection stops making progress.
-            drain_pending(socket).await;
+            complete |= drain_into(socket, segments).await;
         }
-        Ok(())
+        Ok(complete)
     }
 
-    /// Discard whatever the server has already sent without waiting for more.
+    /// Take whatever the server has already sent, without waiting for more.
     ///
-    /// Interim hypotheses arrive throughout the hold and Hark ignores them, but
-    /// left unread they accumulate in the socket's receive buffer for the whole
-    /// dictation. Bounded so a chatty server cannot turn a drain into a stall.
-    pub async fn drain_pending(socket: &mut Socket) {
+    /// **This is where most of a dictation arrives.** `inputTranscription` is
+    /// finalised per pause and streams throughout the hold, so by the time the
+    /// key comes up the server has usually already sent most of the utterance.
+    /// An earlier version of this function read those frames and dropped them
+    /// to stop the receive buffer backing up, which left only whatever landed
+    /// after the turn was closed — the last few words — to be injected. Reading
+    /// and keeping costs nothing extra; reading and discarding was the bug.
+    ///
+    /// Returns whether the turn completed while draining. Bounded at 64 frames
+    /// so a chatty server cannot turn a drain into a stall.
+    pub async fn drain_into(socket: &mut Socket, segments: &mut Vec<String>) -> bool {
         for _ in 0..64 {
-            match tokio::time::timeout(Duration::ZERO, socket.next()).await {
-                Ok(Some(Ok(_))) => continue,
+            let frame = match tokio::time::timeout(Duration::ZERO, socket.next()).await {
+                Ok(Some(Ok(frame))) => frame,
                 // Timed out (nothing buffered), stream ended, or a read error:
                 // all mean "stop draining". A real error resurfaces in finish.
-                _ => return,
+                _ => return false,
+            };
+            let Some(body) = frame_json(&frame) else {
+                continue;
+            };
+            // A malformed frame is not worth failing a live dictation over
+            // mid-hold; finish reads the same socket and will report it.
+            match absorb(&body, segments) {
+                Ok(ServerEvent::TurnComplete) => return true,
+                _ => continue,
             }
         }
+        false
     }
 
     /// End the turn and read until the transcript is final.
-    pub async fn finish(socket: &mut Socket, mode: TranscribeMode) -> Result<String, SttError> {
-        socket
-            .send(Message::Text(audio_stream_end_message().to_string().into()))
-            .await
-            .map_err(|e| fail(format!("audioStreamEnd send failed: {e}")))?;
+    ///
+    /// `segments` carries whatever already arrived during the hold; this only
+    /// appends the tail.
+    pub async fn finish(
+        socket: &mut Socket,
+        mode: TranscribeMode,
+        mut segments: Vec<String>,
+    ) -> Result<String, SttError> {
+        // Close the turn by hand. `activityEnd` is the signal that matters:
+        // with automatic activity detection disabled, it is the only documented
+        // way to tell the server speech has ended, and `audioStreamEnd` alone
+        // is defined for the automatic-VAD case and leaves the turn open. This
+        // pair is what was verified against the real API.
+        send_json(socket, activity_end_message(), "activityEnd").await?;
+        send_json(socket, audio_stream_end_message(), "audioStreamEnd").await?;
 
-        let mut segments: Vec<String> = Vec::new();
         let mut frames = 0u32;
         let mut interims = 0u32;
-        let deadline = Duration::from_millis(FINALIZE_TIMEOUT_MS);
+        let started = Instant::now();
+        let total = Duration::from_millis(FINALIZE_TOTAL_MS);
+        let per_frame = Duration::from_millis(FINALIZE_TIMEOUT_MS);
         loop {
-            let frame = tokio::time::timeout(deadline, socket.next())
+            // Whichever bound is closer. Without the total, every arriving
+            // frame renews the per-frame budget and the loop never has to end.
+            let remaining = match total.checked_sub(started.elapsed()) {
+                Some(left) if !left.is_zero() => left.min(per_frame),
+                _ => {
+                    log::warn!(
+                        "gemini live finalise hit its {FINALIZE_TOTAL_MS} ms ceiling: \
+                         {frames} frames seen, {interims} interim, {} final",
+                        segments.len()
+                    );
+                    return Err(SttError::Timeout {
+                        provider: "gemini-live".to_string(),
+                        configured_ms: FINALIZE_TOTAL_MS,
+                    });
+                }
+            };
+            let frame = tokio::time::timeout(remaining, socket.next())
                 .await
                 .map_err(|_| {
                     // A bare timeout cannot distinguish "the server never
@@ -467,11 +563,10 @@ pub(crate) mod session {
                     let inner = v.get("serverContent").map(top_keys).unwrap_or_default();
                     log::debug!("gemini live frame {frames}: {:?} / {inner:?}", top_keys(&v));
                 }
-                match parse_server_message(&body)? {
-                    ServerEvent::Final(text) => segments.push(text),
+                match absorb(&body, &mut segments)? {
                     ServerEvent::TurnComplete => break,
                     ServerEvent::Interim => interims += 1,
-                    ServerEvent::SetupComplete | ServerEvent::Other => {}
+                    ServerEvent::Final(_) | ServerEvent::SetupComplete | ServerEvent::Other => {}
                 }
                 continue;
             }
@@ -479,9 +574,17 @@ pub(crate) mod session {
                 break;
             }
         }
-        let _ = socket.close(None).await;
+        // Bounded like every other write: a close handshake to a peer that has
+        // stopped reading must not outlive the dictation it belongs to.
+        let _ =
+            tokio::time::timeout(Duration::from_millis(SEND_TIMEOUT_MS), socket.close(None)).await;
 
-        let text = join_segments(&segments);
+        collected(mode, &segments)
+    }
+
+    /// The finished transcript, or the error for a session that produced none.
+    pub fn collected(mode: TranscribeMode, segments: &[String]) -> Result<String, SttError> {
+        let text = join_segments(segments);
         if text.is_empty() {
             return Err(fail(format!(
                 "session ended with no finalised transcript ({} mode)",
@@ -500,8 +603,14 @@ pub(crate) mod session {
         mode: TranscribeMode,
     ) -> Result<String, SttError> {
         let mut socket = connect(url, setup).await?;
-        send_audio(&mut socket, &pcm).await?;
-        finish(&mut socket, mode).await
+        let mut segments = Vec::new();
+        // Replayed far faster than real time, so the server usually says
+        // nothing until the turn is closed -- but when it does speak early,
+        // that text is the transcript and must not be dropped.
+        if send_audio(&mut socket, &pcm, &mut segments).await? {
+            return collected(mode, &segments);
+        }
+        finish(&mut socket, mode, segments).await
     }
 }
 
@@ -587,6 +696,12 @@ pub struct GeminiLiveSession {
     started: Instant,
     /// Samples pushed so far, for the log line only.
     pushed: usize,
+    /// Finalised transcript text collected so far. Most of a dictation lands
+    /// here during the hold rather than at finalise — see [`session::drain_into`].
+    segments: Vec<String>,
+    /// The server closed the turn before the key came up. Nothing further will
+    /// arrive, so finalising would only wait out the budget.
+    turn_complete: bool,
 }
 
 #[cfg(feature = "live")]
@@ -600,12 +715,17 @@ impl crate::LiveSession for GeminiLiveSession {
         }
         let pcm = samples_to_pcm16_le(samples_16k);
         self.pushed += samples_16k.len();
-        self.runtime.block_on(async {
-            session::send_audio(socket, &pcm).await?;
-            // Interims pile up in the receive buffer over a long hold.
-            session::drain_pending(socket).await;
-            Ok::<_, SttError>(())
-        })
+        let segments = &mut self.segments;
+        let complete = self.runtime.block_on(async {
+            let mut complete = session::send_audio(socket, &pcm, segments).await?;
+            // Transcript and interims both pile up in the receive buffer over a
+            // long hold. Reading keeps the socket moving; keeping what is read
+            // is what puts the whole utterance in the injected text.
+            complete |= session::drain_into(socket, segments).await;
+            Ok::<_, SttError>(complete)
+        })?;
+        self.turn_complete |= complete;
+        Ok(())
     }
 
     fn finish(&mut self) -> Result<Transcript, SttError> {
@@ -613,9 +733,13 @@ impl crate::LiveSession for GeminiLiveSession {
             return Err(fail("the session was already finished".to_string()));
         };
         let mode = self.mode;
-        let text = self
-            .runtime
-            .block_on(async move { session::finish(&mut socket, mode).await })?;
+        let segments = std::mem::take(&mut self.segments);
+        let text = if self.turn_complete {
+            session::collected(mode, &segments)?
+        } else {
+            self.runtime
+                .block_on(async move { session::finish(&mut socket, mode, segments).await })?
+        };
         log::info!(
             "gemini live session: {} ms of audio streamed during the hold",
             self.pushed as u64 * 1_000 / 16_000
@@ -642,6 +766,8 @@ impl crate::LiveStt for GeminiLive {
             mode: self.mode,
             started: Instant::now(),
             pushed: 0,
+            segments: Vec::new(),
+            turn_complete: false,
         }))
     }
 }
@@ -733,6 +859,12 @@ mod tests {
 
     #[test]
     fn the_turn_is_opened_and_closed_by_hand() {
+        // NOTE: this proves the messages are well-formed, NOT that they are
+        // sent. It passed for a release in which `activityEnd` was built,
+        // tested here, and never written to a socket -- so the server was
+        // never told the turn had ended. Anything asserted in this test is
+        // only worth as much as the send site in `session::finish`; check
+        // there before trusting it.
         assert_eq!(
             activity_start_message(),
             json!({ "realtimeInput": { "activityStart": {} } })
@@ -836,6 +968,100 @@ mod tests {
     #[test]
     fn a_non_json_frame_is_an_error_not_a_silent_skip() {
         assert!(parse_server_message("<html>502</html>").is_err());
+    }
+
+    #[test]
+    fn a_transcript_frame_is_kept_not_merely_classified() {
+        // The regression: frames were parsed and then dropped, so everything
+        // said before the last pause never reached the injected text.
+        let mut segments = Vec::new();
+        let event = absorb(
+            r#"{"serverContent":{"inputTranscription":{"text":"hello world"}}}"#,
+            &mut segments,
+        )
+        .unwrap();
+        assert_eq!(event, ServerEvent::Final("hello world".to_string()));
+        assert_eq!(segments, vec!["hello world".to_string()]);
+    }
+
+    #[test]
+    fn everything_said_during_the_hold_survives_to_the_transcript() {
+        // One real dictation as the wire delivers it: the server finalises a
+        // segment per pause *while the key is still down*, interleaved with
+        // interims, and closes the turn only after the key comes up. Hark used
+        // to inject "and that is all" -- the tail alone.
+        let during_the_hold = [
+            r#"{"serverContent":{"interimInputTranscription":{"text":"the quick"}}}"#,
+            r#"{"serverContent":{"inputTranscription":{"text":"the quick brown fox"}}}"#,
+            r#"{"serverContent":{"interimInputTranscription":{"text":"jumps"}}}"#,
+            r#"{"serverContent":{"inputTranscription":{"text":"jumps over the lazy dog"}}}"#,
+        ];
+        let after_the_key_came_up = [
+            r#"{"serverContent":{"inputTranscription":{"text":"and that is all"}}}"#,
+            r#"{"serverContent":{"generationComplete":true}}"#,
+        ];
+
+        let mut segments = Vec::new();
+        for body in during_the_hold {
+            absorb(body, &mut segments).unwrap();
+        }
+        assert_eq!(
+            segments.len(),
+            2,
+            "mid-hold finals must accumulate, not be discarded"
+        );
+        let mut complete = false;
+        for body in after_the_key_came_up {
+            complete |= absorb(body, &mut segments).unwrap() == ServerEvent::TurnComplete;
+        }
+        assert!(complete);
+        assert_eq!(
+            join_segments(&segments),
+            "the quick brown fox jumps over the lazy dog and that is all"
+        );
+    }
+
+    #[test]
+    fn interims_and_noise_contribute_nothing_to_the_transcript() {
+        // Only finalised text may be injected; a revised hypothesis or a
+        // keepalive landing in the transcript would be worse than losing it.
+        let mut segments = Vec::new();
+        for body in [
+            r#"{"serverContent":{"interimInputTranscription":{"text":"hel"}}}"#,
+            r#"{"usageMetadata":{"totalTokenCount":5}}"#,
+            r#"{"setupComplete":{}}"#,
+            r#"{"serverContent":{},"voiceActivity":{"type":"ACTIVITY_END"}}"#,
+        ] {
+            absorb(body, &mut segments).unwrap();
+        }
+        assert!(segments.is_empty());
+    }
+
+    #[test]
+    fn a_malformed_frame_leaves_what_was_already_collected_intact() {
+        // Finalise propagates this error; the mid-hold drain swallows it. What
+        // neither may do is lose the transcript collected up to that point.
+        let mut segments = Vec::new();
+        absorb(
+            r#"{"serverContent":{"inputTranscription":{"text":"keep me"}}}"#,
+            &mut segments,
+        )
+        .unwrap();
+        assert!(absorb("<html>502</html>", &mut segments).is_err());
+        assert_eq!(segments, vec!["keep me".to_string()]);
+    }
+
+    #[test]
+    fn the_finalise_ceiling_outlasts_one_frame_wait_but_still_bounds_the_wait() {
+        // The per-frame timeout is renewed by every frame that arrives, so on
+        // its own it is not a bound at all: a server that keeps talking without
+        // closing the turn holds the worker thread -- and the whole app -- for
+        // as long as it likes. The total is the bound that cannot be renewed.
+        assert!(
+            FINALIZE_TOTAL_MS > FINALIZE_TIMEOUT_MS,
+            "a total below the per-frame wait would cut off healthy finalises"
+        );
+        assert_eq!(FINALIZE_TOTAL_MS, crate::TOTAL_TIMEOUT_MS);
     }
 
     #[test]

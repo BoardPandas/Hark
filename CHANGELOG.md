@@ -6,6 +6,23 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.45.0] - 2026-09-18
+
+### Fixed
+
+- **Hark could freeze on "Processing…" until you force-quit it, and an ordinary contraction was enough to do it.** The spellbook's phonetic matcher indexed words one byte at a time, which is only safe for plain ASCII. Cleanup models write a typographic apostrophe, so a transcript containing "it’s" — or a curly quote, an em dash, an ellipsis, an accented name — crashed the thread that runs every dictation. Nothing was watching that thread, so Hark did not close or report anything: it sat on "Processing…", ignored every later keypress, and had to be killed and reopened. One user hit this eight times. Typographic punctuation is now treated exactly as its plain equivalent, so "it’s" and "it's" behave identically, and accented letters match as their base letter.
+- **A failed dictation can no longer take the session with it.** Even with the crash above fixed, any future one would have frozen Hark the same silent way. A dictation that fails unexpectedly now reports the failure, returns to idle, and leaves Hark listening for the next one.
+- **Gemini often typed only the last few words of what you said.** Gemini finalises a transcript as you speak, in pieces, and Hark was reading those pieces off the connection and discarding them to keep it moving — so everything before your last pause was thrown away and only the tail was typed. On one measured dictation that meant 12 characters out of a 16-second hold. Every piece is now kept, whenever it arrives. Longer dictations were hit hardest, which is why it looked intermittent.
+- **Gemini never told the server you had stopped speaking.** Hark marked the start of each turn but not the end, so the server had no signal to finalise on and kept the turn open — finalising took 33, 30 and 26 seconds in real use against an 8-second budget. The end of the turn is now sent explicitly, and finalising is capped at 15 seconds no matter how much the server says, so a slow provider can no longer hold the app open indefinitely.
+- **Gemini connections could hang with no way out.** Sending audio had no time limit at all, on the same thread that handles your keypresses, so a stalled connection could wedge Hark permanently. Every send is now bounded.
+- **Microphone glitches no longer read as errors.** USB audio interfaces routinely drop a few milliseconds of audio and recover immediately. Hark reported each one as a stream error — 1816 of them in one user's log — which buried real diagnostics and left Hark permanently convinced the microphone had failed. These are now counted quietly and reported once per dictation, and only genuine device loss is treated as an error.
+
+### Changed
+
+- Log lines no longer contain long runs of blank space.
+
+## [0.44.0] - 2026-09-17
+
 ### Added
 
 - **Gemini can now run your cleanup voice.** Selecting Gemini used to drop it silently — Gemini was grouped with Deepgram as a provider that cannot host chat cleanup, so a carefully written Concise or Custom prompt simply never ran, and the log claimed cleanup was "disabled ... running verbatim". Gemini publishes an OpenAI-compatible chat endpoint, so the existing adapter reaches it unchanged. Cleanup now runs on `gemini-3.5-flash-lite` using the same key as transcription, with nothing extra to configure.

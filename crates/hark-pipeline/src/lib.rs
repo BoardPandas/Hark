@@ -410,6 +410,7 @@ pub fn run(
     )?;
     let sample_rate = capture.sample_rate();
     let level = capture.level_meter();
+    let discontinuities = capture.discontinuities();
     log::info!(
         "capture live at {sample_rate} Hz; ptt chord: {chord}; provider: {}",
         provider_cfg.label
@@ -445,6 +446,7 @@ pub fn run(
         strip_single_word_period: settings.output.strip_single_word_period,
         events,
         recording: recording.clone(),
+        discontinuities,
     };
     let worker = std::thread::Builder::new()
         .name("hark-pipeline-worker".to_string())

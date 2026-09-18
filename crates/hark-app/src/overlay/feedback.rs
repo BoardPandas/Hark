@@ -73,6 +73,11 @@ impl Feedback {
                 FailStage::Audio => State::AudioError,
                 FailStage::Transcribe => State::ProviderError,
                 FailStage::Inject => State::InsertError,
+                // A bug in Hark, not the provider's doing -- but the overlay's
+                // vocabulary is about where the dictation stopped, and from the
+                // user's seat this stopped in the same place a provider failure
+                // does: text was expected and none arrived.
+                FailStage::Internal => State::ProviderError,
             },
         };
         self.publish_at(state, self.elapsed_ms());

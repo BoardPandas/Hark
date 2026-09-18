@@ -266,7 +266,7 @@ fn next_status(event: PipelineEvent) -> PipelineStatus {
             FailStage::GatedTooQuiet => PipelineStatus::Hint {
                 detail: "Didn't catch that. Check your microphone.".to_string(),
             },
-            FailStage::Audio | FailStage::Transcribe | FailStage::Inject => {
+            FailStage::Audio | FailStage::Transcribe | FailStage::Inject | FailStage::Internal => {
                 PipelineStatus::Errored {
                     // Crude but effective: auth errors say "check your API
                     // key", keychain errors name the keychain.

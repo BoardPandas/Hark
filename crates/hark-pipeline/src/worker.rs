@@ -13,7 +13,7 @@ use hark_inject::InjectSettings;
 use hark_spellbook::{Corrector, Expander, Expansion};
 use hark_stt::{LiveStt, SttError, SttProvider, Transcript};
 use hark_voice::{over_expanded, skips_cleanup, CleanupProvider, Voice};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -80,6 +80,10 @@ pub(crate) struct Worker {
     /// published as state so the recording overlay can read it without waiting
     /// on a UI pass (`PipelineHandle::recording_flag`).
     pub recording: Arc<AtomicBool>,
+    /// Capture discontinuities since the stream opened, from
+    /// `CaptureHandle::discontinuities`. Monotonic: the worker samples it at
+    /// both ends of a hold and reports the difference.
+    pub discontinuities: Arc<AtomicU64>,
 }
 
 /// The one long-lived worker loop. Exits when the hotkey listener drops its
@@ -99,6 +103,9 @@ pub(crate) fn run(mut worker: Worker, rx: Receiver<PttEvent>) {
     }
 
     let mut state = PipelineState::Idle;
+    // Capture discontinuities counted as this dictation's hold began, so the
+    // ones that land inside it can be reported with it.
+    let mut discontinuities_at_down = 0u64;
     // The open live session, if this dictation is streaming. Dropped on every
     // path out of Recording, so a session can never outlive its dictation.
     let mut pump: Option<crate::stream::LivePump> = None;
@@ -171,6 +178,7 @@ pub(crate) fn run(mut worker: Worker, rx: Receiver<PttEvent>) {
         if matches!(state, PipelineState::Idle) {
             if let PipelineState::Recording { down_abs } = next {
                 let _ = worker.events.send(PipelineEvent::Recording);
+                discontinuities_at_down = worker.discontinuities.load(Ordering::Relaxed);
                 // Open the session now so the handshake overlaps the hold
                 // rather than the release. `None` simply means no streaming
                 // for this dictation.
@@ -188,7 +196,8 @@ pub(crate) fn run(mut worker: Worker, rx: Receiver<PttEvent>) {
         state = next;
         if let Action::Dictate { down_abs, up_abs } = action {
             let _ = worker.events.send(PipelineEvent::Processing);
-            state = dictate(&mut worker, down_abs, up_abs, state, pump.take());
+            report_discontinuities(&worker, discontinuities_at_down);
+            state = dictate_guarded(&mut worker, down_abs, up_abs, state, pump.take());
         }
         // Any other way out of Recording (abort, abandoned hold) ends the
         // session too: an orphaned socket would keep billing and never inject.
@@ -237,6 +246,70 @@ fn prewarm(client: &reqwest::blocking::Client, url: &str) {
 }
 
 /// One full dictation: assemble -> gate -> encode -> transcribe -> inject.
+/// Report how many capture discontinuities landed inside the hold just ended.
+///
+/// Per dictation rather than per occurrence, which is the form this is
+/// actually diagnostic in: a bare line each time says only that the machine
+/// glitches, while a count attached to a dictation answers the question a
+/// user's report asks — did audio go missing out of *this* one. Silent when
+/// there were none, which is the overwhelming majority.
+///
+/// Each discontinuity is audio the driver discarded before Hark saw it, so
+/// the clip is spliced across the gap with nothing marking it. Measured at
+/// about one device period, far too little to cost a word, but this is the
+/// only record that it happened at all.
+fn report_discontinuities(worker: &Worker, at_down: u64) {
+    let during = worker
+        .discontinuities
+        .load(Ordering::Relaxed)
+        .saturating_sub(at_down);
+    if during > 0 {
+        let plural = if during == 1 { "y" } else { "ies" };
+        log::info!("capture: {during} discontinuit{plural} during this hold (audio the driver discarded; the clip is spliced across each gap)");
+    }
+}
+
+/// Run one dictation, surviving a panic inside it.
+///
+/// This thread is the only consumer of push-to-talk events, and [`dictate`] is
+/// a long reach into audio assembly, a provider, the spellbook, cleanup and
+/// injection. A panic anywhere in there used to take the thread with it — and
+/// because nothing supervises the thread, the app did not crash where the user
+/// could see it. It sat on "Processing…" with every later keypress ignored,
+/// until it was force-quit and relaunched. One malformed transcript is worth
+/// one lost dictation, never the session.
+///
+/// `AssertUnwindSafe` is the honest claim here rather than a shrug: everything
+/// reachable is either immutable after construction (corrector, expander,
+/// provider) or an owned handle whose invariants do not span a dictation
+/// (the lazily-loaded on-device engine, the ring reader). The state machine is
+/// driven back to Idle explicitly below rather than left wherever it stopped.
+fn dictate_guarded(
+    worker: &mut Worker,
+    down_abs: u64,
+    up_abs: u64,
+    state: PipelineState,
+    pump: Option<crate::stream::LivePump>,
+) -> PipelineState {
+    let events = worker.events.clone();
+    let attempt = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        dictate(worker, down_abs, up_abs, state, pump)
+    }));
+    match attempt {
+        Ok(next) => next,
+        Err(_) => {
+            // The process-wide panic hook has already logged the payload and
+            // the location; this line says what Hark did about it.
+            log::error!("dictation panicked; returning the pipeline to idle");
+            let _ = events.send(PipelineEvent::Failed {
+                stage: FailStage::Internal,
+                detail: "the dictation failed unexpectedly".to_string(),
+            });
+            advance(state, Event::Aborted).0
+        }
+    }
+}
+
 /// Always returns the post-dictation state (Idle via Injected or Aborted).
 /// Every exit reports its outcome on the events channel (best-effort).
 fn dictate(
@@ -302,7 +375,7 @@ fn dictate(
         match p.finish(end_abs, clip.applied_gain) {
             Ok(transcript) => {
                 log::info!(
-                    "live stream: {:.0}% of the window was already uploaded at release;                      finalise took {} ms",
+                    "live stream: {:.0}% of the window was already uploaded at release; finalise took {} ms",
                     crate::stream::streamed_fraction(before_finish, window_len) * 100.0,
                     transcript.request_ms
                 );

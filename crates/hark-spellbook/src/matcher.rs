@@ -26,10 +26,51 @@ pub(crate) struct Codes {
     alternate: String,
 }
 
+/// Fold a word into the ASCII subset Double Metaphone is defined over.
+///
+/// **Nothing non-ASCII may reach rphonetic.** rphonetic 4.0.0 indexes its
+/// input by byte while assuming one char is one byte, so a multi-byte
+/// character can put a slice boundary inside a character and panic
+/// (`double_metaphone.rs:234`, "byte index N is not a char boundary"). That
+/// panic killed the pipeline worker thread outright, which left the app stuck
+/// on "Processing…" until it was force-quit — and the trigger was as ordinary
+/// as the word "it's", because cleanup models write a typographic apostrophe.
+///
+/// Typographic punctuation folds to its ASCII twin rather than being dropped,
+/// so `it’s` from a cleanup model encodes exactly as `it's` typed by hand:
+/// those differ only in rendering and must not differ in matching. Accented
+/// Latin letters fold to their base letter, which is what rphonetic already
+/// did for them ("müller" and "muller" share a code) and is worth keeping.
+/// Anything else — other scripts, emoji — has no Double Metaphone meaning and
+/// is dropped; a word left with an empty code degrades to exact-only matching,
+/// which `term_word` already enforces on the term side.
+fn ascii_fold(lower: &str) -> String {
+    lower
+        .chars()
+        .filter_map(|c| match c {
+            c if c.is_ascii() => Some(c),
+            '\u{2018}' | '\u{2019}' | '\u{201A}' | '\u{201B}' => Some('\''),
+            '\u{201C}' | '\u{201D}' | '\u{201E}' | '\u{201F}' => Some('"'),
+            '\u{2010}'..='\u{2015}' | '\u{2212}' => Some('-'),
+            'á' | 'à' | 'â' | 'ä' | 'ã' | 'å' | 'æ' => Some('a'),
+            'é' | 'è' | 'ê' | 'ë' => Some('e'),
+            'í' | 'ì' | 'î' | 'ï' => Some('i'),
+            'ó' | 'ò' | 'ô' | 'ö' | 'õ' | 'ø' | 'œ' => Some('o'),
+            'ú' | 'ù' | 'û' | 'ü' => Some('u'),
+            'ñ' => Some('n'),
+            'ç' => Some('c'),
+            'ý' | 'ÿ' => Some('y'),
+            'ß' => Some('s'),
+            _ => None,
+        })
+        .collect()
+}
+
 pub(crate) fn encode(dm: &DoubleMetaphone, lower: &str) -> Codes {
+    let ascii = ascii_fold(lower);
     Codes {
-        primary: dm.encode(lower),
-        alternate: dm.encode_alternate(lower),
+        primary: dm.encode(&ascii),
+        alternate: dm.encode_alternate(&ascii),
     }
 }
 
