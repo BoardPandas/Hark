@@ -6,6 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.45.3] - 2026-09-24
+
+### Fixed
+
+- **Saying "remove it" or "scratch that" with Gemini's Smart transcript froze Hark for about 26 seconds, then failed.** Smart mode treats phrases like these as edit commands instead of words to type. When the edit leaves nothing, Gemini never finishes the turn: it goes silent. Hark waited 8 seconds for it, then replayed the clip to Gemini in Smart mode again (which hung the same way), then retried a third time. Every keypress queued up behind all of that. Now Hark stops waiting 3 seconds after you release the key. (Across 547 real dictations, text always arrived within 1 second, including an 85-second one.) It then replays the clip once as a verbatim transcript, which Gemini does not treat as a command. "Scratch that" now types in about 4 seconds instead of failing after 26. Checked against the live Gemini API.
+- **A dictation that fails while streaming no longer gets two more tries.** The replay after a failed stream now counts as the one allowed retry, so no dictation makes three attempts.
+
 ## [0.45.2] - 2026-09-18
 
 ### Fixed

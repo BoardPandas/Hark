@@ -47,10 +47,22 @@ pub const LIVE_HOST: &str =
 /// 100 ms of 16 kHz mono audio, the chunk size the Live API documents.
 pub const CHUNK_SAMPLES: usize = 1_600;
 
-/// How long to wait for the next frame while finalising. Shorter than the REST
-/// budget: by this point the audio is already uploaded, so a slow finalise is a
-/// stall, not a large transfer still in flight.
+/// How long to wait for the next frame while finalising a replayed clip.
+/// Shorter than the REST budget: by this point the audio is already uploaded,
+/// so a slow finalise is a stall, not a large transfer still in flight.
 pub const FINALIZE_TIMEOUT_MS: u64 = 8_000;
+
+/// The same wait for a turn that was streamed while the key was held.
+///
+/// Far shorter than a replay's, because there is almost nothing left to do:
+/// the server has been transcribing all along and only the tail is
+/// outstanding. Across 547 streamed dictations in one user's log, release to
+/// injected text never exceeded 967 ms — including an 85-second dictation.
+/// A turn that says nothing for three times that long is not finishing, and
+/// the one known way into that state (see [`TranscribeMode::Smart`]) never
+/// finishes at all. Waiting the full replay budget there only delayed the
+/// fallback that rescues the dictation.
+pub const STREAM_FINALIZE_TIMEOUT_MS: u64 = 3_000;
 
 /// The whole finalise budget, independent of [`FINALIZE_TIMEOUT_MS`].
 ///
@@ -73,6 +85,8 @@ pub const FINALIZE_TOTAL_MS: u64 = 15_000;
 // longer on the streaming path than on the ordinary one.
 const _: () = assert!(FINALIZE_TOTAL_MS > FINALIZE_TIMEOUT_MS);
 const _: () = assert!(FINALIZE_TOTAL_MS == crate::TOTAL_TIMEOUT_MS);
+// A streamed turn has less left to transcribe than a replay, never more.
+const _: () = assert!(STREAM_FINALIZE_TIMEOUT_MS < FINALIZE_TIMEOUT_MS);
 
 /// How long any single socket write may take.
 ///
@@ -98,6 +112,14 @@ pub enum TranscribeMode {
     /// The provider removes disfluencies and formats the text in the same
     /// round trip. Fills `Transcript::cleaned`, and the pipeline then skips its
     /// own cleanup call.
+    ///
+    /// **It obeys spoken edit commands, and can strand a turn doing it.**
+    /// "Scratch that" (and, in one user's voice, "remove it") is applied as an
+    /// edit rather than transcribed. When the edit leaves nothing, the server
+    /// sends `ACTIVITY_END` and then goes silent: no final transcript, no
+    /// `generationComplete`, ever. Verified against the real API on
+    /// 2026-09-24; the same clip in VERBATIM transcribes in under a second.
+    /// Hence the pipeline never replays a failed stream in this mode.
     Smart,
 }
 
@@ -512,11 +534,14 @@ pub(crate) mod session {
     /// End the turn and read until the transcript is final.
     ///
     /// `segments` carries whatever already arrived during the hold; this only
-    /// appends the tail.
+    /// appends the tail. `per_frame_ms` is how long the server may stay silent:
+    /// [`STREAM_FINALIZE_TIMEOUT_MS`] for a streamed turn,
+    /// [`FINALIZE_TIMEOUT_MS`] for a replay with the whole clip still to do.
     pub async fn finish(
         socket: &mut Socket,
         mode: TranscribeMode,
         mut segments: Vec<String>,
+        per_frame_ms: u64,
     ) -> Result<String, SttError> {
         // Close the turn by hand. `activityEnd` is the signal that matters:
         // with automatic activity detection disabled, it is the only documented
@@ -530,7 +555,7 @@ pub(crate) mod session {
         let mut interims = 0u32;
         let started = Instant::now();
         let total = Duration::from_millis(FINALIZE_TOTAL_MS);
-        let per_frame = Duration::from_millis(FINALIZE_TIMEOUT_MS);
+        let per_frame = Duration::from_millis(per_frame_ms);
         loop {
             // Whichever bound is closer. Without the total, every arriving
             // frame renews the per-frame budget and the loop never has to end.
@@ -553,14 +578,17 @@ pub(crate) mod session {
                 .map_err(|_| {
                     // A bare timeout cannot distinguish "the server never
                     // heard us" from "it is still thinking"; the counts can.
+                    // The mode is in the line because SMART has a failure of
+                    // its own with exactly this shape (see TranscribeMode).
                     log::warn!(
-                        "gemini live finalise timed out after {FINALIZE_TIMEOUT_MS} ms: \
+                        "gemini live finalise timed out after {per_frame_ms} ms ({} mode): \
                          {frames} frames seen, {interims} interim, {} final",
+                        mode.wire(),
                         segments.len()
                     );
                     SttError::Timeout {
                         provider: "gemini-live".to_string(),
-                        configured_ms: FINALIZE_TIMEOUT_MS,
+                        configured_ms: per_frame_ms,
                     }
                 })?;
             let Some(frame) = frame else { break };
@@ -618,7 +646,7 @@ pub(crate) mod session {
         if send_audio(&mut socket, &pcm, &mut segments).await? {
             return collected(mode, &segments);
         }
-        finish(&mut socket, mode, segments).await
+        finish(&mut socket, mode, segments, FINALIZE_TIMEOUT_MS).await
     }
 }
 
@@ -745,8 +773,9 @@ impl crate::LiveSession for GeminiLiveSession {
         let text = if self.turn_complete {
             session::collected(mode, &segments)?
         } else {
-            self.runtime
-                .block_on(async move { session::finish(&mut socket, mode, segments).await })?
+            self.runtime.block_on(async move {
+                session::finish(&mut socket, mode, segments, STREAM_FINALIZE_TIMEOUT_MS).await
+            })?
         };
         log::info!(
             "gemini live session: {} ms of audio streamed during the hold",

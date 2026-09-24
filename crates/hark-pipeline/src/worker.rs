@@ -365,6 +365,7 @@ fn dictate(
     // Finish the live session first, when there is one: most of this window is
     // already uploaded, so all that remains is the tail plus the provider's
     // finalise. Only if that fails does the clip need a WAV at all.
+    let streamed_attempt = pump.is_some();
     let streamed = pump.and_then(|p| {
         let (_, end_abs) =
             hark_audio::window::window_bounds(down_abs, up_abs, worker.sample_rate, &worker.window);
@@ -414,6 +415,11 @@ fn dictate(
         local: worker.local.as_mut(),
         samples: &clip.samples_16k,
         events: &events,
+        // A stream that reached release and then failed was this dictation's
+        // first attempt, so the replay is its one retry. Retrying the replay
+        // too made three attempts, and against a stranded Gemini turn that
+        // was 26 s with every keypress queued behind it.
+        may_retry: !streamed_attempt,
     };
     let (source, transcript) = match streamed {
         Some(transcript) => (Source::Cloud, transcript),
@@ -680,12 +686,14 @@ struct Engines<'a> {
     local: Option<&'a mut LocalPlan>,
     samples: &'a [f32],
     events: &'a Sender<PipelineEvent>,
+    /// False when a live stream already spent this dictation's first attempt.
+    may_retry: bool,
 }
 
 impl Transcriber for Engines<'_> {
     fn cloud(&mut self) -> Option<Result<Transcript, SttError>> {
         let provider = self.provider?;
-        Some(transcribe_with_retry(provider, self.wav))
+        Some(transcribe_with_retry(provider, self.wav, self.may_retry))
     }
 
     fn local(&mut self) -> Result<Transcript, hark_local_stt::LocalSttError> {
@@ -709,11 +717,16 @@ impl Transcriber for Engines<'_> {
 }
 
 /// At most one retry, and only when `should_retry` says the failure class
-/// warrants it (timeout / connect-class).
-fn transcribe_with_retry(provider: &dyn SttProvider, wav: &[u8]) -> Result<Transcript, SttError> {
+/// warrants it (timeout / connect-class). `may_retry` is false when this call
+/// is itself the retry of a live stream that failed.
+fn transcribe_with_retry(
+    provider: &dyn SttProvider,
+    wav: &[u8],
+    may_retry: bool,
+) -> Result<Transcript, SttError> {
     match provider.transcribe(wav) {
         Ok(t) => Ok(t),
-        Err(e) if should_retry(&e) => {
+        Err(e) if may_retry && should_retry(&e) => {
             log::warn!("transcription failed ({e}); retrying once");
             provider.transcribe(wav)
         }
@@ -774,7 +787,7 @@ mod tests {
     #[test]
     fn success_needs_one_call() {
         let p = MockProvider::new(vec![MockProvider::ok("hello")]);
-        let t = transcribe_with_retry(&p, b"wav").unwrap();
+        let t = transcribe_with_retry(&p, b"wav", true).unwrap();
         assert_eq!(t.text, "hello");
         assert_eq!(p.calls.get(), 1);
     }
@@ -785,7 +798,7 @@ mod tests {
             MockProvider::timeout(),
             MockProvider::ok("second try"),
         ]);
-        let t = transcribe_with_retry(&p, b"wav").unwrap();
+        let t = transcribe_with_retry(&p, b"wav", true).unwrap();
         assert_eq!(t.text, "second try");
         assert_eq!(p.calls.get(), 2);
     }
@@ -805,15 +818,25 @@ mod tests {
     #[test]
     fn double_timeout_fails_after_two_calls_total() {
         let p = MockProvider::new(vec![MockProvider::timeout(), MockProvider::timeout()]);
-        let err = expect_err(transcribe_with_retry(&p, b"wav"));
+        let err = expect_err(transcribe_with_retry(&p, b"wav", true));
         assert!(matches!(err, SttError::Timeout { .. }));
         assert_eq!(p.calls.get(), 2, "never a second retry");
     }
 
     #[test]
+    fn a_replay_after_a_failed_stream_is_the_retry() {
+        // The stream already made the first attempt. Retrying its replay as
+        // well was three attempts; against a stranded Gemini turn, 26 s.
+        let p = MockProvider::new(vec![MockProvider::timeout()]);
+        let err = expect_err(transcribe_with_retry(&p, b"wav", false));
+        assert!(matches!(err, SttError::Timeout { .. }));
+        assert_eq!(p.calls.get(), 1);
+    }
+
+    #[test]
     fn auth_fails_without_any_retry() {
         let p = MockProvider::new(vec![MockProvider::auth()]);
-        let err = expect_err(transcribe_with_retry(&p, b"wav"));
+        let err = expect_err(transcribe_with_retry(&p, b"wav", true));
         assert!(matches!(err, SttError::Auth { .. }));
         assert_eq!(p.calls.get(), 1, "4xx must never retry");
     }
@@ -829,7 +852,7 @@ mod tests {
         )]);
         let corrector = Corrector::from_terms(&["Vossburg".to_string(), "Modero".to_string()]);
 
-        let transcript = transcribe_with_retry(&p, b"wav").unwrap();
+        let transcript = transcribe_with_retry(&p, b"wav", true).unwrap();
         let text = corrected_text(&corrector, &transcript.text);
         assert_eq!(text, "tell Vossburg the Modero build is green");
     }

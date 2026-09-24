@@ -164,6 +164,23 @@ pub fn provider_config(
     })
 }
 
+/// The config for the batch adapter. For a provider that streams, that adapter
+/// only ever runs when the stream did not carry the dictation.
+///
+/// Gemini Live in SMART mode can strand a turn outright (see
+/// `TranscribeMode::Smart`): a spoken edit command that leaves nothing makes
+/// the server go silent until the budget runs out. Replaying the clip in SMART
+/// repeats the exact request that just hung, and in one user's log it hung
+/// again six times out of seven. The replay asks for the literal transcript
+/// instead. It arrives with `cleaned: None`, so the user's cleanup voice still
+/// polishes it, exactly as it would any verbatim dictation.
+fn fallback_config(cfg: &ProviderConfig) -> ProviderConfig {
+    ProviderConfig {
+        live_mode: hark_stt::gemini_live::TranscribeMode::Verbatim,
+        ..cfg.clone()
+    }
+}
+
 /// Build the invocation expander from the configured triggers (same
 /// parallel-enums pattern as `provider_config` for the STT kinds).
 ///
@@ -397,7 +414,10 @@ pub fn run(
         } else {
             client.clone()
         };
-        Some(hark_stt::build(&provider_cfg, stt_client)?)
+        Some(hark_stt::build(
+            &fallback_config(&provider_cfg),
+            stt_client,
+        )?)
     } else {
         log::info!("local STT is primary; no cloud provider will be contacted");
         None
@@ -530,6 +550,26 @@ mod tests {
             smart.live_mode,
             hark_stt::gemini_live::TranscribeMode::Smart
         );
+    }
+
+    #[test]
+    fn a_smart_stream_falls_back_to_a_verbatim_replay() {
+        // SMART strands a turn on "scratch that"; replaying the same clip in
+        // SMART hung again. Only the mode may differ -- the fallback must
+        // still reach the same provider, model and key.
+        let smart = provider_config(
+            &settings_from("[provider]\nkind = \"gemini\"\nlive_mode = \"smart\""),
+            "K".to_string(),
+        )
+        .unwrap();
+        let fallback = fallback_config(&smart);
+        assert_eq!(
+            fallback.live_mode,
+            hark_stt::gemini_live::TranscribeMode::Verbatim
+        );
+        assert_eq!(fallback.kind, smart.kind);
+        assert_eq!(fallback.model, smart.model);
+        assert_eq!(fallback.api_key, smart.api_key);
     }
 
     #[test]

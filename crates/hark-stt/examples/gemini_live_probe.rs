@@ -15,7 +15,9 @@
 //! Knobs: `GEMINI_LIVE_MODEL` (default gemini-3.5-transcribe-live),
 //! `GEMINI_LIVE_MODE` (verbatim | smart, default verbatim),
 //! `PROBE_NO_WAIT=1` to skip waiting for `setupComplete` — which reproduces
-//! the bug this probe was written to confirm.
+//! the bug this probe was written to confirm. `PROBE_WAV=<path>` sends your
+//! own 16 kHz mono clip instead of the fixture, and `PROBE_REALTIME=1` paces
+//! it at 100 ms per frame the way the streaming path does.
 //!
 //! The API key rides in the socket URL, so nothing here prints a URL.
 
@@ -58,6 +60,56 @@ fn main() {
         .block_on(probe());
     // Outside the runtime context now, so the adapter can build its own.
     through_the_adapter(&model, mode, &key, &wav_bytes);
+    through_a_live_session(&model, mode, &key, &wav_bytes);
+}
+
+fn probe_config(model: &str, mode: TranscribeMode, key: &str) -> ProviderConfig {
+    ProviderConfig {
+        kind: ProviderKind::GeminiLive,
+        label: "gemini".into(),
+        base_url: String::new(),
+        model: model.to_string(),
+        api_key: key.to_string(),
+        bias_terms: vec!["Hark".into(), "Levenshtein".into()],
+        cleanup_instruction: None,
+        live_mode: mode,
+    }
+}
+
+/// The clip fed through the streaming session at real time, the way the
+/// pipeline feeds it during a hold. The replay above and this take different
+/// finalise budgets, so a probe of one says nothing about the other.
+fn through_a_live_session(model: &str, mode: TranscribeMode, key: &str, wav_bytes: &[u8]) {
+    println!("\n=== through a live session, at real time ===");
+    let Some(live) = hark_stt::build_live(&probe_config(model, mode, key)) else {
+        println!("no live session in this build");
+        return;
+    };
+    let samples = wav::parse_wav_16k_mono(wav_bytes)
+        .expect("16 kHz mono PCM16")
+        .samples;
+    let mut session = match live.start_session() {
+        Ok(s) => s,
+        Err(e) => return println!("session did not open: {e}"),
+    };
+    for chunk in samples.chunks(CHUNK_SAMPLES) {
+        if let Err(e) = session.push(chunk) {
+            return println!("push failed: {e}");
+        }
+        std::thread::sleep(Duration::from_millis(100));
+    }
+    let released = Instant::now();
+    match session.finish() {
+        Ok(t) => println!(
+            "transcript ({} ms after release): {}",
+            released.elapsed().as_millis(),
+            t.text
+        ),
+        Err(e) => println!(
+            "FAILED {} ms after release: {e}",
+            released.elapsed().as_millis()
+        ),
+    }
 }
 
 async fn probe() -> (String, TranscribeMode, String, Vec<u8>) {
@@ -72,8 +124,10 @@ async fn probe() -> (String, TranscribeMode, String, Vec<u8>) {
     };
     let wait_for_ack = env("PROBE_NO_WAIT").is_none();
 
-    let fixture = format!("{}/fixtures/spike_clip.wav", env!("CARGO_MANIFEST_DIR"));
-    let wav_bytes = std::fs::read(&fixture).expect("fixtures/spike_clip.wav must exist");
+    let fixture = env("PROBE_WAV")
+        .unwrap_or_else(|| format!("{}/fixtures/spike_clip.wav", env!("CARGO_MANIFEST_DIR")));
+    let wav_bytes = std::fs::read(&fixture).unwrap_or_else(|e| panic!("{fixture}: {e}"));
+    let realtime = env("PROBE_REALTIME").is_some();
     let info = wav::parse_wav_16k_mono(&wav_bytes).expect("fixture must be 16 kHz mono PCM16");
     // Scale the fixture to imitate a quiet microphone: the streaming path
     // sends audio at capture level, and a too-quiet signal may never trip the
@@ -168,6 +222,11 @@ async fn probe() -> (String, TranscribeMode, String, Vec<u8>) {
             .await
             .expect("audio send");
         sent += 1;
+        // The streaming path feeds the socket as the user speaks; a replay
+        // arrives all at once. The server does not treat the two alike.
+        if realtime {
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
         // Drain whatever arrived without waiting, so interims appear in order.
         while let Ok(Some(Ok(frame))) = tokio::time::timeout(Duration::ZERO, socket.next()).await {
             if let Some(body) = body_of(&frame) {
@@ -231,16 +290,7 @@ async fn probe() -> (String, TranscribeMode, String, Vec<u8>) {
 /// runtime's context.
 fn through_the_adapter(model: &str, mode: TranscribeMode, key: &str, wav_bytes: &[u8]) {
     println!("\n=== through the real adapter ===");
-    let config = ProviderConfig {
-        kind: ProviderKind::GeminiLive,
-        label: "gemini".into(),
-        base_url: String::new(),
-        model: model.to_string(),
-        api_key: key.to_string(),
-        bias_terms: vec!["Hark".into(), "Levenshtein".into()],
-        cleanup_instruction: None,
-        live_mode: mode,
-    };
+    let config = probe_config(model, mode, key);
     let client = hark_stt::shared_client().expect("client");
     let adapter = hark_stt::build(&config, client).expect("adapter builds");
     let started = Instant::now();
