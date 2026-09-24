@@ -4,7 +4,8 @@
 //! Semantics (default chord LCtrl+LWin, confirmed 2026-07-16):
 //! - `Down` fires when the LAST chord member goes down (all held).
 //! - `Up` fires when the FIRST chord member is released.
-//! - Auto-repeat (down while already down) never re-fires an edge.
+//! - Auto-repeat (down while already down) never re-fires an edge. It is still
+//!   evidence the key is held, which is how an intercepted key is caught.
 //! - Injected events (our own synthesized Ctrl+V) are ignored entirely, or
 //!   dictation would paste-inject into an infinite PTT loop.
 //! - Keys outside the chord are ignored (we observe, never swallow).
@@ -12,6 +13,7 @@
 use crate::capture::Rejected;
 use crate::keycode::{parse_key, KeyClass, PttKeyCode};
 use std::fmt;
+use std::time::{Duration, Instant};
 use thiserror::Error;
 
 #[derive(Debug, Error, PartialEq, Eq)]
@@ -168,6 +170,14 @@ pub enum PttEvent {
     /// so the pipeline treats an over-long one as abandoned rather than
     /// injecting whatever the room said after the user let go.
     UpMissed,
+    /// Not an edge: this chord member is being intercepted by another
+    /// program. The hook saw it auto-repeat, which a released key cannot do,
+    /// while the platform's key state said it was up. That happens when a hook
+    /// later in the chain (a key remapper, typically) swallows the press after
+    /// Hark sees it. Sent at most once per member per tracker. The chord keeps
+    /// working while the hook keeps seeing the key, but the other program is
+    /// acting on every press too, so the user needs to hear about it.
+    Intercepted(PttKeyCode),
 }
 
 /// Which chord member, if any, Hark may swallow so its lock does not toggle.
@@ -200,11 +210,29 @@ fn swallowable_lock(chord: &PttChord, enabled: bool) -> Option<usize> {
     found
 }
 
+/// How long the hook's evidence that a key is held outranks the key state.
+///
+/// A held key auto-repeats through the hook: first after the keyboard delay
+/// (250-1000 ms, per the user's setting), then every 33-400 ms. So a chord
+/// member the hook saw go down within this window is still held, whatever the
+/// key state says. 1.5 s clears the slowest delay Windows offers, with room for
+/// a busy machine.
+pub const HELD_EVIDENCE: Duration = Duration::from_millis(1_500);
+
 /// The chord state machine. Feed every raw key event the platform hook sees;
 /// it emits an edge only on engage/disengage transitions.
 pub struct ChordTracker {
     chord: PttChord,
     member_down: Vec<bool>,
+    /// When the hook last delivered this member going down, auto-repeats
+    /// included: the hook's own evidence that the key is still held.
+    last_down: Vec<Option<Instant>>,
+    /// The platform's key state has read this member down since it was
+    /// pressed. Until it has, a poll reading "up" cannot tell a released key
+    /// from one another program swallowed before Windows ever registered it.
+    confirmed: Vec<bool>,
+    /// Members already reported as intercepted, so each is reported once.
+    intercepted: Vec<bool>,
     engaged: bool,
     /// The one member whose lock toggle may be suppressed. A pure function of
     /// the chord, fixed at construction: there is deliberately NO per-press
@@ -225,6 +253,9 @@ impl ChordTracker {
         ChordTracker {
             chord,
             member_down: vec![false; n],
+            last_down: vec![None; n],
+            confirmed: vec![false; n],
+            intercepted: vec![false; n],
             engaged: false,
             lock,
         }
@@ -258,7 +289,7 @@ impl ChordTracker {
     /// [`Self::on_event_verified`] instead; this is the seam the edge-semantics
     /// tests drive.
     pub fn on_event(&mut self, key: PttKeyCode, down: bool, injected: bool) -> Option<PttEvent> {
-        self.on_event_verified(key, down, injected, |_| true)
+        self.on_event_verified(key, down, injected, |_| true, Instant::now())
     }
 
     /// Process one raw key event. `injected` marks synthesized input
@@ -277,12 +308,17 @@ impl ChordTracker {
     /// only there costs at most three key-state reads on the press that starts
     /// a dictation — nothing on any other key, and never a synthesized press
     /// (the poll can clear members, never set them).
+    ///
+    /// An auto-repeat of a member the key state has not yet confirmed costs one
+    /// more read, on the repeat only: see [`PttEvent::Intercepted`]. `now` is
+    /// when the hook delivered the event.
     pub fn on_event_verified(
         &mut self,
         key: PttKeyCode,
         down: bool,
         injected: bool,
         mut physically_down: impl FnMut(PttKeyCode) -> bool,
+        now: Instant,
     ) -> Option<PttEvent> {
         if injected {
             return None;
@@ -292,16 +328,27 @@ impl ChordTracker {
         if self.member_down[idx] == down {
             // Auto-repeat (down while down) or a stray duplicate release:
             // no state change, no edge.
+            if down {
+                self.last_down[idx] = Some(now);
+                return self.check_intercepted(idx, physically_down);
+            }
             return None;
         }
         self.member_down[idx] = down;
+        self.confirmed[idx] = false;
+        self.last_down[idx] = down.then_some(now);
 
         // About to engage: confirm the members we did not just see pressed are
         // genuinely still held. Skipped while engaged (the watchdog owns that
         // window) and on releases (they only ever clear state).
         if down && !self.engaged && self.member_down.iter().all(|d| *d) {
             for (i, member) in self.chord.keys.iter().enumerate() {
-                if i != idx && !physically_down(*member) {
+                if i == idx {
+                    continue;
+                }
+                if physically_down(*member) {
+                    self.confirmed[i] = true;
+                } else {
                     log::warn!("chord member {member} was marked held but is up; ignoring");
                     self.member_down[i] = false;
                 }
@@ -339,9 +386,18 @@ impl ChordTracker {
     /// while synthesizing one from a poll would let a chord the user had
     /// already been holding before the hook existed start a dictation nobody
     /// asked for.
+    ///
+    /// A member the key state has never read down is the one exception: it may
+    /// have been swallowed by another program before Windows registered it, in
+    /// which case it reads "up" for the whole hold. Healing it on that reading
+    /// alone ended every hold at the first tick, and auto-repeat re-engaged it
+    /// straight away — a dictation that flickered on and off four times a
+    /// second. Such a member is released only once the hook has also gone
+    /// quiet on it for [`HELD_EVIDENCE`]. `now` is when the poll ran.
     pub fn resync_released(
         &mut self,
         mut physically_down: impl FnMut(PttKeyCode) -> bool,
+        now: Instant,
     ) -> Option<PttEvent> {
         if !self.engaged {
             return None;
@@ -353,13 +409,22 @@ impl ChordTracker {
             // UpMissed at the first tick and paste a quarter second of audio
             // at the cursor on every dictation. `swallowable_lock` guarantees
             // a non-lock member remains, so the watchdog still has an anchor.
-            if Some(idx) == self.lock {
+            if Some(idx) == self.lock || !self.member_down[idx] {
                 continue;
             }
-            if self.member_down[idx] && !physically_down(*key) {
-                self.member_down[idx] = false;
-                released = true;
+            if physically_down(*key) {
+                self.confirmed[idx] = true;
+                continue;
             }
+            let hook_says_held = self.last_down[idx]
+                .is_some_and(|at| now.saturating_duration_since(at) < HELD_EVIDENCE);
+            if !self.confirmed[idx] && hook_says_held {
+                continue;
+            }
+            self.member_down[idx] = false;
+            self.confirmed[idx] = false;
+            self.last_down[idx] = None;
+            released = true;
         }
         if !released {
             return None;
@@ -368,6 +433,31 @@ impl ChordTracker {
         // the chord — the same "first release wins" rule `on_event` applies.
         self.engaged = false;
         Some(PttEvent::UpMissed)
+    }
+
+    /// An auto-repeat just proved this member is held. If the key state
+    /// disagrees, the press never reached Windows: a hook later in the chain
+    /// swallowed it. Only a repeat can be checked — on the first press the hook
+    /// runs before Windows registers the key, so it reads "up" regardless.
+    ///
+    /// Reads the key state at most until it confirms the member, so a normal
+    /// hold pays one read, on its first repeat. Hark's own suppressed lock
+    /// member is exempt: it reads "up" because Hark swallowed it.
+    fn check_intercepted(
+        &mut self,
+        idx: usize,
+        mut physically_down: impl FnMut(PttKeyCode) -> bool,
+    ) -> Option<PttEvent> {
+        if Some(idx) == self.lock || self.confirmed[idx] || self.intercepted[idx] {
+            return None;
+        }
+        let key = self.chord.keys[idx];
+        if physically_down(key) {
+            self.confirmed[idx] = true;
+            return None;
+        }
+        self.intercepted[idx] = true;
+        Some(PttEvent::Intercepted(key))
     }
 }
 
@@ -518,12 +608,17 @@ mod tests {
             t.on_event(PttKeyCode::LWin, true, false),
             Some(PttEvent::Down)
         );
-        // The user let go on the lock screen, so no release ever arrived.
-        assert_eq!(t.resync_released(|_| false), Some(PttEvent::UpMissed));
+        // The watchdog's first tick during the hold sees both keys held...
+        assert_eq!(t.resync_released(|_| true, Instant::now()), None);
+        // ...then the user let go on the lock screen, so no release arrived.
+        assert_eq!(
+            t.resync_released(|_| false, Instant::now()),
+            Some(PttEvent::UpMissed)
+        );
         // Once healed the tracker is idle again: a second poll adds nothing,
         // and the next press engages normally rather than being swallowed as
         // a duplicate.
-        assert_eq!(t.resync_released(|_| false), None);
+        assert_eq!(t.resync_released(|_| false, Instant::now()), None);
         assert_eq!(t.on_event(PttKeyCode::LCtrl, true, false), None);
         assert_eq!(
             t.on_event(PttKeyCode::LWin, true, false),
@@ -538,7 +633,7 @@ mod tests {
         t.on_event(PttKeyCode::LWin, true, false);
         // Polled mid-hold, every 250 ms, for as long as the user talks.
         for _ in 0..8 {
-            assert_eq!(t.resync_released(|_| true), None);
+            assert_eq!(t.resync_released(|_| true, Instant::now()), None);
         }
         // The real release still produces the normal edge.
         assert_eq!(
@@ -552,11 +647,11 @@ mod tests {
         // Keys held before the chord was ever tracked (or a press whose event
         // went missing) must not engage from a poll alone.
         let mut t = ChordTracker::new(chord("LCtrl+LWin"));
-        assert_eq!(t.resync_released(|_| true), None);
-        assert_eq!(t.resync_released(|_| false), None);
+        assert_eq!(t.resync_released(|_| true, Instant::now()), None);
+        assert_eq!(t.resync_released(|_| false, Instant::now()), None);
         // One member down is not the chord either.
         t.on_event(PttKeyCode::LCtrl, true, false);
-        assert_eq!(t.resync_released(|_| true), None);
+        assert_eq!(t.resync_released(|_| true, Instant::now()), None);
     }
 
     #[test]
@@ -569,7 +664,10 @@ mod tests {
             Some(PttEvent::Up)
         );
         // The other member is still physically down; no second edge.
-        assert_eq!(t.resync_released(|k| k == PttKeyCode::LWin), None);
+        assert_eq!(
+            t.resync_released(|k| k == PttKeyCode::LWin, Instant::now()),
+            None
+        );
     }
 
     /// The bug this guards: a release the hook never saw, with the chord
@@ -593,13 +691,13 @@ mod tests {
 
         // Later, with nothing physically held, Left Ctrl alone must do nothing.
         assert_eq!(
-            t.on_event_verified(PttKeyCode::LCtrl, true, false, |_| false),
+            t.on_event_verified(PttKeyCode::LCtrl, true, false, |_| false, Instant::now()),
             None
         );
         // ...and the chord still works normally afterwards: the stale member
         // was cleared, not left to poison every future press.
         assert_eq!(
-            t.on_event_verified(PttKeyCode::F12, true, false, |_| true),
+            t.on_event_verified(PttKeyCode::F12, true, false, |_| true, Instant::now()),
             Some(PttEvent::Down)
         );
     }
@@ -610,9 +708,15 @@ mod tests {
         // The user really is holding LCtrl when F12 goes down. The key in the
         // event itself is never polled — a low-level hook runs before the
         // platform's key state catches up, so F12 may still read as up here.
-        t.on_event_verified(PttKeyCode::LCtrl, true, false, |_| false);
+        t.on_event_verified(PttKeyCode::LCtrl, true, false, |_| false, Instant::now());
         assert_eq!(
-            t.on_event_verified(PttKeyCode::F12, true, false, |k| k == PttKeyCode::LCtrl),
+            t.on_event_verified(
+                PttKeyCode::F12,
+                true,
+                false,
+                |k| k == PttKeyCode::LCtrl,
+                Instant::now()
+            ),
             Some(PttEvent::Down)
         );
     }
@@ -623,7 +727,7 @@ mod tests {
     fn verification_never_manufactures_an_engage() {
         let mut t = ChordTracker::new(chord("LCtrl+LWin"));
         assert_eq!(
-            t.on_event_verified(PttKeyCode::LCtrl, true, false, |_| true),
+            t.on_event_verified(PttKeyCode::LCtrl, true, false, |_| true, Instant::now()),
             None
         );
     }
@@ -727,12 +831,143 @@ mod tests {
         let mut t = engaged_tracker("LCtrl+ScrollLock");
         // ScrollLock reads up (it was swallowed); LCtrl is genuinely held.
         assert_eq!(
-            t.resync_released(|k| k == PttKeyCode::LCtrl),
+            t.resync_released(|k| k == PttKeyCode::LCtrl, Instant::now()),
             None,
             "a swallowed member must not look like a lost release"
         );
         // A real release of the member it CAN read still heals normally.
-        assert_eq!(t.resync_released(|_| false), Some(PttEvent::UpMissed));
+        assert_eq!(
+            t.resync_released(|_| false, Instant::now()),
+            Some(PttEvent::UpMissed)
+        );
+    }
+
+    fn ms(n: u64) -> Duration {
+        Duration::from_millis(n)
+    }
+
+    /// Windows never registers F12: a key remapper's hook, later in the chain
+    /// than Hark's, swallows every press. Hark's hook still sees the key.
+    fn f12_intercepted(key: PttKeyCode) -> bool {
+        key != PttKeyCode::F12
+    }
+
+    /// `LAlt+F12` engaged at `t0 + 80 ms`, the way HeikaBlade held it: Alt
+    /// first, so F12 is the key that engages and the key that auto-repeats.
+    fn engaged_with_f12_intercepted(t0: Instant) -> ChordTracker {
+        let mut t = ChordTracker::new(chord("LAlt+F12"));
+        let (alt, f12) = (PttKeyCode::LAlt, PttKeyCode::F12);
+        assert_eq!(
+            t.on_event_verified(alt, true, false, f12_intercepted, t0),
+            None
+        );
+        assert_eq!(
+            t.on_event_verified(f12, true, false, f12_intercepted, t0 + ms(80)),
+            Some(PttEvent::Down)
+        );
+        t
+    }
+
+    #[test]
+    fn a_key_another_program_swallows_is_reported_on_its_first_repeat() {
+        let t0 = Instant::now();
+        let mut t = engaged_with_f12_intercepted(t0);
+        // A released key cannot auto-repeat, so the repeat is the proof.
+        assert_eq!(
+            t.on_event_verified(PttKeyCode::F12, true, false, f12_intercepted, t0 + ms(580)),
+            Some(PttEvent::Intercepted(PttKeyCode::F12))
+        );
+        // Once. The hold is ~30 repeats a second.
+        assert_eq!(
+            t.on_event_verified(PttKeyCode::F12, true, false, f12_intercepted, t0 + ms(613)),
+            None
+        );
+    }
+
+    /// The flicker: every 250 ms tick read F12 as up and ended the hold, and
+    /// the next auto-repeat started a new one. 91 of them in 76 presses.
+    #[test]
+    fn an_intercepted_key_does_not_end_the_hold_while_it_keeps_repeating() {
+        let t0 = Instant::now();
+        let mut t = engaged_with_f12_intercepted(t0);
+        for tick in 1..=16u64 {
+            let now = t0 + ms(80 + 250 * tick);
+            // Auto-repeat starts after the keyboard delay (500 ms here).
+            if now >= t0 + ms(580) {
+                t.on_event_verified(PttKeyCode::F12, true, false, f12_intercepted, now - ms(20));
+            }
+            assert_eq!(
+                t.resync_released(f12_intercepted, now),
+                None,
+                "tick {tick} ended a hold that was still repeating"
+            );
+        }
+        // The real release still ends it, through the hook as always.
+        assert_eq!(
+            t.on_event_verified(
+                PttKeyCode::F12,
+                false,
+                false,
+                f12_intercepted,
+                t0 + ms(4_200)
+            ),
+            Some(PttEvent::Up)
+        );
+    }
+
+    /// The tolerance must not become a wedge: once the hook stops vouching for
+    /// the key, a poll that never saw it held releases it like any other.
+    #[test]
+    fn an_intercepted_key_that_stops_repeating_is_still_released() {
+        let t0 = Instant::now();
+        let mut t = engaged_with_f12_intercepted(t0);
+        assert_eq!(t.resync_released(f12_intercepted, t0 + ms(330)), None);
+        assert_eq!(
+            t.resync_released(f12_intercepted, t0 + ms(80) + HELD_EVIDENCE),
+            Some(PttEvent::UpMissed)
+        );
+    }
+
+    #[test]
+    fn a_normal_hold_is_never_reported_and_pays_one_read() {
+        let t0 = Instant::now();
+        let reads = std::cell::Cell::new(0);
+        let held = |_| {
+            reads.set(reads.get() + 1);
+            true
+        };
+        let mut t = ChordTracker::new(chord("LAlt+F12"));
+        t.on_event_verified(PttKeyCode::LAlt, true, false, held, t0);
+        t.on_event_verified(PttKeyCode::F12, true, false, held, t0 + ms(80));
+        let before = reads.get();
+        for n in 0..30u64 {
+            let at = t0 + ms(580 + 33 * n);
+            assert_eq!(
+                t.on_event_verified(PttKeyCode::F12, true, false, held, at),
+                None
+            );
+        }
+        assert_eq!(
+            reads.get() - before,
+            1,
+            "only the first repeat reads key state"
+        );
+    }
+
+    #[test]
+    fn harks_own_swallowed_lock_is_not_reported_as_intercepted() {
+        let mut t = engaged_tracker("LCtrl+ScrollLock");
+        // ScrollLock reads up because Hark itself swallowed the press.
+        assert_eq!(
+            t.on_event_verified(
+                PttKeyCode::ScrollLock,
+                true,
+                false,
+                |k| k == PttKeyCode::LCtrl,
+                Instant::now()
+            ),
+            None
+        );
     }
 
     #[test]

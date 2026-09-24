@@ -676,7 +676,12 @@ fn dispatch(mode: &mut Mode, key: PttKeyCode, down: bool, engaged: &mut bool) ->
             // source: the kernel IS the source of truth here.
             match tracker.on_event(key, down, false) {
                 Some(event) => {
-                    *engaged = event == PttEvent::Down;
+                    // Only edges move the watchdog. `on_event` never polls, so
+                    // it cannot report an interception, but the guard keeps
+                    // that true if it ever does.
+                    if !matches!(event, PttEvent::Intercepted(_)) {
+                        *engaged = event == PttEvent::Down;
+                    }
                     tx.send(event).is_err()
                 }
                 None => false,
@@ -693,7 +698,8 @@ fn watchdog(mode: &mut Mode, devices: &[(PathBuf, Device)]) -> bool {
     let Mode::Ptt { tracker, tx, .. } = mode else {
         return false;
     };
-    let Some(event) = tracker.resync_released(|key| physically_down(devices, key)) else {
+    let Some(event) = tracker.resync_released(|key| physically_down(devices, key), Instant::now())
+    else {
         return false;
     };
     log::warn!("push-to-talk release never arrived; ending the recording");

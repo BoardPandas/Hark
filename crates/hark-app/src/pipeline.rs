@@ -58,6 +58,11 @@ pub struct PipelineController {
     /// the pipeline is stopped.
     recording: Option<Arc<AtomicBool>>,
     feedback: Option<Arc<crate::overlay::Feedback>>,
+    /// A push-to-talk key another program is intercepting (config name, e.g.
+    /// "F12"). Outlives the status, which the next dictation replaces: the
+    /// conflict is still there. Cleared when the pipeline restarts, which is
+    /// what saving a new shortcut does.
+    shortcut_warning: Option<String>,
 }
 
 impl PipelineController {
@@ -74,11 +79,16 @@ impl PipelineController {
             level: None,
             recording: None,
             feedback: None,
+            shortcut_warning: None,
         }
     }
 
     pub fn status(&self) -> &PipelineStatus {
         &self.status
+    }
+
+    pub fn shortcut_warning(&self) -> Option<&str> {
+        self.shortcut_warning.as_deref()
     }
 
     pub fn is_running(&self) -> bool {
@@ -194,6 +204,7 @@ impl PipelineController {
         self.events = None;
         self.level = None;
         self.recording = None;
+        self.shortcut_warning = None;
     }
 
     /// Stop (if running) and surface a non-key cause in the footer, e.g. a
@@ -215,7 +226,12 @@ impl PipelineController {
             if matches!(event, PipelineEvent::Injected(_)) {
                 self.injected += 1;
             }
-            let next = next_status(event);
+            if let PipelineEvent::ShortcutIntercepted { key } = &event {
+                self.shortcut_warning = Some(key.clone());
+            }
+            let Some(next) = next_status(event) else {
+                continue;
+            };
             // One line per transition (labels only, no detail text). This is
             // the UI half of a dictation in the log: if the pipeline's own
             // lines are there and these are not, the window never ran a pass
@@ -242,15 +258,18 @@ fn label(status: &PipelineStatus) -> &'static str {
     }
 }
 
-/// Pure event -> status mapping (the testable seam).
-fn next_status(event: PipelineEvent) -> PipelineStatus {
-    match event {
+/// Pure event -> status mapping (the testable seam). `None` for an advisory
+/// that says nothing about the dictation in progress and must not move the
+/// footer — an interception report lands mid-hold, while it says "Recording".
+fn next_status(event: PipelineEvent) -> Option<PipelineStatus> {
+    Some(match event {
         PipelineEvent::Recording => PipelineStatus::Recording,
         PipelineEvent::Processing => PipelineStatus::Processing,
         PipelineEvent::LoadingLocalModel => PipelineStatus::LoadingModel,
         // CP4 forwards the record to the storage thread; for now reaching
         // Idle is the whole story the footer needs.
         PipelineEvent::Injected(_) => PipelineStatus::Idle,
+        PipelineEvent::ShortcutIntercepted { .. } => return None,
         PipelineEvent::Failed { stage, detail } => match stage {
             // A tap on the chord is the user's own doing and needs no reply;
             // an empty transcript means the provider heard nothing to write.
@@ -275,7 +294,7 @@ fn next_status(event: PipelineEvent) -> PipelineStatus {
                 }
             }
         },
-    }
+    })
 }
 
 /// Forward pipeline events onto a UI-side channel, waking the event loop per
@@ -343,15 +362,15 @@ mod tests {
     #[test]
     fn happy_path_walks_recording_processing_idle() {
         assert!(matches!(
-            next_status(PipelineEvent::Recording),
+            next_status(PipelineEvent::Recording).expect("moves the status"),
             PipelineStatus::Recording
         ));
         assert!(matches!(
-            next_status(PipelineEvent::Processing),
+            next_status(PipelineEvent::Processing).expect("moves the status"),
             PipelineStatus::Processing
         ));
         assert!(matches!(
-            next_status(PipelineEvent::Injected(record())),
+            next_status(PipelineEvent::Injected(record())).expect("moves the status"),
             PipelineStatus::Idle
         ));
     }
@@ -366,7 +385,8 @@ mod tests {
             let s = next_status(PipelineEvent::Failed {
                 stage,
                 detail: "informational".to_string(),
-            });
+            })
+            .expect("moves the status");
             assert!(matches!(s, PipelineStatus::Idle), "stage {stage:?}");
         }
     }
@@ -379,7 +399,8 @@ mod tests {
         let s = next_status(PipelineEvent::Failed {
             stage: FailStage::GatedTooQuiet,
             detail: "no speech detected".to_string(),
-        });
+        })
+        .expect("moves the status");
         match s {
             PipelineStatus::Hint { detail } => {
                 assert!(detail.contains("microphone"), "unhelpful hint: {detail}")
@@ -393,7 +414,8 @@ mod tests {
         let s = next_status(PipelineEvent::Failed {
             stage: FailStage::Transcribe,
             detail: "authentication rejected by deepgram: check your API key".to_string(),
-        });
+        })
+        .expect("moves the status");
         match s {
             PipelineStatus::Errored {
                 key_related,
@@ -411,7 +433,8 @@ mod tests {
         let s = next_status(PipelineEvent::Failed {
             stage: FailStage::Transcribe,
             detail: "request to deepgram timed out after 15000 ms".to_string(),
-        });
+        })
+        .expect("moves the status");
         assert!(matches!(
             s,
             PipelineStatus::Errored {
@@ -438,10 +461,33 @@ mod tests {
     }
 
     #[test]
+    fn an_interception_report_persists_without_moving_the_status() {
+        let (tx, rx) = mpsc::channel();
+        let mut controller = PipelineController::new(None);
+        controller.events = Some(rx);
+        tx.send(PipelineEvent::Recording).unwrap();
+        tx.send(PipelineEvent::ShortcutIntercepted {
+            key: "F12".to_string(),
+        })
+        .unwrap();
+        controller.drain_events();
+        // It lands mid-hold, and the footer must still say Recording.
+        assert!(matches!(controller.status(), PipelineStatus::Recording));
+        assert_eq!(controller.shortcut_warning(), Some("F12"));
+        // The next dictation replaces the status, not the conflict.
+        tx.send(PipelineEvent::Injected(record())).unwrap();
+        controller.drain_events();
+        assert_eq!(controller.shortcut_warning(), Some("F12"));
+        // Saving a new shortcut restarts the pipeline, which clears it.
+        controller.stop();
+        assert_eq!(controller.shortcut_warning(), None);
+    }
+
+    #[test]
     fn the_next_dictation_replaces_a_sticky_error() {
         // Errored has no special-case handling: any newer event wins.
         assert!(matches!(
-            next_status(PipelineEvent::Recording),
+            next_status(PipelineEvent::Recording).expect("moves the status"),
             PipelineStatus::Recording
         ));
     }

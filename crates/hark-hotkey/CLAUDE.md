@@ -25,6 +25,20 @@
   handful of key-state reads: the pump is still the hook's lifeline.
 - **Heal releases only, never presses.** Synthesizing a press from a poll would
   let a chord the user was already holding start a dictation nobody asked for.
+- **A key another program swallows reads "up" for the whole hold, so
+  auto-repeat outranks the poll until the poll has confirmed the key.** A
+  remapper's hook later in the chain (PowerToys Keyboard Manager mapping F12 to
+  Ctrl+F13, in the field) takes the press after Hark sees it, and Windows never
+  registers it. Trusting the poll ended every hold at the first tick and
+  auto-repeat re-engaged it: four dictations a second. `resync_released`
+  releases a never-confirmed member only after the hook has been quiet on it for
+  `HELD_EVIDENCE` (1.5 s, past the slowest repeat delay); a confirmed member
+  heals on the next tick exactly as before. The first repeat of an unconfirmed
+  member reads key state once — on the repeat, never the first press, which
+  reads "up" regardless — and a mismatch sends `PttEvent::Intercepted` once.
+  That event is advisory: it must never arm or disarm the watchdog. Not
+  detectable: a remapper whose hook runs *before* Hark's, because then Hark sees
+  only the injected replacement, which it ignores by design.
 - **Observe, never swallow — with exactly one exception.** Default: always
   `CallNextHookEx`. Skipping it starves every earlier-registered hook, the
   target window proc, `RegisterHotKey` hotkeys and Raw Input, in every app on

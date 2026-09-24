@@ -61,6 +61,8 @@ impl Feedback {
 
     pub fn publish(&self, event: &PipelineEvent) {
         let state = match event {
+            // Not about the dictation on screen; the footer carries it.
+            PipelineEvent::ShortcutIntercepted { .. } => return,
             PipelineEvent::Recording => State::Listening,
             PipelineEvent::Processing => State::Processing,
             PipelineEvent::LoadingLocalModel => State::LoadingModel,

@@ -89,6 +89,11 @@ pub enum PipelineEvent {
     Injected(DictationRecord),
     /// The dictation ended without injecting.
     Failed { stage: FailStage, detail: String },
+    /// Not about any one dictation: a push-to-talk key (its config name, e.g.
+    /// "F12") is being intercepted by another program, typically a key
+    /// remapper. Arrives mid-hold, at most once per key per pipeline run. The
+    /// chord keeps working, but the other program acts on every press too.
+    ShortcutIntercepted { key: String },
 }
 
 #[cfg(test)]

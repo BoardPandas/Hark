@@ -25,9 +25,10 @@ pub fn show(
     // The footer claims the full window width first; it is the always-
     // visible truth about the pipeline.
     let status = pipeline.status().clone();
-    if footer::show(ui, &status, settings) {
+    let intercepted = pipeline.shortcut_warning().map(str::to_owned);
+    if let Some(section) = footer::show(ui, &status, settings, intercepted.as_deref()) {
         *page = pages::Page::Settings;
-        views.settings.open(crate::ui::settings::Section::Dictation);
+        views.settings.open(section);
     }
 
     // Stacked directly above the footer, outside the settings scroll area:

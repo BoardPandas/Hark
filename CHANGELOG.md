@@ -6,6 +6,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.46.0] - 2026-09-24
+
+### Fixed
+
+- **Push-to-talk no longer flickers on and off when another program remaps one of its keys.** A key remapper such as PowerToys Keyboard Manager takes the key before Windows registers it, so Windows reports it as not pressed even while you hold it. Hark checks for releases it might have missed, believed Windows, and ended the recording every quarter second. Holding the key then restarted it, which recorded a stream of fragments. Hark now trusts the key's auto-repeat, which a released key cannot produce, over Windows' report. Your dictation keeps going for as long as you hold the key.
+
+### Added
+
+- **Hark tells you when another app is intercepting your push-to-talk key.** The status bar shows "Another app is intercepting F12" (or whichever key it is), explains what is going on when you hover over it, and links to the shortcut setting. The fix is to remove the other program's mapping, or pick a shortcut that doesn't use that key. The other program also acts on every push-to-talk press, and if you press the remapped key first, dictation can still cut out.
+
 ## [0.45.4] - 2026-09-24
 
 ### Fixed

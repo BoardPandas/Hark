@@ -31,6 +31,7 @@ use std::cell::{Cell, RefCell};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Sender};
 use std::sync::Arc;
+use std::time::Instant;
 use windows::Win32::Foundation::{LPARAM, LRESULT, WPARAM};
 use windows::Win32::System::Threading::GetCurrentThreadId;
 use windows::Win32::UI::Input::KeyboardAndMouse::{
@@ -379,7 +380,7 @@ fn watchdog_tick() {
     let mut healed = false;
     HOOK_STATE.with(|state| {
         if let Some(HookState::Ptt { tracker, tx, .. }) = state.borrow_mut().as_mut() {
-            if let Some(event) = tracker.resync_released(physically_down) {
+            if let Some(event) = tracker.resync_released(physically_down, Instant::now()) {
                 log::warn!("push-to-talk release never arrived; ending the recording");
                 disconnected = tx.send(event).is_err();
                 healed = true;
@@ -424,15 +425,23 @@ unsafe extern "system" fn keyboard_hook(code: i32, wparam: WPARAM, lparam: LPARA
                             // Asked AFTER the tracker consumes the event, so
                             // the engage edge itself can be swallowed. Reads
                             // only tracker state; see ChordTracker::swallow.
-                            let event =
-                                tracker.on_event_verified(key, down, injected, physically_down);
+                            let event = tracker.on_event_verified(
+                                key,
+                                down,
+                                injected,
+                                physically_down,
+                                Instant::now(),
+                            );
                             swallow = tracker.swallow(key, down, injected);
                             match event {
                                 Some(event) => {
                                     // The watchdog exists only for the span of
                                     // a hold: armed on engage, disarmed on the
-                                    // release that ends it.
-                                    set_watchdog(event == PttEvent::Down);
+                                    // release that ends it. An interception
+                                    // report arrives mid-hold and is no edge.
+                                    if !matches!(event, PttEvent::Intercepted(_)) {
+                                        set_watchdog(event == PttEvent::Down);
+                                    }
                                     tx.send(event).is_err()
                                 }
                                 None => false,

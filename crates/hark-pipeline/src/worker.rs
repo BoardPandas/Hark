@@ -158,6 +158,17 @@ pub(crate) fn run(mut worker: Worker, rx: Receiver<PttEvent>) {
                 Event::Aborted
             }
             PttEvent::UpMissed => Event::PttUp { at_abs },
+            // Advisory, not an edge: the state machine never sees it.
+            PttEvent::Intercepted(key) => {
+                log::warn!(
+                    "push-to-talk: {key} is held but the system reports it up; \
+                     another program (a key remapper?) is intercepting it"
+                );
+                let _ = worker.events.send(PipelineEvent::ShortcutIntercepted {
+                    key: key.to_string(),
+                });
+                continue;
+            }
         };
         let (next, action) = advance(state, ev);
         // Republish the edge as state for the overlay, and do it BEFORE

@@ -5,15 +5,22 @@
 
 use crate::pipeline::PipelineStatus;
 use crate::theme;
+use crate::ui::settings::Section;
 use hark_config::{LocalMode, Settings};
 
 use egui::{Frame, Margin, Panel, RichText, Sense, Sides, Ui, Vec2};
 
-/// Render the footer. Returns true when the user clicked the "Open
-/// Settings" jump on a key-related problem.
-pub fn show(ui: &mut Ui, status: &PipelineStatus, settings: &Settings) -> bool {
+/// Render the footer. Returns the Settings section to open when the user
+/// clicked an "Open Settings" jump. `intercepted` is a push-to-talk key
+/// another program is intercepting (config name), shown while idle.
+pub fn show(
+    ui: &mut Ui,
+    status: &PipelineStatus,
+    settings: &Settings,
+    intercepted: Option<&str>,
+) -> Option<Section> {
     let window_fill = ui.visuals().panel_fill;
-    let mut jump = false;
+    let mut jump = None;
     Panel::bottom("status_footer")
         .min_size(theme::FOOTER_HEIGHT)
         .resizable(false)
@@ -26,7 +33,7 @@ pub fn show(ui: &mut Ui, status: &PipelineStatus, settings: &Settings) -> bool {
         .show(ui, |ui| {
             Sides::new().height(20.0).show(
                 ui,
-                |ui| jump = state_side(ui, status, settings),
+                |ui| jump = state_side(ui, status, settings, intercepted),
                 |ui| {
                     ui.add(
                         egui::Label::new(RichText::new(provider_line(settings)).small().weak())
@@ -40,23 +47,44 @@ pub fn show(ui: &mut Ui, status: &PipelineStatus, settings: &Settings) -> bool {
 }
 
 /// The left side: icon + label per state, plus the Open Settings jump when
-/// the cause is key-related. Returns true on jump click.
-fn state_side(ui: &mut Ui, status: &PipelineStatus, settings: &Settings) -> bool {
+/// there is something to fix there. Returns the section to open on click.
+fn state_side(
+    ui: &mut Ui,
+    status: &PipelineStatus,
+    settings: &Settings,
+    intercepted: Option<&str>,
+) -> Option<Section> {
     let accent = theme::accent(ui.visuals());
     let weak = ui.visuals().weak_text_color();
     let mut jump = false;
     match status {
-        PipelineStatus::Idle => {
-            icon_label(
-                ui,
-                theme::icons::MICROPHONE,
-                weak,
-                &format!(
-                    "Ready · Hold {} to dictate",
-                    hark_hotkey::pretty_chord(&settings.hotkey.ptt_key)
-                ),
-            );
-        }
+        // Idle is where the conflict is worth saying: mid-dictation the footer
+        // is busy reporting the dictation, and the report arrives mid-hold.
+        PipelineStatus::Idle => match intercepted {
+            Some(key) => {
+                let key = hark_hotkey::pretty_chord(key);
+                icon_label(
+                    ui,
+                    theme::icons::WARNING,
+                    theme::warning(ui.visuals()),
+                    &format!("Another app is intercepting {key}"),
+                )
+                .on_hover_text(intercepted_explanation(&key));
+                // The shortcut editor lives in the Audio section.
+                return settings_jump(ui).then_some(Section::Audio);
+            }
+            None => {
+                icon_label(
+                    ui,
+                    theme::icons::MICROPHONE,
+                    weak,
+                    &format!(
+                        "Ready · Hold {} to dictate",
+                        hark_hotkey::pretty_chord(&settings.hotkey.ptt_key)
+                    ),
+                );
+            }
+        },
         PipelineStatus::Recording => {
             pulsing_dot(ui, theme::danger(ui.visuals()));
             ui.add(egui::Label::new(RichText::new("Recording").small()).truncate());
@@ -119,7 +147,20 @@ fn state_side(ui: &mut Ui, status: &PipelineStatus, settings: &Settings) -> bool
             );
         }
     }
-    jump
+    jump.then_some(Section::Dictation)
+}
+
+/// The hover text for an intercepted key (pure; the testable seam).
+fn intercepted_explanation(key: &str) -> String {
+    format!(
+        "You were holding {key}, but Windows reported it as not pressed. Another \
+         program is taking the key before Windows sees it: usually a key remapper \
+         such as PowerToys Keyboard Manager, or a macro tool. That program also acts \
+         on every push-to-talk press, and depending on the order you press the keys, \
+         dictation can cut out.\n\nRemove that program's mapping for {key}, or choose a \
+         shortcut that does not use it. Hark ignores keys other programs type, so the \
+         key it remaps {key} to will not work as a shortcut either."
+    )
 }
 
 fn icon_label(ui: &mut Ui, icon: &str, icon_color: egui::Color32, text: &str) -> egui::Response {
@@ -191,6 +232,17 @@ fn provider_line(settings: &Settings) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_interception_explanation_names_the_key_and_both_ways_out() {
+        let text = intercepted_explanation("F12");
+        assert!(text.contains("F12"));
+        assert!(text.contains("PowerToys"), "name the usual culprit");
+        assert!(text.contains("Remove"), "fix one: remove the mapping");
+        assert!(text.contains("choose a shortcut"), "fix two: change Hark's");
+        // The tempting wrong fix: binding Hark to the key the remapper sends.
+        assert!(text.contains("will not work as a shortcut"));
+    }
 
     #[test]
     fn default_config_shows_provider_and_model_without_cleanup() {
