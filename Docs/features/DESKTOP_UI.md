@@ -85,7 +85,7 @@ Settings' Save changes / Discard bar stays outside its scroll area. The update b
 
 - **History** keeps grouped days, search, copy/delete actions, expandable raw transcripts, timing, and Spellbook selection handoff. Wide rows separate timestamps from content. Captions name the actual provider/model and show cleanup only when it ran. Clearing history preserves lifetime statistics.
 - **Spellbook** has a raised vocabulary surface, editable terms, aliases, the advanced mishearing control, and undo for the most recent addition. Edits still persist immediately.
-- **Invocations** retains trigger scope, expansion text, validation, and explicit Save. The raised test panel reports whether a typed phrase would fire using the real matcher.
+- **Invocations** retains trigger scope, expansion text, validation, and explicit Save. Each invocation can also list exact alternate phrases for repeatable transcription errors. The raised test panel reports whether a typed phrase would fire using the real matcher.
 - **Stats** uses responsive elevated cards for dictations, words, speaking time, and average release-to-insert latency. It scrolls at short window heights. The ten-dictation gate, missing-data `n/a`, estimated typing time saved, and independent reset remain intact.
 
 ### Settings

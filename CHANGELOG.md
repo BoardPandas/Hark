@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.47.0] - 2026-09-24
+
+### Added
+
+- Invocations can now recognize exact alternate phrases for repeatable transcription errors, such as hearing "come in and" for "commit and". Alternates are editable alongside the primary trigger and use the same scope and expansion.
+
 ## [0.46.0] - 2026-09-24
 
 ### Fixed

@@ -229,7 +229,7 @@ fn fallback_config(cfg: &ProviderConfig) -> ProviderConfig {
 /// Entries that cannot arm are skipped by the expander itself; only the
 /// counts are logged, never a phrase or an expansion.
 fn build_expander(invocations: &hark_config::Invocations) -> hark_spellbook::Expander {
-    let entries: Vec<(String, String, hark_spellbook::Scope)> = invocations
+    let entries: Vec<(String, Vec<String>, String, hark_spellbook::Scope)> = invocations
         .entries
         .iter()
         .map(|i| {
@@ -237,10 +237,15 @@ fn build_expander(invocations: &hark_config::Invocations) -> hark_spellbook::Exp
                 hark_config::Scope::Utterance => hark_spellbook::Scope::Utterance,
                 hark_config::Scope::Anywhere => hark_spellbook::Scope::Anywhere,
             };
-            (i.phrase.clone(), i.expansion.clone(), scope)
+            (
+                i.phrase.clone(),
+                i.aliases.clone(),
+                i.expansion.clone(),
+                scope,
+            )
         })
         .collect();
-    let expander = hark_spellbook::Expander::new(&entries);
+    let expander = hark_spellbook::Expander::with_aliases(&entries);
     if expander.skipped() > 0 {
         log::warn!(
             "{} invocation(s) will not fire (need {}+ words, a non-empty expansion, \
@@ -251,6 +256,14 @@ fn build_expander(invocations: &hark_config::Invocations) -> hark_spellbook::Exp
         );
     } else if expander.armed() > 0 {
         log::info!("{} invocation(s) armed", expander.armed());
+    }
+    if expander.skipped_aliases() > 0 {
+        log::warn!(
+            "{} invocation alternate(s) ignored (need {}+ words and a phrase no earlier \
+             trigger or alternate already uses)",
+            expander.skipped_aliases(),
+            hark_spellbook::MIN_TRIGGER_WORDS,
+        );
     }
     expander
 }

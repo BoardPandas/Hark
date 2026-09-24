@@ -17,6 +17,7 @@ The following files were used as evidence for this page:
 - [crates/hark-store/migrations/003_entries_invocation.sql:1-6](https://github.com/BoardPandas/Hark/blob/bcfcc3fef6f02252870fc3f06440d99992818ade/crates/hark-store/migrations/003_entries_invocation.sql#L1-L6)
 - [crates/hark-app/src/ui/invocations/mod.rs:1-302](https://github.com/BoardPandas/Hark/blob/bcfcc3fef6f02252870fc3f06440d99992818ade/crates/hark-app/src/ui/invocations/mod.rs#L1-L302)
 - [crates/hark-app/src/ui/invocations/editor.rs:1-371](https://github.com/BoardPandas/Hark/blob/bcfcc3fef6f02252870fc3f06440d99992818ade/crates/hark-app/src/ui/invocations/editor.rs#L1-L371)
+- [crates/hark-app/src/ui/invocations/aliases.rs](../../crates/hark-app/src/ui/invocations/aliases.rs)
 - [crates/hark-app/src/ui/pages.rs:142-160](https://github.com/BoardPandas/Hark/blob/bcfcc3fef6f02252870fc3f06440d99992818ade/crates/hark-app/src/ui/pages.rs#L142-L160)
 - [config/default-config.toml:65-87](https://github.com/BoardPandas/Hark/blob/bcfcc3fef6f02252870fc3f06440d99992818ade/config/default-config.toml#L65-L87)
 
@@ -71,6 +72,8 @@ The one thing the two consumers do differently is the confirmation threshold. `w
 |---|---|---|---|
 | `Corrector` (spellbook) | 0.85 | `JW_CONFIRM_THRESHOLD` ([matcher.rs:21](https://github.com/BoardPandas/Hark/blob/bcfcc3fef6f02252870fc3f06440d99992818ade/crates/hark-spellbook/src/matcher.rs#L21)) | A false positive corrupts one word |
 | `Expander` (invocations) | 0.90 | `INVOCATION_JW_THRESHOLD` ([expander.rs:26](https://github.com/BoardPandas/Hark/blob/bcfcc3fef6f02252870fc3f06440d99992818ade/crates/hark-spellbook/src/expander.rs#L26)) | A false positive pastes a whole paragraph |
+
+Each invocation can also carry exact alternate transcriptions. The primary trigger keeps the guarded phonetic behavior above; alternates match normalized words exactly, so an explicit phrase such as "come in and" can fire the "commit and" invocation without widening the fuzzy matcher. The invocation's scope and expansion apply to every alternate, and history still records the primary trigger rather than the misheard phrase.
 
 Scope is per-invocation and decides where a trigger may fire ([expander.rs:34-40](https://github.com/BoardPandas/Hark/blob/bcfcc3fef6f02252870fc3f06440d99992818ade/crates/hark-spellbook/src/expander.rs#L34-L40)):
 
@@ -134,28 +137,31 @@ The `[invocations]` section lives in its own module because `hark-config/src/lib
 | Field | Type | Default | Meaning |
 |---|---|---|---|
 | `phrase` | string | `""` | What the user says; also the entry's identity ([invocations.rs:49](https://github.com/BoardPandas/Hark/blob/bcfcc3fef6f02252870fc3f06440d99992818ade/crates/hark-config/src/invocations.rs#L49)) |
+| `aliases` | string array | `[]` | Exact alternate transcriptions that fire this invocation |
 | `expansion` | string | `""` | What gets injected, byte for byte; multi-line permitted ([invocations.rs:51](https://github.com/BoardPandas/Hark/blob/bcfcc3fef6f02252870fc3f06440d99992818ade/crates/hark-config/src/invocations.rs#L51)) |
 | `scope` | `"utterance"` \| `"anywhere"` | `"utterance"` | Where the trigger may fire ([invocations.rs:20-27](https://github.com/BoardPandas/Hark/blob/bcfcc3fef6f02252870fc3f06440d99992818ade/crates/hark-config/src/invocations.rs#L20-L27)) |
 
 ```toml
 [[invocations.entries]]
-phrase = "access granted"
+phrase = "commit and"
+aliases = ["come in and", "coming and"]
 scope = "utterance"
 expansion = """
-You have access to the Support Forge tools: ticketing, remote assist,
-and the asset inventory.
+Commit and push to main
 """
 ```
 
 Sources: [default-config.toml:65-87](https://github.com/BoardPandas/Hark/blob/bcfcc3fef6f02252870fc3f06440d99992818ade/config/default-config.toml#L65-L87)
 
-`CONFIG_VERSION` deliberately stays at 1. The change is purely additive under `#[serde(default)]`, so pre-invocations files load unchanged and new files remain readable by older builds, which already tolerate unknown keys ([invocations.rs:1-11](https://github.com/BoardPandas/Hark/blob/bcfcc3fef6f02252870fc3f06440d99992818ade/crates/hark-config/src/invocations.rs#L1-L11)).
+Adding `aliases` does not require another schema-version bump. The field is additive under `#[serde(default)]`, so existing invocation entries load with an empty alias list and older builds tolerate the unknown key ([invocations.rs](../../crates/hark-config/src/invocations.rs)).
 
 There is also **no `Settings::validate` rule** for invocations. Hard-rejecting a bad phrase would make a hand-edited config unloadable and strand the user with no UI to repair it, so malformed entries are skipped at build time by `Expander` instead ([invocations.rs:8-11](https://github.com/BoardPandas/Hark/blob/bcfcc3fef6f02252870fc3f06440d99992818ade/crates/hark-config/src/invocations.rs#L8-L11)). `Expander::new` skips and counts three classes of entry, never logging the text itself ([expander.rs:69-117](https://github.com/BoardPandas/Hark/blob/bcfcc3fef6f02252870fc3f06440d99992818ade/crates/hark-spellbook/src/expander.rs#L69-L117)):
 
 - a trigger tokenizing to fewer than `MIN_TRIGGER_WORDS` (2) words ([expander.rs:31](https://github.com/BoardPandas/Hark/blob/bcfcc3fef6f02252870fc3f06440d99992818ade/crates/hark-spellbook/src/expander.rs#L31));
 - an empty expansion;
-- a duplicate trigger, compared as a normalized token sequence, where **first wins**.
+- a trigger phrase already claimed by an earlier primary trigger or alternate, compared as a normalized token sequence, where **first wins**.
+
+An invalid or duplicate alternate is skipped individually; it does not disable an otherwise valid primary trigger. The pipeline reports only skipped counts, never the user-authored phrases or expansions.
 
 The matcher itself is a derived artifact, rebuilt from the TOML on every pipeline start and cached nowhere, so the config file stays the single owner ([lib.rs:107-143](https://github.com/BoardPandas/Hark/blob/bcfcc3fef6f02252870fc3f06440d99992818ade/crates/hark-pipeline/src/lib.rs#L107-L143)).
 
@@ -167,7 +173,7 @@ Sources: [invocations.rs:1-60](https://github.com/BoardPandas/Hark/blob/bcfcc3fe
 <!-- BEGIN:AUTOGEN hark_08b_invocations_ui -->
 ## The Invocations Page
 
-Invocations is the third entry in the sidebar nav, between Spellbook and Stats, carrying the `LIGHTNING` glyph ([pages.rs:22-52](https://github.com/BoardPandas/Hark/blob/bcfcc3fef6f02252870fc3f06440d99992818ade/crates/hark-app/src/ui/pages.rs#L22-L52), [shell.rs:179-184](https://github.com/BoardPandas/Hark/blob/bcfcc3fef6f02252870fc3f06440d99992818ade/crates/hark-app/src/ui/shell.rs#L179-L184)). The page splits across two modules so each stays inside the ~300-line UI guardrail: the list in `mod.rs` and the form in `editor.rs` ([mod.rs:1-10](https://github.com/BoardPandas/Hark/blob/bcfcc3fef6f02252870fc3f06440d99992818ade/crates/hark-app/src/ui/invocations/mod.rs#L1-L10)).
+Invocations is the third entry in the sidebar nav, between Spellbook and Stats, carrying the `LIGHTNING` glyph ([pages.rs:22-52](https://github.com/BoardPandas/Hark/blob/bcfcc3fef6f02252870fc3f06440d99992818ade/crates/hark-app/src/ui/pages.rs#L22-L52), [shell.rs:179-184](https://github.com/BoardPandas/Hark/blob/bcfcc3fef6f02252870fc3f06440d99992818ade/crates/hark-app/src/ui/shell.rs#L179-L184)). The page splits the list, main editor, and alternate-phrase widget across sibling modules so no UI file crosses the hard size cap ([aliases.rs](../../crates/hark-app/src/ui/invocations/aliases.rs)).
 
 The list uses a plain `ScrollArea::vertical().show()`, never `show_rows()`. Rows are non-uniform because a warning line appears only on entries that cannot fire, and `show_rows`'s `row_height * count` arithmetic desynchronizes the scrollbar and shifts rows under the cursor for heterogeneous lists ([mod.rs:83-95](https://github.com/BoardPandas/Hark/blob/bcfcc3fef6f02252870fc3f06440d99992818ade/crates/hark-app/src/ui/invocations/mod.rs#L83-L95)).
 
@@ -178,13 +184,14 @@ The editor commits on an explicit **Save** and never on `lost_focus` the way the
 | Control | Behaviour |
 |---|---|
 | Trigger | Single-line field with inline validation that disables Save ([editor.rs:138-154](https://github.com/BoardPandas/Hark/blob/bcfcc3fef6f02252870fc3f06440d99992818ade/crates/hark-app/src/ui/invocations/editor.rs#L138-L154), [editor.rs:272-289](https://github.com/BoardPandas/Hark/blob/bcfcc3fef6f02252870fc3f06440d99992818ade/crates/hark-app/src/ui/invocations/editor.rs#L272-L289)) |
+| Also recognize | Add/remove exact alternate phrases; validation prevents one invocation's alternate from stealing another invocation's trigger ([aliases.rs](../../crates/hark-app/src/ui/invocations/aliases.rs)) |
 | Scope | Two radios; `Anywhere` adds the cleanup-skip consequence note ([editor.rs:158-187](https://github.com/BoardPandas/Hark/blob/bcfcc3fef6f02252870fc3f06440d99992818ade/crates/hark-app/src/ui/invocations/editor.rs#L158-L187)) |
 | Expansion | `TextEdit::multiline` at 6 rows, injected byte for byte ([editor.rs:189-205](https://github.com/BoardPandas/Hark/blob/bcfcc3fef6f02252870fc3f06440d99992818ade/crates/hark-app/src/ui/invocations/editor.rs#L189-L205)) |
 | Try it | Answers "Would fire" / "Would not fire" using the real matcher ([editor.rs:207-270](https://github.com/BoardPandas/Hark/blob/bcfcc3fef6f02252870fc3f06440d99992818ade/crates/hark-app/src/ui/invocations/editor.rs#L207-L270)) |
 
 The test panel builds its preview `Expander` only when a `preview_dirty` flag is set, never per frame, because construction encodes every trigger phonetically ([editor.rs:224-238](https://github.com/BoardPandas/Hark/blob/bcfcc3fef6f02252870fc3f06440d99992818ade/crates/hark-app/src/ui/invocations/editor.rs#L224-L238)). When a probe does not fire, `Expander::closest` supplies the near-miss hint — the nearest trigger and how close it got — because "close but rejected" is the confusing case ([expander.rs:217-241](https://github.com/BoardPandas/Hark/blob/bcfcc3fef6f02252870fc3f06440d99992818ade/crates/hark-spellbook/src/expander.rs#L217-L241), [editor.rs:255-269](https://github.com/BoardPandas/Hark/blob/bcfcc3fef6f02252870fc3f06440d99992818ade/crates/hark-app/src/ui/invocations/editor.rs#L255-L269)).
 
-Editor validation calls `hark_spellbook::phrase_word_count` and `normalized_phrase` rather than splitting on whitespace locally, so the editor, the row warnings, and the matcher can never disagree about what counts as a word — "access-granted" is two ([expander.rs:243-257](https://github.com/BoardPandas/Hark/blob/bcfcc3fef6f02252870fc3f06440d99992818ade/crates/hark-spellbook/src/expander.rs#L243-L257)).
+Editor validation calls `hark_spellbook::phrase_word_count` and `normalized_phrase` rather than splitting on whitespace locally, so the editor, the row warnings, and the matcher can never disagree about what counts as a word — "access-granted" is two. Primary triggers and alternates share one collision namespace across invocations, preventing ambiguous rules ([aliases.rs](../../crates/hark-app/src/ui/invocations/aliases.rs)).
 
 Persistence carries four obligations in order, and the last one is load-bearing ([pages.rs:142-160](https://github.com/BoardPandas/Hark/blob/bcfcc3fef6f02252870fc3f06440d99992818ade/crates/hark-app/src/ui/pages.rs#L142-L160)):
 
@@ -225,6 +232,7 @@ Other behaviours worth knowing:
 
 - **Empty invocation set is a pure passthrough.** `expand` short-circuits before tokenizing when no entry is armed, mirroring `Corrector`'s fast path ([expander.rs:134-145](https://github.com/BoardPandas/Hark/blob/bcfcc3fef6f02252870fc3f06440d99992818ade/crates/hark-spellbook/src/expander.rs#L134-L145)).
 - **Casing and surrounding punctuation are irrelevant** to a whole-utterance hit, because they sit outside token spans ([expander.rs:151-155](https://github.com/BoardPandas/Hark/blob/bcfcc3fef6f02252870fc3f06440d99992818ade/crates/hark-spellbook/src/expander.rs#L151-L155)).
+- **Alternates are exact and report the primary trigger.** They normalize casing and punctuation but never gain phonetic reach; history therefore names the rule the user authored, not the provider's mishearing.
 - **Multiple different `Anywhere` triggers may fire in one dictation**; `fired` reports the first, which is enough to suppress cleanup and badge the row ([expander.rs:173-215](https://github.com/BoardPandas/Hark/blob/bcfcc3fef6f02252870fc3f06440d99992818ade/crates/hark-spellbook/src/expander.rs#L173-L215)).
 - **Never log phrases or expansions.** `Invocation` derives `Debug` because `Settings` does, so a stray `{settings:?}` would dump every expansion to disk; the pipeline logs only counts and millis ([invocations.rs:39-43](https://github.com/BoardPandas/Hark/blob/bcfcc3fef6f02252870fc3f06440d99992818ade/crates/hark-config/src/invocations.rs#L39-L43), [worker.rs:376-392](https://github.com/BoardPandas/Hark/blob/bcfcc3fef6f02252870fc3f06440d99992818ade/crates/hark-pipeline/src/worker.rs#L376-L392)).
 

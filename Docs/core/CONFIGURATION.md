@@ -81,6 +81,7 @@ The `Settings` struct is the single source of truth for the config schema; every
 | `[general]` | `always_on_top` | `bool` | `false` | Keep the main Hark window above other windows; applied at startup and after Save |
 | `[general]` | `exit_on_close` | `bool` | `false` | Exit on the window's X instead of hiding in the tray. Close Program and tray Quit always exit |
 | `[[invocations.entries]]` | `phrase` | `String` | `""` | Trigger phrase to listen for; also the entry's identity ([invocations.rs:46-52](https://github.com/BoardPandas/Hark/blob/bcfcc3fef6f02252870fc3f06440d99992818ade/crates/hark-config/src/invocations.rs#L46-L52)) |
+| `[[invocations.entries]]` | `aliases` | `Vec<String>` | `[]` | Exact alternate transcriptions that fire the same invocation |
 | `[[invocations.entries]]` | `expansion` | `String` | `""` | Text injected byte for byte when the trigger fires ([invocations.rs:50-51](https://github.com/BoardPandas/Hark/blob/bcfcc3fef6f02252870fc3f06440d99992818ade/crates/hark-config/src/invocations.rs#L50-L51)) |
 | `[[invocations.entries]]` | `scope` | enum | `"utterance"` | `utterance` (whole dictation) \| `anywhere` (spliced inline) ([invocations.rs:20-27](https://github.com/BoardPandas/Hark/blob/bcfcc3fef6f02252870fc3f06440d99992818ade/crates/hark-config/src/invocations.rs#L20-L27)) |
 

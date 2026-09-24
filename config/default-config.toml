@@ -88,15 +88,17 @@ fallback_after_ms = 6000
 #   scope = "anywhere"   the phrase is spliced into a longer sentence
 #
 # A trigger needs at least two words, a non-empty expansion, and a phrase no
-# earlier entry already uses. Entries failing any of those are skipped at
-# startup rather than failing the config; the Invocations page marks each one
-# with the reason.
+# earlier trigger or alternate already uses. Optional aliases are exact
+# alternate transcriptions for things your provider repeatedly hears instead.
+# Invalid entries/aliases are skipped at startup rather than failing the whole
+# config; the Invocations page marks each one with the reason.
 #
 # This section stays LAST: [[...]] array-of-tables entries must follow every
 # scalar key, which is also where Hark writes it when it saves.
 #
 # [[invocations.entries]]
 # phrase = "access granted"
+# aliases = ["a cess granted"]
 # scope = "utterance"
 # expansion = """
 # You have access to the Support Forge tools: ticketing, remote assist,

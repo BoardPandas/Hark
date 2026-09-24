@@ -49,10 +49,13 @@ pub struct Expansion {
 
 /// One armed invocation: the matching side plus what to paste.
 struct Entry {
-    /// `canonical` here is the trigger phrase exactly as the user wrote it.
+    /// For a primary trigger this is the guarded phonetic term. For an alias
+    /// it is an exact-only term whose `canonical` still names the primary
+    /// trigger, so history never reports a provider's mishearing as the rule.
     term: TermEntry,
     expansion: String,
     scope: Scope,
+    exact: bool,
 }
 
 /// Expands user-authored trigger phrases into canned text.
@@ -62,28 +65,47 @@ struct Entry {
 pub struct Expander {
     dm: rphonetic::DoubleMetaphone,
     entries: Vec<Entry>,
+    armed: usize,
     skipped: usize,
+    skipped_aliases: usize,
 }
 
 impl Expander {
-    /// Build from `(phrase, expansion, scope)` triples.
+    /// Build invocations with no exact alternate transcriptions.
+    pub fn new(invocations: &[(String, String, Scope)]) -> Expander {
+        let entries: Vec<(String, Vec<String>, String, Scope)> = invocations
+            .iter()
+            .map(|(phrase, expansion, scope)| {
+                (phrase.clone(), Vec::new(), expansion.clone(), *scope)
+            })
+            .collect();
+        Expander::with_aliases(&entries)
+    }
+
+    /// Build from `(phrase, aliases, expansion, scope)` tuples. Aliases are
+    /// exact alternate transcriptions; the primary phrase keeps the guarded
+    /// phonetic behavior.
     ///
     /// Fails soft, never loudly: an entry that cannot arm is skipped and
     /// counted, so a hand-edited config still loads and the user keeps a UI
     /// to fix it in. The Invocations page explains each skip per row.
     ///
-    /// Skipped: triggers under [`MIN_TRIGGER_WORDS`] words, empty
-    /// expansions, and duplicate triggers (compared as normalized token
-    /// sequences, first wins). The phrase is the identity — there are no
-    /// hidden ids, so the TOML stays hand-editable (LL-G
+    /// Skipped invocations: triggers under [`MIN_TRIGGER_WORDS`] words, empty
+    /// expansions, and phrases already claimed by an earlier primary trigger
+    /// or alias (compared as normalized token sequences, first wins). Invalid
+    /// aliases are skipped individually without disabling their invocation.
+    /// The phrase is the identity — there are no hidden ids, so the TOML stays
+    /// hand-editable (LL-G
     /// `sqlite/upsert-by-name-collision`: decide duplicate semantics before
     /// users have data, not after).
-    pub fn new(invocations: &[(String, String, Scope)]) -> Expander {
+    pub fn with_aliases(invocations: &[(String, Vec<String>, String, Scope)]) -> Expander {
         let dm = rphonetic::DoubleMetaphone::default();
         let mut entries: Vec<Entry> = Vec::new();
         let mut seen: Vec<String> = Vec::new();
+        let mut armed = 0;
         let mut skipped = 0;
-        for (phrase, expansion, scope) in invocations {
+        let mut skipped_aliases = 0;
+        for (phrase, aliases, expansion, scope) in invocations {
             let key = normalized_phrase(phrase);
             if expansion.is_empty()
                 || phrase_word_count(phrase) < MIN_TRIGGER_WORDS
@@ -103,28 +125,64 @@ impl Expander {
                 term,
                 expansion: expansion.clone(),
                 scope: *scope,
+                exact: false,
             });
+            armed += 1;
+
+            for alias in aliases {
+                let key = normalized_phrase(alias);
+                if phrase_word_count(alias) < MIN_TRIGGER_WORDS || seen.contains(&key) {
+                    skipped_aliases += 1;
+                    continue;
+                }
+                let alias_source = [(phrase.clone(), vec![alias.clone()])];
+                let Some(term) = matcher::build_alias_entries(&alias_source).pop() else {
+                    skipped_aliases += 1;
+                    continue;
+                };
+                seen.push(key);
+                entries.push(Entry {
+                    term,
+                    expansion: expansion.clone(),
+                    scope: *scope,
+                    exact: true,
+                });
+            }
         }
         // Longest first so a multi-word trigger wins an overlap with a
-        // shorter one, matching Corrector's ordering contract. `sort_by` is
-        // stable, so equal-length triggers keep their configured order.
-        entries.sort_by_key(|e| std::cmp::Reverse(e.term.word_count()));
+        // shorter one, matching Corrector's ordering contract. At equal
+        // lengths an explicit alias outranks phonetic inference; otherwise
+        // stable sorting keeps configured order.
+        entries.sort_by(|a, b| {
+            b.term
+                .word_count()
+                .cmp(&a.term.word_count())
+                .then_with(|| b.exact.cmp(&a.exact))
+        });
         Expander {
             dm,
             entries,
+            armed,
             skipped,
+            skipped_aliases,
         }
     }
 
     /// How many configured invocations are armed and can fire.
     pub fn armed(&self) -> usize {
-        self.entries.len()
+        self.armed
     }
 
     /// How many configured invocations will never fire. The pipeline logs
     /// this count and nothing else: phrases and expansions are user content.
     pub fn skipped(&self) -> usize {
         self.skipped
+    }
+
+    /// How many configured aliases were ignored while their invocation stayed
+    /// armed. The pipeline logs only this count, never the user-authored text.
+    pub fn skipped_aliases(&self) -> usize {
+        self.skipped_aliases
     }
 
     /// Run the invocation pass over one transcript.
@@ -271,6 +329,21 @@ mod tests {
         Expander::new(&owned)
     }
 
+    fn expander_with_aliases(entries: &[(&str, &[&str], &str, Scope)]) -> Expander {
+        let owned: Vec<(String, Vec<String>, String, Scope)> = entries
+            .iter()
+            .map(|(phrase, aliases, expansion, scope)| {
+                (
+                    phrase.to_string(),
+                    aliases.iter().map(|alias| alias.to_string()).collect(),
+                    expansion.to_string(),
+                    *scope,
+                )
+            })
+            .collect();
+        Expander::with_aliases(&owned)
+    }
+
     fn granted(scope: Scope) -> Expander {
         expander(&[("access granted", PARAGRAPH, scope)])
     }
@@ -309,6 +382,44 @@ mod tests {
         let out = granted(Scope::Utterance).expand("access granite");
         assert_eq!(out.text, PARAGRAPH);
         assert_eq!(out.fired.as_deref(), Some("access granted"));
+    }
+
+    #[test]
+    fn exact_alias_fires_and_reports_the_primary_trigger() {
+        let e = expander_with_aliases(&[(
+            "commit and",
+            &["come in and"],
+            "Commit and push to main",
+            Scope::Utterance,
+        )]);
+        let out = e.expand("Come in and.");
+        assert_eq!(out.text, "Commit and push to main");
+        assert_eq!(out.fired.as_deref(), Some("commit and"));
+        assert_eq!(e.armed(), 1, "aliases do not inflate invocation count");
+        assert_eq!(e.skipped_aliases(), 0);
+    }
+
+    #[test]
+    fn alias_is_exact_not_another_fuzzy_trigger() {
+        let e = expander_with_aliases(&[(
+            "commit and",
+            &["come in and"],
+            "expanded",
+            Scope::Utterance,
+        )]);
+        let out = e.expand("come in end");
+        assert_eq!(out.text, "come in end");
+        assert_eq!(out.fired, None);
+    }
+
+    #[test]
+    fn exact_alias_honors_anywhere_scope_and_preserves_surroundings() {
+        let e =
+            expander_with_aliases(&[("commit and", &["come in and"], "EXPANDED", Scope::Anywhere)]);
+        assert_eq!(
+            e.expand("please come in and, thanks").text,
+            "please EXPANDED, thanks"
+        );
     }
 
     #[test]
@@ -381,6 +492,32 @@ mod tests {
         assert_eq!(e.armed(), 1);
         assert_eq!(e.skipped(), 1);
         assert_eq!(e.expand("access granted").text, "first");
+    }
+
+    #[test]
+    fn an_earlier_alias_can_claim_a_later_primary_phrase() {
+        let e = expander_with_aliases(&[
+            ("commit and", &["come in and"], "first", Scope::Utterance),
+            ("come in and", &[], "second", Scope::Utterance),
+        ]);
+        assert_eq!(e.armed(), 1);
+        assert_eq!(e.skipped(), 1);
+        assert_eq!(e.expand("come in and").text, "first");
+    }
+
+    #[test]
+    fn invalid_aliases_are_skipped_without_disabling_the_primary_trigger() {
+        let e = expander_with_aliases(&[(
+            "commit and",
+            &["and", "Commit-And!", "come in and", "COME IN AND"],
+            "expanded",
+            Scope::Utterance,
+        )]);
+        assert_eq!(e.armed(), 1);
+        assert_eq!(e.skipped(), 0);
+        assert_eq!(e.skipped_aliases(), 3);
+        assert_eq!(e.expand("commit and").text, "expanded");
+        assert_eq!(e.expand("come in and").text, "expanded");
     }
 
     #[test]
@@ -487,6 +624,19 @@ mod tests {
         assert_eq!(exact, 1.0);
         let (_, far) = e.closest("zzzz yyyy").expect("still reports the best");
         assert!(far < 0.5, "unrelated text must not look close: {far}");
+    }
+
+    #[test]
+    fn closest_includes_aliases_but_names_the_primary_trigger() {
+        let e = expander_with_aliases(&[(
+            "commit and",
+            &["come in and"],
+            "expanded",
+            Scope::Utterance,
+        )]);
+        let (phrase, score) = e.closest("come in at").expect("alias is comparable");
+        assert_eq!(phrase, "commit and");
+        assert!(score > 0.8, "the alternate should drive the hint: {score}");
     }
 
     #[test]

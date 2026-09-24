@@ -12,6 +12,8 @@ use egui::{RichText, TextEdit, Ui};
 use hark_config::{Invocation, Scope};
 use hark_spellbook::{Expander, MIN_TRIGGER_WORDS};
 
+use super::aliases;
+
 /// What the editor did this frame.
 pub enum Outcome {
     /// Still editing.
@@ -27,6 +29,9 @@ pub struct Draft {
     /// The row being edited; `None` for a new entry.
     index: Option<usize>,
     phrase: String,
+    /// Exact alternate transcriptions for `phrase`.
+    aliases: Vec<String>,
+    new_alias: String,
     expansion: String,
     scope: Scope,
     /// "Type what you'd say" test input.
@@ -42,6 +47,8 @@ impl Draft {
         Draft {
             index: None,
             phrase: String::new(),
+            aliases: Vec::new(),
+            new_alias: String::new(),
             expansion: String::new(),
             // New entries default to whole-dictation: the scope that cannot
             // fire mid-sentence by accident.
@@ -56,6 +63,8 @@ impl Draft {
         Draft {
             index: Some(index),
             phrase: entry.phrase.clone(),
+            aliases: entry.aliases.clone(),
+            new_alias: String::new(),
             expansion: entry.expansion.clone(),
             scope: entry.scope,
             probe: String::new(),
@@ -82,6 +91,17 @@ impl Draft {
                 ui.add_space(10.0);
 
                 self.trigger_field(ui);
+                ui.add_space(10.0);
+                if aliases::show(
+                    ui,
+                    &self.phrase,
+                    &mut self.aliases,
+                    &mut self.new_alias,
+                    entries,
+                    self.index,
+                ) {
+                    self.preview_dirty = true;
+                }
                 let problem = self.problem(entries);
                 if let Some(problem) = &problem {
                     ui.horizontal_wrapped(|ui| {
@@ -118,6 +138,15 @@ impl Draft {
                         outcome = Outcome::Saved(
                             Invocation {
                                 phrase: self.phrase.trim().to_string(),
+                                aliases: self
+                                    .aliases
+                                    .iter()
+                                    .map(|alias| alias.trim().to_string())
+                                    .chain(
+                                        (!self.new_alias.trim().is_empty())
+                                            .then(|| self.new_alias.trim().to_string()),
+                                    )
+                                    .collect(),
                                 expansion: self.expansion.clone(),
                                 scope: self.scope,
                             },
@@ -241,7 +270,16 @@ impl Draft {
             } else {
                 self.expansion.clone()
             };
-            self.preview = Some(Expander::new(&[(self.phrase.clone(), expansion, scope)]));
+            let mut aliases = self.aliases.clone();
+            if !self.new_alias.trim().is_empty() {
+                aliases.push(self.new_alias.trim().to_string());
+            }
+            self.preview = Some(Expander::with_aliases(&[(
+                self.phrase.clone(),
+                aliases,
+                expansion,
+                scope,
+            )]));
             self.preview_dirty = false;
         }
         let Some(preview) = &self.preview else {
@@ -290,11 +328,13 @@ impl Draft {
                     .to_string(),
             );
         }
-        let key = hark_spellbook::normalized_phrase(&self.phrase);
-        let clashes = entries.iter().enumerate().any(|(i, e)| {
-            Some(i) != self.index && hark_spellbook::normalized_phrase(&e.phrase) == key
-        });
-        clashes.then(|| "Another invocation already uses this trigger.".to_string())
+        aliases::entry_problem(
+            &self.phrase,
+            &self.aliases,
+            &self.new_alias,
+            entries,
+            self.index,
+        )
     }
 }
 
@@ -305,6 +345,7 @@ mod tests {
     fn entry(phrase: &str) -> Invocation {
         Invocation {
             phrase: phrase.to_string(),
+            aliases: Vec::new(),
             expansion: "text".to_string(),
             scope: Scope::Utterance,
         }
@@ -367,12 +408,14 @@ mod tests {
     fn existing_entries_load_their_own_values() {
         let source = Invocation {
             phrase: "ticket closed".to_string(),
+            aliases: vec!["take it closed".to_string()],
             expansion: "Closing this out.\nThanks!".to_string(),
             scope: Scope::Anywhere,
         };
         let d = Draft::existing(3, &source);
         assert_eq!(d.index, Some(3));
         assert_eq!(d.phrase, "ticket closed");
+        assert_eq!(d.aliases, ["take it closed"]);
         assert_eq!(d.expansion, "Closing this out.\nThanks!");
         assert_eq!(d.scope, Scope::Anywhere);
     }

@@ -2,8 +2,8 @@
 //!
 //! Its own module because `lib.rs` is already over the project's 500-line
 //! rule. Purely additive under `#[serde(default)]`, so [`crate::CONFIG_VERSION`]
-//! stays 1: old files load unchanged and new files stay readable by older
-//! builds (unknown keys are already tolerated).
+//! does not need another bump: old files load unchanged and new files stay
+//! readable by older builds (unknown keys are already tolerated).
 //!
 //! There is deliberately **no `validate` rule** here. Hard-rejecting a bad
 //! phrase would make a hand-edited config unloadable and strand the user
@@ -47,6 +47,11 @@ pub struct Invocation {
     /// What the user says. The phrase is the entry's identity; there are no
     /// hidden ids, so the TOML stays hand-editable.
     pub phrase: String,
+    /// Exact alternate transcriptions that should fire this invocation. These
+    /// are the invocation counterpart to Spellbook aliases: explicit escape
+    /// hatches for a provider's repeatable mishearing, not more fuzzy matches.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub aliases: Vec<String>,
     /// What gets injected, byte for byte as authored. Multi-line is fine.
     pub expansion: String,
     pub scope: Scope,
@@ -128,11 +133,13 @@ mod tests {
         s.invocations.entries = vec![
             Invocation {
                 phrase: "access granted".to_string(),
+                aliases: vec!["a cess granted".to_string()],
                 expansion: expansion.to_string(),
                 scope: Scope::Utterance,
             },
             Invocation {
                 phrase: "ticket closed".to_string(),
+                aliases: Vec::new(),
                 expansion: "Closing this out.".to_string(),
                 scope: Scope::Anywhere,
             },
@@ -143,6 +150,7 @@ mod tests {
 
         assert_eq!(loaded.invocations.entries.len(), 2);
         assert_eq!(loaded.invocations.entries[0].phrase, "access granted");
+        assert_eq!(loaded.invocations.entries[0].aliases, ["a cess granted"]);
         assert_eq!(
             loaded.invocations.entries[0].expansion, expansion,
             "the expansion must survive byte for byte"
@@ -173,6 +181,7 @@ mod tests {
             r#"
 [[invocations.entries]]
 phrase = "access granted"
+aliases = ["a cess granted"]
 scope = "utterance"
 expansion = """
 You have access to the Support Forge tools: ticketing, remote assist,
@@ -183,6 +192,7 @@ and the asset inventory.
         .expect("the shipped example must parse");
         let entry = &s.invocations.entries[0];
         assert_eq!(entry.phrase, "access granted");
+        assert_eq!(entry.aliases, ["a cess granted"]);
         assert_eq!(entry.scope, Scope::Utterance);
         // A TOML multi-line basic string drops the newline right after the
         // opening delimiter and keeps the one before the closing one.
@@ -203,5 +213,28 @@ and the asset inventory.
             Settings::from_toml("[[invocations.entries]]\nphrase = \"granted\"\nexpansion = \"\"")
                 .expect("a bad entry must not fail the whole config");
         assert_eq!(s.invocations.entries.len(), 1);
+    }
+
+    #[test]
+    fn aliases_are_additive_and_old_entries_still_default_to_none() {
+        let old = Settings::from_toml(
+            "[[invocations.entries]]\nphrase = \"commit and\"\nexpansion = \"x\"",
+        )
+        .expect("an entry predating aliases still parses");
+        assert!(old.invocations.entries[0].aliases.is_empty());
+
+        let with_aliases = Settings::from_toml(
+            r#"
+            [[invocations.entries]]
+            phrase = "commit and"
+            aliases = ["come in and", "coming and"]
+            expansion = "Commit and push to main"
+            "#,
+        )
+        .expect("aliases parse");
+        assert_eq!(
+            with_aliases.invocations.entries[0].aliases,
+            ["come in and", "coming and"]
+        );
     }
 }

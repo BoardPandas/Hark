@@ -4,9 +4,10 @@
 //! Every change persists immediately and restarts the pipeline (the trigger
 //! matcher is built at pipeline start); the caller owns persistence.
 //!
-//! The editor lives in [`editor`] so both files stay under the ~300-line
-//! UI-module guardrail.
+//! The editor and its alternate-phrase widget live in sibling modules so no
+//! UI file crosses the project's hard size cap.
 
+mod aliases;
 mod editor;
 
 use crate::theme;
@@ -112,6 +113,19 @@ impl InvocationsPage {
                                     RichText::new(&entry.phrase).text_style(theme::subheading()),
                                 );
                                 ui.label(RichText::new(entry.scope.label()).small().weak());
+                                match entry.aliases.len() {
+                                    0 => {}
+                                    1 => {
+                                        ui.label(RichText::new("1 alternate").small().weak());
+                                    }
+                                    count => {
+                                        ui.label(
+                                            RichText::new(format!("{count} alternates"))
+                                                .small()
+                                                .weak(),
+                                        );
+                                    }
+                                }
                             });
                             let preview =
                                 Label::new(RichText::new(preview(&entry.expansion)).small().weak())
@@ -234,25 +248,62 @@ fn preview(text: &str) -> String {
     }
 }
 
-/// Why the entry at `index` will never fire, or `None` when it is armed.
+/// Why the entry at `index` cannot fully arm, or `None` when its primary
+/// trigger and every alternate are usable.
 ///
 /// Mirrors `hark_spellbook::Expander::new`'s build-time gate, using the
 /// spellbook's own tokenizer so the two can never disagree about what
 /// counts as a word (hyphens split: "access-granted" is two words).
-fn skip_reason(entries: &[Invocation], index: usize) -> Option<&'static str> {
-    let entry = &entries[index];
-    if hark_spellbook::phrase_word_count(&entry.phrase) < hark_spellbook::MIN_TRIGGER_WORDS {
-        return Some("Won't fire: a trigger needs at least two words.");
+fn skip_reason(entries: &[Invocation], index: usize) -> Option<String> {
+    let mut seen = Vec::new();
+    for (row_index, entry) in entries.iter().enumerate().take(index + 1) {
+        if hark_spellbook::phrase_word_count(&entry.phrase) < hark_spellbook::MIN_TRIGGER_WORDS {
+            if row_index == index {
+                return Some("Won't fire: a trigger needs at least two words.".to_string());
+            }
+            continue;
+        }
+        if entry.expansion.is_empty() {
+            if row_index == index {
+                return Some("Won't fire: this invocation has no text to type.".to_string());
+            }
+            continue;
+        }
+
+        let key = hark_spellbook::normalized_phrase(&entry.phrase);
+        if seen.contains(&key) {
+            if row_index == index {
+                return Some(
+                    "Won't fire: an earlier invocation already uses this trigger.".to_string(),
+                );
+            }
+            continue;
+        }
+        seen.push(key);
+
+        for alias in &entry.aliases {
+            if hark_spellbook::phrase_word_count(alias) < hark_spellbook::MIN_TRIGGER_WORDS {
+                if row_index == index {
+                    return Some(
+                        "An alternate won't fire: each one needs at least two words.".to_string(),
+                    );
+                }
+                continue;
+            }
+            let key = hark_spellbook::normalized_phrase(alias);
+            if seen.contains(&key) {
+                if row_index == index {
+                    return Some(
+                        "An alternate won't fire: an earlier trigger or alternate already uses it."
+                            .to_string(),
+                    );
+                }
+                continue;
+            }
+            seen.push(key);
+        }
     }
-    if entry.expansion.is_empty() {
-        return Some("Won't fire: this invocation has no text to type.");
-    }
-    // First wins, matching the expander. Only a *later* duplicate is dead.
-    let key = hark_spellbook::normalized_phrase(&entry.phrase);
-    let shadowed = entries[..index]
-        .iter()
-        .any(|e| hark_spellbook::normalized_phrase(&e.phrase) == key);
-    shadowed.then_some("Won't fire: an earlier invocation already uses this trigger.")
+    None
 }
 
 #[cfg(test)]
@@ -264,6 +315,7 @@ mod tests {
         rows.iter()
             .map(|(phrase, expansion)| Invocation {
                 phrase: phrase.to_string(),
+                aliases: Vec::new(),
                 expansion: expansion.to_string(),
                 scope: Scope::Utterance,
             })
@@ -310,5 +362,24 @@ mod tests {
         let rows = entries(&[("access granted", "first"), ("Access-Granted!", "second")]);
         assert_eq!(skip_reason(&rows, 0), None);
         assert!(skip_reason(&rows, 1).unwrap().contains("already uses"));
+    }
+
+    #[test]
+    fn an_earlier_alternate_shadows_a_later_primary_trigger() {
+        let mut rows = entries(&[("commit and", "first"), ("come in and", "second")]);
+        rows[0].aliases.push("come in and".to_string());
+
+        assert_eq!(skip_reason(&rows, 0), None);
+        assert!(skip_reason(&rows, 1).unwrap().contains("already uses"));
+    }
+
+    #[test]
+    fn a_bad_alternate_warns_without_calling_the_invocation_dead() {
+        let mut rows = entries(&[("commit and", "text")]);
+        rows[0].aliases.push("and".to_string());
+
+        let warning = skip_reason(&rows, 0).expect("the bad alternate is visible");
+        assert!(warning.contains("alternate"));
+        assert!(warning.contains("two words"));
     }
 }
