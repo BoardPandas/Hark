@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.45.4] - 2026-09-24
+
+### Fixed
+
+- **Quitting Hark during a stuck dictation no longer leaves it running for up to 15 seconds.** On quit, Hark waited for the dictation in progress to finish before closing, and nothing limited that wait. If the provider had stalled, Hark stayed open and kept the app's single-instance lock. Launching Hark again in that window did nothing, so it looked broken. Hark now gives a dictation in progress up to 2 seconds to land (enough for one about to be typed), then closes. Saving settings mid-dictation had the same unlimited wait and could freeze the window; it now has the same 2-second limit.
+
 ## [0.45.3] - 2026-09-24
 
 ### Fixed

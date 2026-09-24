@@ -23,6 +23,8 @@ pub struct HarkApp {
     /// Declared before `storage` on purpose: fields drop in order, so the
     /// pipeline (and its event pump, which holds a storage sender) is gone
     /// before `StorageHandle::drop` joins the worker to flush final writes.
+    /// Both waits are bounded: a worker stuck in a stalled request is left
+    /// behind rather than holding the quit open (and the pump with it).
     pipeline: PipelineController,
     storage: Option<storage::StorageHandle>,
     /// Why storage is off, surfaced by the history/stats error states.

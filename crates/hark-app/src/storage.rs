@@ -15,6 +15,16 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::Arc;
 use std::thread::JoinHandle;
+use std::time::Duration;
+
+/// How long shutdown waits for the last senders to hang up.
+///
+/// Normally they are all gone within microseconds of the pipeline stopping, and
+/// the queue drains in milliseconds. The exception is a pipeline worker that
+/// shutdown abandoned mid-dictation: it keeps the event pump, and so the pump's
+/// sender, alive until its request returns. That dictation is being abandoned
+/// anyway, so there is nothing of it to wait for.
+const SHUTDOWN_GRACE: Duration = Duration::from_millis(500);
 
 /// What the worker executes. `Record` carries the policy that was active
 /// when its pipeline started (settings changes restart the pipeline, so the
@@ -66,6 +76,8 @@ pub struct StorageHandle {
     reader: Store,
     generation: Arc<AtomicU64>,
     worker: Option<JoinHandle<()>>,
+    /// Disconnects when the worker returns; never carries a value.
+    worker_done: Receiver<()>,
 }
 
 impl StorageHandle {
@@ -95,13 +107,26 @@ impl StorageHandle {
 
 impl Drop for StorageHandle {
     /// Disconnect and join so pending writes commit before the process
-    /// exits. `HarkApp` declares the pipeline before this handle: the pump
-    /// (which holds a sender clone) is gone by the time this runs, so the
-    /// worker's `recv` loop ends as soon as the queue drains.
+    /// exits. `HarkApp` declares the pipeline before this handle, so the pump
+    /// (which holds a sender clone) has normally finished by the time this
+    /// runs and the worker's `recv` loop ends as soon as the queue drains —
+    /// including the pump's final `Record`, which is why this waits for every
+    /// sender rather than sending an explicit stop that could overtake it.
+    /// Bounded by [`SHUTDOWN_GRACE`] for the one case where the pump outlives
+    /// the pipeline.
     fn drop(&mut self) {
         self.tx.take();
         if let Some(worker) = self.worker.take() {
-            let _ = worker.join();
+            match self.worker_done.recv_timeout(SHUTDOWN_GRACE) {
+                Err(mpsc::RecvTimeoutError::Timeout) => log::warn!(
+                    "storage: a sender is still open after {} ms (an abandoned dictation); \
+                     not waiting for it",
+                    SHUTDOWN_GRACE.as_millis()
+                ),
+                _ => {
+                    let _ = worker.join();
+                }
+            }
         }
     }
 }
@@ -110,21 +135,30 @@ impl Drop for StorageHandle {
 /// the worker. `ctx` is the sanctioned cross-thread wake-up: a repaint after
 /// each write refreshes the history panel while the app sits idle.
 pub fn spawn(db_path: &Path, ctx: egui::Context) -> Result<StorageHandle, StoreError> {
-    let writer = Store::open(db_path)?;
-    let reader = Store::open(db_path)?;
+    Ok(start(Store::open(db_path)?, Store::open(db_path)?, ctx))
+}
+
+/// Start the worker over two open connections (the seam tests drive with
+/// in-memory stores).
+fn start(writer: Store, reader: Store, ctx: egui::Context) -> StorageHandle {
     let (tx, rx) = mpsc::channel();
     let generation = Arc::new(AtomicU64::new(0));
     let worker_generation = Arc::clone(&generation);
+    let (done_tx, worker_done) = mpsc::channel();
     let worker = std::thread::Builder::new()
         .name("hark-storage".to_string())
-        .spawn(move || worker_loop(writer, rx, worker_generation, ctx))
+        .spawn(move || {
+            let _done: Sender<()> = done_tx;
+            worker_loop(writer, rx, worker_generation, ctx)
+        })
         .expect("spawning the storage thread cannot fail");
-    Ok(StorageHandle {
+    StorageHandle {
         tx: Some(tx),
         reader,
         generation,
         worker: Some(worker),
-    })
+        worker_done,
+    }
 }
 
 fn worker_loop(
@@ -219,6 +253,44 @@ mod tests {
         max_entries: 1_000,
         max_age_days: 90,
     };
+
+    fn handle_in_memory() -> StorageHandle {
+        start(
+            Store::open_in_memory().expect("writer"),
+            Store::open_in_memory().expect("reader"),
+            egui::Context::default(),
+        )
+    }
+
+    #[test]
+    fn shutdown_commits_what_the_pump_queued_before_hanging_up() {
+        // The ordinary quit: the pump sends the last dictation and exits, and
+        // that record must land before the process does.
+        let handle = handle_in_memory();
+        let generation = Arc::clone(&handle.generation);
+        let pump = handle.sender();
+        pump.send(StorageCmd::Record {
+            record: record(),
+            capture: true,
+            retention: KEEP_ALL,
+        })
+        .expect("queued");
+        drop(pump);
+        drop(handle);
+        assert_eq!(generation.load(Ordering::Acquire), 1);
+    }
+
+    #[test]
+    fn shutdown_does_not_wait_on_a_pump_an_abandoned_dictation_keeps_open() {
+        // A pipeline worker left inside a stalled request keeps the pump, and
+        // so this sender, alive. Quitting used to wait for it.
+        let handle = handle_in_memory();
+        let pump = handle.sender();
+        let started = std::time::Instant::now();
+        drop(handle);
+        assert!(started.elapsed() < SHUTDOWN_GRACE * 4);
+        drop(pump);
+    }
 
     #[test]
     fn record_command_persists_and_reports_a_change() {

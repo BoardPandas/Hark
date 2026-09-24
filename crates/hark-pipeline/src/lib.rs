@@ -27,7 +27,19 @@ use hark_stt::{ProviderConfig, SttError};
 use std::sync::atomic::AtomicBool;
 use std::sync::mpsc;
 use std::sync::Arc;
+use std::time::Duration;
 use thiserror::Error;
+
+/// How long shutdown waits for the worker to finish the dictation it is in.
+///
+/// Long enough for one that is about to land: release to injected text
+/// measured under a second, and injection itself restores the clipboard it
+/// borrowed, which is worth letting complete. Not long enough to sit out a
+/// stuck provider. Joining without a bound held the UI thread — on quit, and on
+/// every settings save — for as long as a stalled request took: 15 s in one
+/// user's log, with a relaunch in the meantime finding the old instance still
+/// holding the single-instance lock.
+const WORKER_SHUTDOWN_GRACE: Duration = Duration::from_secs(2);
 
 #[derive(Debug, Error)]
 pub enum PipelineError {
@@ -49,6 +61,8 @@ pub struct PipelineHandle {
     // channel), then the worker join, then capture.
     listener: Option<hark_hotkey::ListenerHandle>,
     worker: Option<std::thread::JoinHandle<()>>,
+    /// Disconnects when the worker returns (or unwinds); never carries a value.
+    worker_done: mpsc::Receiver<()>,
     /// Live mic-level meter, cloned from the capture handle. Advisory UI data
     /// (the recording overlay's audio-reactive pulse); reading it never
     /// touches the audio path.
@@ -110,9 +124,34 @@ impl Drop for PipelineHandle {
         // worker's receive loop.
         drop(self.listener.take());
         if let Some(w) = self.worker.take() {
-            let _ = w.join();
+            if !join_within(w, &self.worker_done, WORKER_SHUTDOWN_GRACE) {
+                // Abandoning it is safe: its key channel is already closed, so
+                // it exits as soon as the dictation it is in returns.
+                log::warn!(
+                    "pipeline worker still inside a dictation after {} ms; not waiting for it",
+                    WORKER_SHUTDOWN_GRACE.as_millis()
+                );
+            }
         }
         // _capture drops last, stopping the audio stream.
+    }
+}
+
+/// Join `worker` if it finishes within `grace`, else leave it running.
+/// `done` must be the receiver whose sender the thread drops on exit. Returns
+/// whether the thread was joined.
+fn join_within(
+    worker: std::thread::JoinHandle<()>,
+    done: &mpsc::Receiver<()>,
+    grace: Duration,
+) -> bool {
+    match done.recv_timeout(grace) {
+        Err(mpsc::RecvTimeoutError::Timeout) => false,
+        // Disconnected: the thread has returned, so this join is immediate.
+        _ => {
+            let _ = worker.join();
+            true
+        }
     }
 }
 
@@ -468,14 +507,20 @@ pub fn run(
         recording: recording.clone(),
         discontinuities,
     };
+    let (done_tx, worker_done) = mpsc::channel();
     let worker = std::thread::Builder::new()
         .name("hark-pipeline-worker".to_string())
-        .spawn(move || worker::run(w, ptt_rx))
+        .spawn(move || {
+            // Dropped on return and on unwind alike, which is the signal.
+            let _done: mpsc::Sender<()> = done_tx;
+            worker::run(w, ptt_rx)
+        })
         .expect("spawning the worker thread cannot fail");
 
     Ok(PipelineHandle {
         listener: Some(listener),
         worker: Some(worker),
+        worker_done,
         level,
         recording,
         _capture: capture,
@@ -488,6 +533,50 @@ mod tests {
 
     fn settings_from(toml: &str) -> Settings {
         Settings::from_toml(toml).unwrap()
+    }
+
+    /// A thread wired the way `run` wires the worker, held inside its "dictation"
+    /// until `release` fires.
+    fn worker_blocked_until(
+        release: mpsc::Receiver<()>,
+    ) -> (std::thread::JoinHandle<()>, mpsc::Receiver<()>) {
+        let (done_tx, done) = mpsc::channel();
+        let handle = std::thread::spawn(move || {
+            let _done: mpsc::Sender<()> = done_tx;
+            let _ = release.recv();
+        });
+        (handle, done)
+    }
+
+    #[test]
+    fn a_worker_that_has_returned_is_joined() {
+        let (release_tx, release) = mpsc::channel();
+        let (worker, done) = worker_blocked_until(release);
+        release_tx.send(()).unwrap();
+        assert!(join_within(worker, &done, Duration::from_secs(5)));
+    }
+
+    #[test]
+    fn a_worker_stuck_in_a_dictation_is_not_waited_on_past_the_grace() {
+        // The freeze this replaced: shutdown joined a worker sitting out a
+        // stalled provider, and the UI thread sat there with it.
+        let (release_tx, release) = mpsc::channel();
+        let (worker, done) = worker_blocked_until(release);
+        let started = std::time::Instant::now();
+        assert!(!join_within(worker, &done, Duration::from_millis(50)));
+        assert!(started.elapsed() < Duration::from_secs(2));
+        // Let the abandoned thread finish rather than leak it into other tests.
+        release_tx.send(()).unwrap();
+    }
+
+    #[test]
+    fn a_worker_that_panicked_still_counts_as_finished() {
+        let (done_tx, done) = mpsc::channel();
+        let worker = std::thread::spawn(move || {
+            let _done: mpsc::Sender<()> = done_tx;
+            panic!("dictation blew up");
+        });
+        assert!(join_within(worker, &done, Duration::from_secs(5)));
     }
 
     #[test]
