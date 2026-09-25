@@ -1,6 +1,6 @@
 # Hark
 
-A lean, system-wide, push-to-talk voice dictation tool for **Windows**, **macOS** and **Linux**. Hold a key, speak, release — polished English text is injected at your cursor in any app. Transcription is **bring-your-own-key cloud** by default (you supply your own speech-to-text provider key), with an **optional on-device model** that transcribes without the internet or a key at all; history, stats, the spellbook, and your invocations stay local on your machine; cleanup is optional and uses your own LLM key.
+A lean, system-wide, push-to-talk voice dictation tool for **Windows**, **macOS** and **Linux**. Hold a key, speak, release — polished English text is injected at your cursor in any app. Transcription is **bring-your-own-key cloud** by default (you supply your own speech-to-text provider key), with an **optional on-device model** that transcribes without the internet or a key at all; history, stats, the spellbook, and your invocations stay local on your machine; cleanup is optional and uses your own LLM key. Windows and Linux have end-to-end push-to-talk today; macOS has native UI/tray/keychain/injection paths, but its CGEventTap hotkey hook is still a planned seam.
 
 > Wispr Flow-style dictation, scoped to one user, English-only, and local-first.
 
@@ -19,11 +19,11 @@ Desktop app — **no web infrastructure** (no server, database service, auth, or
 | Layer | Choice |
 |---|---|
 | Language | Rust (UI on main thread, pipeline on worker threads) |
-| Audio | `cpal` (16 kHz mono ring buffer) |
-| Push-to-talk | Native low-level key hooks: CGEventTap (macOS), `WH_KEYBOARD_LL` (Windows), `evdev` (Linux — works on X11 and Wayland alike) |
-| STT | BYOK cloud via an `SttProvider` trait: OpenAI-compatible `/audio/transcriptions` adapter (OpenAI, Groq) + Deepgram nova-3 adapter |
-| STT transport | `reqwest` blocking + multipart + rustls on worker threads; one long-lived client, no global tokio |
-| Spellbook | Phonetic post-correction (primary, provider-agnostic) + per-provider biasing (OpenAI/Groq `prompt`, Deepgram `keyterm`) |
+| Audio | `cpal` (device-rate mono ring buffer, resampled to 16 kHz per clip) |
+| Push-to-talk | `WH_KEYBOARD_LL` (Windows) and `evdev` (Linux — X11 and Wayland); CGEventTap remains the planned macOS seam |
+| STT | BYOK cloud via an `SttProvider` trait: Deepgram, Whisper-family OpenAI-compatible endpoints, OpenAI `gpt-transcribe`, and Gemini Live |
+| STT transport | Blocking `reqwest` adapters on worker threads plus a Gemini-only private current-thread Tokio/WebSocket runtime; no global runtime |
+| Spellbook | Phonetic post-correction (primary, provider-agnostic) + per-provider biasing (`prompt`, `keywords[]`, `keyterm`, or Gemini `customVocabulary`) |
 | Invocations | Trigger phrase → canned text, matched by the same guarded phonetic matcher at a tighter confirm threshold; injected verbatim, cleanup skipped |
 | Cleanup / voices | Bring-your-own-key, OpenAI-compatible chat endpoint (optional) |
 | Injection | Clipboard paste, `enigo` keystroke fallback (a `uinput` virtual keyboard on Wayland, which has no XTEST) |
@@ -37,12 +37,13 @@ See [`tasks/plan-repo.md`](tasks/plan-repo.md) for the full rationale and the cu
 
 ```
 key down ─▶ cpal ring buffer (with ~200–300 ms pre-roll)
+              ├── Gemini Live selected? ─▶ stream audio during the hold
               │
-key up  ─────▶ append ~150 ms tail
+key up  ─────▶ append ~150 ms tail; finish the live turn if one survived
               │
-              ▼  trim leading/trailing silence, encode WAV
-       one HTTPS POST to your STT provider  ◀── biasing terms (prompt / keyterm)
-       (reused keep-alive client, at most one retry on timeout)
+              ▼  gate too-short/too-quiet audio, normalize, encode WAV
+       otherwise send the finished clip to the STT provider
+       (or replay it after a failed live stream; at most one retry total)
               │
               ▼  phonetic post-correction against spellbook
               │
@@ -64,7 +65,7 @@ The tray daemon owns the hot path (hotkey, audio, STT, injection). The settings/
 ## Prerequisites
 
 - **Rust** (stable) via [rustup](https://rustup.rs) — `cargo`, `rustfmt`, `clippy`.
-- **A speech-to-text provider key** (OpenAI, Groq, or Deepgram) — entered in Settings on first run, stored in the OS keychain. Not required if you set the on-device model as your primary engine (see below).
+- **A speech-to-text provider key** (Deepgram, OpenAI, Groq, Gemini, or an OpenAI-compatible endpoint) — entered in Settings on first run, stored in the OS keychain. Not required if you set the on-device model as your primary engine (see below).
 - Platform build tools: Xcode command-line tools (macOS); MSVC build tools (Windows); on Linux, the dev headers Hark links against:
 
   ```bash
@@ -139,8 +140,8 @@ cd Hark
 cargo build
 cargo run
 
-# No model to download — transcription is BYOK cloud. Add your speech-to-text
-# provider key (OpenAI, Groq, or Deepgram) in Settings on first run.
+# Add a speech-to-text provider key in Settings on first run, or download the
+# optional on-device model and select it as the primary engine.
 ```
 
 > **Note:** this machine is a coding-only environment. Build, test, lint, and typecheck here; run and validate the running app (mic, hotkey, injection, notarization) on real macOS, Windows and Linux.
@@ -153,9 +154,10 @@ Cargo workspace; single binary. See [`tasks/plan-repo.md`](tasks/plan-repo.md) �
 crates/
   hark-app/          # main-thread event loop, worker orchestration, single-instance
                      #   guard, and the egui settings/history/stats window (src/ui/)
-  hark-hotkey/       # native push-to-talk key hooks (WH_KEYBOARD_LL / CGEventTap)
+  hark-hotkey/       # Windows/Linux hooks + shared chord tracker; macOS seam pending
   hark-audio/        # cpal ring buffer, pre-roll + tail
-  hark-stt/          # SttProvider trait + adapters (OpenAI-compatible, Deepgram)
+  hark-stt/          # cloud adapters, including Gemini Live streaming
+  hark-local-stt/    # optional sherpa-onnx Parakeet engine
   hark-spellbook/   # phonetic post-correction, invocation trigger matching,
                      #   and per-provider biasing terms
   hark-voice/        # voice presets + BYOK cleanup adapter
@@ -165,7 +167,8 @@ crates/
   hark-config/       # TOML settings + spellbook load/save
   hark-keychain/     # keyring wrapper (BYOK key in the OS keychain)
   hark-autostart/    # launch-at-login (Windows registry / XDG autostart / macOS login item)
-  hark-update/       # in-app update checker + Windows self-update
+  hark-update/       # update checker + Windows installer handoff
+  hark-single-instance/ # one-process guard
 config/              # default config.toml + spellbook
 installer/           # Inno Setup script for the Windows installer
 packaging/           # Linux: .desktop, icon, udev rule, PKGBUILD, LINUX.md
@@ -216,7 +219,7 @@ download manager, the fallback policy, and the model catalogue.
 ## Privacy
 
 - Audio is sent to **your chosen** speech-to-text provider under **your own key** to be transcribed; nothing goes to any Hark-operated server. With the on-device model set as your primary engine, audio never leaves your machine at all. History, stats, and the spellbook stay local and are never transmitted.
-- Any non-Verbatim voice additionally sends the transcript to **your chosen** LLM provider for cleanup — surfaced honestly in the UI, with the selected model always visible.
+- Any non-Verbatim voice additionally sends the transcript to **your chosen** LLM provider for cleanup, unless the selected transcription mode already returned provider-cleaned text. The UI identifies the selected model and tradeoff.
 - The SQLite file is plaintext on disk (normal for a local single-user tool); delete-one, clear-all, disable-capture, and a retention cap are provided. Lifetime stats survive history clears and have a separate reset control.
 
 ## License

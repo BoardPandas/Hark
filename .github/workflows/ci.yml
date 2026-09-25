@@ -61,6 +61,28 @@ jobs:
       - name: Claude wiring guard (rule scoping + hook matchers)
         run: npm run check:claude
 
+  # Source-to-page drift is silent: generated prose can keep rendering cleanly
+  # while describing code that no longer exists. This guard checks the TOC's
+  # source mappings against the last documented commit and requires every
+  # affected page to change with its source. It is a co-change floor, not a
+  # claim that the resulting prose is complete or correct.
+  docs:
+    name: Documentation drift
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # The generation baseline normally predates the documentation commit,
+          # so the guard needs more than checkout's one-commit default.
+          fetch-depth: 0
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "24"
+
+      - name: Documentation source-map guard
+        run: npm run check:docs
+
   # Formatting is platform-independent; checking it once is enough. Kept separate
   # from `wiring` so it is not run twice by that job's matrix.
   fmt:

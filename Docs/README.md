@@ -1,26 +1,24 @@
 # Hark Documentation
 
 > **Latest Updates (September 2026):**
+> - **v0.47.0:** Invocations can recognize exact alternate phrases for repeatable provider mishearings.
+> - **v0.46.0:** Push-to-talk survives intercepted/remapped keys and surfaces an advisory warning naming the key.
+> - **v0.45.x:** Bounded shutdown and live-session recovery prevent stuck dictations from freezing Hark; Gemini streaming now retains all finalized segments.
+> - **v0.44.0:** Gemini Smart/Verbatim behavior, Gemini cleanup voices, and provider error diagnostics were completed.
+> - **v0.41.0:** Gemini Live streams audio during the hold, with finished-clip fallback if the live path fails.
+> - **v0.40.0:** Gemini Live and OpenAI `gpt-transcribe` became selectable STT providers.
 > - **v0.39.0:** The Windows portable download is gone; the installer is the only one, and updates now run it instead of swapping the running program. One manual install is needed to cross this version.
-> - **v0.38.4:** Hark no longer vanishes moments after pasting a dictation, and panics now reach the log instead of a stderr a windowed build does not have.
 > - **v0.20.0:** Invocations — say a trigger phrase, get a block of text you wrote, injected verbatim and never reworded by a cleanup voice.
-> - **v0.19.1:** Groundwork for a Gemini adapter that transcribes and cleans in one request (not yet selectable in Settings).
-> - **v0.19.0:** A Test button for the cleanup provider, and a pinned unsaved-changes bar in Settings.
 > - **v0.18.0:** Opt-in on-device transcription with a downloadable Parakeet model, usable as a cloud backup or as the primary engine.
-> - **v0.17.0:** Quieter microphones are no longer dropped; peak-window silence gating, per-room noise floor, and a live input meter.
-> - **v0.16.0:** Only one Hark runs at a time; a second launch exits quietly instead of fighting for the push-to-talk key.
-> - **v0.14.0:** Windows installer (per-user, no admin), launch-at-login toggle, and a microphone picker in Settings.
-> - **v0.13.7:** Retired the internal `hark-cli` dev binary; `hark-app` is the sole entry point.
-> - **v0.13.6:** In-app update checker with Windows self-update, plus per-device microphone selection.
-> - **v0.13.0:** Hark moved into the system tray with a state-reflecting icon and voice selector.
 
-This is the canonical wiki for Hark, a push-to-talk voice dictation desktop app for Windows, macOS and Linux, written in Rust with BYOK cloud transcription. Every page is generated from the source tree and cites the exact files and line ranges it describes.
+This is the canonical wiki for Hark, a push-to-talk voice dictation desktop app targeting Windows, macOS and Linux, written in Rust with BYOK cloud transcription and optional on-device STT. Windows and Linux have end-to-end push-to-talk today; the macOS CGEventTap hook remains an explicit implementation gap. Generated sections cite the source they describe; `_meta/SUMMARY.md` records known gaps rather than implying every page is current.
 
 ## Quick Start
 
 | Goal | Start Here |
 |------|------------|
 | **Understand the system** | [ARCHITECTURE.md](core/ARCHITECTURE.md) |
+| **Orient an AI coding agent** | [../AGENTS.md](../AGENTS.md) |
 | **Run or install the app** | [GETTING_STARTED.md](GETTING_STARTED.md) |
 | **What Hark is and how it is laid out** | [OVERVIEW.md](OVERVIEW.md) |
 | **Configure settings and the BYOK key** | [CONFIGURATION.md](core/CONFIGURATION.md) |
@@ -39,7 +37,7 @@ Foundational architecture, configuration, and data.
 |----------|-------------|
 | [ARCHITECTURE.md](core/ARCHITECTURE.md) | Process model, the main-thread/worker-thread split, the release-to-inject pipeline, and its state machine. |
 | [CONFIGURATION.md](core/CONFIGURATION.md) | The TOML settings schema, defaults, override order, and how the BYOK key lives in the OS keychain. |
-| [DATA_STORAGE.md](core/DATA_STORAGE.md) | The SQLite history and lifetime-stats schema, retention pruning, and the store API. |
+| [DATA_STORAGE.md](core/DATA_STORAGE.md) | The local SQLite schema, history and stats semantics, retention, worker integration, and bounded shutdown. |
 
 ---
 
@@ -49,12 +47,12 @@ One page per major subsystem of the dictation pipeline and the desktop shell.
 
 | Document | Description |
 |----------|-------------|
-| [AUDIO_CAPTURE.md](features/AUDIO_CAPTURE.md) | The cpal ring buffer with pre-roll and tail, silence trimming, and the native push-to-talk key hooks. |
-| [TRANSCRIPTION.md](features/TRANSCRIPTION.md) | The `SttProvider` trait, the OpenAI-compatible and Deepgram adapters, WAV encoding, and biasing. |
+| [AUDIO_CAPTURE.md](features/AUDIO_CAPTURE.md) | The cpal ring, pre-roll/tail, loudness gates, shortcut capture, and native push-to-talk hooks. |
+| [TRANSCRIPTION.md](features/TRANSCRIPTION.md) | Batch/live traits, Deepgram, OpenAI-compatible, gpt-transcribe, Gemini Live, WAV, and error contracts. |
 | [ON_DEVICE_STT.md](features/ON_DEVICE_STT.md) | Opt-in local Parakeet model: download manager, the cloud/local fallback policy, and the `local-engine` build feature. |
-| [SPELLBOOK.md](features/SPELLBOOK.md) | Phonetic post-correction of transcripts plus per-provider biasing term generation. |
+| [SPELLBOOK.md](features/SPELLBOOK.md) | Canonical terms, exact aliases, guarded phonetic post-correction, and per-provider vocabulary hints. |
 | [INVOCATIONS.md](features/INVOCATIONS.md) | User-authored trigger phrases that inject canned text verbatim, skipping the cleanup pass. |
-| [VOICE_CLEANUP.md](features/VOICE_CLEANUP.md) | Voice presets and the optional BYOK LLM cleanup pass over the raw transcript. |
+| [VOICE_CLEANUP.md](features/VOICE_CLEANUP.md) | Voice presets, cleanup-provider resolution, guarded fail-open rewriting, and fused-provider behavior. |
 | [TEXT_INJECTION.md](features/TEXT_INJECTION.md) | Clipboard stash-set-paste-restore injection with an enigo keystroke fallback. |
 | [DESKTOP_UI.md](features/DESKTOP_UI.md) | The tray daemon, the recording overlay, and the egui settings/history/stats window. |
 | [UPDATES_AND_AUTOSTART.md](features/UPDATES_AND_AUTOSTART.md) | The in-app update checker with Windows self-update, and launch-at-login registration. |
@@ -86,10 +84,11 @@ Release engineering and packaging.
 | Resource | Location |
 |----------|----------|
 | Repo README | [../README.md](../README.md) |
+| Tool-neutral agent guide | [../AGENTS.md](../AGENTS.md) |
 | Project rules & stack | [../CLAUDE.md](../CLAUDE.md) |
-| Agent registry | [../agents.md](../agents.md) |
+| Claude subagent registry | [../agents.md](../agents.md) |
 | Full plan & rationale | [../tasks/plan-repo.md](../tasks/plan-repo.md) |
 
 ---
 
-**Last Updated:** July 2026 · Generated from commit `6a33396`
+**Last Updated:** September 24, 2026 · Source baseline `784272c`

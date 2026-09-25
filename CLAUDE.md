@@ -1,6 +1,6 @@
 # Hark — Project Rules
 
-Hark is a single-user, **push-to-talk voice dictation desktop app** for Windows + macOS + Linux, written in **Rust**. Hold a key, speak, release; polished English text is injected at the cursor in any app. Transcription is **BYOK cloud by default** (the user's own STT provider key, multi-provider adapters) with an **opt-in on-device engine** alongside it; history, stats, and the spellbook are local-only; cleanup is optional and uses the user's own LLM key. (Pivoted away from on-device STT on 2026-07-15, then reintroduced it as an optional second engine in 0.18.0 — the cloud path remains primary. See `tasks/plan-repo.md`.)
+Hark is a single-user, **push-to-talk voice dictation desktop app** for Windows + macOS + Linux, written in **Rust**. Hold a key, speak, release; polished English text is injected at the cursor in any app. Transcription is **BYOK cloud by default** (the user's own STT provider key, multi-provider adapters) with an **opt-in on-device engine** alongside it; history, stats, and the spellbook are local-only; cleanup is optional and uses the user's own LLM key. Windows and Linux have end-to-end push-to-talk hooks; macOS UI/tray/injection code exists, but `hark-hotkey` still returns `UnsupportedPlatform` there until the planned CGEventTap seam is implemented. (Pivoted away from on-device STT on 2026-07-15, then reintroduced it as an optional second engine in 0.18.0 — the cloud path remains primary. See `tasks/plan-repo.md`.)
 
 > This is a **native desktop app**. There is no web frontend, server, database service, auth service, or hosting platform. `.claude/references/infrastructure.md` now says exactly that at the point of use — the template's Northflank/Cloudflare/Better Auth stack was removed from it, not just disclaimed here.
 
@@ -9,14 +9,14 @@ Hark is a single-user, **push-to-talk voice dictation desktop app** for Windows 
 | Layer | Choice |
 |---|---|
 | Language / process model | Rust; single process, **UI on main thread, pipeline on worker threads** |
-| Audio | `cpal` (16 kHz mono ring buffer, pre-roll + tail) |
-| Push-to-talk | Native low-level key hooks: **CGEventTap (macOS), `WH_KEYBOARD_LL` (Windows), `evdev` on `/dev/input` (Linux)** — NOT the `global-hotkey` crate, and NOT an X11 grab (invisible under Wayland) |
-| STT (cloud, primary) | **BYOK cloud via an `SttProvider` trait**: OpenAI-compatible `/audio/transcriptions` adapter (OpenAI, Groq) + Deepgram nova-3 adapter (`keyterm` biasing) |
+| Audio | `cpal` (device-rate mono ring buffer, pre-roll + tail, resampled to 16 kHz per clip) |
+| Push-to-talk | Native low-level hooks: **`WH_KEYBOARD_LL` (Windows), `evdev` on `/dev/input` (Linux)**; CGEventTap is the still-unimplemented macOS seam — NOT the `global-hotkey` crate, and NOT an X11 grab (invisible under Wayland) |
+| STT (cloud, primary) | **BYOK cloud via an `SttProvider` trait**: Deepgram; Whisper-family OpenAI-compatible endpoints; OpenAI `gpt-transcribe`; Gemini Live (`gemini-3.5-transcribe-live`) |
 | STT (on-device, optional) | `hark-local-stt`: sherpa-onnx Parakeet, behind the `engine` feature — **on by default** via `hark-app`'s `local-engine`. Off/Backup/Primary per `[local_stt] mode`. Never on the cloud hot path unless selected |
-| STT transport | `reqwest` 0.13 blocking + multipart + rustls on pipeline worker threads; one long-lived `Client`; **no global tokio runtime** |
-| Spellbook | Phonetic post-correction (primary, provider-agnostic) + per-provider biasing (OpenAI/Groq `prompt`, Deepgram `keyterm`) |
+| STT transport | Blocking `reqwest` + rustls on pipeline workers; Gemini Live owns a private `current_thread` Tokio/WebSocket runtime; **no global runtime** |
+| Spellbook | Phonetic post-correction (primary, provider-agnostic) + per-provider biasing (`prompt`, `keywords[]`, `keyterm`, or Gemini `customVocabulary`) |
 | Invocations | Trigger phrase → canned text (`hark_spellbook::Expander`); same guarded matcher as the spellbook at a **0.90** confirm threshold vs 0.85. A fired invocation **must** skip cleanup — control flow, never a prompt clause |
-| Voices / cleanup | BYOK OpenAI-compatible endpoint (optional); one low-temp call |
+| Voices / cleanup | BYOK OpenAI-compatible endpoint (optional); Gemini is supported, and Live Smart mode can return provider-cleaned text in the STT turn |
 | Injection | Clipboard paste (stash → set → paste → restore); `enigo` fallback. **Linux picks its key-synthesis backend by session:** enigo/XTEST on X11, a `uinput` virtual keyboard on Wayland |
 | Tray + window | `tray-icon` + `eframe`/`egui` (native, no webview) |
 | Storage | `rusqlite` (history + stats); TOML (settings + spellbook); `keyring` (BYOK key in OS keychain / Secret Service on Linux) |
@@ -27,7 +27,7 @@ Full rationale and phases: [`tasks/plan-repo.md`](tasks/plan-repo.md). UI/latenc
 
 - **macOS requires all UI on the main thread.** The main thread owns the tray + egui event loop; the dictation pipeline (hotkey, audio, STT, HTTP, injection) runs on **worker threads only**. Getting this wrong causes hangs that surface only on Mac.
 - **The Linux tray is the single, deliberate exception, and it is not a loophole.** `tray-icon` renders a Linux tray through libappindicator, i.e. GTK widgets, which are `!Send`, need `gtk::init()` on their own thread, and only do anything while a GTK main loop iterates — and winit already owns the main thread's loop. So `hark-app/src/tray/surface_gtk.rs` runs them on a dedicated thread. That is legal precisely because the main-thread rule is an **AppKit** rule: `surface_gtk.rs` never compiles on macOS, and nothing on Linux requires the tray to share the window's thread. Do not generalise this into "UI can go on worker threads".
-- **Latency is the product.** All perceived latency is release-to-inject: WAV encode + one HTTPS POST to the STT provider + inject. Reuse one long-lived HTTP client (keep-alive + TLS resumption); at most one retry, on timeout only; history/stats writes happen after injection, off the hot path.
+- **Latency is the product.** All perceived latency is release-to-inject. Batch adapters reuse one long-lived HTTP client; Gemini Live uploads during the hold and only finalizes after release. At most one retry/replay is allowed; history/stats writes happen after injection, off the hot path.
 
 ## Stack gotchas (verified 2026-07-15, re-check before relying on them)
 
@@ -36,14 +36,14 @@ Full detail + citations: `.claude/agent-memory/explorer/hark_cloud_stt_providers
 - **OpenAI and Groq share the multipart `/audio/transcriptions` contract**; one adapter covers both. Deepgram is its own adapter (`/v1/listen`, `Token` auth, raw `audio/wav` body).
 - **Groq bills a 10 s minimum per transcription request**; every short utterance costs as 10 s.
 - **Deepgram `keyterm` (nova-3+, unweighted) and legacy weighted `keywords` (nova-2) are mutually exclusive by model generation.**
-- **Transport is `reqwest` blocking on worker threads.** The `deepgram` crate is pre-1.0 and drags in full tokio (call its REST API directly instead); `ureq` multipart is unstable as of 3.3.0.
+- **Batch transport is `reqwest` blocking on worker threads.** Gemini Live is the scoped exception: its adapter owns a private current-thread Tokio runtime and never exposes it process-wide. The `deepgram` crate is pre-1.0 and drags in full tokio (call its REST API directly instead).
 - **Never log API keys or raw audio**; errors must not echo Authorization headers or request bodies.
 - **Windows tray binary has no console:** any console child process must set `CREATE_NO_WINDOW` (0x0800_0000) or a console flashes and steals focus (LL-G `kb/rust/gui-subsystem-console-child-window.md`).
 - **On Linux there is no `LLKHF_INJECTED`.** A uinput device is indistinguishable from real hardware once its events reach `/dev/input`, so our own synthesized Ctrl+V would feed straight back into the chord tracker — on a Ctrl-containing chord, a dictation that re-triggers itself forever. The filter is the device *name*: `hark-inject` names its keyboard `Hark Virtual Keyboard`, `hark-hotkey` skips any device whose name starts with `Hark`. Both ends key off the app name so they cannot drift; each has a test pinning it.
 - **`libappindicator` is `dlopen`ed, not linked** (libappindicator-sys uses `libloading`), so it never appears in the binary's `DT_NEEDED` and neither `dpkg-shlibdeps` nor rpm's `auto-req` can infer it. The `.deb`/`.rpm`/PKGBUILD name it explicitly; drop that and the packages still build, still install, and the tray silently never appears. `release.yml` gates on it.
 - **Linux cannot swallow one key.** Suppressing a keystroke needs `EVIOCGRAB`, which takes the whole device exclusively and would stop every other key reaching the focused app. `[hotkey] swallow_lock_keys` is therefore inert on Linux and logs that it is; do not "fix" it with a grab.
 - **Linux does not self-update.** The binary belongs to `dpkg`/`rpm`/`pacman`; overwriting it in place fails their integrity checks and is reverted by the next upgrade. `hark-update` checks and reports; the package manager installs.
-- **If a future streaming adapter introduces tokio,** keep the runtime scoped to that adapter and blocking IO off the executor (LL-G `kb/rust/blocking-io-on-tokio.md`).
+- **Gemini Live's runtime boundary is load-bearing.** Keep it scoped to the adapter, keep blocking `reqwest` off it, preserve the finished-clip replay path, and never open a cloud session in primary on-device mode (LL-G `kb/rust/blocking-io-on-tokio.md`).
 
 ## Coding standards
 

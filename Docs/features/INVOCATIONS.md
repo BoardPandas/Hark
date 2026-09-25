@@ -4,22 +4,17 @@
 
 The following files were used as evidence for this page:
 
-- [crates/hark-spellbook/src/expander.rs:1-497](https://github.com/BoardPandas/Hark/blob/bcfcc3fef6f02252870fc3f06440d99992818ade/crates/hark-spellbook/src/expander.rs#L1-L497)
-- [crates/hark-spellbook/src/matcher.rs:1-148](https://github.com/BoardPandas/Hark/blob/bcfcc3fef6f02252870fc3f06440d99992818ade/crates/hark-spellbook/src/matcher.rs#L1-L148)
-- [crates/hark-spellbook/src/lib.rs:1-30](https://github.com/BoardPandas/Hark/blob/bcfcc3fef6f02252870fc3f06440d99992818ade/crates/hark-spellbook/src/lib.rs#L1-L30)
-- [crates/hark-config/src/invocations.rs:1-60](https://github.com/BoardPandas/Hark/blob/bcfcc3fef6f02252870fc3f06440d99992818ade/crates/hark-config/src/invocations.rs#L1-L60)
-- [crates/hark-config/src/lib.rs:294-330](https://github.com/BoardPandas/Hark/blob/bcfcc3fef6f02252870fc3f06440d99992818ade/crates/hark-config/src/lib.rs#L294-L330)
-- [crates/hark-pipeline/src/worker.rs:218-270](https://github.com/BoardPandas/Hark/blob/bcfcc3fef6f02252870fc3f06440d99992818ade/crates/hark-pipeline/src/worker.rs#L218-L270)
-- [crates/hark-pipeline/src/worker.rs:349-395](https://github.com/BoardPandas/Hark/blob/bcfcc3fef6f02252870fc3f06440d99992818ade/crates/hark-pipeline/src/worker.rs#L349-L395)
-- [crates/hark-pipeline/src/lib.rs:107-143](https://github.com/BoardPandas/Hark/blob/bcfcc3fef6f02252870fc3f06440d99992818ade/crates/hark-pipeline/src/lib.rs#L107-L143)
-- [crates/hark-pipeline/src/events.rs:26-35](https://github.com/BoardPandas/Hark/blob/bcfcc3fef6f02252870fc3f06440d99992818ade/crates/hark-pipeline/src/events.rs#L26-L35)
-- [crates/hark-store/src/lib.rs:340-360](https://github.com/BoardPandas/Hark/blob/bcfcc3fef6f02252870fc3f06440d99992818ade/crates/hark-store/src/lib.rs#L340-L360)
-- [crates/hark-store/migrations/003_entries_invocation.sql:1-6](https://github.com/BoardPandas/Hark/blob/bcfcc3fef6f02252870fc3f06440d99992818ade/crates/hark-store/migrations/003_entries_invocation.sql#L1-L6)
-- [crates/hark-app/src/ui/invocations/mod.rs:1-302](https://github.com/BoardPandas/Hark/blob/bcfcc3fef6f02252870fc3f06440d99992818ade/crates/hark-app/src/ui/invocations/mod.rs#L1-L302)
-- [crates/hark-app/src/ui/invocations/editor.rs:1-371](https://github.com/BoardPandas/Hark/blob/bcfcc3fef6f02252870fc3f06440d99992818ade/crates/hark-app/src/ui/invocations/editor.rs#L1-L371)
+- [crates/hark-spellbook/src/expander.rs](../../crates/hark-spellbook/src/expander.rs)
+- [crates/hark-spellbook/src/matcher.rs](../../crates/hark-spellbook/src/matcher.rs)
+- [crates/hark-config/src/invocations.rs](../../crates/hark-config/src/invocations.rs)
+- [crates/hark-pipeline/src/worker.rs](../../crates/hark-pipeline/src/worker.rs)
+- [crates/hark-pipeline/src/events.rs](../../crates/hark-pipeline/src/events.rs)
+- [crates/hark-stt/src/gemini_live.rs](../../crates/hark-stt/src/gemini_live.rs)
+- [crates/hark-store/src/lib.rs](../../crates/hark-store/src/lib.rs)
+- [crates/hark-app/src/ui/invocations/mod.rs](../../crates/hark-app/src/ui/invocations/mod.rs)
+- [crates/hark-app/src/ui/invocations/editor.rs](../../crates/hark-app/src/ui/invocations/editor.rs)
 - [crates/hark-app/src/ui/invocations/aliases.rs](../../crates/hark-app/src/ui/invocations/aliases.rs)
-- [crates/hark-app/src/ui/pages.rs:142-160](https://github.com/BoardPandas/Hark/blob/bcfcc3fef6f02252870fc3f06440d99992818ade/crates/hark-app/src/ui/pages.rs#L142-L160)
-- [config/default-config.toml:65-87](https://github.com/BoardPandas/Hark/blob/bcfcc3fef6f02252870fc3f06440d99992818ade/config/default-config.toml#L65-L87)
+- [config/default-config.toml](../../config/default-config.toml)
 
 </details>
 
@@ -236,13 +231,11 @@ Other behaviours worth knowing:
 - **Multiple different `Anywhere` triggers may fire in one dictation**; `fired` reports the first, which is enough to suppress cleanup and badge the row ([expander.rs:173-215](https://github.com/BoardPandas/Hark/blob/bcfcc3fef6f02252870fc3f06440d99992818ade/crates/hark-spellbook/src/expander.rs#L173-L215)).
 - **Never log phrases or expansions.** `Invocation` derives `Debug` because `Settings` does, so a stray `{settings:?}` would dump every expansion to disk; the pipeline logs only counts and millis ([invocations.rs:39-43](https://github.com/BoardPandas/Hark/blob/bcfcc3fef6f02252870fc3f06440d99992818ade/crates/hark-config/src/invocations.rs#L39-L43), [worker.rs:376-392](https://github.com/BoardPandas/Hark/blob/bcfcc3fef6f02252870fc3f06440d99992818ade/crates/hark-pipeline/src/worker.rs#L376-L392)).
 
-**Open hazard: fused STT+cleanup adapters.** `Transcript` carries a `cleaned` field populated only by adapters that transcribe and clean in one round trip, currently Gemini ([lib.rs:28-38](https://github.com/BoardPandas/Hark/blob/0e086b5/crates/hark-stt/src/lib.rs#L28-L38)). Nothing in `dictate` reads it yet, so the invocation skip above still governs every injected byte.
-
-That stops being true the moment it is consumed. A fused adapter does its cleanup *inside* the transcription call — before `expanded_text` has run and before `worker.cleanup.as_ref().filter(...)` can null anything — so canned text would come back model-reworded through a path the guard never sees. Whoever wires the fused result into `dictate` has to decide what a fired invocation means there; the cheapest correct answer is to prefer `transcript.text` over `transcript.cleaned` whenever `expanded.fired.is_some()`. This is the same failure the `Option::filter` exists to prevent, arriving through a different door.
+**Fused Gemini cleanup is already wired.** In Smart mode Gemini returns one tidied string in both `Transcript::text` and `Transcript::cleaned`; the pipeline matches invocations against `text` and uses `cleaned.is_some()` to suppress its separate cleanup call ([gemini_live.rs:355-376](../../crates/hark-stt/src/gemini_live.rs#L355-L376), [worker.rs:460-476](../../crates/hark-pipeline/src/worker.rs#L460-L476)). A fired invocation still wins after transcription: `expanded_text` replaces the provider string with the user-authored expansion, and `should_run_cleanup` prevents another model from rewriting it. The tradeoff is explicit: Smart-mode triggers are matched against Gemini's tidied wording rather than a guaranteed verbatim transcript, so Verbatim mode is preferable when literal trigger evidence matters.
 
 **Deferred on purpose.** Placeholders or variables in expansions (`{date}`, `{cursor}`) are not supported: they would break the byte-for-byte invariant this design's safety argument rests on. Sending trigger phrases to the STT provider as bias or keyterm hints is also deferred — biasing raises recall but also raises the odds the provider hallucinates a trigger out of similar-sounding audio, the wrong direction when a false fire pastes a paragraph.
 
-Sources: [expander.rs:134-215](https://github.com/BoardPandas/Hark/blob/bcfcc3fef6f02252870fc3f06440d99992818ade/crates/hark-spellbook/src/expander.rs#L134-L215), [lib.rs:340-360](https://github.com/BoardPandas/Hark/blob/bcfcc3fef6f02252870fc3f06440d99992818ade/crates/hark-store/src/lib.rs#L340-L360), [003_entries_invocation.sql:1-6](https://github.com/BoardPandas/Hark/blob/bcfcc3fef6f02252870fc3f06440d99992818ade/crates/hark-store/migrations/003_entries_invocation.sql#L1-L6)
+Sources: [expander.rs:188-273](../../crates/hark-spellbook/src/expander.rs#L188-L273), [worker.rs:460-483](../../crates/hark-pipeline/src/worker.rs#L460-L483), [gemini_live.rs:355-376](../../crates/hark-stt/src/gemini_live.rs#L355-L376), [store/lib.rs](../../crates/hark-store/src/lib.rs), [003_entries_invocation.sql](../../crates/hark-store/migrations/003_entries_invocation.sql)
 <!-- END:AUTOGEN hark_08b_invocations_edge -->
 
 ---

@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+
+- Added a tool-neutral agent guide and a CI guard that reports mapped documentation pages when their source changes without a corresponding documentation update.
+
+### Changed
+
+- Refreshed the product, architecture, transcription, audio/hotkey, invocation, storage, spellbook, and voice-cleanup documentation through 0.47.0, including Gemini Live streaming, `gpt-transcribe`, bounded storage shutdown, exact correction aliases, current provider vocabulary contracts, and fail-open cleanup behavior.
+
 ## [0.47.0] - 2026-09-24
 
 ### Added

@@ -1,10 +1,10 @@
 project:
   name: "Hark"
-  description: "Push-to-talk voice dictation desktop app for Windows and macOS, written in Rust, with BYOK cloud transcription and optional LLM cleanup."
+  description: "Push-to-talk voice dictation desktop app for Windows, macOS, and Linux, with BYOK cloud or optional on-device transcription."
   repo_base_url: "https://github.com/BoardPandas/Hark/blob"
-  ref_commit_hash: "edda9d9df731374ab20faac8a9f2dc86c18ea8f3"
+  ref_commit_hash: "784272cbb488d15fa278f737963380e3121538c7"
   branch: "main"
-  updated_at: "2026-09-10"
+  updated_at: "2026-09-24"
 
 pages:
   - id: hark_01_overview
@@ -18,6 +18,8 @@ pages:
       - "package.json"
       - "Cargo.toml"
       - "CLAUDE.md"
+      - "AGENTS.md"
+      - "crates/hark-single-instance/src/lib.rs"
     sections:
       - id: hark_01_overview_introduction
         title: "Introduction"
@@ -66,6 +68,7 @@ pages:
       - "crates/hark-app/src/pipeline.rs"
       - "crates/hark-pipeline/src/lib.rs"
       - "crates/hark-pipeline/src/worker.rs"
+      - "crates/hark-pipeline/src/stream.rs"
       - "crates/hark-pipeline/src/state.rs"
       - "crates/hark-pipeline/src/events.rs"
       - "crates/hark-pipeline/src/retry.rs"
@@ -84,6 +87,7 @@ pages:
         source_files:
           - "crates/hark-pipeline/src/lib.rs"
           - "crates/hark-pipeline/src/worker.rs"
+          - "crates/hark-pipeline/src/stream.rs"
         diagrams_needed: true
         diagram_types: ["sequence"]
       - id: hark_02_architecture_state
@@ -232,12 +236,18 @@ pages:
     title: "Data Storage"
     folder: "core"
     filename: "DATA_STORAGE.md"
-    description: "The SQLite history and lifetime-stats schema, retention pruning, and the store API."
+    description: "The local SQLite schema, history and stats semantics, retention, worker integration, and bounded shutdown."
     category: data-model
     source_files:
       - "crates/hark-store/src/lib.rs"
+      - "crates/hark-store/migrations/001_init.sql"
+      - "crates/hark-store/migrations/002_stats_total_ms.sql"
+      - "crates/hark-store/migrations/003_entries_invocation.sql"
       - "crates/hark-store/tests/store.rs"
       - "crates/hark-app/src/storage.rs"
+      - "crates/hark-app/src/app.rs"
+      - "crates/hark-config/src/lib.rs"
+      - "crates/hark-pipeline/src/events.rs"
     sections:
       - id: hark_05_data_storage_overview
         title: "Overview"
@@ -249,6 +259,10 @@ pages:
         autogen: true
         source_files:
           - "crates/hark-store/src/lib.rs"
+          - "crates/hark-store/migrations/001_init.sql"
+          - "crates/hark-store/migrations/002_stats_total_ms.sql"
+          - "crates/hark-store/migrations/003_entries_invocation.sql"
+          - "crates/hark-store/tests/store.rs"
         diagrams_needed: true
         diagram_types: ["er"]
       - id: hark_05_data_storage_history
@@ -256,6 +270,7 @@ pages:
         autogen: true
         source_files:
           - "crates/hark-store/src/lib.rs"
+          - "crates/hark-store/tests/store.rs"
         diagrams_needed: false
         diagram_types: []
       - id: hark_05_data_storage_stats
@@ -263,6 +278,7 @@ pages:
         autogen: true
         source_files:
           - "crates/hark-store/src/lib.rs"
+          - "crates/hark-store/tests/store.rs"
         diagrams_needed: false
         diagram_types: []
       - id: hark_05_data_storage_retention
@@ -270,6 +286,9 @@ pages:
         autogen: true
         source_files:
           - "crates/hark-store/src/lib.rs"
+          - "crates/hark-store/tests/store.rs"
+          - "crates/hark-app/src/storage.rs"
+          - "crates/hark-config/src/lib.rs"
         diagrams_needed: false
         diagram_types: []
       - id: hark_05_data_storage_integration
@@ -277,6 +296,7 @@ pages:
         autogen: true
         source_files:
           - "crates/hark-app/src/storage.rs"
+          - "crates/hark-pipeline/src/events.rs"
         diagrams_needed: false
         diagram_types: []
     related_pages:
@@ -299,7 +319,10 @@ pages:
       - "crates/hark-audio/src/capture_win.rs"
       - "crates/hark-hotkey/src/lib.rs"
       - "crates/hark-hotkey/src/hook_win.rs"
+      - "crates/hark-hotkey/src/hook_linux.rs"
       - "crates/hark-hotkey/src/edges.rs"
+      - "crates/hark-hotkey/src/capture.rs"
+      - "crates/hark-hotkey/src/keycode.rs"
     sections:
       - id: hark_06_audio_capture_overview
         title: "Overview"
@@ -329,6 +352,9 @@ pages:
         source_files:
           - "crates/hark-hotkey/src/lib.rs"
           - "crates/hark-hotkey/src/hook_win.rs"
+          - "crates/hark-hotkey/src/hook_linux.rs"
+          - "crates/hark-hotkey/src/capture.rs"
+          - "crates/hark-hotkey/src/keycode.rs"
         diagrams_needed: false
         diagram_types: []
       - id: hark_06_audio_capture_edges
@@ -352,19 +378,21 @@ pages:
     title: "Transcription (STT Providers)"
     folder: "features"
     filename: "TRANSCRIPTION.md"
-    description: "The SttProvider trait, the OpenAI-compatible and Deepgram adapters, WAV encoding, and biasing."
+    description: "Batch and live STT traits, Deepgram, OpenAI-compatible, gpt-transcribe, Gemini Live, audio formats, and errors."
     category: feature
     source_files:
       - "crates/hark-stt/src/lib.rs"
       - "crates/hark-stt/src/config.rs"
       - "crates/hark-stt/src/openai_compatible.rs"
+      - "crates/hark-stt/src/openai_transcribe.rs"
       - "crates/hark-stt/src/deepgram.rs"
+      - "crates/hark-stt/src/gemini_live.rs"
       - "crates/hark-stt/src/wav.rs"
       - "crates/hark-stt/src/error.rs"
       - "crates/hark-stt/src/metrics.rs"
     sections:
       - id: hark_07_transcription_trait
-        title: "The SttProvider Trait"
+        title: "Batch and Live Provider Traits"
         autogen: true
         source_files:
           - "crates/hark-stt/src/lib.rs"
@@ -372,17 +400,19 @@ pages:
         diagrams_needed: true
         diagram_types: ["class"]
       - id: hark_07_transcription_openai
-        title: "OpenAI-Compatible Adapter"
+        title: "OpenAI-Compatible and gpt-transcribe Adapters"
         autogen: true
         source_files:
           - "crates/hark-stt/src/openai_compatible.rs"
+          - "crates/hark-stt/src/openai_transcribe.rs"
         diagrams_needed: false
         diagram_types: []
       - id: hark_07_transcription_deepgram
-        title: "Deepgram Adapter"
+        title: "Deepgram and Gemini Live"
         autogen: true
         source_files:
           - "crates/hark-stt/src/deepgram.rs"
+          - "crates/hark-stt/src/gemini_live.rs"
         diagrams_needed: false
         diagram_types: []
       - id: hark_07_transcription_wav
@@ -468,12 +498,22 @@ pages:
     title: "Spellbook"
     folder: "features"
     filename: "SPELLBOOK.md"
-    description: "Phonetic post-correction of transcripts plus per-provider biasing term generation."
+    description: "Canonical terms, exact aliases, guarded phonetic post-correction, and per-provider vocabulary hints."
     category: feature
     source_files:
       - "crates/hark-spellbook/src/lib.rs"
       - "crates/hark-spellbook/src/matcher.rs"
       - "crates/hark-spellbook/src/tokenize.rs"
+      - "crates/hark-spellbook/src/snap.rs"
+      - "crates/hark-spellbook/src/expander.rs"
+      - "crates/hark-config/src/lib.rs"
+      - "crates/hark-pipeline/src/lib.rs"
+      - "crates/hark-stt/src/openai_compatible.rs"
+      - "crates/hark-stt/src/openai_transcribe.rs"
+      - "crates/hark-stt/src/deepgram.rs"
+      - "crates/hark-stt/src/gemini_live.rs"
+      - "crates/hark-app/src/ui/spellbook/mod.rs"
+      - "crates/hark-app/src/ui/spellbook/edit.rs"
     sections:
       - id: hark_08_spellbook_overview
         title: "Overview"
@@ -484,7 +524,9 @@ pages:
         title: "Phonetic Matcher"
         autogen: true
         source_files:
+          - "crates/hark-spellbook/src/lib.rs"
           - "crates/hark-spellbook/src/matcher.rs"
+          - "crates/hark-spellbook/src/expander.rs"
         diagrams_needed: false
         diagram_types: []
       - id: hark_08_spellbook_tokenize
@@ -492,13 +534,19 @@ pages:
         autogen: true
         source_files:
           - "crates/hark-spellbook/src/tokenize.rs"
+          - "crates/hark-spellbook/src/snap.rs"
         diagrams_needed: false
         diagram_types: []
       - id: hark_08_spellbook_biasing
         title: "Provider Biasing"
         autogen: true
         source_files:
-          - "crates/hark-spellbook/src/lib.rs"
+          - "crates/hark-config/src/lib.rs"
+          - "crates/hark-pipeline/src/lib.rs"
+          - "crates/hark-stt/src/openai_compatible.rs"
+          - "crates/hark-stt/src/openai_transcribe.rs"
+          - "crates/hark-stt/src/deepgram.rs"
+          - "crates/hark-stt/src/gemini_live.rs"
         diagrams_needed: false
         diagram_types: []
       - id: hark_08_spellbook_api
@@ -506,11 +554,19 @@ pages:
         autogen: true
         source_files:
           - "crates/hark-spellbook/src/lib.rs"
+          - "crates/hark-spellbook/src/snap.rs"
+          - "crates/hark-spellbook/src/expander.rs"
         diagrams_needed: false
         diagram_types: []
       - id: hark_08_spellbook_edge
         title: "Edge Cases"
         autogen: true
+        source_files:
+          - "crates/hark-spellbook/src/lib.rs"
+          - "crates/hark-spellbook/src/matcher.rs"
+          - "crates/hark-config/src/lib.rs"
+          - "crates/hark-app/src/ui/spellbook/mod.rs"
+          - "crates/hark-app/src/ui/spellbook/edit.rs"
         diagrams_needed: false
         diagram_types: []
     related_pages:
@@ -529,6 +585,7 @@ pages:
       - "crates/hark-spellbook/src/expander.rs"
       - "crates/hark-config/src/invocations.rs"
       - "crates/hark-pipeline/src/worker.rs"
+      - "crates/hark-stt/src/gemini_live.rs"
       - "crates/hark-app/src/ui/invocations/mod.rs"
       - "crates/hark-app/src/ui/invocations/editor.rs"
     sections:
@@ -580,13 +637,19 @@ pages:
     title: "Voice Cleanup"
     folder: "features"
     filename: "VOICE_CLEANUP.md"
-    description: "Voice presets and the optional BYOK LLM cleanup pass over the raw transcript."
+    description: "Voice presets, cleanup-provider resolution, guarded fail-open rewriting, and fused-provider behavior."
     category: feature
     source_files:
       - "crates/hark-voice/src/lib.rs"
       - "crates/hark-voice/src/voices.rs"
       - "crates/hark-voice/src/openai_compatible.rs"
       - "crates/hark-voice/src/error.rs"
+      - "crates/hark-config/src/voice.rs"
+      - "crates/hark-config/src/lib.rs"
+      - "crates/hark-pipeline/src/lib.rs"
+      - "crates/hark-pipeline/src/worker.rs"
+      - "crates/hark-stt/src/lib.rs"
+      - "crates/hark-stt/src/gemini_live.rs"
     sections:
       - id: hark_09_voice_cleanup_overview
         title: "Overview"
@@ -598,6 +661,7 @@ pages:
         autogen: true
         source_files:
           - "crates/hark-voice/src/voices.rs"
+          - "crates/hark-config/src/voice.rs"
         diagrams_needed: false
         diagram_types: []
       - id: hark_09_voice_cleanup_adapter
@@ -605,6 +669,18 @@ pages:
         autogen: true
         source_files:
           - "crates/hark-voice/src/openai_compatible.rs"
+          - "crates/hark-config/src/voice.rs"
+          - "crates/hark-pipeline/src/lib.rs"
+        diagrams_needed: false
+        diagram_types: []
+      - id: hark_09_voice_cleanup_pipeline
+        title: "Pipeline Behavior"
+        autogen: true
+        source_files:
+          - "crates/hark-pipeline/src/worker.rs"
+          - "crates/hark-stt/src/lib.rs"
+          - "crates/hark-stt/src/gemini_live.rs"
+          - "crates/hark-config/src/lib.rs"
         diagrams_needed: false
         diagram_types: []
       - id: hark_09_voice_cleanup_api
@@ -619,6 +695,8 @@ pages:
         autogen: true
         source_files:
           - "crates/hark-voice/src/error.rs"
+          - "crates/hark-voice/src/openai_compatible.rs"
+          - "crates/hark-pipeline/src/worker.rs"
         diagrams_needed: false
         diagram_types: []
     related_pages:
@@ -803,6 +881,7 @@ pages:
       - ".github/RELEASING.md"
       - "package.json"
       - "Cargo.toml"
+      - ".github/workflows/ci.yml"
     sections:
       - id: hark_13_release_packaging_overview
         title: "Overview"
@@ -821,6 +900,7 @@ pages:
         autogen: true
         source_files:
           - ".github/workflows/release.yml"
+          - ".github/workflows/ci.yml"
         diagrams_needed: false
         diagram_types: []
       - id: hark_13_release_packaging_signing
@@ -852,6 +932,10 @@ pages:
     source_files:
       - "README.md"
       - "CLAUDE.md"
+      - "crates/hark-stt/src/lib.rs"
+      - "crates/hark-audio/src/ring.rs"
+      - "crates/hark-hotkey/src/edges.rs"
+      - "crates/hark-pipeline/src/events.rs"
     sections:
       - id: hark_14_glossary_terms
         title: "Terms"
@@ -873,4 +957,4 @@ notes:
   - "hark-audio and hark-hotkey are combined into AUDIO_CAPTURE.md since they form the input-capture stage together."
   - "hark-update and hark-autostart are combined into UPDATES_AND_AUTOSTART.md as related lifecycle concerns."
   - "This is a native desktop app: no API-reference, database-service, auth, or hosting/infra pages apply."
-  - "hark-single-instance has no page yet -- the one crate still uncovered by this TOC."
+  - "hark-single-instance is summarized in OVERVIEW.md rather than receiving a standalone page."

@@ -1,70 +1,91 @@
 # Generation Metadata
 
-- **Commit:** `edda9d9df731374ab20faac8a9f2dc86c18ea8f3`
+- **Commit:** `784272cbb488d15fa278f737963380e3121538c7`
 - **Branch:** `main`
-- **Generated:** 2026-09-10T17:17:44-04:00
-- **Mode:** update (scoped)
-- **Base commit:** `bcfcc3fef6f02252870fc3f06440d99992818ade`
+- **Generated:** 2026-09-24T20:15:37-04:00
+- **Mode:** update (agent orientation plus legacy-page refresh)
+- **Base commit:** `edda9d9df731374ab20faac8a9f2dc86c18ea8f3`
 - **Pages generated:** 0 new
-- **Sections regenerated:** 4 across 3 existing pages
-- **Citation style:** **repo-relative** for sections regenerated in this run, per
-  `references/citation-policy.md`, which prefers them because they stay valid in
-  the working tree, on GitHub, and in any renderer that resolves relative paths.
-  Untouched sections still carry absolute blob URLs pinned to `1c17387` or
-  `bcfcc3f`; those remain correct, because each points at the code it was
-  written from. The wiki is therefore mixed-style until a full run reconciles
-  it — the same transitional state the 0.35.5 amendment below describes.
+- **Sections regenerated:** 50 across 11 existing pages
+- **Citation style:** repo-relative for regenerated material
+- **Working tree:** dirty by design; this metadata records the source baseline at
+  `HEAD`, while the documentation, agent guide, validation script, CI wiring,
+  and one code-doc correction are the uncommitted output of this run.
 
-## Run — 2026-09-10 (0.39.0, installer-only Windows distribution)
+## Run — 2026-09-24 (0.47.1, agent orientation and drift prevention)
 
-Scoped to the four sections falsified by 0.39.0, which removed the portable
-Windows download and changed the in-app updater to run the signed Inno installer
-instead of self-replacing the running exe:
+This scoped run made the repository understandable without relying on a
+Claude-only entrypoint and refreshed the pages most likely to mislead an agent
+about the current product.
 
-- `GETTING_STARTED.md` / `hark_03_getting_started_install`
-- `features/UPDATES_AND_AUTOSTART.md` / `hark_11_updates_autostart_overview`
-- `operations/RELEASE_AND_PACKAGING.md` / `hark_13_release_packaging_overview`
-- `operations/RELEASE_AND_PACKAGING.md` / `hark_13_release_packaging_workflow`
+### Added
 
-The release-workflow section needed more than a wording fix: every line number
-in it was derived from a 223-line `release.yml` that has since been restructured
-into four jobs and grown to 704 lines, so all of its citations pointed at
-unrelated code. They were re-derived from the current file, and all 52 citations
-across the four sections were checked to resolve to a real file and an in-range
-line span (one off-by-one was caught and corrected this way, introduced when a
-two-line header edit shifted a snippet).
+- Root `AGENTS.md`: tool-neutral product contract, trust hierarchy, runtime
+  pipeline, workspace map, invariants, workflow, and verification commands.
+- `scripts/check-docs-sync.mjs` plus the `npm run check:docs` command.
+- A dependency-free CI documentation-drift job. It requires a mapped page to
+  co-change when a mapped source changes after this baseline.
 
-**Deliberately NOT regenerated:** the rest of the wiki. The `bcfcc3f..edda9d9`
-range spans a large amount of work, and a full refresh would produce one
-unreviewable diff. Sections stale for other reasons remain listed under "Known
-coverage gaps" in `SUMMARY.md`.
+### Regenerated or corrected
 
-## Amendment — 2026-08-21 (0.35.5, hand edit, no regeneration)
+- `OVERVIEW.md`: current provider stack, 15-crate layout, live/fallback path,
+  and agent navigation.
+- `core/ARCHITECTURE.md`: single-instance startup, current threading, Gemini
+  live pump, bounded shutdown, current events, failure stages, and retry budget.
+- `features/TRANSCRIPTION.md`: batch/live traits, gpt-transcribe, Deepgram,
+  Gemini Live, fused cleanup, audio contracts, and error hygiene.
+- `features/AUDIO_CAPTURE.md`: shortcut recording, Windows/Linux hooks,
+  interception and lost-release handling, channel-0 capture, quiet-mic gate,
+  and streaming reader.
+- `features/INVOCATIONS.md`: removed the obsolete claim that provider-cleaned
+  transcripts were not consumed; documented current Smart-mode behavior.
+- `GETTING_STARTED.md`, `GLOSSARY.md`, and
+  `operations/RELEASE_AND_PACKAGING.md`: repaired current prerequisites,
+  provider vocabulary, v0.47 version snapshot, and documentation CI.
+- `Docs/README.md`: current update summary and an explicit agent-guide route.
+- `core/DATA_STORAGE.md`: current three-migration schema, invocation-aware word
+  accounting, retention behavior, two-connection worker model, and 500 ms
+  shutdown bound.
+- `features/SPELLBOOK.md`: schema-v2 entries and exact aliases, Unicode-safe
+  phonetic folding, tokenizer-aligned History selections, and the Whisper,
+  gpt-transcribe, Deepgram, and Gemini Live vocabulary contracts.
+- `features/VOICE_CLEANUP.md`: all 11 voices, Gemini cleanup inheritance,
+  provider resolution, expansion/fail-open guards, fused Smart-mode behavior,
+  and sanitized authentication errors.
 
-The stamp above describes the **last `/doc-sync` run**, not the last change to
-`Docs/`. It was already inaccurate before this amendment: `Docs/` was edited at
-`01a3d37` (0.26.0, the Spellbook rename) without the stamp moving, and 37 commits
-have landed since `bcfcc3f`. Treat "Generated" as *last generated*, and this
-section as the log of hand edits since.
+### Scope boundary and follow-up
 
-Hand edits made in 0.35.5, from a repo audit:
+This was not a full-wiki rewrite. The first pass identified three mapped pages
+whose sources had changed after the previous generated snapshot:
 
-- `OVERVIEW.md` — the AUTOGEN stack table asserted "no local model", which stopped
-  being true at 0.18.0. The STT row was corrected and an on-device row added, with
-  repo-relative citations (the surrounding AUTOGEN block still carries absolute
-  blob URLs pinned to `1c17387`; it will be reconciled on the next real run).
-- `features/ON_DEVICE_STT.md` — registered in `_toc.yaml` as `hark_07b_on_device_stt`
-  (it had never been listed, so `/doc-sync update` could not see it) and given 15
-  citations, all verified against current line numbers. Its sections are marked
-  `autogen: false`: the prose is hand-written and good, and should not be
-  overwritten by a regeneration.
-- `_meta/SUMMARY.md` — the known-coverage-gaps table stopped at 0.18.1; extended
-  through 0.35.5.
+- `core/DATA_STORAGE.md` (`crates/hark-app/src/storage.rs`)
+- `features/SPELLBOOK.md` (`hark-spellbook` public API and matcher)
+- `features/VOICE_CLEANUP.md` (`hark-voice/src/error.rs`)
 
-## Scope note
+The follow-up pass regenerated all three and expanded their TOC ownership to
+the current migrations, adapters, pipeline seams, configuration, and UI files.
+That closes the explicitly recorded legacy refresh queue. Older pinned GitHub
+citations remain on untouched wiki pages; reconciling citation style across the
+entire wiki is still outside this scoped run.
 
-This run was **deliberately scoped to the Invocations feature** rather than a
-full refresh of the `1c17387..bcfcc3f` range. That range spans six releases
-(0.14.3 through 0.20.0), so a full regeneration would rewrite most of the wiki
-in one unreviewable diff. Sections falsified by feature work in 0.15.0-0.18.1
-remain stale and are listed under "Known coverage gaps" in `SUMMARY.md`.
+### Validation contract
+
+`check:docs` proves TOC/page ownership, baseline ancestry, and mapped
+source/page co-change. It does not prove that prose is correct. Marker balance,
+links, citations, Mermaid, and content review remain required parts of a
+documentation sync.
+
+### Validation
+
+- `npm run check:docs`: pass; 16 pages mapped against `784272c`, 24 working-tree
+  paths, and no silent mapped-source drift.
+- `npm run check:claude`: pass; approximately 4,164 always-on tokens across two
+  files, five scoped rules, and functional rule/hook wiring.
+- `cargo test -p hark-store -p hark-spellbook -p hark-voice`: pass; 166 tests
+  passed and no tests failed. Existing feature-gated `hark-stt` unused/dead-code
+  warnings were emitted while compiling dependencies.
+- `git diff --check`: pass.
+- Documentation structure: pass; 83 balanced AUTOGEN pairs matched all 83
+  generated TOC sections, 683 relative links resolved, 512 current-tree line
+  citations were in bounds, and 14 Mermaid blocks had recognized static openers.
+- `mmdc` is not installed, so Mermaid render validation was not performed.

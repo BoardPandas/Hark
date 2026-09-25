@@ -2,9 +2,11 @@
 //!
 //! Adapters are deliberately I/O-thin: they take complete WAV bytes and return
 //! text plus wall time. WAV encoding, timing loops, and reporting live in the
-//! caller (the spike harness now, the pipeline worker thread later). All HTTP
-//! is `reqwest::blocking` on the calling thread — there is no tokio runtime in
-//! this crate. Implementations must never log API keys or raw audio.
+//! caller (the spike harness now, the pipeline worker thread later). Batch HTTP
+//! uses `reqwest::blocking` on the calling thread. Gemini Live is the deliberate
+//! exception: its adapter owns a private current-thread Tokio runtime for the
+//! WebSocket session; there is no process-wide runtime. Implementations must
+//! never log API keys or raw audio.
 
 mod config;
 pub mod deepgram;

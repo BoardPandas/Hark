@@ -1,3 +1,4 @@
+<!-- PAGE_ID: hark_07b_on_device_stt -->
 # On-Device Speech-to-Text
 
 Optional, opt-in transcription that runs entirely on the user's machine. Off by

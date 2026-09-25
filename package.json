@@ -1,10 +1,11 @@
 {
   "name": "hark",
-  "version": "0.47.0",
+  "version": "0.47.1",
   "private": true,
   "description": "Push-to-talk voice dictation desktop app for Windows, macOS and Linux (Rust) with BYOK cloud transcription",
   "scripts": {
     "check:claude": "node scripts/check-claude-wiring.mjs",
+    "check:docs": "node scripts/check-docs-sync.mjs",
     "evals": "node scripts/run-evals.mjs"
   }
 }

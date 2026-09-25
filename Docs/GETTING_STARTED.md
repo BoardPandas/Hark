@@ -22,16 +22,16 @@ The following files were used as evidence for this page:
 <!-- BEGIN:AUTOGEN hark_03_getting_started_prerequisites -->
 ## Prerequisites
 
-Hark is a native Rust desktop app: there is no runtime to install and no model to download, since transcription runs on a BYOK cloud provider rather than on-device ([README.md:3](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/README.md#L3)).
+Hark is a native Rust desktop app. Cloud transcription is BYOK by default; the optional on-device Parakeet model can be downloaded after install and used without a provider key ([README.md:1-10](../README.md#L1-L10)).
 
 | Requirement | Details |
 |---|---|
-| Rust toolchain | Stable Rust via [rustup](https://rustup.rs), providing `cargo`, `rustfmt`, and `clippy` ([README.md:61](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/README.md#L61)) |
-| Minimum Rust version | `1.97`, required because `libsqlite3-sys` 0.38.1 (rusqlite's bundled SQLite) uses `cfg_select!`, which is unstable before that version ([Cargo.toml:25-27](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/Cargo.toml#L25-L27)) |
-| STT provider key | An API key for OpenAI, Groq, or Deepgram, entered in Settings on first run and stored in the OS keychain ([README.md:62](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/README.md#L62)) |
-| Platform build tools | Xcode command-line tools on macOS; MSVC build tools on Windows ([README.md:63](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/README.md#L63)) |
+| Rust toolchain | Stable Rust via [rustup](https://rustup.rs), providing `cargo`, `rustfmt`, and `clippy` ([README.md:65-69](../README.md#L65-L69)) |
+| Minimum Rust version | `1.97`, required by the workspace and bundled SQLite dependency ([Cargo.toml:21-29](../Cargo.toml#L21-L29)) |
+| STT access | A key for Deepgram, OpenAI, Groq, Gemini, or another compatible endpoint; not required when local STT is primary ([README.md:67-69](../README.md#L67-L69)) |
+| Platform build tools | Xcode command-line tools on macOS; MSVC on Windows; ALSA, GTK, AppIndicator, X11/XKB, and build packages listed in the README on Linux ([README.md:69-77](../README.md#L69-L77)) |
 
-Sources: [README.md:3](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/README.md#L3), [README.md:59-63](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/README.md#L59-L63), [Cargo.toml:25-27](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/Cargo.toml#L25-L27)
+Sources: [README.md:1-10](../README.md#L1-L10), [README.md:65-77](../README.md#L65-L77), [Cargo.toml:21-29](../Cargo.toml#L21-L29)
 <!-- END:AUTOGEN hark_03_getting_started_prerequisites -->
 
 ---
@@ -55,7 +55,7 @@ Sources: [README.md:80-97](../README.md#L80-L97)
 <!-- BEGIN:AUTOGEN hark_03_getting_started_build -->
 ## Build from Source
 
-Building from source only needs `git` and the Rust toolchain from Prerequisites; no model weights or other assets are downloaded, since transcription is BYOK cloud ([README.md:90-92](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/README.md#L90-L92)).
+Building from source needs `git`, stable Rust, and the platform packages from Prerequisites. Model weights are not downloaded by the build; the optional local model is an explicit in-app download.
 
 ```bash
 git clone <this-repo> Hark
@@ -64,11 +64,11 @@ cd Hark
 cargo build
 cargo run
 
-# No model to download — transcription is BYOK cloud. Add your speech-to-text
-# provider key (OpenAI, Groq, or Deepgram) in Settings on first run.
+# Add a provider key in Settings, or download the optional local model and
+# select it as the primary engine.
 ```
 
-Sources: [README.md:81-94](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/README.md#L81-L94)
+Sources: [README.md:134-147](../README.md#L134-L147), [README.md:188-190](../README.md#L188-L190)
 <!-- END:AUTOGEN hark_03_getting_started_build -->
 
 ---
@@ -129,7 +129,8 @@ Sources: [README.md:61](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd7
 |---|---|
 | [Configuration and Secrets](core/CONFIGURATION.md) | The full TOML settings schema, defaults, override order, and how the BYOK key lives in the OS keychain |
 | [Architecture](core/ARCHITECTURE.md) | The main-thread/worker-thread process model and the release-to-inject pipeline |
-| [Transcription (STT Providers)](features/TRANSCRIPTION.md) | The `SttProvider` trait and the OpenAI-compatible and Deepgram adapters |
+| [Transcription (STT Providers)](features/TRANSCRIPTION.md) | Batch and live provider traits, Deepgram, OpenAI-compatible, gpt-transcribe, and Gemini Live |
+| [On-Device STT](features/ON_DEVICE_STT.md) | Optional Parakeet model, downloads, and local-primary/cloud-backup modes |
 <!-- END:AUTOGEN hark_03_getting_started_next -->
 
 ---

@@ -12,6 +12,7 @@ The following files were used as evidence for this page:
 - [installer/hark.iss:36-65](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/installer/hark.iss#L36-L65)
 - [.github/workflows/release.yml:54-76](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/.github/workflows/release.yml#L54-L76)
 - [.github/workflows/release.yml:126-140](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/.github/workflows/release.yml#L126-L140)
+- [.github/workflows/ci.yml](../../.github/workflows/ci.yml)
 
 </details>
 
@@ -92,6 +93,8 @@ Sources: [hark.iss:1-96](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd
 <!-- BEGIN:AUTOGEN hark_13_release_packaging_workflow -->
 ## Release Workflow
 
+Ordinary pushes and pull requests run the separate CI workflow before release: Claude wiring, documentation source-map drift, formatting, dependency audit, and the multi-platform Rust matrix. The documentation job fetches full history and runs `npm run check:docs`; this enforces source/page co-change, but does not claim the prose is semantically complete ([ci.yml:1-102](../../.github/workflows/ci.yml#L1-L102)).
+
 Four jobs run under `contents: write` permission, which the release object and its asset uploads need ([release.yml:65-67](../../.github/workflows/release.yml#L65-L67)). The `version` gate runs first on `ubuntu-latest`; the three build jobs hang off it and only ever append ([release.yml:84-86](../../.github/workflows/release.yml#L84-L86)).
 
 | Job | Runner | Produces |
@@ -131,7 +134,7 @@ Sources: [release.yml:114-118](../../.github/workflows/release.yml#L114-L118)
 
 The exe is signed **before** `ISCC` packages it, and the installer is signed again **after** packaging, so both the bundled binary and the setup wrapper carry valid Authenticode signatures ([release.yml:298-379](../../.github/workflows/release.yml#L298-L379)).
 
-Sources: [release.yml:54-704](../../.github/workflows/release.yml#L54-L704)
+Sources: [ci.yml:1-102](../../.github/workflows/ci.yml#L1-L102), [release.yml:54-704](../../.github/workflows/release.yml#L54-L704)
 <!-- END:AUTOGEN hark_13_release_packaging_workflow -->
 
 ---
@@ -171,13 +174,15 @@ Sources: [RELEASING.md:36-68](https://github.com/BoardPandas/Hark/blob/1c1738716
 # Kept in lockstep with package.json (the release source of truth): the built
 # binary reports this via env!("CARGO_PKG_VERSION"), and the update checker
 # compares it against GitHub release tags. release.yml fails if they drift.
-version = "0.14.1"
+version = "0.47.1"
 edition = "2021"
 rust-version = "1.97"
 license = "MIT"
 ```
 
-Sources: [Cargo.toml:19-27](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/Cargo.toml#L19-L27)
+The number above is the current documented snapshot, not a value to copy forward. A release change must bump `package.json` and the Cargo workspace together.
+
+Sources: [Cargo.toml:21-29](../../Cargo.toml#L21-L29)
 
 The release workflow enforces this at release time rather than trusting it was done at commit time: it reads `[workspace.package] version` out of `Cargo.toml` with a regex and throws if it disagrees with the tag (which must itself already match `package.json`) (`.github/workflows/release.yml:65-72`).
 

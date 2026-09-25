@@ -234,3 +234,96 @@ They should be fully regenerated on the next unscoped run.
 
 The "Highest-value next run" note above (`hark-hotkey` / `AUDIO_CAPTURE.md`)
 still stands and is unaffected by this run.
+
+---
+
+## Incremental Update — 2026-09-24 19:41 (0.47.1)
+
+- **Mode:** update (scoped agent-orientation refresh)
+- **Source baseline:** `784272cbb488d15fa278f737963380e3121538c7`
+- **Previous generated baseline:** `edda9d9df731374ab20faac8a9f2dc86c18ea8f3`
+- **Pages added:** 0
+- **Generated sections refreshed:** 32 across 8 pages
+
+### Outcomes
+
+- Added a root, tool-neutral `AGENTS.md` that explains the product, trust
+  hierarchy, current runtime pipeline, 15-crate workspace, hard invariants,
+  normal workflow, and verification commands.
+- Refreshed Overview, Architecture, Transcription, Audio Capture, Invocations,
+  Getting Started, Glossary, and Release/Packaging where v0.40-v0.47 had made
+  important claims false or incomplete.
+- Added a dependency-free documentation source-map guard, exposed as
+  `npm run check:docs` and run by CI with full Git history.
+- Updated `_toc.yaml` ownership for Gemini Live, gpt-transcribe, Linux hotkeys,
+  shortcut capture, the live-stream pump, the CI workflow, the tool-neutral
+  guide, and the single-instance crate.
+
+### Validation
+
+- `npm run check:docs`: PASS. 16 mapped pages checked against `784272c`; 21
+  working-tree paths and no silent mapped-source drift.
+- `npm run check:claude`: PASS. Approximately 4,164 always-on tokens across two
+  files; five scoped rules; rule and hook wiring functional.
+- `cargo fmt --all -- --check`: PASS.
+- `git diff --check`: PASS.
+- Structure and links: PASS. 82 AUTOGEN pairs balanced; all 82 generated TOC
+  section IDs matched their markers; four hand-written on-device sections were
+  intentionally marker-free; 452 relative links resolved.
+- Citations: PASS for 281 current-tree relative line citations; every target
+  existed and every line range was in bounds. Older pinned GitHub citations in
+  untouched sections were not repointed.
+- Mermaid: 14 blocks passed static opening checks. `mmdc` was not installed, so
+  no syntactic render validation was performed.
+
+### Known historical gaps retained
+
+The old-baseline audit found three pages whose mapped source changed without a
+full semantic refresh: `core/DATA_STORAGE.md`, `features/SPELLBOOK.md`, and
+`features/VOICE_CLEANUP.md`. They are intentionally carried as the next refresh
+queue. The new baseline and CI guard prevent additional silent drift; they do
+not retroactively certify those pages.
+
+The original init summary near the top of this file records a 13-crate/14-page
+snapshot. It is historical. The current TOC records 15 crates and 16 pages.
+
+---
+
+## Incremental Update — 2026-09-24 20:15 (0.47.1)
+
+- **Mode:** update (legacy-page refresh follow-up)
+- **Source baseline:** `784272cbb488d15fa278f737963380e3121538c7`
+- **Pages added:** 0
+- **Generated sections refreshed:** 18 across 3 pages
+
+### Outcomes
+
+- Regenerated `core/DATA_STORAGE.md` against the current store and app worker,
+  including migration 003, spoken-word accounting for invocations, and the
+  bounded storage shutdown path.
+- Regenerated `features/SPELLBOOK.md` against schema-v2 entries/aliases, the
+  Unicode-safe matcher, selection snapping, pipeline construction, and all
+  current provider vocabulary contracts.
+- Regenerated `features/VOICE_CLEANUP.md` against the 11 current voices,
+  provider resolution (including Gemini), pipeline skip/guard behavior,
+  fused Smart results, and auth-error sanitization.
+- Expanded `_toc.yaml` ownership so future changes to the migrations,
+  provider adapters, configuration, pipeline seams, or relevant UI code must
+  co-change the page they affect.
+- Closed the three-page legacy refresh queue recorded by the preceding run.
+
+### Validation
+
+- `npm run check:docs`: PASS. 16 mapped pages checked against `784272c`; 24
+  working-tree paths and no silent mapped-source drift.
+- `npm run check:claude`: PASS. Approximately 4,164 always-on tokens across two
+  files; five scoped rules; rule and hook wiring functional.
+- `cargo test -p hark-store -p hark-spellbook -p hark-voice`: PASS. 166 tests
+  passed; 0 failed. Compilation emitted two existing feature-gated `hark-stt`
+  warnings.
+- `git diff --check`: PASS.
+- Structure and links: PASS. 83 AUTOGEN pairs matched all 83 generated TOC
+  sections; 683 relative links resolved; 512 current-tree line citations
+  existed and were in bounds.
+- Mermaid: 14 blocks passed static opener checks. `mmdc` was unavailable, so
+  syntactic render validation was not performed.

@@ -4,14 +4,15 @@
 
 The following files were used as evidence for this page:
 
-- [crates/hark-app/src/main.rs:1-49](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/crates/hark-app/src/main.rs#L1-L49)
-- [crates/hark-app/src/app.rs:1-317](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/crates/hark-app/src/app.rs#L1-L317)
-- [crates/hark-app/src/pipeline.rs:1-374](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/crates/hark-app/src/pipeline.rs#L1-L374)
-- [crates/hark-pipeline/src/lib.rs:1-405](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/crates/hark-pipeline/src/lib.rs#L1-L405)
-- [crates/hark-pipeline/src/worker.rs:1-522](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/crates/hark-pipeline/src/worker.rs#L1-L522)
-- [crates/hark-pipeline/src/state.rs:1-189](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/crates/hark-pipeline/src/state.rs#L1-L189)
-- [crates/hark-pipeline/src/events.rs:1-89](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/crates/hark-pipeline/src/events.rs#L1-L89)
-- [crates/hark-pipeline/src/retry.rs:1-125](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/crates/hark-pipeline/src/retry.rs#L1-L125)
+- [crates/hark-app/src/main.rs](../../crates/hark-app/src/main.rs)
+- [crates/hark-app/src/app.rs](../../crates/hark-app/src/app.rs)
+- [crates/hark-app/src/pipeline.rs](../../crates/hark-app/src/pipeline.rs)
+- [crates/hark-pipeline/src/lib.rs](../../crates/hark-pipeline/src/lib.rs)
+- [crates/hark-pipeline/src/worker.rs](../../crates/hark-pipeline/src/worker.rs)
+- [crates/hark-pipeline/src/stream.rs](../../crates/hark-pipeline/src/stream.rs)
+- [crates/hark-pipeline/src/state.rs](../../crates/hark-pipeline/src/state.rs)
+- [crates/hark-pipeline/src/events.rs](../../crates/hark-pipeline/src/events.rs)
+- [crates/hark-pipeline/src/retry.rs](../../crates/hark-pipeline/src/retry.rs)
 
 </details>
 
@@ -24,35 +25,11 @@ The following files were used as evidence for this page:
 <!-- BEGIN:AUTOGEN hark_02_architecture_process_model -->
 ## Process and Threading Model
 
-Hark is a single process. The main thread owns the eframe event loop, the tray, and all egui painting; the entire dictation pipeline (hotkey hook, audio capture, STT, and injection) runs on worker threads behind channels, never touching the UI directly.
+Hark is one desktop process. The main thread owns eframe, egui, the tray, window state, and UI-side orchestration. Hotkey capture, audio capture, dictation, storage, update checks, and single-instance activation listening run behind channels on worker threads; the UI never performs provider I/O ([main.rs:1-10](../../crates/hark-app/src/main.rs#L1-L10), [app.rs:19-58](../../crates/hark-app/src/app.rs#L19-L58), [pipeline.rs:1-3](../../crates/hark-app/src/pipeline.rs#L1-L3)).
 
-`main()` initializes logging, keeps a console only in debug builds (`windows_subsystem = "windows"` applies to release builds only), and builds an `eframe::NativeOptions` window that starts hidden before handing control to `eframe::run_native`, which owns the main thread for the rest of the process's life (([main.rs:11](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/crates/hark-app/src/main.rs#L11)), ([main.rs:22-47](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/crates/hark-app/src/main.rs#L22-L47))).
+Startup acquires the single-instance guard, starts the root viewport hidden, and enters `eframe::run_native`. If another normal launch finds Hark running, it signals that instance to show its window and exits; updater and autostart launches deliberately stay silent ([main.rs:39-85](../../crates/hark-app/src/main.rs#L39-L85), [main.rs:87-123](../../crates/hark-app/src/main.rs#L87-L123)). `HarkApp::new` loads settings, opens storage, starts the pipeline, and starts the activation listener. The tray is created on the first event-loop callback so the macOS main-thread requirement is satisfied ([app.rs:61-143](../../crates/hark-app/src/app.rs#L61-L143), [app.rs:145-167](../../crates/hark-app/src/app.rs#L145-L167)).
 
-`HarkApp::new` runs inside eframe's creation callback, on that same main thread: it loads settings, opens the storage worker, and constructs `PipelineController`, which starts the worker-thread pipeline immediately unless the config failed to load (([app.rs:44-57](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/crates/hark-app/src/app.rs#L44-L57))). The tray is created lazily on the *first* `logic` callback rather than in `new`, specifically because only once the event loop is running is the main-thread guarantee (the hard macOS requirement) actually satisfied (([app.rs:116-138](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/crates/hark-app/src/app.rs#L116-L138))).
-
-Every frame, `eframe::App::logic` drains pipeline events, polls the updater, applies tray actions, and handles window-close, all main-thread work; `eframe::App::ui` handles painting separately:
-
-```rust
-fn logic(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-    self.ensure_tray(ctx);
-    self.pipeline.drain_events();
-    self.updater.poll();
-    self.handle_tray_actions(ctx);
-    self.handle_close(ctx);
-    self.show_recording_overlay(ctx);
-    if let Some(tray) = &mut self.tray {
-        tray.apply(
-            self.pipeline.status(),
-            &self.settings.hotkey.ptt_key,
-            self.settings.voice.default,
-        );
-    }
-}
-```
-
-(([app.rs:271-286](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/crates/hark-app/src/app.rs#L271-L286)))
-
-Field declaration order in `HarkApp` is load-bearing for shutdown: `pipeline` is declared before `storage` so it drops first, joining its worker threads (and thus its event pump, which holds a storage sender) before `StorageHandle::drop` joins the storage worker to flush the final write (([app.rs:21-25](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/crates/hark-app/src/app.rs#L21-L25)), ([app.rs:310-317](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/crates/hark-app/src/app.rs#L310-L317))).
+Field order is part of shutdown correctness: pipeline and listener handles are declared before the channels and storage handles they feed, so their bounded drops run first ([app.rs:19-58](../../crates/hark-app/src/app.rs#L19-L58)).
 
 ```mermaid
 graph TD
@@ -66,6 +43,7 @@ graph TD
         F["Pipeline Worker"]
         G["UI Event Pump"]
         H["Storage Worker"]
+        I["Update and activation workers"]
     end
     C -->|"start/stop"| F
     D -->|"ring buffer"| F
@@ -73,9 +51,10 @@ graph TD
     F -->|"PipelineEvent"| G
     G -->|"request_repaint"| A
     G -->|"StorageCmd"| H
+    I -->|"channels and repaint"| A
 ```
 
-Sources: [main.rs:11-47](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/crates/hark-app/src/main.rs#L11-L47), [app.rs:21-25](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/crates/hark-app/src/app.rs#L21-L25), [app.rs:44-138](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/crates/hark-app/src/app.rs#L44-L138), [app.rs:271-317](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/crates/hark-app/src/app.rs#L271-L317)
+Sources: [main.rs:39-123](../../crates/hark-app/src/main.rs#L39-L123), [app.rs:19-167](../../crates/hark-app/src/app.rs#L19-L167), [pipeline.rs:1-66](../../crates/hark-app/src/pipeline.rs#L1-L66)
 <!-- END:AUTOGEN hark_02_architecture_process_model -->
 
 ---
@@ -83,58 +62,40 @@ Sources: [main.rs:11-47](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd
 <!-- BEGIN:AUTOGEN hark_02_architecture_pipeline -->
 ## The Release-to-Inject Pipeline
 
-`hark_pipeline::run` builds the shared HTTP client and STT adapter, starts continuous audio capture, spawns the native hotkey listener, and spawns the one long-lived worker thread that turns a captured clip into injected text; the calling thread only blocks until these pieces are up (([lib.rs:220-278](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/crates/hark-pipeline/src/lib.rs#L220-L278))).
+`hark_pipeline::run` builds the shared blocking HTTP client, cleanup plan, batch STT adapter, optional live adapter, continuous capture, native hook, and long-lived worker. A local-primary configuration is keyless and does not construct a cloud adapter; cloud-backed modes resolve their secret before the hook starts ([lib.rs:432-541](../../crates/hark-pipeline/src/lib.rs#L432-L541)).
 
-The worker's main loop receives push-to-talk edges, advances the pure state machine, and on a completed press/release cycle runs `dictate`, which performs the whole release-to-inject sequence in one function: assemble the audio window, gate on silence/length, encode to WAV, transcribe (with at most one retry), run the spellbook correction pass, optionally run voice cleanup, run the spellbook pass again, and inject (([worker.rs:56-92](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/crates/hark-pipeline/src/worker.rs#L56-L92)), ([worker.rs:111-118](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/crates/hark-pipeline/src/worker.rs#L111-L118))):
+With Gemini Live, key-down opens a live session and pumps resampled PCM from the ring while the user is speaking. The live path is only an accelerator: failure to open, send, keep up, or finish drops back to the ordinary batch path because streaming reads rather than consumes the ring ([stream.rs:1-25](../../crates/hark-pipeline/src/stream.rs#L1-L25), [stream.rs:44-130](../../crates/hark-pipeline/src/stream.rs#L44-L130)). Other providers begin at key-up.
 
-```rust
-/// One full dictation: assemble -> gate -> encode -> transcribe -> inject.
-/// Always returns the post-dictation state (Idle via Injected or Aborted).
-/// Every exit reports its outcome on the events channel (best-effort).
-fn dictate(worker: &Worker, down_abs: u64, up_abs: u64, state: PipelineState) -> PipelineState {
-```
-
-(([worker.rs:111-114](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/crates/hark-pipeline/src/worker.rs#L111-L114)))
-
-Two connections are pre-warmed before the loop starts processing chord edges: the STT provider's base URL always, and the cleanup provider's base URL only when it differs from the STT host, so the first cleaned dictation also skips a cold TLS handshake (([worker.rs:59-66](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/crates/hark-pipeline/src/worker.rs#L59-L66)), ([worker.rs:94-109](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/crates/hark-pipeline/src/worker.rs#L94-L109))).
+After release the worker assembles and gates the same audio window, finalizes live STT or encodes WAV and runs batch/local STT, corrects the transcript, expands invocations, conditionally applies voice cleanup, injects the final text, and emits a history record. A replay after live failure consumes the same single retry budget as any batch retry ([worker.rs:324-532](../../crates/hark-pipeline/src/worker.rs#L324-L532)).
 
 ```mermaid
 sequenceDiagram
     participant User
     participant Hook as Hotkey Hook
     participant Worker as Pipeline Worker
-    participant STT as STT Provider
-    participant Dict as Spellbook Corrector
-    participant Voice as Voice Cleanup
+    participant STT as Live or batch STT
+    participant Text as Correct expand clean
     participant Inject as Text Injector
 
     User->>Hook: press chord
     Hook->>Worker: PttDown
-    activate Worker
+    Worker->>STT: open live session when supported
+    loop while held
+        Worker->>STT: stream PCM
+    end
     User->>Hook: release chord
     Hook->>Worker: PttUp
     Worker->>Worker: assemble_window
-    Worker->>STT: transcribe wav
-    activate STT
-    STT-->>Worker: Transcript
-    deactivate STT
-    Worker->>Dict: correct text
-    activate Dict
-    Dict-->>Worker: corrected text
-    deactivate Dict
-    Worker->>Voice: clean text optional
-    activate Voice
-    Voice-->>Worker: cleaned text
-    deactivate Voice
+    Worker->>STT: finish live or transcribe batch
+    STT-->>Worker: transcript
+    Worker->>Text: spellbook then invocation then optional cleanup
+    Text-->>Worker: final text
     Worker->>Inject: inject text
-    activate Inject
-    Inject-->>Worker: Ok
-    deactivate Inject
+    Inject-->>Worker: success
     Worker-->>User: text appears at cursor
-    deactivate Worker
 ```
 
-Sources: [lib.rs:220-278](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/crates/hark-pipeline/src/lib.rs#L220-L278), [worker.rs:56-118](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/crates/hark-pipeline/src/worker.rs#L56-L118), [worker.rs:94-109](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/crates/hark-pipeline/src/worker.rs#L94-L109)
+Sources: [lib.rs:432-541](../../crates/hark-pipeline/src/lib.rs#L432-L541), [worker.rs:170-228](../../crates/hark-pipeline/src/worker.rs#L170-L228), [worker.rs:324-532](../../crates/hark-pipeline/src/worker.rs#L324-L532), [stream.rs:1-148](../../crates/hark-pipeline/src/stream.rs#L1-L148)
 <!-- END:AUTOGEN hark_02_architecture_pipeline -->
 
 ---
@@ -142,36 +103,16 @@ Sources: [lib.rs:220-278](https://github.com/BoardPandas/Hark/blob/1c1738716fa4c
 <!-- BEGIN:AUTOGEN hark_02_architecture_state -->
 ## Pipeline State Machine
 
-The dictation cycle is modeled as a pure, total state machine with no I/O and no clocks: every `(state, event)` pair is defined, so a stray or reordered hook event can never panic the worker (([state.rs:1-13](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/crates/hark-pipeline/src/state.rs#L1-L13)), ([state.rs:46-49](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/crates/hark-pipeline/src/state.rs#L46-L49))).
-
-```rust
-pub fn advance(state: PipelineState, event: Event) -> (PipelineState, Action) {
-    use Event::*;
-    use PipelineState::*;
-    match (state, event) {
-        // The happy path.
-        (Idle, PttDown { at_abs }) => (Recording { down_abs: at_abs }, Action::None),
-        (Recording { down_abs }, PttUp { at_abs }) => (
-            Transcribing,
-            Action::Dictate {
-                down_abs,
-                up_abs: at_abs,
-            },
-        ),
-        (Transcribing, TranscriptReady) => (Injecting, Action::None),
-        (Injecting, Injected) => (Idle, Action::None),
-```
-
-(([state.rs:49-63](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/crates/hark-pipeline/src/state.rs#L49-L63)))
+The dictation cycle is a pure, total state machine: every `(state, event)` pair is defined, so duplicate, stray, or reordered hook events are inert rather than fatal ([state.rs:46-87](../../crates/hark-pipeline/src/state.rs#L46-L87)).
 
 | State | Meaning | Source |
 |---|---|---|
-| `Idle` | Listening; no chord held | ([state.rs:9](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/crates/hark-pipeline/src/state.rs#L9)) |
-| `Recording { down_abs }` | Chord held; capturing audio from the sample index the press was observed at | ([state.rs:10](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/crates/hark-pipeline/src/state.rs#L10)) |
-| `Transcribing` | Chord released; STT request in flight | ([state.rs:11](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/crates/hark-pipeline/src/state.rs#L11)) |
-| `Injecting` | Transcript received; injecting into the focused app | ([state.rs:12](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/crates/hark-pipeline/src/state.rs#L12)) |
+| `Idle` | Listening; no chord held | [state.rs:9](../../crates/hark-pipeline/src/state.rs#L9) |
+| `Recording { down_abs }` | Chord held; capture continues and live STT may be pumping | [state.rs:10](../../crates/hark-pipeline/src/state.rs#L10) |
+| `Transcribing` | Release observed; live finalization, local STT, or batch STT is running | [state.rs:11](../../crates/hark-pipeline/src/state.rs#L11) |
+| `Injecting` | Text is ready and injection is running | [state.rs:12](../../crates/hark-pipeline/src/state.rs#L12) |
 
-Every state can abort straight back to `Idle` on `Event::Aborted` (silence-gated, transcription failure, empty transcript, or injection failure), and a duplicate `PttDown` while already `Recording` keeps the *original* `down_abs`, not the new one, so the pre-roll window stays anchored to the real press (([state.rs:65-74](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/crates/hark-pipeline/src/state.rs#L65-L74))). New chord presses that arrive while `Transcribing` or `Injecting` is in flight are explicitly ignored rather than queued (([state.rs:78-79](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/crates/hark-pipeline/src/state.rs#L78-L79))).
+Every state aborts directly to `Idle`. A duplicate down edge preserves the original sample index, and presses arriving while transcription or injection is in flight are ignored rather than queued ([state.rs:65-86](../../crates/hark-pipeline/src/state.rs#L65-L86)).
 
 ```mermaid
 stateDiagram-v2
@@ -185,9 +126,9 @@ stateDiagram-v2
     Injecting --> Idle : Aborted
 ```
 
-The `events.rs` module defines the `PipelineEvent` payload the worker emits at the same points the state machine moves (`Recording`, `Processing`, `Injected`, `Failed`), plus the `DictationRecord` that flows to history and the `FailStage` labels used for the `Aborted` transitions (([events.rs:37-68](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/crates/hark-pipeline/src/events.rs#L37-L68))).
+`PipelineEvent` is an advisory UI protocol, not the state machine itself. It also reports local-model loading and shortcut interception, neither of which changes the dictation states ([events.rs:75-97](../../crates/hark-pipeline/src/events.rs#L75-L97)).
 
-Sources: [state.rs:1-88](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/crates/hark-pipeline/src/state.rs#L1-L88), [events.rs:37-68](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/crates/hark-pipeline/src/events.rs#L37-L68)
+Sources: [state.rs:1-88](../../crates/hark-pipeline/src/state.rs#L1-L88), [events.rs:75-97](../../crates/hark-pipeline/src/events.rs#L75-L97)
 <!-- END:AUTOGEN hark_02_architecture_state -->
 
 ---
@@ -195,42 +136,21 @@ Sources: [state.rs:1-88](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd
 <!-- BEGIN:AUTOGEN hark_02_architecture_events -->
 ## Events and UI Bridge
 
-The pipeline talks to the UI only through an advisory, non-blocking event channel; nothing about dictation behavior depends on whether anyone is listening on the other end (([events.rs:1-4](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/crates/hark-pipeline/src/events.rs#L1-L4))). `PipelineEvent` is deliberately small: `Recording`, `Processing`, `Injected(DictationRecord)`, and `Failed { stage, detail }` (([events.rs:56-68](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/crates/hark-pipeline/src/events.rs#L56-L68))). `DictationRecord` carries the actual transcript content and has no `Debug` impl on purpose, so it cannot leak into a log line via `{:?}` (([events.rs:6-35](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/crates/hark-pipeline/src/events.rs#L6-L35))).
-
-On the app side, `PipelineController` owns the UI-facing end of that channel and maps every `PipelineEvent` onto a `PipelineStatus` the footer renders, via the pure, independently-tested `next_status` function:
-
-```rust
-fn next_status(event: PipelineEvent) -> PipelineStatus {
-    match event {
-        PipelineEvent::Recording => PipelineStatus::Recording,
-        PipelineEvent::Processing => PipelineStatus::Processing,
-        PipelineEvent::Injected(_) => PipelineStatus::Idle,
-        PipelineEvent::Failed { stage, detail } => match stage {
-            FailStage::Gated | FailStage::EmptyTranscript => PipelineStatus::Idle,
-            FailStage::Audio | FailStage::Transcribe | FailStage::Inject => {
-                PipelineStatus::Errored {
-                    key_related: detail.to_ascii_lowercase().contains("key"),
-                    detail,
-                }
-            }
-        },
-    }
-}
-```
-
-(([pipeline.rs:159-180](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/crates/hark-app/src/pipeline.rs#L159-L180)))
+The pipeline sends best-effort events through a non-blocking channel. `DictationRecord` intentionally has no `Debug` implementation, preventing transcript content from entering logs through accidental debug formatting ([events.rs:1-40](../../crates/hark-pipeline/src/events.rs#L1-L40)).
 
 | `PipelineStatus` | Meaning | Source |
 |---|---|---|
-| `Idle` | Running, waiting for the chord | ([pipeline.rs:17](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/crates/hark-app/src/pipeline.rs#L17)) |
-| `Recording` | Chord held, capturing | ([pipeline.rs:19](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/crates/hark-app/src/pipeline.rs#L19)) |
-| `Processing` | Chord released, request in flight | ([pipeline.rs:21](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/crates/hark-app/src/pipeline.rs#L21)) |
-| `Errored { detail, key_related }` | Running, but the last dictation failed; sticky until the next dictation | ([pipeline.rs:23-24](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/crates/hark-app/src/pipeline.rs#L23-L24)) |
-| `Stopped { detail, key_related }` | Not running (no key, startup failure, or config error) | ([pipeline.rs:26](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/crates/hark-app/src/pipeline.rs#L26)) |
+| `Idle` | Running and waiting for the chord |
+| `Recording` | Chord held and capturing |
+| `Processing` | Release observed; STT and downstream work are running |
+| `LoadingModel` | The local model is loading for its first dictation |
+| `Hint` | A non-error outcome such as audio too quiet or an abandoned hold |
+| `Errored` | The last dictation failed; sticky until the next dictation |
+| `Stopped` | Pipeline is not running because startup or configuration failed |
 
-Delivery runs through a dedicated `hark-ui-event-pump` thread rather than directly: it forwards every event to the UI channel, tees `Injected` records to the storage thread, and calls `request_repaint()` per event, the sanctioned way to wake the egui event loop from another thread (([pipeline.rs:189-216](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/crates/hark-app/src/pipeline.rs#L189-L216))). `PipelineController::drain_events`, called every frame from `App::logic`, then applies `next_status` with a non-blocking `try_recv` loop, so an `Errored` status stands until it is naturally replaced by the next dictation's event (([pipeline.rs:144-155](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/crates/hark-app/src/pipeline.rs#L144-L155))).
+The event-pump thread forwards events, stores successful records, and requests an egui repaint. `PipelineController::drain_events` maps them to the statuses above. `ShortcutIntercepted` is advisory: it records a warning without stopping dictation or replacing the current status ([pipeline.rs:220-298](../../crates/hark-app/src/pipeline.rs#L220-L298), [pipeline.rs:300-338](../../crates/hark-app/src/pipeline.rs#L300-L338)).
 
-Sources: [events.rs:1-68](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/crates/hark-pipeline/src/events.rs#L1-L68), [pipeline.rs:11-27](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/crates/hark-app/src/pipeline.rs#L11-L27), [pipeline.rs:144-216](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/crates/hark-app/src/pipeline.rs#L144-L216)
+Sources: [events.rs:1-97](../../crates/hark-pipeline/src/events.rs#L1-L97), [pipeline.rs:12-39](../../crates/hark-app/src/pipeline.rs#L12-L39), [pipeline.rs:220-338](../../crates/hark-app/src/pipeline.rs#L220-L338)
 <!-- END:AUTOGEN hark_02_architecture_events -->
 
 ---
@@ -238,37 +158,18 @@ Sources: [events.rs:1-68](https://github.com/BoardPandas/Hark/blob/1c1738716fa4c
 <!-- BEGIN:AUTOGEN hark_02_architecture_retry -->
 ## Retry and Latency Discipline
 
-Latency is the product: the pipeline allows at most one retry per dictation, and only for failure classes where an immediate retry can plausibly succeed, timeouts and connect-class transport errors. A 4xx (bad key, rate limit) is never retried, since it will not improve in 200 ms and a 429 retry storm only worsens the limit (([retry.rs:1-6](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/crates/hark-pipeline/src/retry.rs#L1-L6))).
-
-```rust
-pub fn should_retry(error: &SttError) -> bool {
-    match error {
-        SttError::Timeout { .. } => true,
-        SttError::Http { detail, .. } => detail.starts_with(CONNECT_CLASS_PREFIX),
-        SttError::Auth { .. }
-        | SttError::RateLimited { .. }
-        | SttError::BadAudio(_)
-        | SttError::Provider { .. } => false,
-    }
-}
-```
-
-(([retry.rs:18-27](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/crates/hark-pipeline/src/retry.rs#L18-L27)))
+Latency is the product, so a dictation has one retry budget. Only timeouts and connect-class transport errors are eligible; authentication, rate limiting, bad audio, provider errors, and mid-request transport failures are not ([retry.rs:1-27](../../crates/hark-pipeline/src/retry.rs#L1-L27)).
 
 | `SttError` variant | Retried? | Why |
 |---|---|---|
-| `Timeout` | Yes | The request may not have reached the provider ([retry.rs:20](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/crates/hark-pipeline/src/retry.rs#L20)) |
-| `Http` (connect-class: DNS, refused, unreachable, TLS setup) | Yes | Prefixed `"connect failed"` by `hark-stt`'s transport mapping; a contract test pins this string ([retry.rs:13](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/crates/hark-pipeline/src/retry.rs#L13), [retry.rs:21](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/crates/hark-pipeline/src/retry.rs#L21)) |
-| `Http` (mid-body transport failure) | No | The request may have already reached the provider ([retry.rs:21](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/crates/hark-pipeline/src/retry.rs#L21)) |
-| `Auth` | No | A bad key will not fix itself in 200 ms ([retry.rs:22-25](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/crates/hark-pipeline/src/retry.rs#L22-L25)) |
-| `RateLimited` | No | Retrying immediately worsens the limit ([retry.rs:22-25](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/crates/hark-pipeline/src/retry.rs#L22-L25)) |
-| `BadAudio` / `Provider` | No | Not transient failure classes ([retry.rs:22-25](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/crates/hark-pipeline/src/retry.rs#L22-L25)) |
+| `Timeout` | Yes | The request may not have reached the provider |
+| `Http` with `connect failed` prefix | Yes | DNS, refused, unreachable, or TLS setup may be transient |
+| Other `Http` | No | The request may already have reached the provider |
+| `Auth`, `RateLimited`, `BadAudio`, `Provider` | No | An immediate replay cannot safely repair them |
 
-The retry itself is applied exactly once, wrapped tightly around the transcribe call in the worker: `transcribe_with_retry` calls the provider, and on a `should_retry`-eligible error logs a warning and calls it exactly one more time, there is no loop, so a third attempt is structurally impossible (([worker.rs:272-283](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/crates/hark-pipeline/src/worker.rs#L272-L283))).
+A failed live session may fall back to batch, but that replay consumes the one retry. The batch helper has no loop and can make at most one additional call ([worker.rs:417-448](../../crates/hark-pipeline/src/worker.rs#L417-L448), [worker.rs:730-746](../../crates/hark-pipeline/src/worker.rs#L730-L746)). The shared client preserves connections across dictations, and streaming uploads most audio before release when available ([lib.rs:432-445](../../crates/hark-pipeline/src/lib.rs#L432-L445), [stream.rs:138-148](../../crates/hark-pipeline/src/stream.rs#L138-L148)).
 
-This discipline is reinforced elsewhere in the pipeline: `hark_pipeline::run` builds one shared `reqwest::blocking::Client` for the whole process lifetime rather than per dictation, so keep-alive and TLS session resumption carry across requests (([lib.rs:231](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/crates/hark-pipeline/src/lib.rs#L231))), and history/stats writes happen only after the `Injected` event fires, off the release-to-inject hot path (([worker.rs:171-198](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/crates/hark-pipeline/src/worker.rs#L171-L198))).
-
-Sources: [retry.rs:1-27](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/crates/hark-pipeline/src/retry.rs#L1-L27), [worker.rs:171-198](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/crates/hark-pipeline/src/worker.rs#L171-L198), [worker.rs:272-283](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/crates/hark-pipeline/src/worker.rs#L272-L283)
+Sources: [retry.rs:1-27](../../crates/hark-pipeline/src/retry.rs#L1-L27), [worker.rs:417-448](../../crates/hark-pipeline/src/worker.rs#L417-L448), [worker.rs:730-746](../../crates/hark-pipeline/src/worker.rs#L730-L746), [stream.rs:138-148](../../crates/hark-pipeline/src/stream.rs#L138-L148)
 <!-- END:AUTOGEN hark_02_architecture_retry -->
 
 ---
@@ -276,31 +177,22 @@ Sources: [retry.rs:1-27](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd
 <!-- BEGIN:AUTOGEN hark_02_architecture_failure -->
 ## Failure Modes
 
-Every way a dictation can end without injecting is an explicit, named `FailStage`, carried on the `PipelineEvent::Failed` event alongside a detail string that is safe to display and safe to log (labels and summaries only, never key material or transcript content) (([events.rs:37-54](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/crates/hark-pipeline/src/events.rs#L37-L54))).
+Every non-injecting outcome has an explicit `FailStage`. Details are display-safe summaries; key material, raw audio, and transcript content remain absent from logs ([events.rs:42-73](../../crates/hark-pipeline/src/events.rs#L42-L73)).
 
 | `FailStage` | Trigger | User-visible surface |
 |---|---|---|
-| `Gated` | Clip too short or silent; no request sent | Informational: back to `Idle`, not an error banner ([pipeline.rs:169](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/crates/hark-app/src/pipeline.rs#L169)) |
-| `Audio` | Window assembly failed (ring buffer / resample error) | `Errored` status in the footer ([pipeline.rs:170-177](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/crates/hark-app/src/pipeline.rs#L170-L177)) |
-| `Transcribe` | STT request failed after the one eligible retry | `Errored`; `key_related` flips true if the detail mentions "key" ([pipeline.rs:170-177](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/crates/hark-app/src/pipeline.rs#L170-L177)) |
-| `EmptyTranscript` | Provider returned an empty transcript | Informational: back to `Idle`, not an error banner ([pipeline.rs:169](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/crates/hark-app/src/pipeline.rs#L169)) |
-| `Inject` | Injection into the focused app failed | `Errored` status in the footer ([pipeline.rs:170-177](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/crates/hark-app/src/pipeline.rs#L170-L177)) |
+| `GatedTooShort` | Tap or misfire | Return quietly to `Idle` |
+| `GatedTooQuiet` | No speech-level signal | Show a non-error microphone hint |
+| `Audio` | Window assembly or resampling failed | Show `Errored` |
+| `Transcribe` | STT failed after its retry budget | Show `Errored` |
+| `EmptyTranscript` | Provider returned no text | Return to `Idle` |
+| `Inject` | Focused-app injection failed | Show `Errored` |
+| `Abandoned` | Release was lost and the hold exceeded its maximum | Show a non-error hint |
+| `Internal` | A dictation panicked | Show `Errored`; keep the worker alive |
 
-Two other failure surfaces sit outside the per-dictation `FailStage` set. First, `PipelineState::advance` treats every unexpected `(state, event)` pair, a stray `PttUp` with no matching `PttDown`, a completion event arriving in the wrong stage, as inert rather than a panic, so a hook-thread race can never bring the worker down (([state.rs:46-49](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/crates/hark-pipeline/src/state.rs#L46-L49)), ([state.rs:65-87](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/crates/hark-pipeline/src/state.rs#L65-L87))). Second, `hark_pipeline::run` itself can fail to start at all (bad hotkey chord, capture device error, invalid provider config); that surfaces as a `PipelineError` to the caller rather than a pipeline event, and `PipelineController::start` maps it onto `PipelineStatus::Stopped` so the app keeps running with a visible cause instead of a dead pipeline (([lib.rs:29-39](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/crates/hark-pipeline/src/lib.rs#L29-L39)), ([pipeline.rs:117-123](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/crates/hark-app/src/pipeline.rs#L117-L123))).
+`dictate_guarded` catches per-dictation panics, emits `Internal`, and returns the state machine to `Idle` rather than killing the long-lived worker ([worker.rs:285-320](../../crates/hark-pipeline/src/worker.rs#L285-L320)). Startup errors are separate: `PipelineController::start` maps a bad key, bad provider configuration, or capture failure to `Stopped`, leaving the application usable ([pipeline.rs:120-176](../../crates/hark-app/src/pipeline.rs#L120-L176)). Pipeline drop uses bounded joins so a stuck request cannot hold application shutdown forever ([lib.rs:121-165](../../crates/hark-pipeline/src/lib.rs#L121-L165)).
 
-Within `dictate`, every exit path reports its outcome on the events channel before returning, using a shared closure so no failure branch can silently skip the report (([worker.rs:114-137](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/crates/hark-pipeline/src/worker.rs#L114-L137))):
-
-```rust
-let fail = |stage: FailStage, detail: String| {
-    let _ = worker.events.send(PipelineEvent::Failed { stage, detail });
-};
-```
-
-(([worker.rs:116-118](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/crates/hark-pipeline/src/worker.rs#L116-L118)))
-
-Because every send on the events channel is `let _ =` best-effort, a disconnected UI receiver degrades to a no-op rather than a panic or a block, verified directly against a dropped channel (([events.rs:80-87](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/crates/hark-pipeline/src/events.rs#L80-L87))).
-
-Sources: [events.rs:37-87](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/crates/hark-pipeline/src/events.rs#L37-L87), [state.rs:46-87](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/crates/hark-pipeline/src/state.rs#L46-L87), [lib.rs:29-39](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/crates/hark-pipeline/src/lib.rs#L29-L39), [pipeline.rs:117-180](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/crates/hark-app/src/pipeline.rs#L117-L180), [worker.rs:114-137](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/crates/hark-pipeline/src/worker.rs#L114-L137)
+Sources: [events.rs:42-97](../../crates/hark-pipeline/src/events.rs#L42-L97), [state.rs:46-87](../../crates/hark-pipeline/src/state.rs#L46-L87), [pipeline.rs:120-176](../../crates/hark-app/src/pipeline.rs#L120-L176), [worker.rs:285-320](../../crates/hark-pipeline/src/worker.rs#L285-L320), [lib.rs:121-165](../../crates/hark-pipeline/src/lib.rs#L121-L165)
 <!-- END:AUTOGEN hark_02_architecture_failure -->
 
 ---
