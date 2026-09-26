@@ -9,6 +9,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Added
 
 - Added a tool-neutral agent guide and a CI guard that reports mapped documentation pages when their source changes without a corresponding documentation update.
+- Added the approved plan for meeting transcription and the brief for its first Windows test build. The plan covers recording a Teams, Zoom or Meet call with no bot joining it, auto-detecting when a meeting starts, transcripts that label you and each other speaker, summaries and action items from your own AI key, a storage limit that deletes the oldest recordings' audio to make room, and exporting notes, transcripts and audio to share.
 
 ### Changed
 
