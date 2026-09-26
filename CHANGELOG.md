@@ -10,6 +10,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 - Added a tool-neutral agent guide and a CI guard that reports mapped documentation pages when their source changes without a corresponding documentation update.
 - Added the approved plan for meeting transcription and the brief for its first Windows test build. The plan covers recording a Teams, Zoom or Meet call with no bot joining it, auto-detecting when a meeting starts, transcripts that label you and each other speaker, summaries and action items from your own AI key, a storage limit that deletes the oldest recordings' audio to make room, and exporting notes, transcripts and audio to share.
+- Added the results of the first Windows test build for meeting transcription to the plan, with the brief for the next build step. Recording a meeting cost under half a percent of one CPU core and about 22 MB of memory over a full hour, and push-to-talk kept working throughout. Two decisions followed: Hark will capture the meeting app's own audio, so it works whichever speaker or headset the app plays through, and speaker labels will come from Deepgram using a separate key.
 
 ### Changed
 

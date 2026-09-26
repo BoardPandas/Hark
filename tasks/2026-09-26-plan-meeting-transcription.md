@@ -1,8 +1,11 @@
 # Plan — Meeting Transcription ("Hark Meetings")
 
 **Created:** 2026-09-26
-**Status:** APPROVED by the product owner on 2026-09-26, including D1–D9. Next: Foundation CP0.
-Handoff: `tasks/2026-09-26-handoff-meetings-cp0.md`.
+**Status:** APPROVED by the product owner on 2026-09-26, including D1–D9. **CP0 ran on 2026-09-26**
+(results in §5 Foundation). **After CP0 the product owner approved the D1 revision
+(per-process loopback in Core) and chose Deepgram for the D2 final pass (2026-09-26).** CP0 exit:
+GO. Next: Core step 1. Handoff: `tasks/2026-09-26-handoff-meetings-core1.md` (CP0's was
+`tasks/2026-09-26-handoff-meetings-cp0.md`).
 **Model:** Krisp AI Meeting Assistant (<https://krisp.ai/meeting-transcription/>,
 <https://help.krisp.ai/hc/en-us/articles/8214720684956-AI-Meeting-Assistant-overview>)
 
@@ -41,8 +44,8 @@ Push-to-talk dictation keeps working, unchanged, while a meeting is being record
 
 | # | Decision | Proposal | Status |
 |---|---|---|---|
-| D1 | Capture mechanism | OS loopback, two independent streams (mic, system). No virtual driver. | proposed |
-| D2 | Default transcription path | **Live:** rolling ~20–30 s chunks per channel through the existing `SttProvider`, so Me/Them lines appear during the call. **After stop:** if the provider is Deepgram, one full-file `multichannel=true&diarize=true&utterances=true` pass replaces the live Them lines with Speaker 1/2/3. | proposed |
+| D1 | Capture mechanism | OS loopback, two independent streams (mic, system). No virtual driver. **Revised after CP0 (approved 2026-09-26):** on Windows, "system" = **per-process loopback** (`AUDIOCLIENT_ACTIVATION_TYPE_PROCESS_LOOPBACK`, Win10 2004+), in Core rather than Polish. A detected meeting captures the **meeting app's process tree** (include mode); a manual start captures **everything except Hark** (exclude mode). Endpoint loopback of the default render device, with QPC gap padding, stays only as the fallback for Windows builds older than 19041. Evidence in §5 Foundation: endpoint loopback misses audio when the meeting app renders to the communications device, which differs from the default device on the product owner's own machine. | **locked 2026-09-26** (CP0 revision approved) |
+| D2 | Default transcription path | **Live:** rolling ~20–30 s chunks per channel through the existing `SttProvider`, so Me/Them lines appear during the call. **After stop:** if the provider is Deepgram, one full-file `multichannel=true&diarize=true&utterances=true` pass replaces the live Them lines with Speaker 1/2/3. **CP0 note:** the product owner's configured provider is **Gemini**, and no Deepgram key is stored in the keychain (one exists in Doppler `hark/prd`). **2026-09-26: the product owner chose a Gemini final pass.** CP0 then measured both on the same synthetic meetings (§5 Foundation, row 4): Gemini works **per track in 5-min windows**, but its Speaker N numbering does not survive across windows reliably; Deepgram is exact in one request. **With that evidence the product owner chose Deepgram for the final pass (2026-09-26).** The Deepgram key is separate from the dictation provider: Settings → Meetings stores it under keychain account `deepgram`, and a Gemini dictation user keeps Gemini for PTT. No Deepgram key = no final pass; the live Me/Them transcript stands. Deepgram cost is ~$0.52/h, not $0.31 (§3.1). | **locked 2026-09-26: Deepgram** |
 | D3 | Raw audio on disk | **Keep recordings under a circular storage cap** set in Settings (default **5 GB**). When a new recording would push the total over the cap, delete the **oldest recordings' audio** until it fits. Transcripts/notes stay. A cap of **0 = don't keep audio**, meaning audio is deleted as soon as the transcript is saved. Full rules in §4.9. | **locked 2026-09-26** |
 | D4 | Platform order | **Windows first, macOS once Windows is good; Linux deferred** (parity is not a goal for now). macOS needs a signed build + TCC key and a real-Mac spike. Meeting mode does *not* need the unimplemented macOS hotkey seam, so macOS can get Meetings before PTT. Linux must still **compile** (release CI builds .deb/.rpm/PKGBUILD): meeting capture and detection return `UnsupportedPlatform` there, the same way `hark-hotkey` does on macOS, and the UI hides Meetings. | **locked 2026-09-26** |
 | D5 | Auto-detect in MVP? | **Yes, it ships in Core.** Mode `off / ask / auto`, default **ask**, with auto-stop. Full rules in §4.8. | **locked 2026-09-26** |
@@ -58,10 +61,10 @@ them on the vendors' pricing pages before quoting them in the UI.**
 
 | Provider / mode | ~Cost | Diarization | Live | Length limit | Verdict |
 |---|---|---|---|---|---|
-| Deepgram pre-recorded nova-3, multichannel | ~$0.31 | native, no surcharge on batch | no | 2 GB file | **Default final pass** |
+| Deepgram pre-recorded nova-3, multichannel | **~$0.52** (re-checked 2026-09-26: $0.0043/min PAYG, $0.0036 Growth; each channel bills as its own minutes, so 60 min stereo = 120 min; the deepgram.com FAQ answer did not render, so the per-channel rule is corroborated by third parties, not quoted) | native, **included at no charge** (deepgram.com/pricing); `smart_format` included; `keyterm` +$0.0013/min | no | 2 GB file; 10 min processing timeout (504) | **Default final pass** |
 | Deepgram / any adapter, rolling chunks | ~2× per-minute rate | none (Me/Them from channel) | yes (~30 s lag) | per chunk | **Default live path** |
 | On-device Parakeet, rolling chunks | $0 | none | yes | per chunk | Works today; CPU cost to measure in CP1 |
-| Gemini Files API, prompted diarization | < $0.10 | prompted, weaker | no | 9.5 h | Polish: "cheap BYOK" final pass |
+| Gemini Files API, prompted diarization | **~$0.20–0.25** (measured **25 audio tokens/s**, not the documented 32; two tracks = ~180k tokens/h at ~$1/M for `gemini-3.6-flash` audio, a secondary-source rate, plus 0.7–2.6k thinking tokens per request) | prompted: exact within a 5-min window, **unstable across windows** (CP0) | no | 9.5 h documented, but **one request over 30 min stops early** (CP0) | Not in Core (D2 chose Deepgram). If revisited: per track, 5-min windows, labels best-effort (§5 CP0 row 4) |
 | AssemblyAI Universal-Streaming | ~$0.42 | native, live | yes | session | Later: only if true streaming is wanted |
 | OpenAI gpt-4o-transcribe-diarize | $1–2 | yes, but identity breaks across chunks | — | **~1400 s hard cap** | **Do not build on it** |
 | Gemini Live / 3.5 Transcribe Live | — | prompted | yes | 10–15 min per session | Needs stitching; not for meetings |
@@ -87,12 +90,18 @@ Stop ─► finalize spool ─► [Deepgram multichannel+diarize pass] ─► se
 ### 4.1 Capture: `hark-audio`
 
 - **New `loopback` module per OS**, beside `capture_win.rs`:
-  - **Windows:** cpal 0.18.2 (the version already locked) opens WASAPI loopback when
-    `build_input_stream` is called on an *output* device. Take the format from
-    `default_output_config()`, because `supports_input()` is false there. Polish: per-process
-    loopback (`AUDIOCLIENT_ACTIVATION_TYPE_PROCESS_LOOPBACK`, Win10 2004+) through the `windows`
-    crate `hark-audio` **already depends on** (`Win32_Media_Audio`). That captures only the
-    meeting app, not YouTube or notification sounds.
+  - **Windows (revised by CP0, D1 approved 2026-09-26):** **per-process loopback**
+    (`AUDIOCLIENT_ACTIVATION_TYPE_PROCESS_LOOPBACK`, Win10 2004+) through the `windows` crate
+    `hark-audio` **already depends on**, plus `windows-core` for `#[implement]` (already in the
+    tree transitively). `ActivateAudioInterfaceAsync(VIRTUAL_AUDIO_DEVICE_PROCESS_LOOPBACK)` →
+    `IAudioClient::Initialize(LOOPBACK | EVENTCALLBACK | AUTOCONVERTPCM | SRC_DEFAULT_QUALITY)`
+    with a **16 kHz mono i16** format: Windows resamples, so this channel needs no rubato.
+    Include mode targets the meeting app's root PID (its tree covers WebView2 / browser audio
+    children); exclude mode targets Hark's own PID. CP0 proved it captures on every endpoint,
+    delivers packets continuously through silence, and hears only the targeted tree.
+    **Fallback (< 19041):** cpal 0.18.2 endpoint loopback (`build_input_stream` on the *output*
+    device with `default_output_config()`; `supports_input()` is false there) plus QPC gap
+    padding, both proven in CP0.
   - **macOS:** `AudioHardwareCreateProcessTap` + private aggregate device via `objc2-core-audio`,
     macOS 14.4+. Needs `NSAudioCaptureUsageDescription` in Info.plist and a stably signed binary.
     ScreenCaptureKit is the fallback, but it carries the heavier screen-recording prompt.
@@ -193,6 +202,10 @@ Stop ─► finalize spool ─► [Deepgram multichannel+diarize pass] ─► se
   your 6 oldest meetings. Transcripts stay.") and only acts on confirm.
 - **Settings → Meetings → Detection:** the off/ask/auto choice, auto-stop delay, and the
   editable app list.
+- **Settings → Meetings → Speaker labels (D2):** a Deepgram key field (stored in the keychain
+  under account `deepgram`, independent of the dictation provider), a key status line, and the
+  cost note ("about $0.52 per meeting hour"). Without a key the meeting keeps the live Me/Them
+  transcript and the UI says why there are no Speaker 1/2/3 labels.
 - Meeting detail shows "Audio removed to stay under your 5 GB cap" once a recording is evicted.
 
 ### 4.8 Auto-detect (Core)
@@ -205,7 +218,11 @@ a per-OS `MicUsers` probe, so the logic is unit-tested on fixture snapshots with
   Packaged apps are direct subkeys named by package family (new Teams = `MSTeams_8wekyb3d8bbwe`).
   Desktop apps sit under `NonPackaged\<exe path with # for \>`. A value of `LastUsedTimeStart > 0`
   with `LastUsedTimeStop == 0` means the mic is in use now. Read it with the `windows` crate
-  (`Win32_System_Registry`) on the detector thread. It is cheap and needs no permission.
+  (`Win32_System_Registry`) on the detector thread. It is cheap (0.6 ms in CP0) and needs no
+  permission. Match desktop apps on the **exe file name**: their paths carry version folders.
+  With the D1 revision, a match must also resolve the app's **root PID** (the process whose
+  parent is not the same exe) as the per-process loopback target. For packaged Teams that
+  means `ms-teams.exe`.
 - **macOS 14+ (macOS phase):** `kAudioHardwarePropertyProcessObjectList` + per-process `IsRunningInput`,
   **polled**, because per-process listeners are reported not to fire reliably.
 
@@ -363,8 +380,30 @@ themselves** (email, Teams, Slack, OneDrive). Rendering and encoding live in
    at call end, and that Hark's own entry shows as permanently in use.
 Exit: numbers recorded here; go/no-go on D1–D3. *Estimate: one session, 2–3 h.*
 
+#### CP0 results (2026-09-26, Windows 11 26200, Shure MV7+ mic)
+
+Spike code: branch `spike/meetings-cp0`, `crates/hark-audio/examples/{meeting_capture,
+consent_dump,mp3_smoke,process_loopback}.rs` and `crates/hark-stt/examples/deepgram_multichannel.rs`.
+
+| # | Question | Result |
+|---|---|---|
+| 1–2 | 60 min dual capture: CPU, memory, drift | **Clean full hour:** comms mic + a second stream on the same mic + endpoint loopback in one process, **0 overruns, 0 fatal errors**, 1 start-up discontinuity per stream. **CPU 0.40% of one core on average** (0.01% of the 32-thread box), **working set 19.5–21.7 MB, flat**. **Mic clock vs QPC: +0.11 s over the hour (~31 ppm), linear** (+0.01 s at 10 min, +0.05 s at 30, +0.09 s at 50): irrelevant for transcript ordering, worth knowing for AEC. Loopback: 8 silent gaps totalling 573 s, each recovered from the QPC timestamps. |
+| 2 | Does endpoint loopback send packets during silence? | **No. Zero callbacks while nothing renders** (0 packets for the first 16 s; exactly 8.09 s delivered for an 8 s tone; nothing after). Each resume also raises a `DATA_DISCONTINUITY`, which cpal reports as `Xrun`. cpal's capture timestamp is absolute QPC (shared by every stream), so gaps are **exactly recoverable**: padding by timestamp put two tones 15.37 s apart in the file vs 15.32 s by wall clock, and made `them.wav` end within 0.1 s of `me.wav`. |
+| 2b | *(found in CP0)* Which device does a meeting app render to? | **The default render device and the default communications render device differ on this machine** (Realtek vs the LG monitor). A meeting app that renders to the communications device is **invisible** to endpoint loopback of the default device. |
+| 2c | *(found in CP0)* Per-process loopback | **Captures the target tree on any endpoint** (tone on the non-default LG device captured at the expected −30 dBFS). **Continuous packets through silence** (100/s, 16 000 frames/s, never a 100 ms wait without one), so no gap padding. **Isolates the tree**: music playing elsewhere was absent. **Exclude mode** ("everything but Hark") also works across endpoints (another process's LG tone detected at 440 Hz). Activation 2 ms. 16 kHz mono i16 delivered directly via `AUTOCONVERTPCM`. → D1 revision. |
+| 3 | PTT coexistence | **Works.** Hark (its own mic stream open since 14:20 UTC) injected two dictations at 15:26 and 15:28 UTC while the 60 min spike held the same mic, with release-to-inject 780 / 752 ms (normal for Gemini Live here). In-process, a second stream on the same mic delivered 100% as well. |
+| 4 | Final pass: Deepgram vs Gemini | Synthetic meetings from Windows TTS (no real speech): a 63 s, 10-turn script and a **30 min, 206-turn** meeting with long pauses (Me = one voice, Them = two voices), scored against the known script (`target/cp0/tts/eval.py`). **Deepgram** (key from Doppler `hark/prd`), one multichannel+diarize request: 63 s perfect, timestamps ±0.2 s, 1.3 s; **30 min: 100% of turns, 0 Me/Them errors, remote-speaker labels consistent 132/132, 6.7 s including the 115 MB upload.** It diarizes channel 0 too (split "Me" in two), so ignore `speaker` on channel 0. **Gemini `gemini-3.6-flash`**, Interactions API: a **stereo file is merged to mono** (3/10 turns mislabeled Me/Them). **One 30-min request fails:** 5% of turns (it stopped after 2 min); a strict "transcribe everything" prompt gets 63–71% with ~45% Me/Them wrong, in 75–100 s. **Two tracks in one 5-min request:** 1 window in 3 failed (79%, 12 Me/Them errors). **One track per request, 5-min windows: 100% of turns, 100% label consistency within the window, median start error −0.2 to −0.4 s, 17–24 s per window.** **Across windows** the numbering swaps (window at 25 min: Speaker 1/2 reversed vs the first window). Short reference clips of known voices fixed that window (24/24) but made another worse (15/20). Also seen: one invented end time (102 s in a 63 s file), so clamp to the audio length. Files API: resumable upload (start, then `upload, finalize`), MP3 ACTIVE immediately (7.2 MB in ~1.3 s), referenced as `{type:"audio", uri, mime_type:"audio/mp3"}`, DELETE returns 200. |
+| 5 | ConsentStore | Read in-process in **0.6 ms** (29 entries). New Teams **confirmed** under `MSTeams_8wekyb3d8bbwe` (history from a past call). **Hark.exe reads permanently in use** (`LastUsedTimeStop = 0`), as predicted. The flag flips **within the 1 s poll** on both start and stop, **including when the process is killed**. Desktop apps' paths contain **version folders** (`Discord\app-1.0.9259`, `slack\app-4.52.162`, `Krisp\app-3.16.8`), so matching must use the exe file name. Krisp appears when it sits in the audio path. **Still to do with a live call:** Zoom, Meet in Chrome/Edge, and the Teams flip at call end. |
+| 6 | MP3 (LAME via `mp3lame-encoder`) | Resolves to **0.2.5** (sys 0.1.11, LAME 3.100). Release build of LAME + symphonia **~15 s** on MSVC, no WDAC trouble. **1 h stereo 64 kbps = 28.8 MB, encoded in 5.1 s (706× realtime)**, decoded in 1.1 s; **1 h mono 32 kbps = 14.4 MB in 2.7 s**. `STEREO` keeps the sides **bit-exact apart** (other side digital silence); `JOINT_STEREO` leaks at −96 dBFS. Decoded length is ~0.1 s short with gapless trimming, inside the ±1 s check. Windows CI toolchain not exercised (the spike branch is not pushed). |
+
+**Go/no-go:** **GO** on D1 (with the per-process revision), D3 (spool sizes and the MP3 archive
+behave as planned) and D9. **D2:** Gemini is workable only as **one track per request, in
+~5-min windows** (Me/Them exact by construction, transcript complete), with Speaker N within Them
+**best-effort across windows**. Deepgram is exact and simpler (one request). **Product owner
+chose Deepgram (2026-09-26).**
+
 ### Core: MVP on Windows
-1. `hark-audio` loopback + spool; `hark-meeting` state machine + chunker + merge (unit tests on synthetic PCM).
+1. `hark-audio` per-process loopback (+ endpoint fallback with QPC gap padding) + spool; `hark-meeting` state machine + chunker + merge (unit tests on synthetic PCM).
 2. `hark-meeting` detector (§4.8) + storage cap (§4.9), both pure-logic first with unit tests.
 3. `hark-stt` `Segment` + Deepgram `MeetingTranscriber`.
 4. `hark-store` migration 004; `hark-config` `[meeting]`.
@@ -378,7 +417,7 @@ Exit: numbers recorded here; go/no-go on D1–D3. *Estimate: one session, 2–3 
 under 1 (it reuses the sharing encoder).*
 
 ### Polish
-Per-process loopback, AEC bake-off, speaker rename + FTS search, Gemini Files final pass,
+AEC bake-off, speaker rename + FTS search, Gemini Files final pass for users without a Deepgram key (per track, 5-min windows; see CP0 row 4),
 more share formats (`.srt`/`.vtt` captions to pair with the audio, `.docx`), export an excerpt
 (a selected range of transcript lines + the matching audio), the Windows share sheet
 (`IDataTransferManagerInterop::ShowShareUIForWindow`),
@@ -428,7 +467,8 @@ Not scheduled. The §4.1 notes are kept so it can be picked up later without re-
 
 | Risk | Mitigation |
 |---|---|
-| WASAPI loopback delivers **no packets while nothing is rendering**, so the Them timeline silently compresses | Pad gaps from the device position / wall clock. Prove it in CP0. |
+| WASAPI loopback delivers **no packets while nothing is rendering**, so the Them timeline silently compresses | **Confirmed in CP0.** Per-process loopback does not have the problem (continuous packets). The endpoint fallback pads gaps from cpal's QPC capture timestamps (proven exact in CP0). |
+| **Meeting app renders to a device the loopback is not on** (communications vs default render device; found in CP0 on the product owner's machine) | Per-process loopback is endpoint-independent (D1 revision). The endpoint fallback would have to open every active render endpoint. |
 | Mic bleed duplicates remote speech into Me | Headphone hint (Core), AEC (Polish), dedupe only as a last resort |
 | Recording-consent law | First-run notice, persistent recording indicator, optional announce line |
 | Raw audio on disk is a new privacy surface (D3) | User-set cap, `0` = don't keep; data dir only; never logged; documented |
@@ -473,3 +513,41 @@ Not scheduled. The §4.1 notes are kept so it can be picked up later without re-
 - LL-G `reqwest multipart streams mask transport errors`: applies to the large final-pass upload.
 - Route to LL-G after CP0: WASAPI COM apartment for loopback, loopback silence gaps, the macOS
   tap silent failure, and the ConsentStore packaged vs non-packaged paths.
+
+**Learned in CP0 (2026-09-26):**
+- **Endpoint loopback goes completely silent, not "silent packets"**, while nothing renders:
+  cpal waits on the WASAPI event with `INFINITE`, so the callback simply stops. Every resume
+  raises `DATA_DISCONTINUITY` (a cpal `Xrun`): expected, never an error. cpal also ignores
+  `AUDCLNT_BUFFERFLAGS_SILENT`.
+- **cpal's WASAPI capture timestamp is absolute QPC** (`u64QPCPosition` in 100 ns → ns), the
+  same clock for every stream in the process. That makes cross-stream alignment and gap padding
+  exact: pad to `(capture_ns − session_t0_ns) × rate`.
+- **Default render ≠ communications render on real machines.** Endpoint loopback of the default
+  device can miss the meeting entirely. Per-process loopback does not care which endpoint.
+- **Per-process loopback delivers packets continuously** (no gaps), converts to 16 kHz mono i16
+  itself with `AUTOCONVERTPCM`, and `GetMixFormat` is unsupported on its virtual device (pass a
+  format). Exclude mode is endpoint-independent too.
+- **windows-rs 0.62 gives `PROPVARIANT` a `Drop` that calls `PropVariantClear`** (in
+  `extensions/Win32/System/StructuredStorage.rs`). A `VT_BLOB` pointing at Rust memory (the
+  process-loopback activation params) gets `CoTaskMemFree`d at scope exit and **the process dies
+  with no message** (bash exit 127). Wrap it in `ManuallyDrop`.
+- **`mp3lame-encoder`'s `encode_to_vec` / `flush_to_vec` do not reserve.** They pass the Vec's
+  spare capacity, and **LAME treats an output size of 0 as unbounded**, so an empty Vec means a
+  heap overflow (access violation). Reserve `max_required_buffer_size(n)` before every encode
+  and 7200 bytes before flush.
+- ConsentStore desktop paths carry **version folders** (Discord, Slack, Krisp, Claude): match
+  `detect_apps` on the exe file name. The flag clears within 1 s even when the process is killed.
+- LAME `JOINT_STEREO` leakage measured at −96 dBFS on a pure tone, which is inaudible but not
+  zero. `STEREO` is exact and costs nothing, so the archive keeps `STEREO`.
+- **Gemini merges multi-channel audio to mono** (documented, and confirmed: 3/10 turns
+  mislabeled). Me vs Them must come from sending **each track separately**, never from the model.
+- **Gemini stops early on long audio even with a complete-looking JSON reply**: 30 min returned
+  2 min of transcript and no error. Validate coverage (last segment end vs audio length, and
+  words per minute) and chunk to ~5-min windows. Two tracks in one request also hurts.
+- **Gemini speaker numbers are per request.** Linking speakers across windows needs overlap
+  matching or reference clips, and reference clips are not reliable (one window fixed, one broken).
+- Gemini bills **25 audio tokens/s** in practice (1581 tokens for 63.2 s), not the documented 32.
+- The Gemini Files API accepts MP3 and marks it ACTIVE at once; reference it in Interactions
+  `input[]` as `{type:"audio", uri, mime_type}`. Delete after use (48 h retention otherwise).
+- A 30-min stereo WAV (115 MB) uploads and transcribes on Deepgram in 6.7 s total: the
+  2 GB limit and upload time are non-issues for an hour-long meeting.

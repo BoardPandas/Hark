@@ -1,5 +1,8 @@
 # Handoff: Meetings feature, Foundation CP0 (Windows capture spike)
 
+> **Done 2026-09-26.** Results are in the plan's §5 Foundation. Next session: load
+> `tasks/2026-09-26-handoff-meetings-core1.md` instead.
+
 **Date:** 2026-09-26. Load this as the only starting context for the next session.
 **Canonical plan:** `tasks/2026-09-26-plan-meeting-transcription.md`. It was APPROVED on
 2026-09-26 with decisions D1–D9 locked. Read its §3 (decisions), §4.1 (capture), §4.8
