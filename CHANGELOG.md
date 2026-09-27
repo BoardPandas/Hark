@@ -22,6 +22,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   - **Storage:** recordings are compressed to about 29 MB an hour and kept under a storage limit (5 GB by default). When the limit is reached, the oldest meetings lose their audio first; transcripts and notes are never deleted.
   - **Consent:** the first time, Hark reminds you that some places require everyone's consent to record a call.
 
+### Fixed
+
+- The Linux and macOS builds of 0.50.0 failed to compile: three pieces of the new meeting code were only used on Windows and tripped the strict build checks elsewhere. Meeting notes stay Windows-only for now; the other platforms build as before.
+
 ### Changed
 
 - The documentation drift check no longer fails on a commit whose only change to `Cargo.toml` or `package.json` is the release-version bump that every commit makes. Before, main's CI went red on every bump unless someone made a cosmetic doc edit. Any other change to those files is still checked, and a test in CI pins the exemption to the version line.

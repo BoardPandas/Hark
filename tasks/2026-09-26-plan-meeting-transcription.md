@@ -607,6 +607,12 @@ Not scheduled. The §4.1 notes are kept so it can be picked up later without re-
 - `cargo clippy -p hark-stt --all-targets` alone fails on unused Gemini Live items because the
   `live` feature is off in that invocation; the workspace lint (what CI runs) enables it and is
   clean. Lint at the workspace level.
+- **0.50.0 broke the Linux and macOS CI builds**: `hark-app`'s non-Windows `cfg` paths (a Windows-only
+  constant, a tray field only the native surface reads, a `return` that became needless) were
+  never linted locally, because WSL had no GTK dev libraries. WSL now has CI's full package list
+  (`libgtk-3-dev libayatana-appindicator3-dev libxdo-dev libxkbcommon-dev libx11-dev cmake clang`),
+  so `cargo clippy --workspace --all-targets` there is the pre-push check for anything touching
+  `hark-app`.
 - Still unverified on hardware: a real Teams/Zoom/Meet call end to end (detection → per-process
   loopback of the app's tree → live lines → Deepgram labels → notes → archive), the prompt
   window's placement/focus behaviour, and rfd's dialog from a worker thread.

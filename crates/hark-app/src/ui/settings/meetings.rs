@@ -360,19 +360,22 @@ fn open_meetings_folder() {
     };
     if let Err(e) = std::fs::create_dir_all(&dir) {
         log::warn!("cannot create the meetings folder: {e}");
-        return;
+    } else {
+        #[cfg(windows)]
+        open_in_explorer(&dir);
     }
-    #[cfg(windows)]
+}
+
+#[cfg(windows)]
+fn open_in_explorer(dir: &std::path::Path) {
+    use std::os::windows::process::CommandExt;
+    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+    if let Err(e) = std::process::Command::new("explorer.exe")
+        .arg(dir)
+        .creation_flags(CREATE_NO_WINDOW)
+        .spawn()
     {
-        use std::os::windows::process::CommandExt;
-        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-        if let Err(e) = std::process::Command::new("explorer.exe")
-            .arg(&dir)
-            .creation_flags(CREATE_NO_WINDOW)
-            .spawn()
-        {
-            log::warn!("cannot open the meetings folder: {e}");
-        }
+        log::warn!("cannot open the meetings folder: {e}");
     }
 }
 

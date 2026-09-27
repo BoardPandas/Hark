@@ -21,6 +21,7 @@ const SIZE: egui::Vec2 = egui::vec2(360.0, 124.0);
 /// Plan §4.7: a prompt nobody answers goes away on its own.
 const TIMEOUT: Duration = Duration::from_secs(30);
 /// Distance from the work area's bottom-right corner, in logical points.
+#[cfg(windows)]
 const MARGIN: f32 = 16.0;
 
 /// What the prompt asked the app to do.
