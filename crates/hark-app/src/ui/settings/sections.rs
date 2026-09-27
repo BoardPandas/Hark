@@ -2,6 +2,8 @@
 //! so moving between sections never discards a field or re-seeds its buffer.
 
 use super::{capture, cleanup, form, hotkey, local, preferences, updates, SettingsPage};
+use crate::meeting::MeetingController;
+use crate::storage::StorageHandle;
 use crate::{pipeline::PipelineController, theme, update::Updater};
 use egui::{RichText, Ui};
 use hark_config::Settings;
@@ -13,17 +15,19 @@ pub enum Section {
     Dictation,
     Audio,
     OnDevice,
+    Meetings,
     Behavior,
     Privacy,
     Updates,
 }
 
 impl Section {
-    pub const ALL: [Self; 7] = [
+    pub const ALL: [Self; 8] = [
         Self::General,
         Self::Dictation,
         Self::Audio,
         Self::OnDevice,
+        Self::Meetings,
         Self::Behavior,
         Self::Privacy,
         Self::Updates,
@@ -35,6 +39,7 @@ impl Section {
             Self::Dictation => "Dictation",
             Self::Audio => "Audio & shortcut",
             Self::OnDevice => "On-device",
+            Self::Meetings => "Meetings",
             Self::Behavior => "Behavior",
             Self::Privacy => "Privacy",
             Self::Updates => "Updates",
@@ -47,6 +52,7 @@ impl Section {
             Self::Dictation => theme::icons::WAVEFORM,
             Self::Audio => theme::icons::MICROPHONE,
             Self::OnDevice => theme::icons::WAVEFORM,
+            Self::Meetings => theme::icons::CLOCK,
             Self::Behavior => theme::icons::GEAR,
             Self::Privacy => theme::icons::KEY,
             Self::Updates => theme::icons::ARROW_UP,
@@ -67,6 +73,10 @@ impl SettingsPage {
     pub(super) fn navigation(&mut self, ui: &mut Ui, pipeline: &mut PipelineController) {
         let previous = self.section;
         for section in Section::ALL {
+            // Meetings exist on Windows only for now (D4): no dead section.
+            if section == Section::Meetings && !hark_pipeline::meeting::meetings_supported() {
+                continue;
+            }
             let label = theme::icon_label_job(ui.style(), section.icon(), section.label());
             if theme::nav_button(ui, label, self.section == section).clicked() {
                 self.section = section;
@@ -83,6 +93,8 @@ impl SettingsPage {
         saved: &mut Settings,
         pipeline: &mut PipelineController,
         updater: &mut Updater,
+        meetings: &MeetingController,
+        storage: Option<&StorageHandle>,
     ) {
         egui::ScrollArea::vertical()
             .id_salt(("settings-section", self.section))
@@ -103,6 +115,14 @@ impl SettingsPage {
                         Section::OnDevice => {
                             local::section(ui, &mut self.draft, &mut self.download)
                         }
+                        Section::Meetings => self.meetings.show(
+                            ui,
+                            &mut self.draft,
+                            saved,
+                            &self.mic_devices,
+                            meetings,
+                            storage,
+                        ),
                         Section::Behavior => {
                             theme::card(ui, |ui| {
                                 preferences::behavior_section(ui, &mut self.draft)

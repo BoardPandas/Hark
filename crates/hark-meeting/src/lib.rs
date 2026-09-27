@@ -9,6 +9,8 @@
 //! - [`detect`]: when to offer (or start, or stop) meeting notes, from
 //!   snapshots of who is using the microphone.
 //! - [`storage`]: which recordings' audio to evict to stay under the cap.
+//! - [`export`]: renders a meeting as Markdown or plain text for the Share
+//!   menu.
 //!
 //! The exceptions to "pure" are small and fenced: [`storage_fs`] (measure
 //! and delete meeting audio, behind a path guard) and [`probe_win`] (read who
@@ -21,6 +23,7 @@
 
 pub mod chunker;
 pub mod detect;
+pub mod export;
 pub mod merge;
 pub mod probe_win;
 pub mod session;

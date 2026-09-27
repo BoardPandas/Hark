@@ -2,10 +2,12 @@
 //! still ships honest empty, gated, and error states (a blank region is a
 //! bug).
 
+use crate::meeting::MeetingController;
 use crate::pipeline::PipelineController;
 use crate::storage::StorageHandle;
 use crate::ui::history::HistoryPage;
 use crate::ui::invocations::InvocationsPage;
+use crate::ui::meetings::{MeetingsPage, PageIntent};
 use crate::ui::settings::{self, SettingsPage};
 use crate::ui::spellbook::SpellbookPage;
 use crate::ui::stats::StatsPage;
@@ -18,6 +20,7 @@ use egui::{RichText, Ui};
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum Page {
     History,
+    Meetings,
     Spellbook,
     Invocations,
     Stats,
@@ -28,6 +31,7 @@ impl Page {
     pub fn label(self) -> &'static str {
         match self {
             Page::History => "History",
+            Page::Meetings => "Meetings",
             Page::Spellbook => "Spellbook",
             Page::Invocations => "Invocations",
             Page::Stats => "Stats",
@@ -38,6 +42,7 @@ impl Page {
     fn description(self) -> &'static str {
         match self {
             Page::History => "Your words, ready when you need them. History stays on this device.",
+            Page::Meetings => "Every call, written down. Notes and recordings stay on this device.",
             Page::Spellbook => "A little context. A lot more accuracy.",
             Page::Invocations => "Say a phrase. Type exactly what you wrote.",
             Page::Stats => "A little less typing. A little more time.",
@@ -54,6 +59,7 @@ pub struct Views {
     pub invocations: InvocationsPage,
     pub history: HistoryPage,
     pub stats: StatsPage,
+    pub meetings: MeetingsPage,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -62,6 +68,7 @@ pub fn show(
     page: &mut Page,
     settings: &mut Settings,
     pipeline: &mut PipelineController,
+    meetings: &mut MeetingController,
     views: &mut Views,
     updater: &mut Updater,
     storage: Option<&StorageHandle>,
@@ -93,6 +100,27 @@ pub fn show(
                         *page = Page::Spellbook;
                     }
                 }
+                Page::Meetings => {
+                    match views
+                        .meetings
+                        .show(ui, meetings, settings, storage, storage_error)
+                    {
+                        Some(PageIntent::OpenSettings) => {
+                            *page = Page::Settings;
+                            views.settings.open(settings::Section::Meetings);
+                        }
+                        Some(PageIntent::AcknowledgeConsent) => {
+                            settings.meeting.consent_acknowledged = true;
+                            // Same obligation as the spellbook: the Settings
+                            // draft must not resurrect the old value on Save.
+                            views.settings.draft.meeting.consent_acknowledged = true;
+                            if let Err(e) = settings::save_to_disk(settings) {
+                                log::error!("consent acknowledgement not persisted: {e}");
+                            }
+                        }
+                        None => {}
+                    }
+                }
                 Page::Spellbook => spellbook(ui, settings, pipeline, views),
                 Page::Invocations => invocations(ui, settings, pipeline, views),
                 Page::Stats => {
@@ -106,7 +134,9 @@ pub fn show(
                         });
                 }
                 Page::Settings => {
-                    views.settings.show(ui, settings, pipeline, updater);
+                    views
+                        .settings
+                        .show(ui, settings, pipeline, updater, meetings, storage);
                 }
             }
         });

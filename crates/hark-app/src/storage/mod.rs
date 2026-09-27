@@ -6,11 +6,15 @@
 //!
 //! The UI thread owns the reader `Store` (paged history queries, stats); all
 //! mutations funnel through this thread so there is exactly one writer.
+//! Meeting writes (`meetings.rs`) run here too, including the audio storage
+//! cap, so database rows and meeting folders change on one thread.
+
+pub mod meetings;
 
 use hark_config::Settings;
 use hark_pipeline::DictationRecord;
 use hark_store::{NewDictation, Retention, Store, StoreError};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::Arc;
@@ -45,6 +49,8 @@ pub enum StorageCmd {
     ClearEntries,
     /// Stats panel "Reset stats": counters only, entries untouched.
     ResetStats,
+    /// Meeting rows, segments, notes, and meeting audio on disk.
+    Meeting(meetings::MeetingCmd),
 }
 
 /// The dictation-record half of the policy, cloned into the event pump at
@@ -135,12 +141,22 @@ impl Drop for StorageHandle {
 /// the worker. `ctx` is the sanctioned cross-thread wake-up: a repaint after
 /// each write refreshes the history panel while the app sits idle.
 pub fn spawn(db_path: &Path, ctx: egui::Context) -> Result<StorageHandle, StoreError> {
-    Ok(start(Store::open(db_path)?, Store::open(db_path)?, ctx))
+    // Meeting audio lives beside the database: <data_dir>/meetings/<id>/.
+    let meetings_dir = db_path
+        .parent()
+        .map(|dir| dir.join("meetings"))
+        .unwrap_or_else(|| PathBuf::from("meetings"));
+    Ok(start(
+        Store::open(db_path)?,
+        Store::open(db_path)?,
+        meetings_dir,
+        ctx,
+    ))
 }
 
 /// Start the worker over two open connections (the seam tests drive with
 /// in-memory stores).
-fn start(writer: Store, reader: Store, ctx: egui::Context) -> StorageHandle {
+fn start(writer: Store, reader: Store, meetings_dir: PathBuf, ctx: egui::Context) -> StorageHandle {
     let (tx, rx) = mpsc::channel();
     let generation = Arc::new(AtomicU64::new(0));
     let worker_generation = Arc::clone(&generation);
@@ -149,7 +165,7 @@ fn start(writer: Store, reader: Store, ctx: egui::Context) -> StorageHandle {
         .name("hark-storage".to_string())
         .spawn(move || {
             let _done: Sender<()> = done_tx;
-            worker_loop(writer, rx, worker_generation, ctx)
+            worker_loop(writer, rx, worker_generation, &meetings_dir, ctx)
         })
         .expect("spawning the storage thread cannot fail");
     StorageHandle {
@@ -165,10 +181,11 @@ fn worker_loop(
     mut store: Store,
     rx: Receiver<StorageCmd>,
     generation: Arc<AtomicU64>,
+    meetings_dir: &Path,
     ctx: egui::Context,
 ) {
     while let Ok(cmd) = rx.recv() {
-        match apply(&mut store, cmd) {
+        match apply(&mut store, meetings_dir, cmd) {
             Ok(changed) => {
                 if changed {
                     generation.fetch_add(1, Ordering::Release);
@@ -184,7 +201,7 @@ fn worker_loop(
 
 /// Execute one command; `Ok(true)` when the database changed (the seam the
 /// tests drive without a thread or an egui context).
-fn apply(store: &mut Store, cmd: StorageCmd) -> Result<bool, StoreError> {
+fn apply(store: &mut Store, meetings_dir: &Path, cmd: StorageCmd) -> Result<bool, StoreError> {
     match cmd {
         StorageCmd::Record {
             record,
@@ -203,6 +220,7 @@ fn apply(store: &mut Store, cmd: StorageCmd) -> Result<bool, StoreError> {
             store.reset_stats(unix_now_ms())?;
             Ok(true)
         }
+        StorageCmd::Meeting(cmd) => meetings::apply(store, meetings_dir, cmd),
     }
 }
 
@@ -233,6 +251,11 @@ fn unix_now_ms() -> i64 {
 mod tests {
     use super::*;
 
+    /// A meetings folder that never exists: these tests write no meetings.
+    fn no_meetings() -> &'static Path {
+        Path::new("no-such-meetings-dir")
+    }
+
     fn record() -> Box<DictationRecord> {
         Box::new(DictationRecord {
             raw_text: "raw words".to_string(),
@@ -258,6 +281,7 @@ mod tests {
         start(
             Store::open_in_memory().expect("writer"),
             Store::open_in_memory().expect("reader"),
+            no_meetings().to_path_buf(),
             egui::Context::default(),
         )
     }
@@ -297,6 +321,7 @@ mod tests {
         let mut store = Store::open_in_memory().expect("open");
         let changed = apply(
             &mut store,
+            no_meetings(),
             StorageCmd::Record {
                 record: record(),
                 capture: true,
@@ -318,6 +343,7 @@ mod tests {
         let mut store = Store::open_in_memory().expect("open");
         let changed = apply(
             &mut store,
+            no_meetings(),
             StorageCmd::Record {
                 record: record(),
                 capture: false,
@@ -340,6 +366,7 @@ mod tests {
         for _ in 0..4 {
             apply(
                 &mut store,
+                no_meetings(),
                 StorageCmd::Record {
                     record: record(),
                     capture: true,
@@ -356,12 +383,13 @@ mod tests {
     fn prune_reports_change_only_when_rows_went() {
         let mut store = Store::open_in_memory().expect("open");
         assert!(
-            !apply(&mut store, StorageCmd::Prune(KEEP_ALL)).expect("apply"),
+            !apply(&mut store, no_meetings(), StorageCmd::Prune(KEEP_ALL)).expect("apply"),
             "an empty prune must not repaint"
         );
         for _ in 0..3 {
             apply(
                 &mut store,
+                no_meetings(),
                 StorageCmd::Record {
                     record: record(),
                     capture: true,
@@ -374,7 +402,7 @@ mod tests {
             max_entries: 1,
             max_age_days: 90,
         };
-        assert!(apply(&mut store, StorageCmd::Prune(tight)).expect("apply"));
+        assert!(apply(&mut store, no_meetings(), StorageCmd::Prune(tight)).expect("apply"));
         assert_eq!(store.entry_count(None).expect("count"), 1);
     }
 
@@ -384,6 +412,7 @@ mod tests {
         for _ in 0..2 {
             apply(
                 &mut store,
+                no_meetings(),
                 StorageCmd::Record {
                     record: record(),
                     capture: true,
@@ -394,15 +423,15 @@ mod tests {
         }
         let id = store.entries(None, 1, 0).expect("entries")[0].id;
 
-        assert!(apply(&mut store, StorageCmd::DeleteEntry(id)).expect("delete"));
+        assert!(apply(&mut store, no_meetings(), StorageCmd::DeleteEntry(id)).expect("delete"));
         assert!(
-            !apply(&mut store, StorageCmd::DeleteEntry(id)).expect("re-delete"),
+            !apply(&mut store, no_meetings(), StorageCmd::DeleteEntry(id)).expect("re-delete"),
             "a missing id is not a change"
         );
-        assert!(apply(&mut store, StorageCmd::ClearEntries).expect("clear"));
+        assert!(apply(&mut store, no_meetings(), StorageCmd::ClearEntries).expect("clear"));
         assert_eq!(store.stats().expect("stats").dictations, 2);
 
-        assert!(apply(&mut store, StorageCmd::ResetStats).expect("reset"));
+        assert!(apply(&mut store, no_meetings(), StorageCmd::ResetStats).expect("reset"));
         assert_eq!(store.stats().expect("stats").dictations, 0);
     }
 

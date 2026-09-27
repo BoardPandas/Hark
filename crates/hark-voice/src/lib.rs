@@ -11,9 +11,14 @@
 
 mod error;
 pub mod openai_compatible;
+pub mod summary;
 mod voices;
 
 pub use error::{error_for_status, error_for_transport, CleanupError};
+pub use summary::{
+    build_summary_request, parse_notes, summarize, ActionItem, MeetingNotes, SummaryConfig,
+    SummaryError, DEFAULT_SUMMARY_TEMPLATE, SUMMARY_TIMEOUT_MS,
+};
 pub use voices::{
     over_expanded, present_terms, skips_cleanup, system_prompt, UnknownVoice, Voice,
     EXPANSION_GRACE_WORDS, LENGTH_DISCIPLINE_CLAUSE, PUNCTUATION_CLAUSE, RETURN_ONLY_CLAUSE,

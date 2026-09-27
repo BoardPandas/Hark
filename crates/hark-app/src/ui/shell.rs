@@ -2,6 +2,7 @@
 //! tabs left, Settings + version right), the update banner below it, the
 //! status footer across the bottom, and content in a centered column.
 
+use crate::meeting::MeetingController;
 use crate::pipeline::PipelineController;
 use crate::storage::StorageHandle;
 use crate::theme;
@@ -17,6 +18,7 @@ pub fn show(
     page: &mut pages::Page,
     settings: &mut Settings,
     pipeline: &mut PipelineController,
+    meetings: &mut MeetingController,
     views: &mut pages::Views,
     updater: &mut Updater,
     storage: Option<&StorageHandle>,
@@ -61,6 +63,7 @@ pub fn show(
                 page,
                 settings,
                 pipeline,
+                meetings,
                 views,
                 updater,
                 storage,
@@ -94,10 +97,16 @@ fn topbar(ui: &mut Ui, page: &mut pages::Page) {
                 ui.add_space(theme::GAP);
                 for target in [
                     pages::Page::History,
+                    pages::Page::Meetings,
                     pages::Page::Spellbook,
                     pages::Page::Invocations,
                     pages::Page::Stats,
                 ] {
+                    if target == pages::Page::Meetings
+                        && !hark_pipeline::meeting::meetings_supported()
+                    {
+                        continue;
+                    }
                     if theme::nav_button(ui, target.label(), *page == target).clicked() {
                         *page = target;
                     }

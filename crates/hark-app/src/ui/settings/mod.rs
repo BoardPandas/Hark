@@ -11,6 +11,7 @@ pub mod get_started;
 pub mod hotkey;
 pub mod keys;
 pub mod local;
+pub mod meetings;
 mod onboarding;
 mod preferences;
 mod sections;
@@ -18,8 +19,10 @@ pub mod test;
 pub mod updates;
 pub use sections::Section;
 
+use crate::meeting::MeetingController;
 use crate::model_download::ModelDownload;
 use crate::pipeline::PipelineController;
+use crate::storage::StorageHandle;
 use crate::theme;
 use crate::update::Updater;
 use egui::{RichText, Ui};
@@ -56,6 +59,7 @@ pub struct SettingsPage {
     voice_secret_clicks: u32,
     /// Consumed by the app root, which shares the tray's clean shutdown path.
     close_requested: bool,
+    meetings: meetings::MeetingsSettings,
 }
 
 impl SettingsPage {
@@ -83,6 +87,7 @@ impl SettingsPage {
             ),
             voice_secret_clicks: 0,
             close_requested: false,
+            meetings: meetings::MeetingsSettings::new(settings),
         }
     }
 
@@ -92,6 +97,8 @@ impl SettingsPage {
         saved: &mut Settings,
         pipeline: &mut PipelineController,
         updater: &mut Updater,
+        meetings: &MeetingController,
+        storage: Option<&StorageHandle>,
     ) {
         if self.section != Section::Audio {
             self.leave(pipeline);
@@ -103,7 +110,7 @@ impl SettingsPage {
         if ui.available_width() < theme::SETTINGS_BREAKPOINT {
             ui.horizontal_wrapped(|ui| self.navigation(ui, pipeline));
             ui.add_space(theme::SECTION_GAP);
-            self.section_body(ui, saved, pipeline, updater);
+            self.section_body(ui, saved, pipeline, updater, meetings, storage);
         } else {
             ui.horizontal_top(|ui| {
                 ui.vertical(|ui| {
@@ -113,7 +120,7 @@ impl SettingsPage {
                 ui.add_space(theme::SECTION_GAP);
                 ui.vertical(|ui| {
                     ui.set_width(ui.available_width());
-                    self.section_body(ui, saved, pipeline, updater);
+                    self.section_body(ui, saved, pipeline, updater, meetings, storage);
                 });
             });
         }
@@ -215,6 +222,7 @@ impl SettingsPage {
     fn discard(&mut self, saved: &Settings) {
         self.draft = saved.clone();
         self.bufs = form::FormBufs::from_settings(saved);
+        self.meetings.reset(saved);
         self.save_notice = None;
     }
 

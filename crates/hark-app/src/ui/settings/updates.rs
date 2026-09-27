@@ -39,6 +39,15 @@ pub fn section(ui: &mut Ui, updater: &mut Updater, draft: &mut Settings) {
         &mut draft.updates.check_on_startup,
         "Check for updates automatically at startup",
     );
+
+    ui.add_space(theme::GAP);
+    ui.label(
+        RichText::new(
+            "Meeting audio is compressed with LAME (LGPL). See THIRD_PARTY_NOTICES.md in Hark's install folder.",
+        )
+        .small()
+        .weak(),
+    );
 }
 
 /// One flat description of the current phase, snapshotted (owned strings) so the

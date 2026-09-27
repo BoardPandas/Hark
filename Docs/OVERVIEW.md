@@ -19,7 +19,7 @@ The following files were used as evidence for this page:
 
 # Hark, Overview
 
-> **Related Pages**: [Architecture](core/ARCHITECTURE.md), [Getting Started](GETTING_STARTED.md), [Glossary](GLOSSARY.md)
+> **Related Pages**: [Architecture](core/ARCHITECTURE.md), [Getting Started](GETTING_STARTED.md), [Glossary](GLOSSARY.md), [Meetings](features/MEETINGS.md)
 
 ---
 
@@ -90,13 +90,13 @@ Hark is one Cargo workspace with 16 member crates and one application binary ([C
 | Area | Crates | Responsibility |
 |---|---|---|
 | Shell | `hark-app`, `hark-single-instance` | Native UI/tray orchestration and the one-process guard |
-| Input | `hark-hotkey`, `hark-audio` | Chord observation, continuous microphone capture, and (for meetings) system-audio loopback and WAV spooling |
-| Recognition | `hark-stt`, `hark-local-stt` | Cloud adapters, live streaming, and optional Parakeet decoding |
-| Text | `hark-spellbook`, `hark-voice` | Correction, invocations, and cleanup |
+| Input | `hark-hotkey`, `hark-audio` | Chord observation, continuous microphone capture, and (for meetings) per-process system-audio loopback, WAV spooling, and MP3 archiving |
+| Recognition | `hark-stt`, `hark-local-stt` | Cloud adapters, live streaming, optional Parakeet decoding, and the meeting-only Deepgram final pass |
+| Text | `hark-spellbook`, `hark-voice` | Correction, invocations, cleanup, and meeting-notes summarization |
 | Output | `hark-inject` | Clipboard and synthesized-key text injection |
-| Orchestration | `hark-pipeline` | State machine, transport selection, retry/fallback, and reporting |
-| Meetings (in progress) | `hark-meeting` | Meeting logic: lifecycle state machine, live chunking, Me/Them transcript ordering, meeting auto-detection, and the audio storage cap. Not yet wired into the app |
-| State | `hark-config`, `hark-keychain`, `hark-store` | Settings, secrets, history, and statistics |
+| Orchestration | `hark-pipeline` | State machine, transport selection, retry/fallback, reporting, and (in `pipeline::meeting`) the meeting coordinator/live/finisher threads |
+| Meetings | `hark-meeting` | Meeting logic: lifecycle state machine, live chunking, Me/Them transcript ordering, meeting auto-detection, the audio storage cap, and Share-menu export. Wired into `hark-app` on Windows; see [Meetings](features/MEETINGS.md) |
+| State | `hark-config`, `hark-keychain`, `hark-store` | Settings, secrets, history, statistics, and meeting transcripts/notes |
 | Desktop integration | `hark-autostart`, `hark-update` | Login startup and platform update behavior |
 
 ```mermaid

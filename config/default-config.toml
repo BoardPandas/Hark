@@ -79,6 +79,45 @@ threads = 2
 # locally would make a rescued dictation slower than no fallback at all.
 fallback_after_ms = 6000
 
+[meeting]
+# Meeting transcription ("Hark Meetings"), independent of push-to-talk
+# dictation. Start manually from the tray, or let auto-detect offer it.
+enabled = true
+# mic_device is unset by default: the Windows communications-default
+# microphone (the device Windows already treats as the one calls use).
+# mic_device = "Yeti Stereo Microphone"
+# system_source = "all" | "app"
+#   app  (default) a detected meeting captures only that app's process tree
+#   all  always capture everything except Hark; always used for a manually
+#        started meeting regardless of this setting
+system_source = "app"
+live_transcript = true    # rolling transcript in the live pane while recording
+# final_pass = "deepgram" | "none"
+#   deepgram (default) re-transcribe with diarization for Speaker 1/2/3
+#            labels (~$0.52/hour); needs its own Deepgram key
+#   none     keep the live Me/Them transcript as final; no second pass, no cost
+final_pass = "deepgram"
+summary = true             # generate a summary after the final pass
+# summary_template is unset by default: the built-in template.
+# summary_template = "Summarize as bullet points."
+consent_reminder = true       # show the first-run recording-consent notice
+consent_acknowledged = false  # whether that notice has been seen
+# Circular storage cap for recording audio, in MB. 0 = don't keep audio at
+# all (deleted as soon as the final pass and summary are saved). Clamped to
+# 0..=1048576 (1 TB) at load; the Settings page edits this in GB.
+audio_cap_mb = 5120
+compress_audio = true      # compress kept recordings to stereo MP3
+# auto_detect = "off" | "ask" | "auto"
+#   off   never prompt or auto-start; a meeting only begins manually
+#   ask   (default) non-modal prompt when a meeting app takes the mic
+#   auto  start recording silently on detection (tray + live indicator
+#         still always visible)
+auto_detect = "ask"
+auto_stop_after_s = 60   # stop once the detected app releases the mic this
+                          # long; 0 = never auto-stop
+# detect_apps is unset by default: the built-in list Hark ships with.
+# detect_apps = ["ms-teams.exe", "zoom.exe"]
+
 # Invocations: say a trigger phrase, get a fixed block of text you wrote.
 # The expansion is injected byte for byte and never goes through a cleanup
 # voice, so it cannot be reworded on the way to the cursor. A dictation that

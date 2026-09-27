@@ -1,0 +1,323 @@
+//! One meeting: title, notes (with tickable action items), speakers, the
+//! transcript, sharing, and delete. Cached on (write generation, id).
+
+use super::share::{self, ShareAction, Sharing};
+use crate::storage::meetings::MeetingCmd;
+use crate::storage::{StorageCmd, StorageHandle};
+use crate::theme;
+use crate::ui::{format, widgets};
+use egui::{RichText, TextEdit, Ui};
+use hark_meeting::export::{format_timestamp, speaker_label};
+use hark_meeting::Channel;
+use hark_store::MeetingDetail;
+use hark_voice::MeetingNotes;
+use jiff::tz::TimeZone;
+
+pub(super) struct DetailView {
+    /// (generation, id) the cache reflects.
+    key: Option<(u64, String)>,
+    detail: Option<MeetingDetail>,
+    notes: Option<MeetingNotes>,
+    error: Option<String>,
+    title: String,
+    /// Speaker being renamed and its edit buffer.
+    renaming: Option<(u32, String)>,
+    confirm: Option<widgets::Confirm>,
+    sharing: Sharing,
+}
+
+impl DetailView {
+    pub fn new() -> Self {
+        DetailView {
+            key: None,
+            detail: None,
+            notes: None,
+            error: None,
+            title: String::new(),
+            renaming: None,
+            confirm: None,
+            sharing: Sharing::new(),
+        }
+    }
+
+    pub fn poll(&mut self) {
+        self.sharing.poll();
+    }
+
+    /// Returns true when the user went back to the list (or deleted it).
+    pub fn show(&mut self, ui: &mut Ui, storage: &StorageHandle, id: &str, tz: &TimeZone) -> bool {
+        self.refresh(storage, id);
+        let mut back = ui.button("‹ All meetings").clicked();
+        ui.add_space(theme::GAP);
+        if let Some(error) = &self.error {
+            widgets::empty_state(
+                ui,
+                theme::icons::WARNING,
+                "This meeting cannot be read.",
+                error,
+            );
+            return back;
+        }
+        // Taken for the frame and put back at the end, so the helpers below can
+        // borrow `self` mutably while reading it.
+        let Some(taken) = self.detail.take() else {
+            widgets::empty_state(
+                ui,
+                theme::icons::MAGNIFYING_GLASS,
+                "Meeting not found.",
+                "It may have been deleted.",
+            );
+            return back;
+        };
+        let detail = &taken;
+
+        // Title, editable in place; saved on Enter or focus loss.
+        let response = ui.add(
+            TextEdit::singleline(&mut self.title)
+                .font(egui::TextStyle::Heading)
+                .desired_width(f32::INFINITY),
+        );
+        if response.lost_focus()
+            && self.title.trim() != detail.summary.title.as_deref().unwrap_or("").trim()
+        {
+            storage.send(StorageCmd::Meeting(MeetingCmd::Rename {
+                id: id.to_string(),
+                title: self.title.clone(),
+            }));
+        }
+        ui.label(RichText::new(meta(detail, tz)).small().weak());
+        if detail.summary.audio_evicted_ms.is_some() {
+            ui.label(
+                RichText::new(
+                    "Audio removed to stay under your storage cap. The transcript and notes stay.",
+                )
+                .small()
+                .weak(),
+            );
+        }
+        ui.add_space(theme::GAP);
+
+        let mut action = None;
+        ui.horizontal(|ui| {
+            action = share::menu(ui, detail.summary.audio_evicted_ms.is_none());
+            if ui
+                .button(theme::icon_label_job(
+                    ui.style(),
+                    theme::icons::TRASH,
+                    "Delete",
+                ))
+                .clicked()
+            {
+                self.confirm = Some(widgets::Confirm::new(
+                    "Delete this meeting?",
+                    "Its notes, transcript and audio are removed from this device.",
+                    "Delete meeting",
+                ));
+            }
+        });
+        if let Some(status) = self.sharing.status() {
+            ui.label(RichText::new(status).small().weak());
+        }
+        if let Some(action) = action {
+            self.run_share(ui.ctx(), action, detail, id, tz);
+        }
+        ui.add_space(theme::SECTION_GAP);
+
+        if let Some(notes) = self.notes.clone() {
+            self.notes_card(ui, storage, id, notes);
+            ui.add_space(theme::SECTION_GAP);
+        }
+        self.speakers_card(ui, storage, id, detail);
+        transcript(ui, detail);
+
+        if let Some(confirm) = &mut self.confirm {
+            match confirm.show(ui, "meeting-delete") {
+                Some(true) => {
+                    storage.send(StorageCmd::Meeting(MeetingCmd::Delete {
+                        id: id.to_string(),
+                    }));
+                    self.confirm = None;
+                    back = true;
+                }
+                Some(false) => self.confirm = None,
+                None => {}
+            }
+        }
+        self.detail = Some(taken);
+        back
+    }
+
+    fn refresh(&mut self, storage: &StorageHandle, id: &str) {
+        let key = (storage.generation(), id.to_string());
+        if self.key.as_ref() == Some(&key) {
+            return;
+        }
+        let fresh_meeting = self.key.as_ref().is_none_or(|(_, old)| old != id);
+        match storage.reader().meeting(id) {
+            Ok(detail) => {
+                self.notes = detail
+                    .as_ref()
+                    .and_then(|d| d.notes_json.as_deref())
+                    .and_then(|json| MeetingNotes::from_json(json).ok());
+                if fresh_meeting {
+                    self.title = detail
+                        .as_ref()
+                        .and_then(|d| d.summary.title.clone())
+                        .unwrap_or_default();
+                    self.renaming = None;
+                }
+                self.detail = detail;
+                self.error = None;
+            }
+            Err(e) => self.error = Some(e.to_string()),
+        }
+        self.key = Some(key);
+    }
+
+    fn notes_card(
+        &mut self,
+        ui: &mut Ui,
+        storage: &StorageHandle,
+        id: &str,
+        mut notes: MeetingNotes,
+    ) {
+        let mut changed = false;
+        theme::card(ui, |ui| {
+            ui.label(RichText::new("Summary").text_style(theme::subheading()));
+            ui.label(&notes.summary);
+            list(ui, "Key points", &notes.key_points);
+            list(ui, "Decisions", &notes.decisions);
+            if !notes.action_items.is_empty() {
+                ui.add_space(theme::GAP);
+                ui.label(RichText::new("Action items").strong());
+                for item in &mut notes.action_items {
+                    let label = match &item.owner {
+                        Some(owner) => format!("{} ({owner})", item.text),
+                        None => item.text.clone(),
+                    };
+                    changed |= ui.checkbox(&mut item.done, label).changed();
+                }
+            }
+        });
+        if changed {
+            storage.send(StorageCmd::Meeting(MeetingCmd::UpdateNotes {
+                id: id.to_string(),
+                notes_json: notes.to_json(),
+            }));
+            self.notes = Some(notes);
+        }
+    }
+
+    /// Rename "Speaker 2" to "Dana". Only speakers that appear are listed.
+    fn speakers_card(
+        &mut self,
+        ui: &mut Ui,
+        storage: &StorageHandle,
+        id: &str,
+        detail: &MeetingDetail,
+    ) {
+        let mut speakers: Vec<u32> = detail
+            .segments
+            .iter()
+            .filter(|s| s.channel == 1)
+            .filter_map(|s| s.speaker)
+            .collect();
+        speakers.sort_unstable();
+        speakers.dedup();
+        if speakers.is_empty() {
+            return;
+        }
+        let renames = detail.speakers.clone();
+        ui.horizontal_wrapped(|ui| {
+            ui.label(RichText::new("Speakers").strong());
+            for speaker in speakers {
+                let label = speaker_label(Channel::Them, Some(speaker), &renames);
+                match &mut self.renaming {
+                    Some((s, buf)) if *s == speaker => {
+                        let r = ui.add(TextEdit::singleline(buf).desired_width(120.0));
+                        if r.lost_focus() {
+                            storage.send(StorageCmd::Meeting(MeetingCmd::RenameSpeaker {
+                                id: id.to_string(),
+                                speaker,
+                                name: buf.clone(),
+                            }));
+                            self.renaming = None;
+                        } else {
+                            r.request_focus();
+                        }
+                    }
+                    _ => {
+                        if ui.button(&label).on_hover_text("Rename").clicked() {
+                            self.renaming = Some((speaker, label));
+                        }
+                    }
+                }
+            }
+        });
+        ui.add_space(theme::GAP);
+    }
+
+    fn run_share(
+        &mut self,
+        ctx: &egui::Context,
+        action: ShareAction,
+        detail: &MeetingDetail,
+        id: &str,
+        tz: &TimeZone,
+    ) {
+        let export = share::export_of(detail, self.notes.as_ref(), &self.title, tz);
+        self.sharing.run(ctx, action, id, export);
+    }
+}
+
+fn list(ui: &mut Ui, heading: &str, items: &[String]) {
+    if items.is_empty() {
+        return;
+    }
+    ui.add_space(theme::GAP);
+    ui.label(RichText::new(heading).strong());
+    for item in items {
+        ui.label(format!("• {item}"));
+    }
+}
+
+fn transcript(ui: &mut Ui, detail: &MeetingDetail) {
+    ui.label(RichText::new("Transcript").text_style(theme::subheading()));
+    if detail.segments.is_empty() {
+        ui.label(RichText::new("No transcript.").weak());
+        return;
+    }
+    for s in &detail.segments {
+        let channel = if s.channel == 0 {
+            Channel::Me
+        } else {
+            Channel::Them
+        };
+        ui.horizontal_wrapped(|ui| {
+            ui.label(
+                RichText::new(format_timestamp(s.start_ms.max(0) as u64))
+                    .small()
+                    .weak(),
+            );
+            ui.label(RichText::new(speaker_label(channel, s.speaker, &detail.speakers)).strong());
+            ui.add(egui::Label::new(&s.text).selectable(true));
+        });
+    }
+}
+
+fn meta(detail: &MeetingDetail, tz: &TimeZone) -> String {
+    let s = &detail.summary;
+    let mut parts = vec![format::full_timestamp(s.started_ms, tz)];
+    if let Some(end) = s.ended_ms {
+        parts.push(format::duration(end - s.started_ms));
+    }
+    if let Some(app) = &s.app_hint {
+        parts.push(hark_pipeline::meeting::app_display_name(app));
+    }
+    parts.push(if s.refined {
+        "speaker labels by Deepgram".to_string()
+    } else {
+        format!("live transcript ({})", detail.stt_provider)
+    });
+    parts.join(" · ")
+}

@@ -13,11 +13,16 @@
 //!   never touches the stats row, and vice versa.
 //! - Capture-off semantics: `record(d, false)` writes no entry row (no
 //!   transcript content persisted) but the numeric counters still tick.
+//! - Meeting storage (migration 004, `meetings.rs`) follows the same
+//!   no-`Debug`-on-content-bearing-types rule; see that module's header.
 
 use rusqlite::{params, Connection};
 use std::path::Path;
 use std::time::Duration;
 use thiserror::Error;
+
+mod meetings;
+pub use meetings::{MeetingDetail, MeetingSegment, MeetingSummary, NewMeeting};
 
 /// Embedded migrations, applied in order; index + 1 == resulting
 /// `user_version`. Append only; never edit or renumber an applied file.
@@ -25,6 +30,7 @@ const MIGRATIONS: &[&str] = &[
     include_str!("../migrations/001_init.sql"),
     include_str!("../migrations/002_stats_total_ms.sql"),
     include_str!("../migrations/003_entries_invocation.sql"),
+    include_str!("../migrations/004_meetings.sql"),
 ];
 
 const BUSY_TIMEOUT: Duration = Duration::from_secs(5);
@@ -143,6 +149,9 @@ impl Store {
         conn.query_row("PRAGMA journal_mode = WAL", [], |r| r.get::<_, String>(0))?;
         conn.pragma_update(None, "synchronous", "NORMAL")?;
         conn.busy_timeout(BUSY_TIMEOUT)?;
+        // Meeting cascades (migration 004) rely on ON DELETE CASCADE, which
+        // SQLite only enforces when this is set per-connection.
+        conn.pragma_update(None, "foreign_keys", "ON")?;
 
         let mut store = Store { conn };
         store.migrate()?;
@@ -359,8 +368,8 @@ fn spoken_word_count(d: &NewDictation) -> i64 {
 }
 
 /// Escape LIKE wildcards so user search text matches literally
-/// (pattern uses `ESCAPE '\'`).
-fn escape_like(query: &str) -> String {
+/// (pattern uses `ESCAPE '\'`). Shared with `meetings.rs`'s title search.
+pub(crate) fn escape_like(query: &str) -> String {
     let mut out = String::with_capacity(query.len());
     for c in query.chars() {
         if matches!(c, '%' | '_' | '\\') {

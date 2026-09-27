@@ -10,10 +10,12 @@
 
 mod invocations;
 mod local;
+mod meeting;
 mod voice;
 
 pub use invocations::{Invocation, Invocations, Scope};
 pub use local::{LocalMode, LocalStt, DEFAULT_FALLBACK_AFTER_MS, DEFAULT_MODEL};
+pub use meeting::{AutoDetect, FinalPass, Meeting, SystemSource};
 pub use voice::{
     resolve_cleanup_provider, CleanupKeySource, CleanupResolution, ResolvedCleanupProvider, Voice,
     VoiceName, VoiceProvider,
@@ -490,6 +492,9 @@ pub struct Settings {
     pub local_stt: LocalStt,
     /// Text shaping applied just before injection (see [`Output`]).
     pub output: Output,
+    /// Meeting transcription ("Hark Meetings"), independent of dictation.
+    /// Must stay before `invocations`: see the comment on that field.
+    pub meeting: Meeting,
     /// Last on purpose: this is the only section holding a TOML
     /// array-of-tables, and those must follow every scalar key.
     pub invocations: Invocations,
@@ -511,6 +516,7 @@ impl Default for Settings {
             general: General::default(),
             local_stt: LocalStt::default(),
             output: Output::default(),
+            meeting: Meeting::default(),
             invocations: Invocations::default(),
         }
     }
@@ -525,6 +531,9 @@ impl Settings {
         // model, and `version` is stamped to current so a later save cannot
         // re-trigger the migration.
         settings.spellbook.migrate();
+        // Also before validation: an absurd cap is a typo, not a reason to
+        // refuse to start, so it is clamped in place rather than rejected.
+        meeting::clamp(&mut settings.meeting);
         // Only ever bump *up*. A stamp from the future belongs to a file some
         // newer Hark wrote; stamping it down here would make this build claim
         // authorship of a schema it does not understand, and the next save

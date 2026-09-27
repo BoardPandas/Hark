@@ -10,6 +10,7 @@
 
 mod events;
 mod local;
+pub mod meeting;
 mod retry;
 mod state;
 mod stream;

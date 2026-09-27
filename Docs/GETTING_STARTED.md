@@ -131,6 +131,7 @@ Sources: [README.md:61](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd7
 | [Architecture](core/ARCHITECTURE.md) | The main-thread/worker-thread process model and the release-to-inject pipeline |
 | [Transcription (STT Providers)](features/TRANSCRIPTION.md) | Batch and live provider traits, Deepgram, OpenAI-compatible, gpt-transcribe, and Gemini Live |
 | [On-Device STT](features/ON_DEVICE_STT.md) | Optional Parakeet model, downloads, and local-primary/cloud-backup modes |
+| [Meetings](features/MEETINGS.md) | Recording a call in any app with no bot, on Windows for now: capture, live transcript, notes, storage, and sharing |
 <!-- END:AUTOGEN hark_03_getting_started_next -->
 
 ---

@@ -13,23 +13,28 @@ The following files were used as evidence for this page:
 - [crates/hark-pipeline/src/state.rs](../../crates/hark-pipeline/src/state.rs)
 - [crates/hark-pipeline/src/events.rs](../../crates/hark-pipeline/src/events.rs)
 - [crates/hark-pipeline/src/retry.rs](../../crates/hark-pipeline/src/retry.rs)
+- [crates/hark-pipeline/src/meeting/mod.rs](../../crates/hark-pipeline/src/meeting/mod.rs)
+- [crates/hark-pipeline/src/meeting/coordinator.rs](../../crates/hark-pipeline/src/meeting/coordinator.rs)
+- [crates/hark-app/src/meeting.rs](../../crates/hark-app/src/meeting.rs)
 
 </details>
 
 # Architecture
 
-> **Related Pages**: [Overview](../OVERVIEW.md), [Audio Capture](../features/AUDIO_CAPTURE.md), [Transcription](../features/TRANSCRIPTION.md), [Text Injection](../features/TEXT_INJECTION.md)
+> **Related Pages**: [Overview](../OVERVIEW.md), [Audio Capture](../features/AUDIO_CAPTURE.md), [Transcription](../features/TRANSCRIPTION.md), [Text Injection](../features/TEXT_INJECTION.md), [Meetings](../features/MEETINGS.md)
 
 ---
 
 <!-- BEGIN:AUTOGEN hark_02_architecture_process_model -->
 ## Process and Threading Model
 
-Hark is one desktop process. The main thread owns eframe, egui, the tray, window state, and UI-side orchestration. Hotkey capture, audio capture, dictation, storage, update checks, and single-instance activation listening run behind channels on worker threads; the UI never performs provider I/O ([main.rs:1-10](../../crates/hark-app/src/main.rs#L1-L10), [app.rs:19-58](../../crates/hark-app/src/app.rs#L19-L58), [pipeline.rs:1-3](../../crates/hark-app/src/pipeline.rs#L1-L3)).
+Hark is one desktop process. The main thread owns eframe, egui, the tray, window state, and UI-side orchestration. Hotkey capture, audio capture, dictation, meeting capture, storage, update checks, and single-instance activation listening run behind channels on worker threads; the UI never performs provider I/O ([main.rs:1-10](../../crates/hark-app/src/main.rs#L1-L10), [app.rs:22-70](../../crates/hark-app/src/app.rs#L22-L70), [pipeline.rs:1-3](../../crates/hark-app/src/pipeline.rs#L1-L3)).
 
-Startup acquires the single-instance guard, starts the root viewport hidden, and enters `eframe::run_native`. If another normal launch finds Hark running, it signals that instance to show its window and exits; updater and autostart launches deliberately stay silent ([main.rs:39-85](../../crates/hark-app/src/main.rs#L39-L85), [main.rs:87-123](../../crates/hark-app/src/main.rs#L87-L123)). `HarkApp::new` loads settings, opens storage, starts the pipeline, and starts the activation listener. The tray is created on the first event-loop callback so the macOS main-thread requirement is satisfied ([app.rs:61-143](../../crates/hark-app/src/app.rs#L61-L143), [app.rs:145-167](../../crates/hark-app/src/app.rs#L145-L167)).
+Startup acquires the single-instance guard, starts the root viewport hidden, and enters `eframe::run_native`. If another normal launch finds Hark running, it signals that instance to show its window and exits; updater and autostart launches deliberately stay silent ([main.rs:41-87](../../crates/hark-app/src/main.rs#L41-L87), [main.rs:89-125](../../crates/hark-app/src/main.rs#L89-L125)). `HarkApp::new` loads settings, opens storage, starts the pipeline and the meeting coordinator, and starts the activation listener. The tray is created on the first event-loop callback so the macOS main-thread requirement is satisfied ([app.rs:73-163](../../crates/hark-app/src/app.rs#L73-L163), [app.rs:165-187](../../crates/hark-app/src/app.rs#L165-L187)).
 
-Field order is part of shutdown correctness: pipeline and listener handles are declared before the channels and storage handles they feed, so their bounded drops run first ([app.rs:19-58](../../crates/hark-app/src/app.rs#L19-L58)).
+Field order is part of shutdown correctness: pipeline, meeting, and listener handles are declared before the channels and storage handles they feed, so their bounded drops run first — dropping `MeetingController` closes a meeting in progress and lets its final writes reach the storage worker before that worker is joined ([app.rs:22-70](../../crates/hark-app/src/app.rs#L22-L70)).
+
+Meeting mode (plan `tasks/2026-09-26-plan-meeting-transcription.md`) is deliberately a separate set of worker threads, not a mode of the dictation pipeline above: `hark-pipeline::meeting::run` starts a **coordinator** thread that owns the detector and the active recording and drains capture every 100 ms, one **live transcriber** thread per meeting that runs chunks through the STT provider FIFO across both channels, and one **finisher** thread per meeting for the after-call work (the Deepgram final pass, the summary, the MP3 archive), so an older meeting can still be finishing while a new one starts recording ([meeting/mod.rs:1-23](../../crates/hark-pipeline/src/meeting/mod.rs#L1-L23)). On the UI side, `hark-app`'s `MeetingController` is the same shape as `PipelineController`: a pump thread receives `MeetingEvent`s, tees database writes to the storage worker, forwards the rest to the UI, and wakes it with `wake_ui` so a hidden window still records every line and shows the detection prompt ([meeting.rs:1-9](../../crates/hark-app/src/meeting.rs#L1-L9)). Push-to-talk dictation keeps its own one-shot state machine untouched; the two systems never share state, and a meeting recording never blocks or is blocked by a dictation.
 
 ```mermaid
 graph TD
@@ -54,7 +59,7 @@ graph TD
     I -->|"channels and repaint"| A
 ```
 
-Sources: [main.rs:39-123](../../crates/hark-app/src/main.rs#L39-L123), [app.rs:19-167](../../crates/hark-app/src/app.rs#L19-L167), [pipeline.rs:1-66](../../crates/hark-app/src/pipeline.rs#L1-L66)
+Sources: [main.rs:41-125](../../crates/hark-app/src/main.rs#L41-L125), [app.rs:22-187](../../crates/hark-app/src/app.rs#L22-L187), [pipeline.rs:1-66](../../crates/hark-app/src/pipeline.rs#L1-L66), [meeting/mod.rs:1-23](../../crates/hark-pipeline/src/meeting/mod.rs#L1-L23), [hark-app/src/meeting.rs:1-9](../../crates/hark-app/src/meeting.rs#L1-L9)
 <!-- END:AUTOGEN hark_02_architecture_process_model -->
 
 ---

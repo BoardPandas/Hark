@@ -41,6 +41,9 @@ use tray_icon::TrayIconEvent;
 const OPEN_SETTINGS_ID: &str = "open-settings";
 const QUIT_ID: &str = "quit";
 const VOICE_ID_PREFIX: &str = "voice:";
+/// Start or stop meeting notes. Only built where meetings exist (Windows for
+/// now): a menu entry that can never work is worse than none.
+const MEETING_ID: &str = "meeting-toggle";
 /// Linux only, and not a gratuitous difference: libappindicator exposes no
 /// click or double-click event at all, so [`TrayAction::ShowWindow`] — which
 /// Windows and macOS raise from a double-click on the icon — is unreachable
@@ -57,7 +60,31 @@ pub enum TrayAction {
     OpenSettings,
     /// Double-click on the icon: bring the window back, current page.
     ShowWindow,
+    /// "Start meeting notes" / "Stop meeting notes".
+    ToggleMeeting,
     Quit,
+}
+
+/// What the meeting menu entry says.
+#[derive(Clone, PartialEq, Eq)]
+pub enum MeetingTray {
+    /// Turned off, or failed to start: the entry shows but is disabled.
+    Unavailable,
+    Idle,
+    /// Recording since this local time ("14:30"). A start time needs no
+    /// ticking, so a hidden idle window never has to wake just to update it.
+    Recording {
+        since: String,
+    },
+}
+
+impl MeetingTray {
+    fn label(&self) -> String {
+        match self {
+            MeetingTray::Unavailable | MeetingTray::Idle => "Start meeting notes".to_string(),
+            MeetingTray::Recording { since } => format!("Stop meeting notes (since {since})"),
+        }
+    }
 }
 
 /// One OS-level change to the tray. The diffing that produces these is pure
@@ -66,6 +93,11 @@ pub(crate) enum TrayUpdate {
     Icon(icon::TrayState),
     Tooltip(String),
     Voice(VoiceName),
+    /// The meeting entry's text and whether it is clickable.
+    Meeting {
+        label: String,
+        enabled: bool,
+    },
 }
 
 pub struct Tray {
@@ -76,6 +108,7 @@ pub struct Tray {
     shown: icon::TrayState,
     tooltip: String,
     checked: VoiceName,
+    meeting: MeetingTray,
 }
 
 impl Tray {
@@ -95,6 +128,7 @@ impl Tray {
             shown: icon::state(status),
             tooltip: icon::tooltip(status, chord),
             checked: voice,
+            meeting: MeetingTray::Unavailable,
         })
     }
 
@@ -112,19 +146,31 @@ impl Tray {
     /// point: on Linux each update also costs a channel hop and a PNG
     /// rewritten to a temp file, which is not something to do 60 times a
     /// second for a state that did not change.
-    pub fn apply(&mut self, status: &PipelineStatus, chord: &str, voice: VoiceName) {
-        let state = icon::state(status);
+    pub fn apply(
+        &mut self,
+        status: &PipelineStatus,
+        chord: &str,
+        voice: VoiceName,
+        meeting: &MeetingTray,
+    ) {
+        let (state, tooltip) = with_meeting(status, chord, meeting);
         if state != self.shown {
             self.surface.apply(TrayUpdate::Icon(state));
             self.shown = state;
         }
-        let tooltip = icon::tooltip(status, chord);
         if tooltip != self.tooltip {
             self.surface.apply(TrayUpdate::Tooltip(tooltip.clone()));
             self.tooltip = tooltip;
         }
         if voice != self.checked {
             self.set_voice(voice);
+        }
+        if *meeting != self.meeting {
+            self.surface.apply(TrayUpdate::Meeting {
+                label: meeting.label(),
+                enabled: *meeting != MeetingTray::Unavailable,
+            });
+            self.meeting = meeting.clone();
         }
     }
 
@@ -137,11 +183,34 @@ impl Tray {
     }
 }
 
+/// The icon and tooltip once a meeting is in the picture. The recording state
+/// must be visible at all times while a meeting records (plan §4.7), so an
+/// otherwise idle tray shows the recording disc; dictation's own states
+/// (recording, processing, an error) still win while they last.
+fn with_meeting(
+    status: &PipelineStatus,
+    chord: &str,
+    meeting: &MeetingTray,
+) -> (icon::TrayState, String) {
+    let state = icon::state(status);
+    match meeting {
+        MeetingTray::Recording { since } if state == icon::TrayState::Idle => (
+            icon::TrayState::Recording,
+            format!("Hark: taking meeting notes since {since}"),
+        ),
+        _ => (state, icon::tooltip(status, chord)),
+    }
+}
+
 /// Build the menu and hand back the voice items, which stay live so their
 /// checkmarks can be set later. Shared by both surfaces: the layout and the
 /// ids are what [`action_for_id`] decodes, so they must not diverge by
 /// platform.
-fn build_menu(voice: VoiceName) -> Result<(Menu, Vec<(VoiceName, CheckMenuItem)>), String> {
+/// Also hands back the meeting entry where meetings exist.
+#[allow(clippy::type_complexity)]
+fn build_menu(
+    voice: VoiceName,
+) -> Result<(Menu, Vec<(VoiceName, CheckMenuItem)>, Option<MenuItem>), String> {
     let err = |e: &dyn std::fmt::Display| e.to_string();
     let menu = Menu::new();
     menu.append(&MenuItem::new("Voice", false, None))
@@ -160,6 +229,15 @@ fn build_menu(voice: VoiceName) -> Result<(Menu, Vec<(VoiceName, CheckMenuItem)>
     }
     menu.append(&PredefinedMenuItem::separator())
         .map_err(|e| err(&e))?;
+    let meeting = if hark_pipeline::meeting::meetings_supported() {
+        let item = MenuItem::with_id(MEETING_ID, MeetingTray::Unavailable.label(), false, None);
+        menu.append(&item).map_err(|e| err(&e))?;
+        menu.append(&PredefinedMenuItem::separator())
+            .map_err(|e| err(&e))?;
+        Some(item)
+    } else {
+        None
+    };
     menu.append(&MenuItem::with_id(SHOW_WINDOW_ID, "Open Hark", true, None))
         .map_err(|e| err(&e))?;
     menu.append(&MenuItem::with_id(
@@ -173,7 +251,7 @@ fn build_menu(voice: VoiceName) -> Result<(Menu, Vec<(VoiceName, CheckMenuItem)>
         .map_err(|e| err(&e))?;
     menu.append(&MenuItem::with_id(QUIT_ID, "Quit Hark", true, None))
         .map_err(|e| err(&e))?;
-    Ok((menu, voices))
+    Ok((menu, voices, meeting))
 }
 
 /// One pump thread per global receiver (module docs). Menu clicks arrive
@@ -225,6 +303,9 @@ fn action_for_id(id: &str) -> Option<TrayAction> {
     if id == QUIT_ID {
         return Some(TrayAction::Quit);
     }
+    if id == MEETING_ID {
+        return Some(TrayAction::ToggleMeeting);
+    }
     let label = id.strip_prefix(VOICE_ID_PREFIX)?;
     VOICES
         .into_iter()
@@ -252,6 +333,33 @@ mod tests {
         );
         assert_eq!(action_for_id("quit"), Some(TrayAction::Quit));
         assert_eq!(action_for_id("show-window"), Some(TrayAction::ShowWindow));
+        assert_eq!(
+            action_for_id("meeting-toggle"),
+            Some(TrayAction::ToggleMeeting)
+        );
+    }
+
+    #[test]
+    fn a_recording_meeting_shows_on_an_idle_tray_but_dictation_wins() {
+        let recording = MeetingTray::Recording {
+            since: "14:30".to_string(),
+        };
+        let (state, tooltip) = with_meeting(&PipelineStatus::Idle, "F9", &recording);
+        assert_eq!(state, icon::TrayState::Recording);
+        assert!(tooltip.contains("meeting notes since 14:30"));
+        let (state, _) = with_meeting(&PipelineStatus::Processing, "F9", &recording);
+        assert_eq!(state, icon::TrayState::Processing);
+        let (state, _) = with_meeting(&PipelineStatus::Idle, "F9", &MeetingTray::Idle);
+        assert_eq!(state, icon::TrayState::Idle);
+    }
+
+    #[test]
+    fn the_meeting_entry_names_its_start_time() {
+        assert_eq!(MeetingTray::Idle.label(), "Start meeting notes");
+        let recording = MeetingTray::Recording {
+            since: "09:05".to_string(),
+        };
+        assert_eq!(recording.label(), "Stop meeting notes (since 09:05)");
     }
 
     #[cfg(target_os = "linux")]

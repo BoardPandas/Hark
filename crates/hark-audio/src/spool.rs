@@ -23,7 +23,10 @@ pub const ME_FILE: &str = "me.wav";
 /// The system-audio channel's file name inside a meeting's directory.
 pub const THEM_FILE: &str = "them.wav";
 
-const HEADER_LEN: u64 = 44;
+// pub(crate): the stereo/archive streamers (stereo.rs, mp3.rs) skip this
+// same 44-byte header when reading a spool directly, and must agree with it
+// exactly rather than hard-coding the number a second time.
+pub(crate) const HEADER_LEN: u64 = 44;
 const BYTES_PER_SAMPLE: u64 = 2;
 /// The RIFF size field is a u32 that also counts 36 header bytes. At 16 kHz
 /// mono i16 that is ~37 hours, far past any meeting, but a forgotten recording

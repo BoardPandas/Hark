@@ -4,9 +4,12 @@
 //! `ui` renders the shell. All of this stays on the main thread; the
 //! pipeline and storage workers never do.
 
+use crate::meeting::{MeetingController, MeetingStatus};
+use crate::meeting_prompt::{PromptWindow, Reply};
 use crate::pipeline::{PipelineController, PipelineStatus};
 use crate::ui::history::HistoryPage;
 use crate::ui::invocations::InvocationsPage;
+use crate::ui::meetings::MeetingsPage;
 use crate::ui::settings::SettingsPage;
 use crate::ui::spellbook::SpellbookPage;
 use crate::ui::stats::StatsPage;
@@ -26,6 +29,14 @@ pub struct HarkApp {
     /// Both waits are bounded: a worker stuck in a stalled request is left
     /// behind rather than holding the quit open (and the pump with it).
     pipeline: PipelineController,
+    /// Also before `storage`, for the same reason: dropping it closes a
+    /// meeting in progress, and its pump's final writes (the meeting's end)
+    /// must reach the storage worker before that worker is joined.
+    meetings: MeetingController,
+    /// The settings meeting mode last received; a Save that changed anything
+    /// is applied live (never by restarting a meeting in progress).
+    meetings_applied: Settings,
+    meeting_prompt: PromptWindow,
     storage: Option<storage::StorageHandle>,
     /// Why storage is off, surfaced by the history/stats error states.
     storage_error: Option<String>,
@@ -67,6 +78,11 @@ impl HarkApp {
         reconcile_autostart(settings.startup.launch_at_login);
         let (storage, storage_error) = open_storage(&cc.egui_ctx);
         let mut pipeline = PipelineController::new(storage.as_ref().map(|s| s.sender()));
+        let mut meetings = MeetingController::new(storage.as_ref().map(|s| s.sender()));
+        // A broken config file stops meetings as it stops dictation.
+        if load_error.is_none() {
+            meetings.start(&settings, &cc.egui_ctx);
+        }
         match load_error {
             None => pipeline.start(&settings, &cc.egui_ctx),
             // A broken config file must be visible, not silently defaulted
@@ -90,6 +106,7 @@ impl HarkApp {
             invocations: InvocationsPage::new(),
             history: HistoryPage::new(),
             stats: StatsPage::new(),
+            meetings: MeetingsPage::new(),
         };
 
         // Window-first onboarding (spec §3.11): land on History when
@@ -125,8 +142,11 @@ impl HarkApp {
         let (activations, listener) = start_activation_listener(&cc.egui_ctx);
 
         HarkApp {
+            meetings_applied: settings.clone(),
             settings,
             pipeline,
+            meetings,
+            meeting_prompt: PromptWindow::new(),
             storage,
             storage_error,
             tray: None,
@@ -179,6 +199,13 @@ impl HarkApp {
                     show_window(ctx);
                 }
                 tray::TrayAction::ShowWindow => show_window(ctx),
+                tray::TrayAction::ToggleMeeting => {
+                    if self.meetings.is_recording() {
+                        self.meetings.stop();
+                    } else {
+                        self.meetings.start_manual();
+                    }
+                }
                 tray::TrayAction::Quit => {
                     self.window_behavior.quit(ctx);
                 }
@@ -204,6 +231,68 @@ impl HarkApp {
             // Unconditional: native check items toggle themselves, so even
             // re-clicking the current voice needs its checkmark restored.
             tray.set_voice(voice);
+        }
+    }
+
+    /// Apply a Save (or any other settings change) to meeting mode, and let
+    /// a lowered storage cap take effect now rather than at the next meeting.
+    /// Cheap when nothing changed: one comparison per `logic` pass.
+    fn sync_meeting_settings(&mut self, ctx: &egui::Context) {
+        if self.settings == self.meetings_applied {
+            return;
+        }
+        let cap_changed =
+            self.settings.meeting.audio_cap_mb != self.meetings_applied.meeting.audio_cap_mb;
+        self.meetings.apply_settings(&self.settings, ctx);
+        if cap_changed {
+            if let Some(storage) = &self.storage {
+                let mut protected = self.meetings.finishing().to_vec();
+                if let MeetingStatus::Recording { id, .. } = self.meetings.status() {
+                    protected.push(id.clone());
+                }
+                storage.send(storage::StorageCmd::Meeting(
+                    storage::meetings::MeetingCmd::EnforceCap {
+                        cap_bytes: self.settings.meeting.audio_cap_bytes(),
+                        protected,
+                    },
+                ));
+            }
+        }
+        self.meetings_applied = self.settings.clone();
+    }
+
+    /// Keep the detection prompt's viewport registered while meeting mode
+    /// runs (like the recording overlay, from `logic`, so it works while the
+    /// window is hidden) and act on the answer.
+    fn show_meeting_prompt(&mut self, ctx: &egui::Context) {
+        if !self.meetings.is_available() {
+            return;
+        }
+        let prompt = self.meetings.prompt().map(|p| (p.name.clone(), p.shown));
+        let reply = self.meeting_prompt.show(
+            ctx,
+            prompt.as_ref().map(|(name, shown)| (name.as_str(), *shown)),
+        );
+        match reply {
+            Some(Reply::Answer(answer)) => self.meetings.answer(answer),
+            Some(Reply::OpenSettings) => {
+                self.meetings.answer(crate::meeting::Answer::Dismissed);
+                self.page = pages::Page::Settings;
+                self.views.settings.open(settings::Section::Meetings);
+                show_window(ctx);
+            }
+            None => {}
+        }
+    }
+
+    /// What the tray's meeting entry says.
+    fn meeting_tray(&self) -> tray::MeetingTray {
+        match self.meetings.status() {
+            MeetingStatus::Unavailable(_) => tray::MeetingTray::Unavailable,
+            MeetingStatus::Idle => tray::MeetingTray::Idle,
+            MeetingStatus::Recording { started_ms, .. } => tray::MeetingTray::Recording {
+                since: crate::ui::meetings::local_clock(*started_ms, &jiff::tz::TimeZone::system()),
+            },
         }
     }
 
@@ -421,17 +510,22 @@ impl eframe::App for HarkApp {
         }
         self.ensure_tray(ctx);
         self.pipeline.drain_events();
+        self.meetings.drain_events();
+        self.sync_meeting_settings(ctx);
+        self.show_meeting_prompt(ctx);
         self.views.settings.poll();
         self.updater.poll();
         self.handle_tray_actions(ctx);
         self.handle_activations(ctx);
         self.handle_close(ctx);
         self.show_recording_overlay(ctx);
+        let meeting_tray = self.meeting_tray();
         if let Some(tray) = &mut self.tray {
             tray.apply(
                 self.pipeline.status(),
                 &self.settings.hotkey.ptt_key,
                 self.settings.voice.default,
+                &meeting_tray,
             );
         }
     }
@@ -457,6 +551,7 @@ impl eframe::App for HarkApp {
             &mut self.page,
             &mut self.settings,
             &mut self.pipeline,
+            &mut self.meetings,
             &mut self.views,
             &mut self.updater,
             self.storage.as_ref(),

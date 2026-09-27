@@ -18,6 +18,21 @@ cpal = "0.18.1"
 rubato = "5.0"
 log = "0.4"
 thiserror = "2"
+# WAV reader/writer for the mono share export and the archive's verify pass
+# (already locked as a dev-dep for spool's own tests).
+hound = "3.5"
+# Meeting audio archive (D9) and sharing (D8): resolves to 0.2.5 (sys 0.1.11,
+# LAME 3.100), confirmed in the CP0 spike. LAME is LGPL and statically
+# linked via mp3lame-sys's vendored build; the notice/relink obligation is
+# handled in About + the installer, not here (§4.10/§4.11 of the meetings
+# plan). LL-G HIGH `kb/rust/mp3lame-encode-to-vec-no-reserve.md`: every
+# encode_to_vec/flush_to_vec call must reserve first, or LAME treats the
+# Vec's 0 spare capacity as "unbounded" and overflows the heap.
+mp3lame-encoder = "0.2"
+# Decodes the MP3 archive back to PCM for the compress-then-verify step and
+# for exporting audio from an already-compressed meeting. Pure Rust
+# (MPL-2.0), no native codec dependency; only the mp3 feature is enabled.
+symphonia = { version = "0.5", default-features = false, features = ["mp3"] }
 
 # cpal resolves the default capture device by the eConsole role only, but
 # Windows keeps a SECOND capture default for the eCommunications role -- the
@@ -50,7 +65,6 @@ windows = { version = "0.62.2", features = [
 windows-core = "0.62"
 
 [dev-dependencies]
-# Spool tests read their files back with an independent WAV reader (hound is
-# already locked through hark-stt) inside a temp dir.
-hound = "3.5"
+# Spool and archive tests build synthetic tones and read files back inside a
+# temp dir.
 tempfile = "3"

@@ -11,6 +11,8 @@ The following files were used as evidence for this page:
 - [crates/hark-audio/src/capture_win.rs](../../crates/hark-audio/src/capture_win.rs)
 - [crates/hark-audio/src/loopback_win.rs](../../crates/hark-audio/src/loopback_win.rs)
 - [crates/hark-audio/src/spool.rs](../../crates/hark-audio/src/spool.rs)
+- [crates/hark-audio/src/stereo.rs](../../crates/hark-audio/src/stereo.rs)
+- [crates/hark-audio/src/mp3.rs](../../crates/hark-audio/src/mp3.rs)
 - [crates/hark-hotkey/src/lib.rs](../../crates/hark-hotkey/src/lib.rs)
 - [crates/hark-hotkey/src/edges.rs](../../crates/hark-hotkey/src/edges.rs)
 - [crates/hark-hotkey/src/capture.rs](../../crates/hark-hotkey/src/capture.rs)
@@ -22,14 +24,14 @@ The following files were used as evidence for this page:
 
 # Audio Capture and Push-to-Talk
 
-> **Related Pages**: [Architecture](../core/ARCHITECTURE.md), [Configuration and Secrets](../core/CONFIGURATION.md), [Transcription](TRANSCRIPTION.md)
+> **Related Pages**: [Architecture](../core/ARCHITECTURE.md), [Configuration and Secrets](../core/CONFIGURATION.md), [Transcription](TRANSCRIPTION.md), [Meetings](MEETINGS.md)
 
 ---
 
 <!-- BEGIN:AUTOGEN hark_06_audio_capture_overview -->
 ## Overview
 
-`hark-audio` continuously captures device-rate `f32` input into a lock-free ring. `hark-hotkey` converts a configurable chord into down/up edges. On release, the pipeline assembles pre-roll, the held interval, and a short tail; gates obvious misfires and silence; normalizes and resamples the clip to 16 kHz mono; then sends it to STT ([audio/lib.rs:1-12](../../crates/hark-audio/src/lib.rs#L1-L12), [audio/lib.rs:86-166](../../crates/hark-audio/src/lib.rs#L86-L166)).
+`hark-audio` continuously captures device-rate `f32` input into a lock-free ring. `hark-hotkey` converts a configurable chord into down/up edges. On release, the pipeline assembles pre-roll, the held interval, and a short tail; gates obvious misfires and silence; normalizes and resamples the clip to 16 kHz mono; then sends it to STT ([audio/lib.rs:1-16](../../crates/hark-audio/src/lib.rs#L1-L16), [audio/lib.rs:96-176](../../crates/hark-audio/src/lib.rs#L96-L176)).
 
 Gemini Live adds a second reader during the hold. It reads the same ring without consuming it, so finished-clip assembly remains authoritative for gates and batch fallback ([ring.rs:96-121](../../crates/hark-audio/src/ring.rs#L96-L121)).
 
@@ -103,14 +105,16 @@ Fresh hook evidence outranks a contradictory key-state read for 1.5 seconds, lon
 ---
 
 <!-- BEGIN:AUTOGEN hark_06_audio_capture_meeting -->
-## Meeting Capture (in progress)
+## Meeting Capture
 
-Meeting mode records two channels for the length of a call, beside push-to-talk's own microphone stream and ring. This is groundwork for the planned Meetings feature: nothing in the app starts a meeting yet.
+Meeting mode records two channels for the length of a call, beside push-to-talk's own microphone stream and ring, and is reachable from the tray and the Meetings page (see [Meetings](MEETINGS.md)). This section covers only the capture and encoding layer in `hark-audio`; the session logic that drives it lives in `hark-meeting` and `hark-pipeline::meeting`.
 
 - **Them (system audio):** on Windows, per-process loopback captures one process tree's audio on whichever endpoint it renders to: the meeting app's tree for a detected meeting, or everything except Hark for a manual start. Endpoint loopback of the default device would miss a meeting app that renders to the communications device, and it delivers no packets while nothing plays. Windows converts the stream to 16 kHz mono i16 and delivers packets continuously, so this channel needs no resampling and no gap padding. It runs on its own thread that owns its COM apartment, and off Windows it returns `UnsupportedPlatform` ([loopback_win.rs:1-49](../../crates/hark-audio/src/loopback_win.rs#L1-L49), [loopback_win.rs:104-117](../../crates/hark-audio/src/loopback_win.rs#L104-L117)).
 - **Activation gotcha:** the activation parameters travel in a `VT_BLOB` `PROPVARIANT` that points at stack memory. In windows-rs 0.62 `PROPVARIANT`'s `Drop` frees that blob and kills the process silently, so it is held in `ManuallyDrop` ([loopback_win.rs:345-409](../../crates/hark-audio/src/loopback_win.rs#L345-L409)).
-- **Spool:** each channel appends to `<data_dir>/meetings/<id>/{me,them}.wav` (16 kHz mono i16). The header's size fields are patched on close. At startup, `recover_all` patches the header of any spool a crash left open and leaves anything not in the spool's exact format untouched ([spool.rs:1-10](../../crates/hark-audio/src/spool.rs#L1-L10), [spool.rs:76-173](../../crates/hark-audio/src/spool.rs#L76-L173), [spool.rs:207-266](../../crates/hark-audio/src/spool.rs#L207-L266)).
-- Loopback and spool are verified by hand on real hardware with `cargo run -p hark-audio --example loopback_smoke`; `cargo test` never opens an audio device.
+- **Spool:** each channel appends to `<data_dir>/meetings/<id>/{me,them}.wav` (16 kHz mono i16). The header's size fields are patched on close. At startup, `recover_all` patches the header of any spool a crash left open and leaves anything not in the spool's exact format untouched ([spool.rs:1-10](../../crates/hark-audio/src/spool.rs#L1-L10), [spool.rs:79-176](../../crates/hark-audio/src/spool.rs#L79-L176), [spool.rs:210-269](../../crates/hark-audio/src/spool.rs#L210-L269)).
+- **Stereo reader:** `stereo::stereo_wav_reader` streams the two mono spools as one 16 kHz stereo WAV (L = me, R = them) without ever materializing the merged file, chunk by chunk, padding a missing or shorter channel with silence so the two channels stay time-aligned for the Deepgram multichannel final pass ([Transcription](TRANSCRIPTION.md#deepgram-and-gemini-live)). An hour of 16-bit stereo at 16 kHz is ~115 MB, too much to hold in memory for one upload ([stereo.rs:1-8](../../crates/hark-audio/src/stereo.rs#L1-L8), [stereo.rs:34-64](../../crates/hark-audio/src/stereo.rs#L34-L64)).
+- **MP3 archive and export:** `mp3.rs` compresses a finished meeting's two WAV spools into one stereo 64 kbps `audio.mp3` (D9), and separately renders a mono 32 kbps MP3 or 16 kHz WAV mixdown for the Share menu's audio export (D8). Both go through `mp3lame-encoder` (LAME, LGPL — see [Release and Packaging](../operations/RELEASE_AND_PACKAGING.md#signing-and-secrets)) and decode back with `symphonia` (pure Rust) to verify a compression before deleting the WAVs. The archive uses LAME `Mode::Stereo`, never `JointStereo`: joint stereo leaks about -96 dBFS between channels, which would corrupt a Me/Them re-run through Deepgram ([mp3.rs:1-14](../../crates/hark-audio/src/mp3.rs#L1-L14), [mp3.rs:130-134](../../crates/hark-audio/src/mp3.rs#L130-L134)). `recover_meeting_dir` runs at startup before any of this is trusted: it removes an interrupted `audio.mp3.tmp`, and discards a corrupt archive from an interrupted run while keeping the WAVs so compression can retry ([mp3.rs:184-221](../../crates/hark-audio/src/mp3.rs#L184-L221)).
+- Loopback, spool, stereo, and MP3 encode/decode are verified by hand on real hardware with `cargo run -p hark-audio --example loopback_smoke`; `cargo test` never opens an audio device but does exercise the pure spool/stereo/MP3 code against synthetic tones in a temp directory.
 <!-- END:AUTOGEN hark_06_audio_capture_meeting -->
 
 ---
@@ -121,7 +125,7 @@ Meeting mode records two channels for the length of a call, beside push-to-talk'
 - Defaults are 300 ms pre-roll, 150 ms tail, 120-second maximum hold, 250 ms minimum speech, and a 0.01 absolute RMS threshold ([window.rs:16-25](../../crates/hark-audio/src/window.rs#L16-L25)).
 - The loudness gate looks at the loudest 100 ms window, not whole-clip mean RMS. A second relative path accepts speech at least 4x above the clip's noise floor, with a dead-microphone floor, so quiet but distinct speech is not silently dropped ([window.rs:89-205](../../crates/hark-audio/src/window.rs#L89-L205)).
 - Too-short and too-quiet clips make no provider request. The UI treats a tap as idle and a quiet clip as a microphone hint, not a red failure.
-- Logs may include device labels, rates, channel counts, sample counts, loudness measurements, and discontinuity counts. `AudioClip` has a custom `Debug` implementation that never prints samples ([audio/lib.rs:35-66](../../crates/hark-audio/src/lib.rs#L35-L66)).
+- Logs may include device labels, rates, channel counts, sample counts, loudness measurements, and discontinuity counts. `AudioClip` has a custom `Debug` implementation that never prints samples ([audio/lib.rs:45-77](../../crates/hark-audio/src/lib.rs#L45-L77)).
 - Real-device behavior, Windows hook suppression, Linux evdev permissions, and stream recovery still require hardware/platform testing; pure ring, window, resampling, and edge semantics are unit-testable anywhere.
 <!-- END:AUTOGEN hark_06_audio_capture_notes -->
 

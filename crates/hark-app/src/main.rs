@@ -11,6 +11,8 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod app;
+mod meeting;
+mod meeting_prompt;
 mod model_download;
 mod overlay;
 mod pipeline;

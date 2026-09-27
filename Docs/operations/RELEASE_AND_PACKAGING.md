@@ -18,7 +18,7 @@ The following files were used as evidence for this page:
 
 # Release and Packaging
 
-> **Related Pages**: [Getting Started](../GETTING_STARTED.md), [Updates and Autostart](../features/UPDATES_AND_AUTOSTART.md), [Overview](../OVERVIEW.md)
+> **Related Pages**: [Getting Started](../GETTING_STARTED.md), [Updates and Autostart](../features/UPDATES_AND_AUTOSTART.md), [Overview](../OVERVIEW.md), [Meetings](../features/MEETINGS.md)
 
 ---
 
@@ -68,6 +68,8 @@ Installed files, shortcuts, and the autostart registry seed are declared in dedi
 ```ini
 [Files]
 Source: "{#SourceExe}"; DestDir: "{app}"; DestName: "{#AppExeName}"; Flags: ignoreversion
+; LAME (LGPL) is linked into the exe for meeting MP3s; its notice ships beside it.
+Source: "..\THIRD_PARTY_NOTICES.md"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
 Name: "{group}\{#AppName}"; Filename: "{app}\{#AppExeName}"
@@ -81,11 +83,13 @@ Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; \
     Flags: uninstalldeletevalue
 ```
 
-Sources: [hark.iss:73-88](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/installer/hark.iss#L73-L88)
+Sources: [hark.iss:73-90](../../installer/hark.iss#L73-L90)
 
-The `[Registry]` entry seeds launch-at-login so it works immediately after a fresh install, mirroring the exact format `hark-autostart` writes at runtime (quoted path plus `--hidden`), and `uninstalldeletevalue` removes it on uninstall so the value can never point at a deleted exe (`installer/hark.iss:81-88`). The desktop shortcut is opt-in via the `desktopicon` task, unchecked by default (`installer/hark.iss:70-71`). The `[Run]` step deliberately omits `--hidden` so a fresh install's first launch shows the onboarding window (no STT key configured yet), while `skipifsilent` keeps unattended installs headless (`installer/hark.iss:90-95`). User data at `%APPDATA%\hark` (`config.toml` + `history.db`) is intentionally left in place on uninstall (`installer/hark.iss:12-13`).
+Meeting mode encodes recordings to MP3 with LAME through `mp3lame-encoder`/`mp3lame-sys`, and LAME is LGPL-2.0+, statically linked. The installer ships `THIRD_PARTY_NOTICES.md` beside the exe to satisfy that (the notice states the relink right: Hark's source is public, so anyone can rebuild against a modified LAME) — the same file the About screen and root `THIRD_PARTY_NOTICES.md` point to ([hark.iss:73-76](../../installer/hark.iss#L73-L76), [THIRD_PARTY_NOTICES.md](../../THIRD_PARTY_NOTICES.md)).
 
-Sources: [hark.iss:1-96](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/installer/hark.iss#L1-L96)
+The `[Registry]` entry seeds launch-at-login so it works immediately after a fresh install, mirroring the exact format `hark-autostart` writes at runtime (quoted path plus `--hidden`), and `uninstalldeletevalue` removes it on uninstall so the value can never point at a deleted exe (`installer/hark.iss:83-90`). The desktop shortcut is opt-in via the `desktopicon` task, unchecked by default (`installer/hark.iss:70-71`). The `[Run]` step deliberately omits `--hidden` so a fresh install's first launch shows the onboarding window (no STT key configured yet), while `skipifsilent` keeps unattended installs headless (`installer/hark.iss:92-97`). User data at `%APPDATA%\hark` (`config.toml` + `history.db`) is intentionally left in place on uninstall (`installer/hark.iss:12-13`); meeting recordings under that same directory's `meetings/` folder are left in place too, since nothing about uninstall is meeting-aware.
+
+Sources: [hark.iss:1-98](../../installer/hark.iss#L1-L98), [THIRD_PARTY_NOTICES.md](../../THIRD_PARTY_NOTICES.md)
 <!-- END:AUTOGEN hark_13_release_packaging_installer -->
 
 ---

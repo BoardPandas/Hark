@@ -55,6 +55,7 @@ pages:
       - hark_02_architecture
       - hark_03_getting_started
       - hark_14_glossary
+      - hark_15_meetings
 
   - id: hark_02_architecture
     title: "Architecture"
@@ -123,6 +124,7 @@ pages:
       - hark_06_audio_capture
       - hark_07_transcription
       - hark_10_text_injection
+      - hark_15_meetings
 
   - id: hark_03_getting_started
     title: "Getting Started"
@@ -244,10 +246,15 @@ pages:
       - "crates/hark-store/migrations/002_stats_total_ms.sql"
       - "crates/hark-store/migrations/003_entries_invocation.sql"
       - "crates/hark-store/tests/store.rs"
-      - "crates/hark-app/src/storage.rs"
+      - "crates/hark-store/migrations/004_meetings.sql"
+      - "crates/hark-store/src/meetings.rs"
+      - "crates/hark-app/src/storage/mod.rs"
+      - "crates/hark-app/src/storage/meetings.rs"
       - "crates/hark-app/src/app.rs"
       - "crates/hark-config/src/lib.rs"
       - "crates/hark-pipeline/src/events.rs"
+      - "crates/hark-meeting/src/storage.rs"
+      - "crates/hark-meeting/src/storage_fs.rs"
     sections:
       - id: hark_05_data_storage_overview
         title: "Overview"
@@ -262,6 +269,8 @@ pages:
           - "crates/hark-store/migrations/001_init.sql"
           - "crates/hark-store/migrations/002_stats_total_ms.sql"
           - "crates/hark-store/migrations/003_entries_invocation.sql"
+          - "crates/hark-store/migrations/004_meetings.sql"
+          - "crates/hark-store/src/meetings.rs"
           - "crates/hark-store/tests/store.rs"
         diagrams_needed: true
         diagram_types: ["er"]
@@ -287,15 +296,17 @@ pages:
         source_files:
           - "crates/hark-store/src/lib.rs"
           - "crates/hark-store/tests/store.rs"
-          - "crates/hark-app/src/storage.rs"
+          - "crates/hark-app/src/storage/mod.rs"
           - "crates/hark-config/src/lib.rs"
+          - "crates/hark-meeting/src/storage.rs"
         diagrams_needed: false
         diagram_types: []
       - id: hark_05_data_storage_integration
         title: "App Integration"
         autogen: true
         source_files:
-          - "crates/hark-app/src/storage.rs"
+          - "crates/hark-app/src/storage/mod.rs"
+          - "crates/hark-app/src/storage/meetings.rs"
           - "crates/hark-pipeline/src/events.rs"
         diagrams_needed: false
         diagram_types: []
@@ -303,6 +314,7 @@ pages:
       - hark_02_architecture
       - hark_04_configuration
       - hark_12_desktop_ui
+      - hark_15_meetings
 
   - id: hark_06_audio_capture
     title: "Audio Capture and Push-to-Talk"
@@ -319,6 +331,8 @@ pages:
       - "crates/hark-audio/src/capture_win.rs"
       - "crates/hark-audio/src/loopback_win.rs"
       - "crates/hark-audio/src/spool.rs"
+      - "crates/hark-audio/src/stereo.rs"
+      - "crates/hark-audio/src/mp3.rs"
       - "crates/hark-hotkey/src/lib.rs"
       - "crates/hark-hotkey/src/hook_win.rs"
       - "crates/hark-hotkey/src/hook_linux.rs"
@@ -367,11 +381,13 @@ pages:
         diagrams_needed: false
         diagram_types: []
       - id: hark_06_audio_capture_meeting
-        title: "Meeting Capture (in progress)"
+        title: "Meeting Capture"
         autogen: true
         source_files:
           - "crates/hark-audio/src/loopback_win.rs"
           - "crates/hark-audio/src/spool.rs"
+          - "crates/hark-audio/src/stereo.rs"
+          - "crates/hark-audio/src/mp3.rs"
         diagrams_needed: false
         diagram_types: []
       - id: hark_06_audio_capture_notes
@@ -383,6 +399,7 @@ pages:
       - hark_02_architecture
       - hark_04_configuration
       - hark_07_transcription
+      - hark_15_meetings
 
   - id: hark_07_transcription
     title: "Transcription (STT Providers)"
@@ -449,6 +466,7 @@ pages:
       - hark_02_architecture
       - hark_08_spellbook
       - hark_09_voice_cleanup
+      - hark_15_meetings
 
   # Hand-written in 0.18.0 and never registered here, so `/doc-sync update` could
   # not see it and the page drifted outside the citation regime. Registered with
@@ -584,6 +602,7 @@ pages:
       - hark_09_voice_cleanup
       - hark_04_configuration
       - hark_08b_invocations
+      - hark_15_meetings
 
   - id: hark_08b_invocations
     title: "Invocations"
@@ -713,6 +732,7 @@ pages:
       - hark_07_transcription
       - hark_08_spellbook
       - hark_04_configuration
+      - hark_15_meetings
 
   - id: hark_10_text_injection
     title: "Text Injection"
@@ -878,6 +898,7 @@ pages:
       - hark_02_architecture
       - hark_05_data_storage
       - hark_11_updates_autostart
+      - hark_15_meetings
 
   - id: hark_13_release_packaging
     title: "Release and Packaging"
@@ -932,6 +953,7 @@ pages:
       - hark_03_getting_started
       - hark_11_updates_autostart
       - hark_01_overview
+      - hark_15_meetings
 
   - id: hark_14_glossary
     title: "Glossary"
@@ -946,6 +968,7 @@ pages:
       - "crates/hark-audio/src/ring.rs"
       - "crates/hark-hotkey/src/edges.rs"
       - "crates/hark-pipeline/src/events.rs"
+      - "crates/hark-stt/src/meeting.rs"
     sections:
       - id: hark_14_glossary_terms
         title: "Terms"
@@ -960,10 +983,132 @@ pages:
     related_pages:
       - hark_01_overview
       - hark_02_architecture
+      - hark_15_meetings
+
+  - id: hark_15_meetings
+    title: "Meetings"
+    folder: "features"
+    filename: "MEETINGS.md"
+    description: "Bot-free meeting transcription: OS loopback capture, live Me/Them transcript, the Deepgram final pass, notes, storage cap, and sharing."
+    category: feature
+    source_files:
+      - "crates/hark-meeting/src/lib.rs"
+      - "crates/hark-meeting/src/session.rs"
+      - "crates/hark-meeting/src/chunker.rs"
+      - "crates/hark-meeting/src/merge.rs"
+      - "crates/hark-meeting/src/detect.rs"
+      - "crates/hark-meeting/src/probe_win.rs"
+      - "crates/hark-meeting/src/storage.rs"
+      - "crates/hark-meeting/src/storage_fs.rs"
+      - "crates/hark-meeting/src/export.rs"
+      - "crates/hark-pipeline/src/meeting/mod.rs"
+      - "crates/hark-pipeline/src/meeting/coordinator.rs"
+      - "crates/hark-pipeline/src/meeting/recorder.rs"
+      - "crates/hark-pipeline/src/meeting/live.rs"
+      - "crates/hark-pipeline/src/meeting/finish.rs"
+      - "crates/hark-config/src/meeting.rs"
+      - "crates/hark-store/src/meetings.rs"
+      - "crates/hark-store/migrations/004_meetings.sql"
+      - "crates/hark-stt/src/meeting.rs"
+      - "crates/hark-voice/src/summary.rs"
+      - "crates/hark-app/src/meeting.rs"
+      - "crates/hark-app/src/meeting_prompt.rs"
+      - "crates/hark-app/src/storage/meetings.rs"
+      - "crates/hark-app/src/ui/meetings/mod.rs"
+      - "crates/hark-app/src/ui/meetings/detail.rs"
+      - "crates/hark-app/src/ui/meetings/share.rs"
+      - "crates/hark-app/src/ui/settings/meetings.rs"
+    sections:
+      - id: hark_15_meetings_overview
+        title: "Overview"
+        autogen: true
+        diagrams_needed: true
+        diagram_types: ["flowchart"]
+      - id: hark_15_meetings_capture
+        title: "Capture"
+        autogen: true
+        source_files:
+          - "crates/hark-audio/src/loopback_win.rs"
+          - "crates/hark-audio/src/spool.rs"
+          - "crates/hark-pipeline/src/meeting/recorder.rs"
+        diagrams_needed: false
+        diagram_types: []
+      - id: hark_15_meetings_detection
+        title: "Auto-Detection"
+        autogen: true
+        source_files:
+          - "crates/hark-meeting/src/detect.rs"
+          - "crates/hark-meeting/src/probe_win.rs"
+          - "crates/hark-pipeline/src/meeting/coordinator.rs"
+        diagrams_needed: false
+        diagram_types: []
+      - id: hark_15_meetings_live
+        title: "Live Transcript"
+        autogen: true
+        source_files:
+          - "crates/hark-meeting/src/chunker.rs"
+          - "crates/hark-meeting/src/merge.rs"
+          - "crates/hark-pipeline/src/meeting/live.rs"
+        diagrams_needed: false
+        diagram_types: []
+      - id: hark_15_meetings_final_pass
+        title: "Deepgram Final Pass"
+        autogen: true
+        source_files:
+          - "crates/hark-stt/src/meeting.rs"
+          - "crates/hark-pipeline/src/meeting/finish.rs"
+        diagrams_needed: false
+        diagram_types: []
+      - id: hark_15_meetings_notes
+        title: "Notes"
+        autogen: true
+        source_files:
+          - "crates/hark-voice/src/summary.rs"
+          - "crates/hark-pipeline/src/meeting/finish.rs"
+        diagrams_needed: false
+        diagram_types: []
+      - id: hark_15_meetings_storage
+        title: "Storage and the Audio Cap"
+        autogen: true
+        source_files:
+          - "crates/hark-meeting/src/storage.rs"
+          - "crates/hark-meeting/src/storage_fs.rs"
+          - "crates/hark-app/src/storage/meetings.rs"
+          - "crates/hark-config/src/meeting.rs"
+          - "crates/hark-store/src/meetings.rs"
+          - "crates/hark-store/migrations/004_meetings.sql"
+        diagrams_needed: false
+        diagram_types: []
+      - id: hark_15_meetings_sharing
+        title: "Sharing and Export"
+        autogen: true
+        source_files:
+          - "crates/hark-meeting/src/export.rs"
+          - "crates/hark-app/src/ui/meetings/share.rs"
+          - "crates/hark-audio/src/mp3.rs"
+        diagrams_needed: false
+        diagram_types: []
+      - id: hark_15_meetings_privacy
+        title: "Privacy"
+        autogen: true
+        diagrams_needed: false
+        diagram_types: []
+      - id: hark_15_meetings_operational
+        title: "Operational Notes"
+        autogen: true
+        diagrams_needed: false
+        diagram_types: []
+    related_pages:
+      - hark_02_architecture
+      - hark_06_audio_capture
+      - hark_07_transcription
+      - hark_09_voice_cleanup
+      - hark_05_data_storage
+      - hark_12_desktop_ui
 
 notes:
-  - "Large Rust workspace: 15 crates, ~93 non-test source files. 16 pages (14 from the original plan, plus hark_08b_invocations and hark_07b_on_device_stt)."
-  - "hark-pipeline orchestration is documented inside core/ARCHITECTURE.md rather than a standalone page."
+  - "Large Rust workspace: 16 crates, ~100 non-test source files. 17 pages (14 from the original plan, plus hark_08b_invocations, hark_07b_on_device_stt, and hark_15_meetings)."
+  - "hark-pipeline orchestration is documented inside core/ARCHITECTURE.md rather than a standalone page; the meeting coordinator/live/finisher threads under hark-pipeline/src/meeting/ are the one exception, owned by hark_15_meetings instead, since they are a distinct feature rather than the dictation orchestration ARCHITECTURE.md covers."
   - "hark-audio and hark-hotkey are combined into AUDIO_CAPTURE.md since they form the input-capture stage together."
   - "hark-update and hark-autostart are combined into UPDATES_AND_AUTOSTART.md as related lifecycle concerns."
   - "This is a native desktop app: no API-reference, database-service, auth, or hosting/infra pages apply."

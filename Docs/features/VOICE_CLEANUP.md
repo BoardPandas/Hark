@@ -4,22 +4,24 @@
 
 The following files were used as evidence for this page:
 
-- [crates/hark-voice/src/lib.rs:1-49](../../crates/hark-voice/src/lib.rs#L1-L49)
+- [crates/hark-voice/src/lib.rs:1-55](../../crates/hark-voice/src/lib.rs#L1-L55)
 - [crates/hark-voice/src/voices.rs:1-281](../../crates/hark-voice/src/voices.rs#L1-L281)
 - [crates/hark-voice/src/openai_compatible.rs:1-286](../../crates/hark-voice/src/openai_compatible.rs#L1-L286)
 - [crates/hark-voice/src/error.rs:1-160](../../crates/hark-voice/src/error.rs#L1-L160)
+- [crates/hark-voice/src/summary.rs:1-45](../../crates/hark-voice/src/summary.rs#L1-L45)
 - [crates/hark-config/src/voice.rs:1-338](../../crates/hark-config/src/voice.rs#L1-L338)
-- [crates/hark-config/src/lib.rs:114-140](../../crates/hark-config/src/lib.rs#L114-L140)
-- [crates/hark-pipeline/src/lib.rs:270-370](../../crates/hark-pipeline/src/lib.rs#L270-L370)
+- [crates/hark-config/src/lib.rs:116-142](../../crates/hark-config/src/lib.rs#L116-L142)
+- [crates/hark-pipeline/src/lib.rs:270-371](../../crates/hark-pipeline/src/lib.rs#L270-L371)
 - [crates/hark-pipeline/src/worker.rs:440-618](../../crates/hark-pipeline/src/worker.rs#L440-L618)
-- [crates/hark-stt/src/lib.rs:30-42](../../crates/hark-stt/src/lib.rs#L30-L42)
+- [crates/hark-pipeline/src/meeting/finish.rs:256-254](../../crates/hark-pipeline/src/meeting/finish.rs#L256-L254)
+- [crates/hark-stt/src/lib.rs:31-43](../../crates/hark-stt/src/lib.rs#L31-L43)
 - [crates/hark-stt/src/gemini_live.rs:355-375](../../crates/hark-stt/src/gemini_live.rs#L355-L375)
 
 </details>
 
 # Voice Cleanup
 
-> **Related Pages**: [Transcription](TRANSCRIPTION.md), [Spellbook](SPELLBOOK.md), [Invocations](INVOCATIONS.md), [Configuration and Secrets](../core/CONFIGURATION.md)
+> **Related Pages**: [Transcription](TRANSCRIPTION.md), [Spellbook](SPELLBOOK.md), [Invocations](INVOCATIONS.md), [Configuration and Secrets](../core/CONFIGURATION.md), [Meetings](MEETINGS.md)
 
 ---
 
@@ -46,7 +48,9 @@ graph TD
 
 The configured voice and the provider are resolved independently. A non-Verbatim voice may inherit an OpenAI, Groq, or Gemini STT provider and key, use an explicit cleanup provider/key, or degrade to Verbatim with a startup warning when no chat-capable provider resolves ([voice.rs:248-338](../../crates/hark-config/src/voice.rs#L248-L338)).
 
-Sources: [crates/hark-voice/src/lib.rs:1-49](../../crates/hark-voice/src/lib.rs#L1-L49), [crates/hark-config/src/voice.rs:248-338](../../crates/hark-config/src/voice.rs#L248-L338), [crates/hark-pipeline/src/worker.rs:550-618](../../crates/hark-pipeline/src/worker.rs#L550-L618)
+Meeting notes reuse this same fail-open shape at a coarser grain: `hark-voice::summarize` calls a chat-completions provider once, after the call ends rather than on the hot path, and returns validated `MeetingNotes` (title, summary, key points, decisions, action items) or an error the meeting keeps its transcript through — never a partial or invented result ([summary.rs:1-12](../../crates/hark-voice/src/summary.rs#L1-L12)). See [Meetings](MEETINGS.md#notes) for where that call fits in a call's lifecycle.
+
+Sources: [crates/hark-voice/src/lib.rs:1-55](../../crates/hark-voice/src/lib.rs#L1-L55), [crates/hark-config/src/voice.rs:248-338](../../crates/hark-config/src/voice.rs#L248-L338), [crates/hark-pipeline/src/worker.rs:550-618](../../crates/hark-pipeline/src/worker.rs#L550-L618), [crates/hark-voice/src/summary.rs:1-12](../../crates/hark-voice/src/summary.rs#L1-L12)
 <!-- END:AUTOGEN hark_09_voice_cleanup_overview -->
 
 ---
@@ -93,11 +97,13 @@ The provider resolver supports these paths:
 | OpenAI, Groq, or Gemini STT with no override | Inherits the provider and already-resolved STT key; Gemini defaults to its `/v1beta/openai` chat URL and `gemini-3.5-flash-lite` model |
 | Deepgram or generic OpenAI-compatible STT with no override | Degrades to Verbatim with a warning because STT support does not prove a chat endpoint exists |
 
-The resolution rules and presets live in `hark-config`, while pipeline construction performs key lookup, builds the adapter, and converts every missing-key/build failure into `None` so STT still starts ([voice.rs:115-189](../../crates/hark-config/src/voice.rs#L115-L189), [voice.rs:225-338](../../crates/hark-config/src/voice.rs#L225-L338), [lib.rs:289-370](../../crates/hark-pipeline/src/lib.rs#L289-L370)).
+The resolution rules and presets live in `hark-config`, while pipeline construction performs key lookup, builds the adapter, and converts every missing-key/build failure into `None` so STT still starts ([voice.rs:115-189](../../crates/hark-config/src/voice.rs#L115-L189), [voice.rs:225-338](../../crates/hark-config/src/voice.rs#L225-L338), [lib.rs:290-371](../../crates/hark-pipeline/src/lib.rs#L290-L371)).
+
+Meeting notes resolve the same way, through the same `resolve_cleanup_provider`, but ask for it as if a non-Verbatim voice were selected — a `Verbatim` dictation setup still has a text provider that can write notes, since the summary call is independent of the dictation cleanup voice ([finish.rs:256-227](../../crates/hark-pipeline/src/meeting/finish.rs#L256-L227)).
 
 Each request builds a system prompt from the effective voice and terms present in that transcript, derives `max_completion_tokens` from input length with a 512-to-4096 clamp, applies a 10-second request timeout, and never retries ([openai_compatible.rs:20-85](../../crates/hark-voice/src/openai_compatible.rs#L20-L85), [openai_compatible.rs:236-281](../../crates/hark-voice/src/openai_compatible.rs#L236-L281)). `CleanupConfig` has a manual `Debug` implementation that redacts the API key and custom prompt and reports only the spellbook-term count ([openai_compatible.rs:146-190](../../crates/hark-voice/src/openai_compatible.rs#L146-L190)).
 
-Sources: [crates/hark-voice/src/openai_compatible.rs:1-286](../../crates/hark-voice/src/openai_compatible.rs#L1-L286), [crates/hark-config/src/voice.rs:87-189](../../crates/hark-config/src/voice.rs#L87-L189), [crates/hark-config/src/voice.rs:225-338](../../crates/hark-config/src/voice.rs#L225-L338), [crates/hark-pipeline/src/lib.rs:289-370](../../crates/hark-pipeline/src/lib.rs#L289-L370)
+Sources: [crates/hark-voice/src/openai_compatible.rs:1-286](../../crates/hark-voice/src/openai_compatible.rs#L1-L286), [crates/hark-config/src/voice.rs:87-189](../../crates/hark-config/src/voice.rs#L87-L189), [crates/hark-config/src/voice.rs:225-338](../../crates/hark-config/src/voice.rs#L225-L338), [crates/hark-pipeline/src/lib.rs:290-371](../../crates/hark-pipeline/src/lib.rs#L290-L371), [crates/hark-pipeline/src/meeting/finish.rs:256-227](../../crates/hark-pipeline/src/meeting/finish.rs#L256-L227)
 <!-- END:AUTOGEN hark_09_voice_cleanup_adapter -->
 
 ---
@@ -117,9 +123,11 @@ For an ordinary transcript with a cleanup plan:
 
 This control flow is implemented in `cleaned_text` and keeps history honest: cleanup metadata appears only when its response actually shaped the injected text ([worker.rs:542-618](../../crates/hark-pipeline/src/worker.rs#L542-L618)).
 
-Gemini Live has a distinct fused `smart` mode. In that mode the single returned string is put in both `Transcript.text` and `Transcript.cleaned`; the marker tells the worker to skip Hark's separate voice call. This reduces one round trip but cannot preserve a guaranteed verbatim transcript, which is why the configured default remains `verbatim` ([lib.rs:30-42](../../crates/hark-stt/src/lib.rs#L30-L42), [gemini_live.rs:355-375](../../crates/hark-stt/src/gemini_live.rs#L355-L375), [lib.rs:114-140](../../crates/hark-config/src/lib.rs#L114-L140)). History labels that result as voice `smart` and attributes the STT model as the cleanup model; ordinary skipped/failed cleanup is labeled `verbatim` with no cleanup model ([worker.rs:496-530](../../crates/hark-pipeline/src/worker.rs#L496-L530)).
+Gemini Live has a distinct fused `smart` mode. In that mode the single returned string is put in both `Transcript.text` and `Transcript.cleaned`; the marker tells the worker to skip Hark's separate voice call. This reduces one round trip but cannot preserve a guaranteed verbatim transcript, which is why the configured default remains `verbatim` ([lib.rs:31-43](../../crates/hark-stt/src/lib.rs#L31-L43), [gemini_live.rs:355-375](../../crates/hark-stt/src/gemini_live.rs#L355-L375), [lib.rs:116-142](../../crates/hark-config/src/lib.rs#L116-L142)). History labels that result as voice `smart` and attributes the STT model as the cleanup model; ordinary skipped/failed cleanup is labeled `verbatim` with no cleanup model ([worker.rs:496-530](../../crates/hark-pipeline/src/worker.rs#L496-L530)).
 
-Sources: [crates/hark-pipeline/src/worker.rs:451-530](../../crates/hark-pipeline/src/worker.rs#L451-L530), [crates/hark-pipeline/src/worker.rs:542-618](../../crates/hark-pipeline/src/worker.rs#L542-L618), [crates/hark-stt/src/gemini_live.rs:355-375](../../crates/hark-stt/src/gemini_live.rs#L355-L375), [crates/hark-config/src/lib.rs:114-140](../../crates/hark-config/src/lib.rs#L114-L140)
+Meeting mode never sees Gemini Live's fused `smart` result: the live transcriber uses the ordinary batch `SttProvider::transcribe` path per chunk (or the on-device engine), never the streaming session, so a meeting line always goes through the spellbook corrector as text, with no fused-cleanup shortcut to skip ([live.rs:60-77](../../crates/hark-pipeline/src/meeting/live.rs#L60-L77)).
+
+Sources: [crates/hark-pipeline/src/worker.rs:451-530](../../crates/hark-pipeline/src/worker.rs#L451-L530), [crates/hark-pipeline/src/worker.rs:542-618](../../crates/hark-pipeline/src/worker.rs#L542-L618), [crates/hark-stt/src/gemini_live.rs:355-375](../../crates/hark-stt/src/gemini_live.rs#L355-L375), [crates/hark-config/src/lib.rs:116-142](../../crates/hark-config/src/lib.rs#L116-L142), [crates/hark-pipeline/src/meeting/live.rs:60-77](../../crates/hark-pipeline/src/meeting/live.rs#L60-L77)
 <!-- END:AUTOGEN hark_09_voice_cleanup_pipeline -->
 
 ---
@@ -127,7 +135,7 @@ Sources: [crates/hark-pipeline/src/worker.rs:451-530](../../crates/hark-pipeline
 <!-- BEGIN:AUTOGEN hark_09_voice_cleanup_api -->
 ## Public API
 
-The crate root keeps the reusable behavior small and provider-neutral ([lib.rs:12-49](../../crates/hark-voice/src/lib.rs#L12-L49)).
+The crate root keeps the reusable behavior small and provider-neutral ([lib.rs:12-55](../../crates/hark-voice/src/lib.rs#L12-L55)).
 
 | Item | Contract |
 |---|---|
@@ -138,10 +146,11 @@ The crate root keeps the reusable behavior small and provider-neutral ([lib.rs:1
 | `skips_cleanup` / `over_expanded` | Pure pre-request and post-response gates |
 | `CleanupError` / mapping helpers | Log-safe error taxonomy and pure status/transport classification |
 | `CONNECT_TIMEOUT_MS` / `CLEANUP_TIMEOUT_MS` | 3-second connection bound and 10-second per-request bound |
+| `summarize` / `MeetingNotes` / `SummaryConfig` | Meeting-only: one long-context call over a full transcript, validated into structured notes; `SUMMARY_TIMEOUT_MS` is 120 s, not the dictation `CLEANUP_TIMEOUT_MS` ([summary.rs:37](../../crates/hark-voice/src/summary.rs#L37)) |
 
-The concrete `CleanupConfig` and `OpenAiCompatibleChat` stay in the public `openai_compatible` module rather than being re-exported from the root. Construction rejects `Verbatim`, because reaching the adapter for a voice that promises no call is a caller bug handled by the pipeline's fail-open build path ([openai_compatible.rs:146-234](../../crates/hark-voice/src/openai_compatible.rs#L146-L234)).
+The concrete `CleanupConfig` and `OpenAiCompatibleChat` stay in the public `openai_compatible` module rather than being re-exported from the root. Construction rejects `Verbatim`, because reaching the adapter for a voice that promises no call is a caller bug handled by the pipeline's fail-open build path ([openai_compatible.rs:146-234](../../crates/hark-voice/src/openai_compatible.rs#L146-L234)). `summary` follows the same discipline in reverse: it reuses `openai_compatible`'s URL-building, response-parsing, and status/transport error mapping rather than duplicating them, so only the notes-specific prompt, JSON schema, and validation are new code ([summary.rs:6-12](../../crates/hark-voice/src/summary.rs#L6-L12)).
 
-Sources: [crates/hark-voice/src/lib.rs:12-49](../../crates/hark-voice/src/lib.rs#L12-L49), [crates/hark-voice/src/openai_compatible.rs:146-234](../../crates/hark-voice/src/openai_compatible.rs#L146-L234)
+Sources: [crates/hark-voice/src/lib.rs:12-55](../../crates/hark-voice/src/lib.rs#L12-L55), [crates/hark-voice/src/openai_compatible.rs:146-234](../../crates/hark-voice/src/openai_compatible.rs#L146-L234), [crates/hark-voice/src/summary.rs:1-45](../../crates/hark-voice/src/summary.rs#L1-L45)
 <!-- END:AUTOGEN hark_09_voice_cleanup_api -->
 
 ---

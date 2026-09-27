@@ -13,6 +13,8 @@ The following files were used as evidence for this page:
 - [crates/hark-keychain/src/lib.rs:1-95](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/crates/hark-keychain/src/lib.rs#L1-L95)
 - [crates/hark-keychain/src/lib.rs:119-169](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/crates/hark-keychain/src/lib.rs#L119-L169)
 - [config/default-config.toml:1-48](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/config/default-config.toml#L1-L48)
+- [crates/hark-config/src/meeting.rs](../../crates/hark-config/src/meeting.rs)
+- [config/default-config.toml:82-119](../../config/default-config.toml#L82-L119)
 
 </details>
 
@@ -80,10 +82,21 @@ The `Settings` struct is the single source of truth for the config schema; every
 | `[startup]` | `launch_at_login` | `bool` | `true` | Source of truth for the OS startup entry; `hark-autostart` reconciles to it ([lib.rs:267-275](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/crates/hark-config/src/lib.rs#L267-L275)) |
 | `[general]` | `always_on_top` | `bool` | `false` | Keep the main Hark window above other windows; applied at startup and after Save |
 | `[general]` | `exit_on_close` | `bool` | `false` | Exit on the window's X instead of hiding in the tray. Close Program and tray Quit always exit |
+| `[meeting]` | `enabled` | `bool` | `true` | Master switch for meeting transcription; every other `[meeting]` key is inert while this is `false` ([meeting.rs:56-65](../../crates/hark-config/src/meeting.rs#L56-L65)) |
+| `[meeting]` | `mic_device` | `Option<String>` | `None` | cpal device name for "Me"; unset falls back to the Windows communications-default microphone ([meeting.rs:61-65](../../crates/hark-config/src/meeting.rs#L61-L65)) |
+| `[meeting]` | `system_source` | enum | `"app"` | `app` (a detected meeting's own process tree) \| `all` (everything except Hark; always used for a manual start) ([meeting.rs:10-21](../../crates/hark-config/src/meeting.rs#L10-L21)) |
+| `[meeting]` | `final_pass` | enum | `"deepgram"` | `deepgram` (diarized Speaker 1/2/3 via a Deepgram key in Settings > Meetings, independent of the dictation key) \| `none` (keep the live Me/Them transcript) ([meeting.rs:23-33](../../crates/hark-config/src/meeting.rs#L23-L33)) |
+| `[meeting]` | `audio_cap_mb` | `u32` | `5120` | Circular storage cap for kept recordings, in MB; `0` deletes audio as soon as it is processed. Clamped to `0..=1_048_576` (1 TB) at load ([meeting.rs:81-84](../../crates/hark-config/src/meeting.rs#L81-L84), [meeting.rs:138-146](../../crates/hark-config/src/meeting.rs#L138-L146)) |
+| `[meeting]` | `compress_audio` | `bool` | `true` | Re-encode kept recordings to one stereo MP3 after processing, then delete the WAVs ([meeting.rs:85-86](../../crates/hark-config/src/meeting.rs#L85-L86)) |
+| `[meeting]` | `auto_detect` | enum | `"ask"` | `off` \| `ask` (non-modal prompt) \| `auto` (start silently; the tray/live indicator stay visible either way) ([meeting.rs:36-48](../../crates/hark-config/src/meeting.rs#L36-L48)) |
+| `[meeting]` | `auto_stop_after_s` | `u32` | `60` | Stop once the detected app has released the mic this long; `0` disables auto-stop. A manual start is never auto-stopped ([meeting.rs:88-91](../../crates/hark-config/src/meeting.rs#L88-L91)) |
+| `[meeting]` | `detect_apps` | `Option<Vec<String>>` | `None` | Override for the built-in app-match list; `None` uses `hark-meeting`'s defaults ([meeting.rs:92-96](../../crates/hark-config/src/meeting.rs#L92-L96)) |
 | `[[invocations.entries]]` | `phrase` | `String` | `""` | Trigger phrase to listen for; also the entry's identity ([invocations.rs:46-52](https://github.com/BoardPandas/Hark/blob/bcfcc3fef6f02252870fc3f06440d99992818ade/crates/hark-config/src/invocations.rs#L46-L52)) |
 | `[[invocations.entries]]` | `aliases` | `Vec<String>` | `[]` | Exact alternate transcriptions that fire the same invocation |
 | `[[invocations.entries]]` | `expansion` | `String` | `""` | Text injected byte for byte when the trigger fires ([invocations.rs:50-51](https://github.com/BoardPandas/Hark/blob/bcfcc3fef6f02252870fc3f06440d99992818ade/crates/hark-config/src/invocations.rs#L50-L51)) |
 | `[[invocations.entries]]` | `scope` | enum | `"utterance"` | `utterance` (whole dictation) \| `anywhere` (spliced inline) ([invocations.rs:20-27](https://github.com/BoardPandas/Hark/blob/bcfcc3fef6f02252870fc3f06440d99992818ade/crates/hark-config/src/invocations.rs#L20-L27)) |
+
+`[meeting]` is additive: it was added after `[local_stt]` and before `[[invocations.entries]]`, and a config file written before it existed loads unchanged, filling every key from `Meeting::default()` via `#[serde(default)]` ([meeting.rs:1-6](../../crates/hark-config/src/meeting.rs#L1-L6), [lib.rs:495-497](../../crates/hark-config/src/lib.rs#L495-L497)). An out-of-range `audio_cap_mb` is clamped in place with a logged warning rather than rejected outright, on the same "typo, not a reason to refuse to start" reasoning `Settings::from_toml` already applies to the spellbook migration ([meeting.rs:134-146](../../crates/hark-config/src/meeting.rs#L134-L146), [lib.rs:531-536](../../crates/hark-config/src/lib.rs#L531-L536)).
 
 `invocations` is the last field on `Settings` deliberately: it is the only section holding a TOML array-of-tables, and those must follow every scalar key ([lib.rs:308-311](https://github.com/BoardPandas/Hark/blob/bcfcc3fef6f02252870fc3f06440d99992818ade/crates/hark-config/src/lib.rs#L308-L311)). It is also the one section with **no `validate` rule**: rejecting a malformed entry would make a hand-edited config unloadable and leave the user no UI to repair it, so unusable entries are skipped at pipeline start instead (see [Invocations](../features/INVOCATIONS.md)) ([invocations.rs:1-11](https://github.com/BoardPandas/Hark/blob/bcfcc3fef6f02252870fc3f06440d99992818ade/crates/hark-config/src/invocations.rs#L1-L11)).
 
@@ -110,7 +123,7 @@ pub fn resolved_model(&self) -> String {
 
 `Settings::validate` (run on every load and every save) enforces the cross-field rules: `openai-compatible` requires an explicit `base_url`, `ptt_key` must not be blank, and both `history` caps must be >= 1 ([lib.rs:373-403](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/crates/hark-config/src/lib.rs#L373-L403)). The annotated `default-config.toml` mirrors this table and ships as the on-disk documentation for a fresh install ([default-config.toml:13-47](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/config/default-config.toml#L13-L47)).
 
-Sources: [lib.rs:53-301](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/crates/hark-config/src/lib.rs#L53-L301), [lib.rs:373-403](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/crates/hark-config/src/lib.rs#L373-L403), [default-config.toml:1-48](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/config/default-config.toml#L1-L48)
+Sources: [lib.rs:53-301](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/crates/hark-config/src/lib.rs#L53-L301), [lib.rs:373-403](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/crates/hark-config/src/lib.rs#L373-L403), [default-config.toml:1-48](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/config/default-config.toml#L1-L48), [crates/hark-config/src/meeting.rs](../../crates/hark-config/src/meeting.rs), [config/default-config.toml:82-119](../../config/default-config.toml#L82-L119)
 <!-- END:AUTOGEN hark_04_configuration_schema -->
 
 ---

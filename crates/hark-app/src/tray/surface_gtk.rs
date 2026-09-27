@@ -78,7 +78,7 @@ impl Surface {
                     let _ = ready_tx.send(Err(format!("cannot initialize GTK: {e}")));
                     return;
                 }
-                let built = build_menu(voice).and_then(|(menu, voices)| {
+                let built = build_menu(voice).and_then(|(menu, voices, _meeting)| {
                     TrayIconBuilder::new()
                         .with_menu(Box::new(menu))
                         .with_icon(icon::build(state))
@@ -173,5 +173,7 @@ fn apply_on_gtk_thread(
                 item.set_checked(*v == voice);
             }
         }
+        // Meetings are not built on Linux yet (D4), so there is no entry.
+        TrayUpdate::Meeting { .. } => {}
     }
 }

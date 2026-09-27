@@ -10,13 +10,14 @@ use super::{build_menu, TrayUpdate};
 use crate::pipeline::PipelineStatus;
 use crate::tray::icon;
 use hark_config::VoiceName;
-use tray_icon::menu::CheckMenuItem;
+use tray_icon::menu::{CheckMenuItem, MenuItem};
 use tray_icon::{TrayIcon, TrayIconBuilder};
 
 pub(super) struct Surface {
     /// Keeps the OS icon alive; dropping it removes the tray entry.
     tray: TrayIcon,
     voices: Vec<(VoiceName, CheckMenuItem)>,
+    meeting: Option<MenuItem>,
 }
 
 impl Surface {
@@ -25,14 +26,18 @@ impl Surface {
         chord: &str,
         voice: VoiceName,
     ) -> Result<Surface, String> {
-        let (menu, voices) = build_menu(voice)?;
+        let (menu, voices, meeting) = build_menu(voice)?;
         let tray = TrayIconBuilder::new()
             .with_menu(Box::new(menu))
             .with_icon(icon::build(icon::state(status)))
             .with_tooltip(icon::tooltip(status, chord))
             .build()
             .map_err(|e| e.to_string())?;
-        Ok(Surface { tray, voices })
+        Ok(Surface {
+            tray,
+            voices,
+            meeting,
+        })
     }
 
     /// OS-level set failures are logged and retried on the next state change;
@@ -52,6 +57,12 @@ impl Surface {
             TrayUpdate::Voice(voice) => {
                 for (v, item) in &self.voices {
                     item.set_checked(*v == voice);
+                }
+            }
+            TrayUpdate::Meeting { label, enabled } => {
+                if let Some(item) = &self.meeting {
+                    item.set_text(label);
+                    item.set_enabled(enabled);
                 }
             }
         }

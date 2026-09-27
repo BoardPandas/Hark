@@ -50,3 +50,14 @@
 - **Meeting spools convert with `spool::f32_to_i16`, never `* i16::MAX`.** It is
   the exact inverse of the `/ 32768` the loopback applies going into the f32
   ring, so loopback audio reaches the WAV bit-identical.
+- **The D9 archive (`mp3.rs`) encodes with LAME `Mode::Stereo`, never
+  `Mode::JointStereo`.** Joint stereo shares bits between channels and leaks
+  one side into the other at about -96 dBFS, which would corrupt a re-run
+  through Deepgram multichannel; plain stereo keeps the sides independent
+  (`archive_keeps_channels_independent_not_joint_stereo` pins this).
+- **Every `encode_to_vec`/`flush_to_vec` call reserves its buffer first**
+  (`max_required_buffer_size(n)` before an encode, `7200` before a flush).
+  Those helpers hand LAME the `Vec`'s spare capacity directly, and LAME reads
+  a spare capacity of 0 as "unbounded" rather than "none available" (LL-G
+  HIGH `kb/rust/mp3lame-encode-to-vec-no-reserve.md`) -- skip the reserve and
+  it is a heap overflow, not a clean error.

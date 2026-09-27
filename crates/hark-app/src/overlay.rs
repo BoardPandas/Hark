@@ -392,7 +392,7 @@ fn shape_to_capsule() {
 /// `SWP_NOACTIVATE` is load-bearing: injection targets the previously focused
 /// app, so nothing here may hand the overlay focus.
 #[cfg(windows)]
-fn strip_frame_styles(hwnd: windows::Win32::Foundation::HWND) -> bool {
+pub(crate) fn strip_frame_styles(hwnd: windows::Win32::Foundation::HWND) -> bool {
     use windows::Win32::UI::WindowsAndMessaging::{
         GetWindowLongPtrW, SetWindowLongPtrW, SetWindowPos, GWL_EXSTYLE, GWL_STYLE,
         SWP_FRAMECHANGED, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOOWNERZORDER, SWP_NOSIZE, SWP_NOZORDER,

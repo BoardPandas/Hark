@@ -13,23 +13,26 @@ The following files were used as evidence for this page:
 - [crates/hark-stt/src/wav.rs](../../crates/hark-stt/src/wav.rs)
 - [crates/hark-stt/src/error.rs](../../crates/hark-stt/src/error.rs)
 - [crates/hark-stt/src/metrics.rs](../../crates/hark-stt/src/metrics.rs)
+- [crates/hark-stt/src/meeting.rs](../../crates/hark-stt/src/meeting.rs)
 
 </details>
 
 # Transcription (STT Providers)
 
-> **Related Pages**: [Architecture](../core/ARCHITECTURE.md), [On-Device STT](ON_DEVICE_STT.md), [Spellbook](SPELLBOOK.md), [Voice Cleanup](VOICE_CLEANUP.md)
+> **Related Pages**: [Architecture](../core/ARCHITECTURE.md), [On-Device STT](ON_DEVICE_STT.md), [Spellbook](SPELLBOOK.md), [Voice Cleanup](VOICE_CLEANUP.md), [Meetings](MEETINGS.md)
 
 ---
 
 <!-- BEGIN:AUTOGEN hark_07_transcription_trait -->
 ## Batch and Live Provider Traits
 
-`hark-stt` separates finished-clip transcription from streaming. `SttProvider::transcribe` accepts a complete 16 kHz mono WAV and blocks on the pipeline worker. `LiveStt` opens a single-use `LiveSession`; the session accepts 16 kHz mono samples while the key is held and finalizes at release ([lib.rs:44-81](../../crates/hark-stt/src/lib.rs#L44-L81)).
+`hark-stt` separates finished-clip transcription from streaming. `SttProvider::transcribe` accepts a complete 16 kHz mono WAV and blocks on the pipeline worker. `LiveStt` opens a single-use `LiveSession`; the session accepts 16 kHz mono samples while the key is held and finalizes at release ([lib.rs:45-82](../../crates/hark-stt/src/lib.rs#L45-L82)).
 
-`Transcript` always contains `text`, optionally marks a fused provider result as `cleaned`, and records provider request time. That optional field is a capability signal: the pipeline skips its separate cleanup call when a provider already performed cleanup ([lib.rs:30-42](../../crates/hark-stt/src/lib.rs#L30-L42)).
+`Transcript` always contains `text`, optionally marks a fused provider result as `cleaned`, and records provider request time. That optional field is a capability signal: the pipeline skips its separate cleanup call when a provider already performed cleanup ([lib.rs:31-43](../../crates/hark-stt/src/lib.rs#L31-L43)).
 
-`build` constructs one of five internal adapter kinds: Whisper-family OpenAI-compatible, OpenAI gpt-transcribe, Deepgram, Gemini Live, or the internal Gemini batch adapter. `build_live` returns a streaming adapter only for Gemini Live builds with the `live` feature ([lib.rs:84-128](../../crates/hark-stt/src/lib.rs#L84-L128), [config.rs:1-20](../../crates/hark-stt/src/config.rs#L1-L20)). The app-facing provider choices currently route to Deepgram, OpenAI-compatible Whisper, OpenAI gpt-transcribe, Gemini Live, or optional local STT.
+`build` constructs one of five internal adapter kinds: Whisper-family OpenAI-compatible, OpenAI gpt-transcribe, Deepgram, Gemini Live, or the internal Gemini batch adapter. `build_live` returns a streaming adapter only for Gemini Live builds with the `live` feature ([lib.rs:85-129](../../crates/hark-stt/src/lib.rs#L85-L129), [config.rs:1-20](../../crates/hark-stt/src/config.rs#L1-L20)). The app-facing provider choices currently route to Deepgram, OpenAI-compatible Whisper, OpenAI gpt-transcribe, Gemini Live, or optional local STT.
+
+A separate, meeting-only path exists beside this trait: `hark-stt::meeting` is not a live or batch `SttProvider` at all, but one long-form Deepgram request over a whole recorded call (see [Deepgram and Gemini Live](#deepgram-and-gemini-live)).
 
 ```mermaid
 classDiagram
@@ -50,7 +53,7 @@ classDiagram
     LiveStt --> LiveSession
 ```
 
-The process shares one blocking HTTP client with 3-second connect and 15-second total request bounds. Gemini alone owns a private current-thread Tokio runtime for WebSocket I/O; it does not turn the rest of Hark into an async application ([lib.rs:130-155](../../crates/hark-stt/src/lib.rs#L130-L155), [gemini_live.rs:653-686](../../crates/hark-stt/src/gemini_live.rs#L653-L686)).
+The process shares one blocking HTTP client with 3-second connect and 15-second total request bounds. Gemini alone owns a private current-thread Tokio runtime for WebSocket I/O; it does not turn the rest of Hark into an async application ([lib.rs:131-156](../../crates/hark-stt/src/lib.rs#L131-L156), [gemini_live.rs:653-686](../../crates/hark-stt/src/gemini_live.rs#L653-L686)). The meeting final pass reuses the same shared client but its own, much longer timeout: `FINAL_PASS_TIMEOUT_MS` is 900,000 ms (15 min), because the request both uploads roughly 230 MB per recorded hour and waits on Deepgram's own processing, both far past a dictation's 15-second budget ([meeting.rs:23-25](../../crates/hark-stt/src/meeting.rs#L23-L25)).
 <!-- END:AUTOGEN hark_07_transcription_trait -->
 
 ---
@@ -85,6 +88,8 @@ Gemini supports two rendering modes:
 - `Smart` asks Gemini to format and remove disfluencies in the same round trip. The returned string is placed in both `text` and `cleaned`; the latter tells the pipeline not to clean it again ([gemini_live.rs:104-134](../../crates/hark-stt/src/gemini_live.rs#L104-L134), [gemini_live.rs:355-376](../../crates/hark-stt/src/gemini_live.rs#L355-L376)).
 
 Streaming is an accelerator, never the only copy of a dictation. The pipeline pump reads the audio ring without consuming it, so an unavailable or broken live session can fall back to batch. Smart mode is the deliberate exception to replay because spoken edit commands can legally erase a turn, making a replay semantically unsafe ([gemini_live.rs:116-123](../../crates/hark-stt/src/gemini_live.rs#L116-L123), [Architecture](../core/ARCHITECTURE.md#the-release-to-inject-pipeline)).
+
+**The meeting final pass** is a third, unrelated use of Deepgram: one `multichannel=true&diarize=true&utterances=true` request over a whole stereo recording (left = Me/microphone, right = Them/system audio), sent after the call ends to replace the live Me/Them transcript with diarized "Speaker N" utterances within Them. Deepgram diarizes channel 0 too, so `speaker` is forced to `None` there rather than splitting "Me" into two speakers ([meeting.rs:1-6](../../crates/hark-stt/src/meeting.rs#L1-L6), [meeting.rs:52-75](../../crates/hark-stt/src/meeting.rs#L52-L75)). The request body is streamed rather than buffered (an hour of stereo 16 kHz PCM16 is ~115 MB), which reopens the multipart-masks-transport-errors failure mode even without the `multipart` feature; `classify_final_pass_error` falls back to walking the transport error's `source()` chain for the underlying `io::Error` before giving up and reporting a generic transport error ([meeting.rs:6-15](../../crates/hark-stt/src/meeting.rs#L6-L15)). Parsing clamps every utterance's timestamps into `[0, audio_ms]` (Deepgram has invented an end time past the audio length before) and drops blank transcripts ([meeting.rs:112-121](../../crates/hark-stt/src/meeting.rs#L112-L121)). See [Meetings](MEETINGS.md#deepgram-final-pass) for where this fits in a call's lifecycle.
 <!-- END:AUTOGEN hark_07_transcription_deepgram -->
 
 ---
@@ -120,7 +125,8 @@ HTTP 401/403 errors retain only a bounded machine-readable reason, 429 retains `
 - Whisper-compatible `prompt`, OpenAI `keywords[]`, Deepgram `keyterm`, and Gemini vocabulary are different wire contracts. Do not merge their adapters because their URLs happen to look similar.
 - `Transcript::cleaned` is not a second independent Gemini transcript in Smart mode. It mirrors `text` and acts as the skip-cleanup flag; use Verbatim when a guaranteed literal record is required ([gemini_live.rs:355-376](../../crates/hark-stt/src/gemini_live.rs#L355-L376)).
 - A live failure may replay through batch only within the single retry budget. Authentication and rate-limit failures do not retry ([Architecture](../core/ARCHITECTURE.md#retry-and-latency-discipline)).
-- Feature-gating removes Gemini WebSocket support cleanly: batch adapters remain blocking, and `build_live` returns `None` without the `live` feature ([lib.rs:105-127](../../crates/hark-stt/src/lib.rs#L105-L127)).
+- Feature-gating removes Gemini WebSocket support cleanly: batch adapters remain blocking, and `build_live` returns `None` without the `live` feature ([lib.rs:106-128](../../crates/hark-stt/src/lib.rs#L106-L128)).
+- The meeting final pass and the dictation `SttProvider`s are unrelated adapters that happen to share a base URL: `hark-stt::meeting` builds its own request and has no `SttProvider` impl, so it is not selectable as a dictation provider and is never on the release-to-inject hot path.
 <!-- END:AUTOGEN hark_07_transcription_gotchas -->
 
 ---

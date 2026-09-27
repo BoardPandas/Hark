@@ -18,12 +18,14 @@ The following files were used as evidence for this page:
 - [crates/hark-stt/src/deepgram.rs:29-47](../../crates/hark-stt/src/deepgram.rs#L29-L47)
 - [crates/hark-stt/src/gemini_live.rs:170-200](../../crates/hark-stt/src/gemini_live.rs#L170-L200)
 - [crates/hark-app/src/ui/spellbook/mod.rs:1-132](../../crates/hark-app/src/ui/spellbook/mod.rs#L1-L132)
+- [crates/hark-pipeline/src/meeting/live.rs:52-97](../../crates/hark-pipeline/src/meeting/live.rs#L52-L97)
+- [crates/hark-pipeline/src/meeting/finish.rs:228-242](../../crates/hark-pipeline/src/meeting/finish.rs#L228-L242)
 
 </details>
 
 # Spellbook
 
-> **Related Pages**: [Transcription](TRANSCRIPTION.md), [Invocations](INVOCATIONS.md), [Voice Cleanup](VOICE_CLEANUP.md), [Configuration and Secrets](../core/CONFIGURATION.md)
+> **Related Pages**: [Transcription](TRANSCRIPTION.md), [Invocations](INVOCATIONS.md), [Voice Cleanup](VOICE_CLEANUP.md), [Configuration and Secrets](../core/CONFIGURATION.md), [Meetings](MEETINGS.md)
 
 ---
 
@@ -48,9 +50,11 @@ graph TD
     I --> J["Corrected transcript"]
 ```
 
-Pipeline construction passes canonical terms into `ProviderConfig.bias_terms` and `(term, aliases)` pairs into `Corrector::new`; editing the spellbook persists the new entries and restarts the pipeline so both precomputed views update together ([lib.rs:188-203](../../crates/hark-pipeline/src/lib.rs#L188-L203), [lib.rs:490-520](../../crates/hark-pipeline/src/lib.rs#L490-L520), [mod.rs:1-17](../../crates/hark-app/src/ui/spellbook/mod.rs#L1-L17)).
+Pipeline construction passes canonical terms into `ProviderConfig.bias_terms` and `(term, aliases)` pairs into `Corrector::new`; editing the spellbook persists the new entries and restarts the pipeline so both precomputed views update together ([lib.rs:189-204](../../crates/hark-pipeline/src/lib.rs#L189-L204), [lib.rs:491-521](../../crates/hark-pipeline/src/lib.rs#L491-L521), [mod.rs:1-17](../../crates/hark-app/src/ui/spellbook/mod.rs#L1-L17)).
 
-Sources: [crates/hark-config/src/lib.rs:295-373](../../crates/hark-config/src/lib.rs#L295-L373), [crates/hark-spellbook/src/lib.rs:1-167](../../crates/hark-spellbook/src/lib.rs#L1-L167), [crates/hark-pipeline/src/lib.rs:188-203](../../crates/hark-pipeline/src/lib.rs#L188-L203), [crates/hark-pipeline/src/lib.rs:490-520](../../crates/hark-pipeline/src/lib.rs#L490-L520)
+Correction is not limited to dictation. Meeting mode builds a `Corrector` from the same `settings.spellbook.corrector_entries()` and applies it to every meeting line — the live transcriber's chunks as they arrive, and the Deepgram final pass's diarized lines once it replaces them — so a spellbook term fixes a mishearing in a meeting exactly as it would in a dictation ([live.rs:52-56](../../crates/hark-pipeline/src/meeting/live.rs#L52-L56), [live.rs:96](../../crates/hark-pipeline/src/meeting/live.rs#L96), [finish.rs:228-242](../../crates/hark-pipeline/src/meeting/finish.rs#L228-L242)). Invocations are the deliberate exception: they never fire in meeting mode, because a trigger phrase is dictation control flow, not a correction ([Meetings](MEETINGS.md#live-transcript)).
+
+Sources: [crates/hark-config/src/lib.rs:295-373](../../crates/hark-config/src/lib.rs#L295-L373), [crates/hark-spellbook/src/lib.rs:1-167](../../crates/hark-spellbook/src/lib.rs#L1-L167), [crates/hark-pipeline/src/lib.rs:189-204](../../crates/hark-pipeline/src/lib.rs#L189-L204), [crates/hark-pipeline/src/lib.rs:491-521](../../crates/hark-pipeline/src/lib.rs#L491-L521), [crates/hark-pipeline/src/meeting/live.rs:52-97](../../crates/hark-pipeline/src/meeting/live.rs#L52-L97), [crates/hark-pipeline/src/meeting/finish.rs:228-242](../../crates/hark-pipeline/src/meeting/finish.rs#L228-L242)
 <!-- END:AUTOGEN hark_08_spellbook_overview -->
 
 ---
@@ -101,7 +105,7 @@ Sources: [crates/hark-spellbook/src/tokenize.rs:1-145](../../crates/hark-spellbo
 <!-- BEGIN:AUTOGEN hark_08_spellbook_biasing -->
 ## Provider Biasing
 
-Only canonical terms become provider hints; aliases are known-wrong forms and remain local. `provider_config` copies `Settings.spellbook.terms()` into the provider-neutral `bias_terms` list, after which each adapter maps that list onto its own wire contract ([lib.rs:345-361](../../crates/hark-config/src/lib.rs#L345-L361), [lib.rs:164-203](../../crates/hark-pipeline/src/lib.rs#L164-L203)).
+Only canonical terms become provider hints; aliases are known-wrong forms and remain local. `provider_config` copies `Settings.spellbook.terms()` into the provider-neutral `bias_terms` list, after which each adapter maps that list onto its own wire contract ([lib.rs:347-363](../../crates/hark-config/src/lib.rs#L347-L363), [lib.rs:165-204](../../crates/hark-pipeline/src/lib.rs#L165-L204)).
 
 | Adapter path | Wire representation | Limit/ordering behavior |
 |---|---|---|
@@ -110,11 +114,13 @@ Only canonical terms become provider hints; aliases are known-wrong forms and re
 | Deepgram Nova | One URL query `keyterm` per term | URL-encoded, repeated, and unbounded by Hark ([deepgram.rs:29-47](../../crates/hark-stt/src/deepgram.rs#L29-L47)) |
 | Gemini Live | `inputAudioTranscription.customVocabulary` array | Omitted when empty and capped at the API's 1,000-phrase limit ([gemini_live.rs:170-200](../../crates/hark-stt/src/gemini_live.rs#L170-L200)) |
 
-The model selects the two OpenAI multipart contracts: `gpt-transcribe` routes to discrete `keywords[]`, while Whisper-family models and compatible endpoints retain the glossary prompt. Gemini Live is a separate WebSocket adapter and sends the vocabulary in its setup message ([lib.rs:168-203](../../crates/hark-pipeline/src/lib.rs#L168-L203)).
+The model selects the two OpenAI multipart contracts: `gpt-transcribe` routes to discrete `keywords[]`, while Whisper-family models and compatible endpoints retain the glossary prompt. Gemini Live is a separate WebSocket adapter and sends the vocabulary in its setup message ([lib.rs:169-204](../../crates/hark-pipeline/src/lib.rs#L169-L204)).
 
 Cleanup protection is related but separate: the cleanup adapter receives canonical terms and includes only terms already present in the outgoing text, preventing the rewrite model from changing their spelling. See [Voice Cleanup](VOICE_CLEANUP.md).
 
-Sources: [crates/hark-config/src/lib.rs:345-361](../../crates/hark-config/src/lib.rs#L345-L361), [crates/hark-pipeline/src/lib.rs:158-204](../../crates/hark-pipeline/src/lib.rs#L158-L204), [crates/hark-stt/src/openai_compatible.rs:52-80](../../crates/hark-stt/src/openai_compatible.rs#L52-L80), [crates/hark-stt/src/openai_transcribe.rs:53-75](../../crates/hark-stt/src/openai_transcribe.rs#L53-L75), [crates/hark-stt/src/deepgram.rs:29-47](../../crates/hark-stt/src/deepgram.rs#L29-L47), [crates/hark-stt/src/gemini_live.rs:170-200](../../crates/hark-stt/src/gemini_live.rs#L170-L200)
+The meeting final pass also takes a vocabulary hint, but through Deepgram's dictation contract directly rather than through this biasing layer: `deepgram_final_pass` forwards `settings.spellbook.terms()` as the same repeated `keyterm` query parameter the batch Deepgram adapter uses ([Transcription](TRANSCRIPTION.md#deepgram-and-gemini-live)).
+
+Sources: [crates/hark-config/src/lib.rs:347-363](../../crates/hark-config/src/lib.rs#L347-L363), [crates/hark-pipeline/src/lib.rs:159-205](../../crates/hark-pipeline/src/lib.rs#L159-L205), [crates/hark-stt/src/openai_compatible.rs:52-80](../../crates/hark-stt/src/openai_compatible.rs#L52-L80), [crates/hark-stt/src/openai_transcribe.rs:53-75](../../crates/hark-stt/src/openai_transcribe.rs#L53-L75), [crates/hark-stt/src/deepgram.rs:29-47](../../crates/hark-stt/src/deepgram.rs#L29-L47), [crates/hark-stt/src/gemini_live.rs:170-200](../../crates/hark-stt/src/gemini_live.rs#L170-L200)
 <!-- END:AUTOGEN hark_08_spellbook_biasing -->
 
 ---
@@ -149,12 +155,12 @@ Sources: [crates/hark-spellbook/src/lib.rs:18-167](../../crates/hark-spellbook/s
 | Exact alias competes with a phonetic term | Alias wins because explicit user intent runs first and shares the consumed-token set ([lib.rs:91-107](../../crates/hark-spellbook/src/lib.rs#L91-L107)) |
 | Multi-word overlaps | Longer token count wins; canonical terms then use character length as the tiebreaker ([matcher.rs:99-129](../../crates/hark-spellbook/src/matcher.rs#L99-L129)) |
 | Short words, digits, non-Latin text | Exact-only matching; phonetic inference is never forced where Double Metaphone is unreliable ([matcher.rs:29-75](../../crates/hark-spellbook/src/matcher.rs#L29-L75), [matcher.rs:170-180](../../crates/hark-spellbook/src/matcher.rs#L170-L180)) |
-| Legacy `terms` / `bias_terms` config | Schema 2 migrates values into `[[spellbook.entries]]`, preserves existing entries, and stamps the current version ([lib.rs:26-35](../../crates/hark-config/src/lib.rs#L26-L35), [lib.rs:325-373](../../crates/hark-config/src/lib.rs#L325-L373)) |
+| Legacy `terms` / `bias_terms` config | Schema 2 migrates values into `[[spellbook.entries]]`, preserves existing entries, and stamps the current version ([lib.rs:28-37](../../crates/hark-config/src/lib.rs#L28-L37), [lib.rs:327-375](../../crates/hark-config/src/lib.rs#L327-L375)) |
 | Common-word alias | Allowed, but the editor warns because an exact alias made entirely of common words can fire frequently; the warning does not block the user's choice ([edit.rs:102-134](../../crates/hark-app/src/ui/spellbook/edit.rs#L102-L134)) |
 
 The editor saves automatically and restarts the pipeline after a change because corrector entries are baked at pipeline construction. A History selection becomes an alias while the user supplies the canonical term, preserving both what the provider heard and what should be injected ([mod.rs:1-17](../../crates/hark-app/src/ui/spellbook/mod.rs#L1-L17), [mod.rs:67-90](../../crates/hark-app/src/ui/spellbook/mod.rs#L67-L90)).
 
-Sources: [crates/hark-spellbook/src/lib.rs:67-167](../../crates/hark-spellbook/src/lib.rs#L67-L167), [crates/hark-spellbook/src/matcher.rs:29-75](../../crates/hark-spellbook/src/matcher.rs#L29-L75), [crates/hark-config/src/lib.rs:26-35](../../crates/hark-config/src/lib.rs#L26-L35), [crates/hark-config/src/lib.rs:325-373](../../crates/hark-config/src/lib.rs#L325-L373), [crates/hark-app/src/ui/spellbook/mod.rs:1-90](../../crates/hark-app/src/ui/spellbook/mod.rs#L1-L90)
+Sources: [crates/hark-spellbook/src/lib.rs:67-167](../../crates/hark-spellbook/src/lib.rs#L67-L167), [crates/hark-spellbook/src/matcher.rs:29-75](../../crates/hark-spellbook/src/matcher.rs#L29-L75), [crates/hark-config/src/lib.rs:28-37](../../crates/hark-config/src/lib.rs#L28-L37), [crates/hark-config/src/lib.rs:327-375](../../crates/hark-config/src/lib.rs#L327-L375), [crates/hark-app/src/ui/spellbook/mod.rs:1-90](../../crates/hark-app/src/ui/spellbook/mod.rs#L1-L90)
 <!-- END:AUTOGEN hark_08_spellbook_edge -->
 
 ---

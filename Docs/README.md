@@ -26,6 +26,7 @@ This is the canonical wiki for Hark, a push-to-talk voice dictation desktop app 
 | **Transcribe offline, with no provider** | [ON_DEVICE_STT.md](features/ON_DEVICE_STT.md) |
 | **Cut a signed release** | [RELEASE_AND_PACKAGING.md](operations/RELEASE_AND_PACKAGING.md) |
 | **Look up a term** | [GLOSSARY.md](GLOSSARY.md) |
+| **Record and transcribe a meeting (Windows)** | [MEETINGS.md](features/MEETINGS.md) |
 
 ---
 
@@ -56,6 +57,7 @@ One page per major subsystem of the dictation pipeline and the desktop shell.
 | [TEXT_INJECTION.md](features/TEXT_INJECTION.md) | Clipboard stash-set-paste-restore injection with an enigo keystroke fallback. |
 | [DESKTOP_UI.md](features/DESKTOP_UI.md) | The tray daemon, the recording overlay, and the egui settings/history/stats window. |
 | [UPDATES_AND_AUTOSTART.md](features/UPDATES_AND_AUTOSTART.md) | The in-app update checker with Windows self-update, and launch-at-login registration. |
+| [MEETINGS.md](features/MEETINGS.md) | Bot-free meeting transcription (Windows): OS loopback capture, live Me/Them transcript, the Deepgram final pass, notes, the audio storage cap, and sharing. |
 
 ---
 

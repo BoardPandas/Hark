@@ -6,6 +6,9 @@
 (per-process loopback in Core) and chose Deepgram for the D2 final pass (2026-09-26).** CP0 exit:
 GO. Next: Core step 1. Handoff: `tasks/2026-09-26-handoff-meetings-core1.md` (CP0's was
 `tasks/2026-09-26-handoff-meetings-cp0.md`).
+**Core steps 1–8 implemented 2026-09-27** (0.48.0 → 0.50.0, branch `feat/meetings-core`), unit-
+tested on Windows and Linux. Not yet validated end to end on a real call; see §8 "Learned in
+Core steps 3–8" for what still needs hardware. Next: that hands-on validation, then Polish.
 **Model:** Krisp AI Meeting Assistant (<https://krisp.ai/meeting-transcription/>,
 <https://help.krisp.ai/hc/en-us/articles/8214720684956-AI-Meeting-Assistant-overview>)
 
@@ -585,3 +588,25 @@ Not scheduled. The §4.1 notes are kept so it can be picked up later without re-
 - Creating a symlink on Windows without Developer Mode fails with os error 1314, so the storage
   guard's symlink tests skip on this box and actually run on Linux (WSL). Keep both platforms in
   the Done check for anything filesystem-guarded.
+
+**Learned in Core steps 3–8 (2026-09-27, branch `feat/meetings-core`):**
+- Builder subagents run in **isolated git worktrees cut from `HEAD`**: uncommitted work in the
+  main checkout is invisible to them. Delegate only work that depends on committed code (commit
+  a checkpoint first), and port results with `git -C <worktree> diff HEAD -- <crate>` +
+  `git apply`, never by copying whole trees (a worktree shows a spurious `AGENTS.md` change: the
+  repo tracks `AGENTS.md` and `agents.md`, which collide on a case-insensitive filesystem).
+- On this box the App Control policy also blocks **build-script binaries under a fresh
+  `CARGO_TARGET_DIR`** (os error 4551), so per-agent target dirs do not work; build in the main
+  repo's `target/` or a worktree's default one.
+- The shared STT client's 15 s total timeout would kill the final pass: every long request
+  (`deepgram_final_pass`, `summarize`) sets its own `RequestBuilder::timeout`.
+- `hark-store` never enabled `PRAGMA foreign_keys`; migration 004's cascades needed it, so it is
+  now on per connection (the older tables have no foreign keys, so nothing else changes).
+- `rfd`'s default features are Linux-only (portal, Wayland) but still resolve on Windows:
+  `default-features = false` keeps the Windows dialog and nothing else.
+- `cargo clippy -p hark-stt --all-targets` alone fails on unused Gemini Live items because the
+  `live` feature is off in that invocation; the workspace lint (what CI runs) enables it and is
+  clean. Lint at the workspace level.
+- Still unverified on hardware: a real Teams/Zoom/Meet call end to end (detection → per-process
+  loopback of the app's tree → live lines → Deepgram labels → notes → archive), the prompt
+  window's placement/focus behaviour, and rfd's dialog from a worker thread.

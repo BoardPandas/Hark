@@ -8,16 +8,21 @@
 //! operation the pipeline worker needs.
 //!
 //! Meeting mode adds `spool` (append-only WAV files, tested against a temp
-//! dir) and `loopback_win` (per-process system-audio capture, WASAPI glue
-//! verified by hand with `examples/loopback_smoke.rs`).
+//! dir), `loopback_win` (per-process system-audio capture, WASAPI glue
+//! verified by hand with `examples/loopback_smoke.rs`), `stereo` (streams a
+//! spool pair as one stereo WAV for the Deepgram final pass), and `mp3`
+//! (the D8 share export and the D9 archive, both pure `std`/`symphonia`
+//! decode + `mp3lame-encoder` encode, so they build and test on any OS).
 
 pub mod capture_win;
 pub mod gain;
 pub mod level;
 pub mod loopback_win;
+pub mod mp3;
 pub mod resample;
 pub mod ring;
 pub mod spool;
+pub mod stereo;
 pub mod window;
 
 pub use capture_win::{
@@ -25,8 +30,13 @@ pub use capture_win::{
 };
 pub use level::LevelMeter;
 pub use loopback_win::{start_process_loopback, LoopbackError, LoopbackHandle, LoopbackTarget};
+pub use mp3::{
+    compress_meeting_dir, export_mono_mp3, export_mono_wav, meeting_audio, recover_meeting_dir,
+    verify_mp3, CompressOutcome, EncodeError, MeetingAudio, RecoverAction, ARCHIVE_FILE,
+};
 pub use resample::TARGET_RATE;
 pub use ring::{Consumer, Producer, RangeError};
+pub use stereo::{spool_pair_frames, stereo_wav_reader};
 pub use window::{GateVerdict, WindowParams};
 
 use std::time::{Duration, Instant};

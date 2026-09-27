@@ -9,12 +9,15 @@
 - [First-run setup](../../crates/hark-app/src/ui/settings/onboarding.rs)
 - [Overlay viewport](../../crates/hark-app/src/overlay.rs), [feedback state](../../crates/hark-app/src/overlay/feedback.rs), and [painting](../../crates/hark-app/src/overlay/paint.rs)
 - [Native tray](../../crates/hark-app/src/tray/mod.rs)
+- [Meetings page](../../crates/hark-app/src/ui/meetings/mod.rs), [detail view](../../crates/hark-app/src/ui/meetings/detail.rs), and [sharing](../../crates/hark-app/src/ui/meetings/share.rs)
+- [Meetings settings](../../crates/hark-app/src/ui/settings/meetings.rs)
+- [Meeting controller](../../crates/hark-app/src/meeting.rs) and [detection prompt viewport](../../crates/hark-app/src/meeting_prompt.rs)
 
 </details>
 
 # Desktop UI
 
-> **Related Pages**: [Architecture](../core/ARCHITECTURE.md), [Data Storage](../core/DATA_STORAGE.md), [Updates and Autostart](UPDATES_AND_AUTOSTART.md)
+> **Related Pages**: [Architecture](../core/ARCHITECTURE.md), [Data Storage](../core/DATA_STORAGE.md), [Updates and Autostart](UPDATES_AND_AUTOSTART.md), [Meetings](MEETINGS.md)
 
 ---
 
@@ -24,6 +27,8 @@
 Hark uses native `eframe`/`egui` for its window and floating dictation feedback, and `tray-icon` for its system menu. There is no webview. The main window can remain hidden while push-to-talk runs from the tray.
 
 The main thread owns egui and the Windows/macOS tray. On Linux, libappindicator owns GTK widgets on a dedicated thread with its own loop. Audio, hotkeys, transcription, cleanup, and insertion run on worker threads. The UI consumes state; it never delays insertion to render feedback.
+
+On Windows, the UI also exposes meeting transcription: a Meetings page, a tray entry to start or stop taking notes, and a non-modal prompt when a meeting app starts using the microphone. Meetings is hidden everywhere its capture is unsupported (currently macOS and Linux); nothing about it changes how push-to-talk dictation looks or behaves.
 <!-- END:AUTOGEN hark_12_desktop_ui_overview -->
 
 ---
@@ -31,7 +36,7 @@ The main thread owns egui and the Windows/macOS tray. On Linux, libappindicator 
 <!-- BEGIN:AUTOGEN hark_12_desktop_ui_tray -->
 ## Tray Daemon
 
-The native menu groups voice choices under **Voice**, followed by **Open Hark**, **Settings…**, and **Quit Hark** on every platform. Voice choices still apply immediately, update the Settings draft, and persist. Double-clicking the icon also restores the current page where the platform supports it.
+The native menu groups voice choices under **Voice**, followed (where meetings exist) by a **Start meeting notes** / **Stop meeting notes (since HH:MM)** entry and a separator, then **Open Hark**, **Settings…**, and **Quit Hark** on every platform. Voice choices still apply immediately, update the Settings draft, and persist. Double-clicking the icon also restores the current page where the platform supports it.
 
 | State | Icon | Meaning |
 |---|---|---|
@@ -43,6 +48,8 @@ The native menu groups voice choices under **Voice**, followed by **Open Hark**,
 | Stopped | Gray disc with an exclamation mark | Pipeline is not running |
 
 Tooltips name the state and shortcut. Quiet-audio hints preserve the ready icon and explain the issue in text. Updates reach the OS only when something changes, avoiding repeated icon writes and channel traffic.
+
+A recording meeting is shown on an otherwise-idle tray as the same red recording disc, with a tooltip naming the time notes started ("Hark: taking meeting notes since 14:30") — the recording state has to stay visible for as long as a meeting runs, but a dictation's own recording, processing, or error state still takes priority while it lasts. Where meeting capture does not exist on the platform (macOS, Linux for now), the menu builds without the entry at all rather than shipping one that can never work; where it exists but is off or failed to start, the entry stays in the menu, disabled.
 <!-- END:AUTOGEN hark_12_desktop_ui_tray -->
 
 ---
@@ -64,6 +71,8 @@ The floating capsule is a persistent, nonactivating 192 × 46 point viewport nea
 The feedback snapshot contains only a state and timestamp, never transcript text. The child reads it directly and expires terminal feedback on its own pass, even if the root window is asleep. It sleeps while hidden; while visible it repaints at about 30 FPS. A stopped pipeline disables its snapshot so late events cannot resurrect an old pill.
 
 The viewport is created hidden once per pipeline run and reused for dictations. Windows clips and strips its native frame before revealing it. Mouse passthrough is deliberately disabled because layered-window composition breaks the transparent margins on that platform. Do not reintroduce a window per dictation or make hiding depend on the parent painting.
+
+The meeting detection prompt ("Teams is using your mic. Take meeting notes?") follows the same rule for the same reason: one persistent, deferred viewport, registered from root `logic` so it keeps working while the main window is hidden in the tray, created hidden and only ever shown or hidden — never rebuilt per detection. It is non-modal, never steals focus from the meeting app, offers Start / Not this meeting / Settings, and dismisses itself after 30 seconds with no answer.
 <!-- END:AUTOGEN hark_12_desktop_ui_overlay -->
 
 ---
@@ -71,7 +80,7 @@ The viewport is created hidden once per pipeline run and reused for dictations. 
 <!-- BEGIN:AUTOGEN hark_12_desktop_ui_window -->
 ## Settings Window Shell
 
-A top bar contains Hark, History, Spellbook, Invocations, Stats, and Settings. Selected tabs have a raised surface; keyboard focus has a separate visible ring. Content is centered at up to 860 points and contracts with the window.
+A top bar contains Hark, History, Meetings (where meeting capture exists on the platform), Spellbook, Invocations, Stats, and Settings. Selected tabs have a raised surface; keyboard focus has a separate visible ring. Content is centered at up to 860 points and contracts with the window.
 
 The footer remains visible with the actual pipeline state, configured shortcut, and active transcription/cleanup models. Long model text truncates with the full value available on hover. A key-related issue opens Dictation settings.
 
@@ -84,6 +93,7 @@ Settings' Save changes / Discard bar stays outside its scroll area. The update b
 ## History, Spellbook, Invocations, Stats and Settings
 
 - **History** keeps grouped days, search, copy/delete actions, expandable raw transcripts, timing, and Spellbook selection handoff. Wide rows separate timestamps from content. Captions name the actual provider/model and show cleanup only when it ran. Clearing history preserves lifetime statistics.
+- **Meetings** (Windows only for now) is shaped like History: a searchable list of past meetings by title/date/duration, and a detail view with the transcript (speaker chips, timestamps), notes with checkable action items, speaker rename, a Share menu, and delete. While a meeting is recording, the page instead shows a live pane: the rolling Me/Them transcript, elapsed time, and a Stop button. A first-run notice reminds the user that some places require every party's consent to record a call; an optional button pastes a canned "I'm using Hark to transcribe this meeting" line into the focused chat.
 - **Spellbook** has a raised vocabulary surface, editable terms, aliases, the advanced mishearing control, and undo for the most recent addition. Edits still persist immediately.
 - **Invocations** retains trigger scope, expansion text, validation, and explicit Save. Each invocation can also list exact alternate phrases for repeatable transcription errors. The raised test panel reports whether a typed phrase would fire using the real matcher.
 - **Stats** uses responsive elevated cards for dictations, words, speaking time, and average release-to-insert latency. It scrolls at short window heights. The ten-dictation gate, missing-data `n/a`, estimated typing time saved, and independent reset remain intact.
@@ -96,6 +106,7 @@ Settings' Save changes / Discard bar stays outside its scroll area. The update b
 | Dictation | Speech provider, key, connection test, model/endpoint, voice, cleanup |
 | Audio & shortcut | Shortcut recording/manual entry, microphone picker and input meter |
 | On-device | Off/Backup/Primary modes, model download/progress/cancel/delete |
+| Meetings | Take notes toggle, microphone, detection (off/ask/auto, auto-stop delay, app list), speaker labels (Deepgram key, independent of the dictation key), storage cap and usage, delete all meeting audio |
 | Behavior | Cleanup limits, single-word punctuation |
 | Privacy | History capture, retention, audio/text/provider disclosures |
 | Updates | Version, checking, download/install status, release details |

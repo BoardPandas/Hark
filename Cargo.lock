@@ -601,6 +601,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f2032f911046de80f0a198e0901378627c33f59ea0ac00e363d481118bd70a53"
 
 [[package]]
+name = "autotools"
+version = "0.2.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ef941527c41b0fc0dd48511a8154cd5fc7e29200a0ff8b7203c5d777dbc795cf"
+dependencies = [
+ "cc",
+]
+
+[[package]]
 name = "aws-lc-rs"
 version = "1.18.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1129,6 +1138,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "core_detect"
+version = "1.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7f8f80099a98041a3d1622845c271458a2d73e688351bf3cb999266764b81d48"
+
+[[package]]
 name = "coreaudio-rs"
 version = "0.14.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1398,6 +1413,8 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1e0e367e4e7da84520dedcac1901e4da967309406d1e51017ae1abfb97adbd38"
 dependencies = [
  "bitflags 2.13.2",
+ "block2 0.6.2",
+ "libc",
  "objc2 0.6.4",
 ]
 
@@ -1589,6 +1606,20 @@ checksum = "52c8d4141cf0f60fb2f7aefaf352d3ffa5171ef0ab09731c64391801e95e48f1"
 dependencies = [
  "bytemuck",
  "serde",
+]
+
+[[package]]
+name = "encoding_rs"
+version = "0.8.42"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8e985e0451871ad22fb8d2b6b076e2028a502a0d3950998c2c5c0a4f9b5d9679"
+dependencies = [
+ "cfg-if",
+ "core_detect",
+ "multiversion_no_op",
+ "rustversion",
+ "scopeguard",
+ "simdutf8",
 ]
 
 [[package]]
@@ -2440,7 +2471,7 @@ dependencies = [
 
 [[package]]
 name = "hark-app"
-version = "0.49.0"
+version = "0.50.0"
 dependencies = [
  "eframe",
  "egui",
@@ -2452,6 +2483,7 @@ dependencies = [
  "hark-hotkey",
  "hark-keychain",
  "hark-local-stt",
+ "hark-meeting",
  "hark-pipeline",
  "hark-single-instance",
  "hark-spellbook",
@@ -2461,18 +2493,22 @@ dependencies = [
  "hark-voice",
  "jiff",
  "log",
+ "raw-window-handle",
+ "rfd",
  "tray-icon",
  "windows 0.62.2",
 ]
 
 [[package]]
 name = "hark-audio"
-version = "0.49.0"
+version = "0.50.0"
 dependencies = [
  "cpal",
  "hound",
  "log",
+ "mp3lame-encoder",
  "rubato",
+ "symphonia",
  "tempfile",
  "thiserror 2.0.20",
  "windows 0.62.2",
@@ -2481,7 +2517,7 @@ dependencies = [
 
 [[package]]
 name = "hark-autostart"
-version = "0.49.0"
+version = "0.50.0"
 dependencies = [
  "hark-config",
  "tempfile",
@@ -2491,7 +2527,7 @@ dependencies = [
 
 [[package]]
 name = "hark-config"
-version = "0.49.0"
+version = "0.50.0"
 dependencies = [
  "log",
  "serde",
@@ -2502,7 +2538,7 @@ dependencies = [
 
 [[package]]
 name = "hark-hotkey"
-version = "0.49.0"
+version = "0.50.0"
 dependencies = [
  "evdev",
  "libc",
@@ -2513,7 +2549,7 @@ dependencies = [
 
 [[package]]
 name = "hark-inject"
-version = "0.49.0"
+version = "0.50.0"
 dependencies = [
  "arboard",
  "enigo",
@@ -2524,7 +2560,7 @@ dependencies = [
 
 [[package]]
 name = "hark-keychain"
-version = "0.49.0"
+version = "0.50.0"
 dependencies = [
  "keyring",
  "thiserror 2.0.20",
@@ -2532,7 +2568,7 @@ dependencies = [
 
 [[package]]
 name = "hark-local-stt"
-version = "0.49.0"
+version = "0.50.0"
 dependencies = [
  "hark-config",
  "log",
@@ -2545,7 +2581,7 @@ dependencies = [
 
 [[package]]
 name = "hark-meeting"
-version = "0.49.0"
+version = "0.50.0"
 dependencies = [
  "hark-audio",
  "log",
@@ -2556,7 +2592,7 @@ dependencies = [
 
 [[package]]
 name = "hark-pipeline"
-version = "0.49.0"
+version = "0.50.0"
 dependencies = [
  "hark-audio",
  "hark-config",
@@ -2564,17 +2600,20 @@ dependencies = [
  "hark-inject",
  "hark-keychain",
  "hark-local-stt",
+ "hark-meeting",
  "hark-spellbook",
  "hark-stt",
  "hark-voice",
+ "jiff",
  "log",
  "reqwest",
+ "tempfile",
  "thiserror 2.0.20",
 ]
 
 [[package]]
 name = "hark-single-instance"
-version = "0.49.0"
+version = "0.50.0"
 dependencies = [
  "hark-config",
  "libc",
@@ -2585,7 +2624,7 @@ dependencies = [
 
 [[package]]
 name = "hark-spellbook"
-version = "0.49.0"
+version = "0.50.0"
 dependencies = [
  "rphonetic",
  "strsim",
@@ -2593,7 +2632,7 @@ dependencies = [
 
 [[package]]
 name = "hark-store"
-version = "0.49.0"
+version = "0.50.0"
 dependencies = [
  "rusqlite",
  "tempfile",
@@ -2602,7 +2641,7 @@ dependencies = [
 
 [[package]]
 name = "hark-stt"
-version = "0.49.0"
+version = "0.50.0"
 dependencies = [
  "base64 0.23.1",
  "env_logger",
@@ -2620,7 +2659,7 @@ dependencies = [
 
 [[package]]
 name = "hark-update"
-version = "0.49.0"
+version = "0.50.0"
 dependencies = [
  "log",
  "reqwest",
@@ -2633,7 +2672,7 @@ dependencies = [
 
 [[package]]
 name = "hark-voice"
-version = "0.49.0"
+version = "0.50.0"
 dependencies = [
  "hark-stt",
  "log",
@@ -3228,6 +3267,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "lazy_static"
+version = "1.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bbd2bcb4c963f2ddae06a2efc7e9f3591312473c50c6685e1f298068316e66fe"
+
+[[package]]
 name = "libappindicator"
 version = "0.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3469,6 +3514,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "mp3lame-encoder"
+version = "0.2.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "60cb9bdd89806317373e36ff745f264b7ed7ffc5bc5aab02dc7d1b837c16a8d4"
+dependencies = [
+ "mp3lame-sys",
+]
+
+[[package]]
+name = "mp3lame-sys"
+version = "0.1.11"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "54e3b1772db47828840702e5a2e05694527f731abadf9b931355d54035f019d8"
+dependencies = [
+ "autotools",
+ "cc",
+ "libc",
+]
+
+[[package]]
 name = "muda"
 version = "0.19.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3488,6 +3553,12 @@ dependencies = [
  "thiserror 2.0.20",
  "windows-sys 0.61.2",
 ]
+
+[[package]]
+name = "multiversion_no_op"
+version = "1.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "743fb55ba31b18fb1ecef6bdc9aa2743314978ac084044301a7eee33fb99a20d"
 
 [[package]]
 name = "naga"
@@ -3744,6 +3815,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d49e936b501e5c5bf01fda3a9452ff86dc3ea98ad5f283e1455153142d97518c"
 dependencies = [
  "bitflags 2.13.2",
+ "block2 0.6.2",
  "objc2 0.6.4",
  "objc2-core-foundation",
  "objc2-core-graphics",
@@ -4760,6 +4832,29 @@ dependencies = [
 ]
 
 [[package]]
+name = "rfd"
+version = "0.17.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "20dafead71c16a34e1ff357ddefc8afc11e7d51d6d2b9fbd07eaa48e3e540220"
+dependencies = [
+ "block2 0.6.2",
+ "dispatch2",
+ "js-sys",
+ "libc",
+ "log",
+ "objc2 0.6.4",
+ "objc2-app-kit 0.3.2",
+ "objc2-core-foundation",
+ "objc2-foundation 0.3.2",
+ "percent-encoding",
+ "raw-window-handle",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
+ "web-sys",
+ "windows-sys 0.61.2",
+]
+
+[[package]]
 name = "ring"
 version = "0.17.14"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5428,6 +5523,55 @@ name = "subtle"
 version = "2.6.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "13c2bddecc57b384dee18652358fb23172facb8a2c51ccc10d74c157bdea3292"
+
+[[package]]
+name = "symphonia"
+version = "0.5.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5773a4c030a19d9bfaa090f49746ff35c75dfddfa700df7a5939d5e076a57039"
+dependencies = [
+ "lazy_static",
+ "symphonia-bundle-mp3",
+ "symphonia-core",
+ "symphonia-metadata",
+]
+
+[[package]]
+name = "symphonia-bundle-mp3"
+version = "0.5.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4872dd6bb56bf5eac799e3e957aa1981086c3e613b27e0ac23b176054f7c57ed"
+dependencies = [
+ "lazy_static",
+ "log",
+ "symphonia-core",
+ "symphonia-metadata",
+]
+
+[[package]]
+name = "symphonia-core"
+version = "0.5.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ea00cc4f79b7f6bb7ff87eddc065a1066f3a43fe1875979056672c9ef948c2af"
+dependencies = [
+ "arrayvec",
+ "bitflags 1.3.2",
+ "bytemuck",
+ "lazy_static",
+ "log",
+]
+
+[[package]]
+name = "symphonia-metadata"
+version = "0.5.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "36306ff42b9ffe6e5afc99d49e121e0bd62fe79b9db7b9681d48e29fa19e6b16"
+dependencies = [
+ "encoding_rs",
+ "lazy_static",
+ "log",
+ "symphonia-core",
+]
 
 [[package]]
 name = "syn"

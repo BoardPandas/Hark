@@ -8,11 +8,14 @@ The following files were used as evidence for this page:
 - [crates/hark-store/migrations/001_init.sql:1-31](../../crates/hark-store/migrations/001_init.sql#L1-L31)
 - [crates/hark-store/migrations/002_stats_total_ms.sql:1-8](../../crates/hark-store/migrations/002_stats_total_ms.sql#L1-L8)
 - [crates/hark-store/migrations/003_entries_invocation.sql:1-6](../../crates/hark-store/migrations/003_entries_invocation.sql#L1-L6)
+- [crates/hark-store/migrations/004_meetings.sql:1-63](../../crates/hark-store/migrations/004_meetings.sql#L1-L63)
+- [crates/hark-store/src/meetings.rs:1-65](../../crates/hark-store/src/meetings.rs#L1-L65)
 - [crates/hark-store/tests/store.rs:1-465](../../crates/hark-store/tests/store.rs#L1-L465)
-- [crates/hark-app/src/storage.rs:1-420](../../crates/hark-app/src/storage.rs#L1-L420)
-- [crates/hark-app/src/app.rs:389-409](../../crates/hark-app/src/app.rs#L389-L409)
-- [crates/hark-config/src/lib.rs:376-400](../../crates/hark-config/src/lib.rs#L376-L400)
-- [crates/hark-config/src/lib.rs:713-742](../../crates/hark-config/src/lib.rs#L713-L742)
+- [crates/hark-app/src/storage/mod.rs:1-249](../../crates/hark-app/src/storage/mod.rs#L1-L249)
+- [crates/hark-app/src/storage/meetings.rs:1-67](../../crates/hark-app/src/storage/meetings.rs#L1-L67)
+- [crates/hark-app/src/app.rs:481-499](../../crates/hark-app/src/app.rs#L481-L499)
+- [crates/hark-config/src/lib.rs:378-402](../../crates/hark-config/src/lib.rs#L378-L402)
+- [crates/hark-config/src/lib.rs:722-751](../../crates/hark-config/src/lib.rs#L722-L751)
 - [crates/hark-pipeline/src/events.rs:6-40](../../crates/hark-pipeline/src/events.rs#L6-L40)
 
 </details>
@@ -30,6 +33,8 @@ Hark stores dictation history and lifetime counters in one local SQLite file, `<
 
 The implementation is local plaintext SQLite; it has no app-layer row encryption or multi-user isolation. History capture and numeric stats are separate controls: disabling capture prevents transcript rows from being stored, while non-content counters still advance ([lib.rs:171-210](../../crates/hark-store/src/lib.rs#L171-L210)).
 
+The same database also holds meeting transcripts and notes (migration 004; see [Schema](#schema)). Meeting audio itself is not a database column: it lives on disk under `<data_dir>/meetings/<id>/`, and `hark-app/src/storage/meetings.rs` is the one writer for both the meeting's rows and its audio folder, so a size check against the filesystem and the database's idea of which meetings exist never disagree ([storage/meetings.rs:1-9](../../crates/hark-app/src/storage/meetings.rs#L1-L9)).
+
 | Platform | Data directory |
 |---|---|
 | Windows | `%APPDATA%\hark` |
@@ -46,13 +51,16 @@ Sources: [crates/hark-store/src/lib.rs:1-15](../../crates/hark-store/src/lib.rs#
 <!-- BEGIN:AUTOGEN hark_05_data_storage_schema -->
 ## Schema
 
-The schema is an append-only sequence of three embedded migrations. `PRAGMA user_version` records how many have been applied; opening an older database runs only the remaining migrations, each in its own transaction ([lib.rs:22-28](../../crates/hark-store/src/lib.rs#L22-L28), [lib.rs:158-168](../../crates/hark-store/src/lib.rs#L158-L168)).
+The schema is an append-only sequence of four embedded migrations. `PRAGMA user_version` records how many have been applied; opening an older database runs only the remaining migrations, each in its own transaction ([lib.rs:22-28](../../crates/hark-store/src/lib.rs#L22-L28), [lib.rs:158-168](../../crates/hark-store/src/lib.rs#L158-L168)).
 
 | Migration | Change | Compatibility behavior |
 |---|---|---|
 | `001_init.sql` | Creates `entries`, its timestamp index, and singleton `stats` | The app seeds stats row `id = 1` without replacing existing counters ([001_init.sql:1-31](../../crates/hark-store/migrations/001_init.sql#L1-L31), [lib.rs:147-154](../../crates/hark-store/src/lib.rs#L147-L154)) |
 | `002_stats_total_ms.sql` | Adds `stats.total_ms NOT NULL DEFAULT 0` | Existing counters survive; pre-migration dictations contribute zero to the new sum ([002_stats_total_ms.sql:1-8](../../crates/hark-store/migrations/002_stats_total_ms.sql#L1-L8), [store.rs:427-465](../../crates/hark-store/tests/store.rs#L427-L465)) |
 | `003_entries_invocation.sql` | Adds nullable `entries.invocation` | Existing rows read as non-invocations; new rows round-trip the trigger ([003_entries_invocation.sql:1-6](../../crates/hark-store/migrations/003_entries_invocation.sql#L1-L6), [store.rs:378-424](../../crates/hark-store/tests/store.rs#L378-L424)) |
+| `004_meetings.sql` | Adds `meetings`, `meeting_segments`, `meeting_speakers`, and an external-content FTS5 index over segment text | A fresh table set; nothing pre-existing to migrate. `meeting_segments`/`meeting_speakers` cascade-delete with their meeting, which only takes effect because `Store::init` now turns `PRAGMA foreign_keys` on for every connection ([004_meetings.sql:1-63](../../crates/hark-store/migrations/004_meetings.sql#L1-L63), [lib.rs:152-154](../../crates/hark-store/src/lib.rs#L152-L154)) |
+
+Meeting search does not need a `LIKE` fallback: the FTS5 module is compiled into the SQLite Hark bundles, which `hark-store/tests/meetings.rs` asserts directly rather than assuming ([meetings.rs:1-8](../../crates/hark-store/src/meetings.rs#L1-L8)). `meeting_segments_fts` is kept in sync by the standard insert/delete/update trigger trio rather than by application code, so a segment written through any path is searchable ([004_meetings.sql:45-63](../../crates/hark-store/migrations/004_meetings.sql#L45-L63)).
 
 ```mermaid
 erDiagram
@@ -84,7 +92,7 @@ erDiagram
 
 `entries` and `stats` intentionally have no foreign-key relationship. Clearing history deletes only entries; resetting stats changes only the fixed stats row ([lib.rs:296-336](../../crates/hark-store/src/lib.rs#L296-L336)). `audio_ms` feeds lifetime stats but is not stored on each history entry ([lib.rs:50-68](../../crates/hark-store/src/lib.rs#L50-L68)).
 
-Sources: [crates/hark-store/src/lib.rs:22-28](../../crates/hark-store/src/lib.rs#L22-L28), [crates/hark-store/src/lib.rs:139-168](../../crates/hark-store/src/lib.rs#L139-L168), [crates/hark-store/migrations/001_init.sql:1-31](../../crates/hark-store/migrations/001_init.sql#L1-L31), [crates/hark-store/migrations/002_stats_total_ms.sql:1-8](../../crates/hark-store/migrations/002_stats_total_ms.sql#L1-L8), [crates/hark-store/migrations/003_entries_invocation.sql:1-6](../../crates/hark-store/migrations/003_entries_invocation.sql#L1-L6)
+Sources: [crates/hark-store/src/lib.rs:22-28](../../crates/hark-store/src/lib.rs#L22-L28), [crates/hark-store/src/lib.rs:139-168](../../crates/hark-store/src/lib.rs#L139-L168), [crates/hark-store/migrations/001_init.sql:1-31](../../crates/hark-store/migrations/001_init.sql#L1-L31), [crates/hark-store/migrations/002_stats_total_ms.sql:1-8](../../crates/hark-store/migrations/002_stats_total_ms.sql#L1-L8), [crates/hark-store/migrations/003_entries_invocation.sql:1-6](../../crates/hark-store/migrations/003_entries_invocation.sql#L1-L6), [crates/hark-store/migrations/004_meetings.sql:1-63](../../crates/hark-store/migrations/004_meetings.sql#L1-L63), [crates/hark-store/src/meetings.rs:1-8](../../crates/hark-store/src/meetings.rs#L1-L8)
 <!-- END:AUTOGEN hark_05_data_storage_schema -->
 
 ---
@@ -135,9 +143,11 @@ Sources: [crates/hark-store/src/lib.rs:88-100](../../crates/hark-store/src/lib.r
 
 The return value is the total number of deleted rows. Pruning never changes lifetime stats, even when both rules remove history in the same call ([lib.rs:213-227](../../crates/hark-store/src/lib.rs#L213-L227), [store.rs:226-309](../../crates/hark-store/tests/store.rs#L226-L309)).
 
-The app prunes after every recorded dictation and also sends a standalone prune when a pipeline starts, so lowering retention takes effect after save/startup rather than waiting for another dictation ([storage.rs:29-48](../../crates/hark-app/src/storage.rs#L29-L48), [storage.rs:185-205](../../crates/hark-app/src/storage.rs#L185-L205)).
+The app prunes after every recorded dictation and also sends a standalone prune when a pipeline starts, so lowering retention takes effect after save/startup rather than waiting for another dictation ([storage/mod.rs:33-54](../../crates/hark-app/src/storage/mod.rs#L33-L54), [storage/mod.rs:204-225](../../crates/hark-app/src/storage/mod.rs#L204-L225)).
 
-Sources: [crates/hark-store/src/lib.rs:102-110](../../crates/hark-store/src/lib.rs#L102-L110), [crates/hark-store/src/lib.rs:213-227](../../crates/hark-store/src/lib.rs#L213-L227), [crates/hark-store/tests/store.rs:226-309](../../crates/hark-store/tests/store.rs#L226-L309), [crates/hark-app/src/storage.rs:185-205](../../crates/hark-app/src/storage.rs#L185-L205)
+Meeting audio has its own, separate cap: a circular limit in megabytes (`[meeting] audio_cap_mb`, default 5 GB), enforced against actual bytes on disk rather than a database column, and it only ever deletes audio, never a transcript, note, or segment row. See [Meetings](../features/MEETINGS.md#storage-and-the-audio-cap) for the eviction rules ([hark-meeting/src/storage.rs:1-9](../../crates/hark-meeting/src/storage.rs#L1-L9)).
+
+Sources: [crates/hark-store/src/lib.rs:102-110](../../crates/hark-store/src/lib.rs#L102-L110), [crates/hark-store/src/lib.rs:213-227](../../crates/hark-store/src/lib.rs#L213-L227), [crates/hark-store/tests/store.rs:226-309](../../crates/hark-store/tests/store.rs#L226-L309), [crates/hark-app/src/storage/mod.rs:204-225](../../crates/hark-app/src/storage/mod.rs#L204-L225), [crates/hark-meeting/src/storage.rs:1-9](../../crates/hark-meeting/src/storage.rs#L1-L9)
 <!-- END:AUTOGEN hark_05_data_storage_retention -->
 
 ---
@@ -145,13 +155,15 @@ Sources: [crates/hark-store/src/lib.rs:102-110](../../crates/hark-store/src/lib.
 <!-- BEGIN:AUTOGEN hark_05_data_storage_integration -->
 ## App Integration
 
-`hark-app` uses two connections: the `hark-storage` worker owns the sole writer, while the UI owns a reader for history and stats queries. All mutations travel through `StorageCmd`; successful changes increment an atomic generation counter and wake egui so cached panels re-query without polling ([storage.rs:1-8](../../crates/hark-app/src/storage.rs#L1-L8), [storage.rs:72-105](../../crates/hark-app/src/storage.rs#L72-L105), [storage.rs:134-183](../../crates/hark-app/src/storage.rs#L134-L183)).
+`hark-app` uses two connections: the `hark-storage` worker owns the sole writer, while the UI owns a reader for history and stats queries. All mutations travel through `StorageCmd`; successful changes increment an atomic generation counter and wake egui so cached panels re-query without polling ([storage/mod.rs:1-10](../../crates/hark-app/src/storage/mod.rs#L1-L10), [storage/mod.rs:78-112](../../crates/hark-app/src/storage/mod.rs#L78-L112), [storage/mod.rs:140-200](../../crates/hark-app/src/storage/mod.rs#L140-L200)).
 
-`Record` carries the capture and retention policy from the pipeline run that produced it. The worker stamps the record at persistence time, writes it, then prunes. Records originate only from the post-injection `PipelineEvent::Injected`, so a storage failure cannot undo or block text that has already reached the focused application ([storage.rs:29-70](../../crates/hark-app/src/storage.rs#L29-L70), [storage.rs:185-225](../../crates/hark-app/src/storage.rs#L185-L225), [events.rs:75-90](../../crates/hark-pipeline/src/events.rs#L75-L90)).
+`Record` carries the capture and retention policy from the pipeline run that produced it. The worker stamps the record at persistence time, writes it, then prunes. Records originate only from the post-injection `PipelineEvent::Injected`, so a storage failure cannot undo or block text that has already reached the focused application ([storage/mod.rs:33-76](../../crates/hark-app/src/storage/mod.rs#L33-L76), [storage/mod.rs:204-244](../../crates/hark-app/src/storage/mod.rs#L204-L244), [events.rs:75-90](../../crates/hark-pipeline/src/events.rs#L75-L90)).
 
-Shutdown is bounded. Dropping `StorageHandle` removes its sender and normally joins the worker after every queued write drains. If an abandoned pipeline request keeps another sender alive, the handle waits only 500 ms, logs a warning, and leaves that worker rather than holding application exit open indefinitely ([storage.rs:20-27](../../crates/hark-app/src/storage.rs#L20-L27), [storage.rs:108-131](../../crates/hark-app/src/storage.rs#L108-L131)). Tests cover both the normal final-write flush and the bounded abandoned-sender case ([storage.rs:265-293](../../crates/hark-app/src/storage.rs#L265-L293)).
+Shutdown is bounded. Dropping `StorageHandle` removes its sender and normally joins the worker after every queued write drains. If an abandoned pipeline request keeps another sender alive, the handle waits only 500 ms, logs a warning, and leaves that worker rather than holding application exit open indefinitely ([storage/mod.rs:24-31](../../crates/hark-app/src/storage/mod.rs#L24-L31), [storage/mod.rs:114-138](../../crates/hark-app/src/storage/mod.rs#L114-L138)). Tests cover both the normal final-write flush and the bounded abandoned-sender case ([storage/mod.rs:289-317](../../crates/hark-app/src/storage/mod.rs#L289-L317)).
 
-Sources: [crates/hark-app/src/storage.rs:1-225](../../crates/hark-app/src/storage.rs#L1-L225), [crates/hark-app/src/storage.rs:265-293](../../crates/hark-app/src/storage.rs#L265-L293), [crates/hark-pipeline/src/events.rs:75-90](../../crates/hark-pipeline/src/events.rs#L75-L90)
+`StorageCmd::Meeting` carries the same guarantee for meeting rows and audio: `storage::meetings::apply` is the one function that touches both the `meetings`/`meeting_segments` tables and the `<data_dir>/meetings/<id>/` folder, called from the same worker thread and after the same generation bump, so the Meetings page never has to reconcile two write paths ([storage/mod.rs:9-10](../../crates/hark-app/src/storage/mod.rs#L9-L10), [storage/mod.rs:52-53](../../crates/hark-app/src/storage/mod.rs#L52-L53), [storage/meetings.rs:1-9](../../crates/hark-app/src/storage/meetings.rs#L1-L9), [storage/meetings.rs:68-75](../../crates/hark-app/src/storage/meetings.rs#L68-L75)).
+
+Sources: [crates/hark-app/src/storage/mod.rs:1-249](../../crates/hark-app/src/storage/mod.rs#L1-L249), [crates/hark-app/src/storage/mod.rs:289-317](../../crates/hark-app/src/storage/mod.rs#L289-L317), [crates/hark-app/src/storage/meetings.rs:1-75](../../crates/hark-app/src/storage/meetings.rs#L1-L75), [crates/hark-pipeline/src/events.rs:75-90](../../crates/hark-pipeline/src/events.rs#L75-L90)
 <!-- END:AUTOGEN hark_05_data_storage_integration -->
 
 ---

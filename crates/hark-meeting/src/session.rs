@@ -33,14 +33,12 @@ pub enum SessionState {
 ///
 /// Only the failures that leave nothing to keep belong here. A failed or
 /// skipped final pass keeps the live transcript, and a failed or skipped
-/// summary keeps the transcript without notes: the coordinator reports those
-/// as [`Event::Finalized`] and [`Event::Summarized`], never as a failure.
+/// summary keeps the transcript without notes: the finisher reports those as
+/// [`Event::Finalized`] and [`Event::Summarized`], never as a failure.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Failure {
     /// No capture stream could be opened, so nothing was recorded.
     Capture,
-    /// The meeting could not be written to the local store.
-    Store,
 }
 
 /// Everything that can advance a meeting.
@@ -129,14 +127,7 @@ mod tests {
     use Event::*;
     use SessionState::*;
 
-    const ALL_EVENTS: [Event; 6] = [
-        Start,
-        Stop,
-        Finalized,
-        Summarized,
-        Fail(Failure::Capture),
-        Fail(Failure::Store),
-    ];
+    const ALL_EVENTS: [Event; 5] = [Start, Stop, Finalized, Summarized, Fail(Failure::Capture)];
 
     #[test]
     fn happy_path_full_lifecycle() {
@@ -162,15 +153,15 @@ mod tests {
     #[test]
     fn failures_after_recording_release_nothing() {
         for state in [Idle, Finalizing, Summarizing] {
-            let (s, a) = advance(state, Fail(Failure::Store));
-            assert_eq!(s, Failed(Failure::Store), "from {state:?}");
+            let (s, a) = advance(state, Fail(Failure::Capture));
+            assert_eq!(s, Failed(Failure::Capture), "from {state:?}");
             assert_eq!(a, Action::None, "from {state:?}");
         }
     }
 
     #[test]
     fn terminal_states_absorb_every_event() {
-        for terminal in [Done, Failed(Failure::Capture), Failed(Failure::Store)] {
+        for terminal in [Done, Failed(Failure::Capture)] {
             for event in ALL_EVENTS {
                 assert_eq!(
                     advance(terminal, event),
