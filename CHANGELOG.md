@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.50.2] - 2026-09-27
+
 ### Added
 
 - Added a tool-neutral agent guide and a CI guard that reports mapped documentation pages when their source changes without a corresponding documentation update.
