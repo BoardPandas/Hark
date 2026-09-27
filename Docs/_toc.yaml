@@ -317,6 +317,8 @@ pages:
       - "crates/hark-audio/src/level.rs"
       - "crates/hark-audio/src/resample.rs"
       - "crates/hark-audio/src/capture_win.rs"
+      - "crates/hark-audio/src/loopback_win.rs"
+      - "crates/hark-audio/src/spool.rs"
       - "crates/hark-hotkey/src/lib.rs"
       - "crates/hark-hotkey/src/hook_win.rs"
       - "crates/hark-hotkey/src/hook_linux.rs"
@@ -362,6 +364,14 @@ pages:
         autogen: true
         source_files:
           - "crates/hark-hotkey/src/edges.rs"
+        diagrams_needed: false
+        diagram_types: []
+      - id: hark_06_audio_capture_meeting
+        title: "Meeting Capture (in progress)"
+        autogen: true
+        source_files:
+          - "crates/hark-audio/src/loopback_win.rs"
+          - "crates/hark-audio/src/spool.rs"
         diagrams_needed: false
         diagram_types: []
       - id: hark_06_audio_capture_notes

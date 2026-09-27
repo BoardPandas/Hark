@@ -6,18 +6,25 @@
 //! any machine; `capture_win` is the thin cpal glue that only real hardware
 //! can validate. `assemble_window` composes the pure parts into the one
 //! operation the pipeline worker needs.
+//!
+//! Meeting mode adds `spool` (append-only WAV files, tested against a temp
+//! dir) and `loopback_win` (per-process system-audio capture, WASAPI glue
+//! verified by hand with `examples/loopback_smoke.rs`).
 
 pub mod capture_win;
 pub mod gain;
 pub mod level;
+pub mod loopback_win;
 pub mod resample;
 pub mod ring;
+pub mod spool;
 pub mod window;
 
 pub use capture_win::{
     communications_default_device, list_input_devices, start, CaptureError, CaptureHandle,
 };
 pub use level::LevelMeter;
+pub use loopback_win::{start_process_loopback, LoopbackError, LoopbackHandle, LoopbackTarget};
 pub use resample::TARGET_RATE;
 pub use ring::{Consumer, Producer, RangeError};
 pub use window::{GateVerdict, WindowParams};

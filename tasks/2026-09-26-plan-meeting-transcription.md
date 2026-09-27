@@ -551,3 +551,24 @@ Not scheduled. The §4.1 notes are kept so it can be picked up later without re-
   `input[]` as `{type:"audio", uri, mime_type}`. Delete after use (48 h retention otherwise).
 - A 30-min stereo WAV (115 MB) uploads and transcribes on Deepgram in 6.7 s total: the
   2 GB limit and upload time are non-issues for an hour-long meeting.
+
+**Learned in Core step 1 (2026-09-26, branch `feat/meetings-core1`):**
+- The per-process loopback port runs clean on this Windows 11 26200 box: exclude mode (everything but
+  the smoke binary) delivered **16 000 frames/s through silence** with 0 discontinuities, and the
+  handle's `Drop` joined without hanging. Idle audio is **not digital zero**: about −96.7 dBFS
+  (1-LSB noise from the conversion). The chunker's gate still treats it as silence (below the
+  −55 dBFS dead-mic floor), but never test "silent loopback" with `== 0.0`.
+- The loopback's shared-mode buffer is 200 ms, not the spike's 20 ms. Packets still arrive every
+  ~10 ms; the larger buffer only gives a descheduled thread room before an overrun. Whether
+  Windows honours the full 200 ms on the process-loopback virtual device is unverified.
+- The loopback anchors ring sample 0 on the QPC clock (`start_qpc_ns`, back-dated from the first
+  packet with a valid timestamp), the clock cpal stamps mic packets with. The drain needs it to
+  align Them with Me; it was not in the spike.
+- **This dev box cannot run `cargo fmt` or a full `cargo test --workspace`.** An Application
+  Control (WDAC) policy blocks `cargo-fmt.exe` (`rustfmt.exe` itself runs: format with
+  `rustfmt --edition 2021 <crate>/src/lib.rs` and check with `rustfmt --check`). The toolchain is
+  `x86_64-pc-windows-gnu`, which has no `sherpa-onnx-c-api` static lib, so hark-app's default
+  `local-engine` feature fails to link. Workaround: `cargo test --workspace --exclude hark-app`
+  plus `cargo test -p hark-app --no-default-features`. CI (ubuntu + windows) runs the full suite.
+- Endpoint-loopback fallback (step 4) deferred: it only serves Windows builds before 19041. Until it
+  exists, a failed process-loopback activation should record the mic channel alone.

@@ -167,7 +167,7 @@ Sources: [RELEASING.md:36-68](https://github.com/BoardPandas/Hark/blob/1c1738716
 <!-- BEGIN:AUTOGEN hark_13_release_packaging_version -->
 ## Version Lockstep
 
-`package.json`'s `version` field is the repo's release source of truth (`package.json:3`). The root `Cargo.toml` `[workspace.package]` version must be kept identical, because the compiled binary reports its version via `env!("CARGO_PKG_VERSION")`, and the in-app update checker compares that against GitHub release tags (`Cargo.toml:19-23`).
+`package.json`'s `version` field is the repo's release source of truth (`package.json:3`). The root `Cargo.toml` `[workspace.package]` version must be kept identical, because the compiled binary reports its version via `env!("CARGO_PKG_VERSION")`, and the in-app update checker compares that against GitHub release tags (`Cargo.toml:22-26`).
 
 ```toml
 [workspace.package]
@@ -182,7 +182,7 @@ license = "MIT"
 
 The number above is the current documented snapshot, not a value to copy forward. A release change must bump `package.json` and the Cargo workspace together.
 
-Sources: [Cargo.toml:21-29](../../Cargo.toml#L21-L29)
+Sources: [Cargo.toml:22-30](../../Cargo.toml#L22-L30)
 
 The release workflow enforces this at release time rather than trusting it was done at commit time: it reads `[workspace.package] version` out of `Cargo.toml` with a regex and throws if it disagrees with the tag (which must itself already match `package.json`) (`.github/workflows/release.yml:65-72`).
 

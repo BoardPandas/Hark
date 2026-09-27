@@ -10,7 +10,7 @@ The following files were used as evidence for this page:
 - [README.md:177-209](../README.md#L177-L209)
 - [README.md:219-223](../README.md#L219-L223)
 - [package.json:1-10](../package.json#L1-L10)
-- [Cargo.toml:1-30](../Cargo.toml#L1-L30)
+- [Cargo.toml:1-31](../Cargo.toml#L1-L31)
 - [CLAUDE.md:1-24](../CLAUDE.md#L1-L24)
 - [CLAUDE.md:26-46](../CLAUDE.md#L26-L46)
 - [AGENTS.md:1-80](../AGENTS.md#L1-L80)
@@ -60,7 +60,7 @@ Sources: [README.md:7-13](../README.md#L7-L13), [CLAUDE.md:26-30](../CLAUDE.md#L
 <!-- BEGIN:AUTOGEN hark_01_overview_stack -->
 ## Technology Stack
 
-Hark is a desktop app with no web infrastructure: no server, database service, auth service, or hosting platform ([README.md:15-17](../README.md#L15-L17)). The implementation is one Cargo workspace ([Cargo.toml:1-19](../Cargo.toml#L1-L19)):
+Hark is a desktop app with no web infrastructure: no server, database service, auth service, or hosting platform ([README.md:15-17](../README.md#L15-L17)). The implementation is one Cargo workspace ([Cargo.toml:1-20](../Cargo.toml#L1-L20)):
 
 | Layer | Choice | Source |
 |---|---|---|
@@ -75,9 +75,9 @@ Hark is a desktop app with no web infrastructure: no server, database service, a
 | Tray + UI | `tray-icon` + `eframe`/`egui` (native, no webview) | ([README.md:30](../README.md#L30), [CLAUDE.md:21](../CLAUDE.md#L21)) |
 | Persistence | `rusqlite`, TOML, and the operating-system keychain | ([README.md:31-32](../README.md#L31-L32), [CLAUDE.md:22](../CLAUDE.md#L22)) |
 
-The workspace declares Rust 1.97 as its minimum supported toolchain ([Cargo.toml:21-30](../Cargo.toml#L21-L30)).
+The workspace declares Rust 1.97 as its minimum supported toolchain ([Cargo.toml:22-31](../Cargo.toml#L22-L31)).
 
-Sources: [README.md:15-32](../README.md#L15-L32), [CLAUDE.md:9-22](../CLAUDE.md#L9-L22), [Cargo.toml:1-30](../Cargo.toml#L1-L30)
+Sources: [README.md:15-32](../README.md#L15-L32), [CLAUDE.md:9-22](../CLAUDE.md#L9-L22), [Cargo.toml:1-31](../Cargo.toml#L1-L31)
 <!-- END:AUTOGEN hark_01_overview_stack -->
 
 ---
@@ -85,16 +85,17 @@ Sources: [README.md:15-32](../README.md#L15-L32), [CLAUDE.md:9-22](../CLAUDE.md#
 <!-- BEGIN:AUTOGEN hark_01_overview_layout -->
 ## Crate Layout
 
-Hark is one Cargo workspace with 15 member crates and one application binary ([Cargo.toml:1-19](../Cargo.toml#L1-L19)). The crates fall into eight responsibility groups:
+Hark is one Cargo workspace with 16 member crates and one application binary ([Cargo.toml:1-20](../Cargo.toml#L1-L20)). The crates fall into nine responsibility groups:
 
 | Area | Crates | Responsibility |
 |---|---|---|
 | Shell | `hark-app`, `hark-single-instance` | Native UI/tray orchestration and the one-process guard |
-| Input | `hark-hotkey`, `hark-audio` | Chord observation and continuous microphone capture |
+| Input | `hark-hotkey`, `hark-audio` | Chord observation, continuous microphone capture, and (for meetings) system-audio loopback and WAV spooling |
 | Recognition | `hark-stt`, `hark-local-stt` | Cloud adapters, live streaming, and optional Parakeet decoding |
 | Text | `hark-spellbook`, `hark-voice` | Correction, invocations, and cleanup |
 | Output | `hark-inject` | Clipboard and synthesized-key text injection |
 | Orchestration | `hark-pipeline` | State machine, transport selection, retry/fallback, and reporting |
+| Meetings (in progress) | `hark-meeting` | Pure meeting-session logic: lifecycle state machine, live chunking, and Me/Them transcript ordering. Not yet wired into the app |
 | State | `hark-config`, `hark-keychain`, `hark-store` | Settings, secrets, history, and statistics |
 | Desktop integration | `hark-autostart`, `hark-update` | Login startup and platform update behavior |
 
@@ -118,7 +119,7 @@ graph TD
 
 `config/` holds the shipped TOML defaults, while `installer/` and `packaging/` contain platform distribution assets ([README.md:149-175](../README.md#L149-L175)).
 
-Sources: [Cargo.toml:1-19](../Cargo.toml#L1-L19), [README.md:149-175](../README.md#L149-L175)
+Sources: [Cargo.toml:1-20](../Cargo.toml#L1-L20), [README.md:149-175](../README.md#L149-L175)
 <!-- END:AUTOGEN hark_01_overview_layout -->
 
 ---

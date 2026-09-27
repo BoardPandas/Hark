@@ -36,6 +36,17 @@
   byte-identical; `gain` only lifts quiet clips, and never past the clipping
   or noise ceilings.
 - **Tests assert sample counts, never wall-clock timings.** Pure modules
-  (`ring`, `resample`, `window`) must stay hardware-free; `capture_win.rs` is
-  the only file allowed to touch cpal.
+  (`ring`, `resample`, `window`) must stay hardware-free, and `spool` is tested
+  against a temp dir only; `capture_win.rs` is the only file allowed to touch
+  cpal.
 - **Debug impls must never dump samples** (`AudioClip` prints lengths only).
+- **Process loopback (`loopback_win.rs`): the activation `PROPVARIANT` stays in
+  `ManuallyDrop`.** Its `VT_BLOB` points at stack memory, and windows-rs 0.62's
+  `Drop` frees it: the process dies with no message (LL-G
+  `propvariant-drop-frees-blob`). Its thread owns its MTA apartment like
+  `capture_win`'s, with the apartment guard declared before any interface so
+  it is dropped last. `GetMixFormat` is unsupported on that virtual device:
+  pass the 16 kHz mono i16 format and `AUTOCONVERTPCM`.
+- **Meeting spools convert with `spool::f32_to_i16`, never `* i16::MAX`.** It is
+  the exact inverse of the `/ 32768` the loopback applies going into the f32
+  ring, so loopback audio reaches the WAV bit-identical.

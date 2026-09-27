@@ -27,11 +27,11 @@ Hark is a native Rust desktop app. Cloud transcription is BYOK by default; the o
 | Requirement | Details |
 |---|---|
 | Rust toolchain | Stable Rust via [rustup](https://rustup.rs), providing `cargo`, `rustfmt`, and `clippy` ([README.md:65-69](../README.md#L65-L69)) |
-| Minimum Rust version | `1.97`, required by the workspace and bundled SQLite dependency ([Cargo.toml:21-29](../Cargo.toml#L21-L29)) |
+| Minimum Rust version | `1.97`, required by the workspace and bundled SQLite dependency ([Cargo.toml:22-30](../Cargo.toml#L22-L30)) |
 | STT access | A key for Deepgram, OpenAI, Groq, Gemini, or another compatible endpoint; not required when local STT is primary ([README.md:67-69](../README.md#L67-L69)) |
 | Platform build tools | Xcode command-line tools on macOS; MSVC on Windows; ALSA, GTK, AppIndicator, X11/XKB, and build packages listed in the README on Linux ([README.md:69-77](../README.md#L69-L77)) |
 
-Sources: [README.md:1-10](../README.md#L1-L10), [README.md:65-77](../README.md#L65-L77), [Cargo.toml:21-29](../Cargo.toml#L21-L29)
+Sources: [README.md:1-10](../README.md#L1-L10), [README.md:65-77](../README.md#L65-L77), [Cargo.toml:22-30](../Cargo.toml#L22-L30)
 <!-- END:AUTOGEN hark_03_getting_started_prerequisites -->
 
 ---
