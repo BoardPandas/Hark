@@ -1,9 +1,16 @@
 # hark-meeting rules
 
-- **Pure: no I/O, no threads, no clocks.** Capture, spooling, STT and storage
-  are the coordinator's job; this crate decides. Every offset is a count of
-  16 kHz samples since the session start, and tests assert exact sample
-  counts on synthetic PCM, never wall-clock time.
+- **Pure: no I/O, no threads, no clocks,** with two fenced exceptions:
+  `storage_fs.rs` (measure and delete meeting audio) and `probe_win.rs` (read
+  who holds the mic). Every decision lives in the pure modules and is tested
+  on fixtures; time is a caller-supplied ms counter and offsets are 16 kHz
+  sample counts, never wall-clock time.
+- **`storage_fs::delete_audio` is the only deletion, and its guard is the
+  point:** a plain id the database knows, a real (not symlinked) direct child
+  of `meetings/`. Never loosen it to delete "stray" entries; they are reported,
+  not removed.
+- **Detection never counts Hark itself** (its pre-roll stream holds the mic
+  forever) and never logs or stores window titles.
 - **One `SessionState` machine per meeting.** A finished machine never
   restarts; back-to-back meetings get a new machine while the old one is
   still summarizing. `advance` is total: stray or duplicate events are inert,

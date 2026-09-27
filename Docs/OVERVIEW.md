@@ -95,7 +95,7 @@ Hark is one Cargo workspace with 16 member crates and one application binary ([C
 | Text | `hark-spellbook`, `hark-voice` | Correction, invocations, and cleanup |
 | Output | `hark-inject` | Clipboard and synthesized-key text injection |
 | Orchestration | `hark-pipeline` | State machine, transport selection, retry/fallback, and reporting |
-| Meetings (in progress) | `hark-meeting` | Pure meeting-session logic: lifecycle state machine, live chunking, and Me/Them transcript ordering. Not yet wired into the app |
+| Meetings (in progress) | `hark-meeting` | Meeting logic: lifecycle state machine, live chunking, Me/Them transcript ordering, meeting auto-detection, and the audio storage cap. Not yet wired into the app |
 | State | `hark-config`, `hark-keychain`, `hark-store` | Settings, secrets, history, and statistics |
 | Desktop integration | `hark-autostart`, `hark-update` | Login startup and platform update behavior |
 

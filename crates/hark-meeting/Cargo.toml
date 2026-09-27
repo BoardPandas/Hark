@@ -4,9 +4,27 @@ version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
-description = "Hark meeting mode, pure logic: the per-meeting session state machine, the per-channel live chunker, and the Me/Them transcript merge. No I/O, no clocks."
+description = "Hark meeting mode logic: the per-meeting session state machine, the per-channel live chunker, the Me/Them transcript merge, auto-detection, and the audio storage cap. Pure apart from the guarded storage deletion layer and the Windows detection probe."
 
 [dependencies]
 # Only for the loudness statistics: a live chunk is judged by the same
 # loudest-window gate as a push-to-talk clip, never by a whole-chunk mean.
 hark-audio = { path = "../hark-audio" }
+log = "0.4"
+
+# The detection probe (probe_win.rs). winreg reads the ConsentStore in process
+# (already locked through hark-autostart); never shell out to reg.exe.
+# - Win32_System_Diagnostics_ToolHelp: process list, for the loopback root PID
+# - Win32_System_Threading: OpenProcess / QueryFullProcessImageNameW
+# - Win32_UI_WindowsAndMessaging: EnumWindows / GetWindowTextW (meeting titles)
+[target.'cfg(windows)'.dependencies]
+winreg = "0.56"
+windows = { version = "0.62.2", features = [
+    "Win32_Foundation",
+    "Win32_System_Diagnostics_ToolHelp",
+    "Win32_System_Threading",
+    "Win32_UI_WindowsAndMessaging",
+] }
+
+[dev-dependencies]
+tempfile = "3"

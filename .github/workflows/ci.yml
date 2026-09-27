@@ -80,6 +80,11 @@ jobs:
         with:
           node-version: "24"
 
+      # The guard exempts release-version bumps; this pins that exemption to
+      # the version line only, so real manifest changes cannot slip past.
+      - name: Documentation guard tests
+        run: node --test scripts/check-docs-sync.test.mjs
+
       - name: Documentation source-map guard
         run: npm run check:docs
 

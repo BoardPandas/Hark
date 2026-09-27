@@ -572,3 +572,16 @@ Not scheduled. The §4.1 notes are kept so it can be picked up later without re-
   plus `cargo test -p hark-app --no-default-features`. CI (ubuntu + windows) runs the full suite.
 - Endpoint-loopback fallback (step 4) deferred: it only serves Windows builds before 19041. Until it
   exists, a failed process-loopback activation should record the mic channel alone.
+
+**Learned in Core step 2 (2026-09-27, branch `feat/meetings-core2`):**
+- The ConsentStore probe reads in 0.5–0.8 ms here, matching CP0. The installed Hark shows as
+  permanently in use under `NonPackaged` (rule 1), so the detector keys self-exclusion on the full
+  exe path, not the file name: a dev build and the installed app are different exes.
+- The detector debounces on poll timestamps, so with a 2 s poll the first prompt lands at 6 s,
+  not 5 s. Suppression ("Not this meeting", dismissal, a stop mid-call) is lifted by the app
+  releasing the mic **at all**, not by it merely losing its meeting window title.
+- Built-in exe names for Zoom, Webex, GoTo and RingCentral are from vendor docs and still need a
+  live-call ConsentStore check (CP0 row 5 open items). `detect_apps` is editable for this reason.
+- Creating a symlink on Windows without Developer Mode fails with os error 1314, so the storage
+  guard's symlink tests skip on this box and actually run on Linux (WSL). Keep both platforms in
+  the Done check for anything filesystem-guarded.

@@ -174,7 +174,7 @@ Sources: [RELEASING.md:36-68](https://github.com/BoardPandas/Hark/blob/1c1738716
 # Kept in lockstep with package.json (the release source of truth): the built
 # binary reports this via env!("CARGO_PKG_VERSION"), and the update checker
 # compares it against GitHub release tags. release.yml fails if they drift.
-version = "0.47.1"
+version = "0.49.0"
 edition = "2021"
 rust-version = "1.97"
 license = "MIT"

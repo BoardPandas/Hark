@@ -17,6 +17,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { posix } from "node:path";
+import { isVersionOnlyDiff } from "./docs-sync-version-only.mjs";
 
 const TOC_PATH = "Docs/_toc.yaml";
 const GENERATION_PATH = "Docs/_meta/GENERATION.md";
@@ -158,6 +159,12 @@ const untracked = git(["ls-files", "--others", "--exclude-standard"]);
 for (const path of untracked.split(/\r?\n/).filter(Boolean)) {
 	worktreeChanges.add(path.replaceAll("\\", "/"));
 }
+// A release-version bump alone is not drift (see docs-sync-version-only.mjs).
+for (const path of [...worktreeChanges]) {
+	if (isVersionOnlyDiff(path, git(["diff", "HEAD", "-U0", "--no-renames", "--", path]))) {
+		worktreeChanges.delete(path);
+	}
+}
 
 const commitsForPath = new Map();
 const commitsAfterBaseline = (path) => {
@@ -167,6 +174,15 @@ const commitsAfterBaseline = (path) => {
 	}
 	return commitsForPath.get(path);
 };
+// Commits that changed a SOURCE for real: release-version bumps are dropped.
+const sourceCommitsAfterBaseline = (path) =>
+	commitsAfterBaseline(path).filter(
+		(commit) =>
+			!isVersionOnlyDiff(
+				path,
+				git(["show", "-U0", "--format=", "--no-renames", commit, "--", path]),
+			),
+	);
 const isAncestor = (older, newer) => {
 	try {
 		execFileSync("git", ["merge-base", "--is-ancestor", older, newer], {
@@ -192,14 +208,16 @@ for (const candidate of pages) {
 	// reviewed separately. Otherwise every committed source change must be an
 	// ancestor of a page commit after the recorded baseline.
 	if (worktreeChanges.has(candidate.doc)) continue;
-	const committedSources = [...committedChanges].filter((path) =>
-		candidate.matchers.some((matcher) => matcher.test(path)),
+	const committedSources = [...committedChanges].filter(
+		(path) =>
+			candidate.matchers.some((matcher) => matcher.test(path)) &&
+			sourceCommitsAfterBaseline(path).length > 0,
 	);
 	if (committedSources.length === 0) continue;
 	const pageCommits = commitsAfterBaseline(candidate.doc);
 	const latestPage = pageCommits[0];
 	const uncovered = committedSources.filter((path) => {
-		const sourceCommits = commitsAfterBaseline(path);
+		const sourceCommits = sourceCommitsAfterBaseline(path);
 		return !latestPage || sourceCommits.some((commit) => !isAncestor(commit, latestPage));
 	});
 	if (uncovered.length > 0) {
