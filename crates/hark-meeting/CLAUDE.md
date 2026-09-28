@@ -1,8 +1,9 @@
 # hark-meeting rules
 
 - **Pure: no I/O, no threads, no clocks,** with two fenced exceptions:
-  `storage_fs.rs` (measure and delete meeting audio) and `probe_win.rs` (read
-  who holds the mic). Every decision lives in the pure modules and is tested
+  `storage_fs.rs` (measure and delete meeting audio) and `probe_win.rs` with
+  its `probe_watch_win.rs` worker (read who holds the mic and notify changes).
+  Every decision lives in the pure modules and is tested
   on fixtures; time is a caller-supplied ms counter and offsets are 16 kHz
   sample counts, never wall-clock time.
 - **`storage_fs::delete_audio` is the only deletion, and its guard is the

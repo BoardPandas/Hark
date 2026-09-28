@@ -34,6 +34,8 @@ Cloud transcription is bring-your-own-key, with Deepgram, OpenAI, Groq, OpenAI-c
 
 Windows also supports **Meetings**: microphone and playback capture, live Me/Them transcripts, optional Deepgram speaker labels and LLM notes, transcript search, speaker renaming, explicit final-pass reruns from retained recordings, and text/audio exports. On-device Primary keeps live meeting chunks local; the final pass and notes generation have independent settings. Audio is kept under a configurable cap, while eviction preserves transcripts and notes ([README: Features](../README.md#features), [Meetings: Privacy](features/MEETINGS.md#privacy)).
 
+Windows meeting detection uses registry change notifications with timed checks for debounce, auto-stop, and browser title changes ([Meetings: Auto-Detection](features/MEETINGS.md#auto-detection)).
+
 The application is one native Rust process: an always-on tray daemon plus an egui window opened on demand. Optional cleanup uses the user's own provider key, and Gemini Live Smart mode may perform that formatting in the transcription turn itself ([CLAUDE.md:3-22](../CLAUDE.md#L3-L22)).
 
 Sources: [README: Features](../README.md#features), [README: On-device transcription](../README.md#on-device-transcription), [CLAUDE.md:1-22](../CLAUDE.md#L1-L22)

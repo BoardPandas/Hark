@@ -21,6 +21,10 @@
 use crate::detect::{Proc, Snapshot};
 use std::io;
 
+#[path = "probe_watch_win.rs"]
+mod watch;
+pub use watch::ChangeWatcher;
+
 /// Take one detector snapshot. Window titles are only scanned when a browser
 /// holds the mic, since only browsers consult them.
 pub fn snapshot() -> io::Result<Snapshot> {

@@ -6,6 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.52.0] - 2026-09-28
+
+### Changed
+
+- **Meeting detection responds to Windows microphone-use changes.** Registry notifications wake detection promptly, with a ten-second check for browser title changes and a two-second polling fallback if notifications are unavailable. The existing five-second debounce and configurable auto-stop delay (15 seconds by default) keep their meanings.
+- Detection takes fresh snapshots when debounce and auto-stop deadlines expire, including when the last registry notification was missed. The registry watcher rearms after each change, retries unavailable watches, and shuts down explicitly so its channel cannot hold Hark open.
+
 ## [0.51.0] - 2026-09-28
 
 ### Added

@@ -998,6 +998,7 @@ pages:
       - "crates/hark-meeting/src/merge.rs"
       - "crates/hark-meeting/src/detect.rs"
       - "crates/hark-meeting/src/probe_win.rs"
+      - "crates/hark-meeting/src/probe_watch_win.rs"
       - "crates/hark-meeting/src/storage.rs"
       - "crates/hark-meeting/src/storage_fs.rs"
       - "crates/hark-meeting/src/export.rs"
@@ -1040,6 +1041,7 @@ pages:
         source_files:
           - "crates/hark-meeting/src/detect.rs"
           - "crates/hark-meeting/src/probe_win.rs"
+          - "crates/hark-meeting/src/probe_watch_win.rs"
           - "crates/hark-pipeline/src/meeting/coordinator.rs"
         diagrams_needed: false
         diagram_types: []

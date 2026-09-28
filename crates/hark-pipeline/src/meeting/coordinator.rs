@@ -1,5 +1,5 @@
-//! The meeting coordinator thread: detection every 2 s, the active
-//! recording's capture drain every 100 ms, and the commands the UI sends.
+//! The meeting coordinator thread: registry-driven detection with timed
+//! backstops, the active recording's capture drain, and commands from the UI.
 //! Nothing here waits on the network; the live transcriber and the finisher
 //! own that.
 
@@ -12,13 +12,17 @@ use hark_config::{AutoDetect, Settings, SystemSource};
 use hark_meeting::detect::{self, DetectConfig, DetectMode, Detector, Verdict};
 use hark_meeting::{advance, Action, ChunkParams, Event, SessionState, Transcript};
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
 use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
 const DRAIN_EVERY: Duration = Duration::from_millis(100);
-const DETECT_EVERY: Duration = Duration::from_millis(detect::POLL_MS);
+const DETECT_FALLBACK: Duration = Duration::from_millis(detect::POLL_MS);
+/// Registry notifications do not cover browser window-title changes.
+const DETECT_BACKSTOP: Duration = Duration::from_secs(10);
+const WATCH_RETRY: Duration = Duration::from_secs(30);
 /// Plan §4.9 rule 3: while recording, re-check the cap every 60 s.
 const CAP_EVERY: Duration = Duration::from_secs(60);
 /// How long quitting waits for the coordinator to close the spools.
@@ -30,6 +34,8 @@ enum Command {
     Rerun { id: String, audio_ms: u64 },
     Answer(Answer),
     Settings(Box<Settings>),
+    DetectionChanged,
+    Shutdown,
 }
 
 /// The UI's handle. Dropping it stops a recording in progress (the audio and
@@ -79,6 +85,9 @@ impl MeetingHandle {
 
 impl Drop for MeetingHandle {
     fn drop(&mut self) {
+        // The registry watcher owns another sender. Explicit shutdown must
+        // precede waiting: channel disconnection alone can no longer stop us.
+        self.send(Command::Shutdown);
         self.tx.take();
         if let Some(thread) = self.thread.take() {
             match self.done.recv_timeout(SHUTDOWN_GRACE) {
@@ -120,9 +129,12 @@ pub fn run(settings: &Settings, events: Sender<MeetingEvent>) -> Result<MeetingH
     };
     let thread = std::thread::Builder::new()
         .name("hark-meeting-coordinator".to_string())
-        .spawn(move || {
-            let _done = done_tx;
-            coordinator.run(rx);
+        .spawn({
+            let watch_tx = tx.clone();
+            move || {
+                let _done = done_tx;
+                coordinator.run(rx, watch_tx);
+            }
         })
         .map_err(|e| format!("cannot start meeting mode: {e}"))?;
     Ok(MeetingHandle {
@@ -159,33 +171,88 @@ struct Coordinator {
 }
 
 impl Coordinator {
-    fn run(mut self, rx: Receiver<Command>) {
+    fn run(mut self, rx: Receiver<Command>, watch_tx: Sender<Command>) {
         self.recover();
-        let mut next_detect = Instant::now();
+        let notification_pending = Arc::new(AtomicBool::new(false));
+        let mut watcher = None;
+        let mut watch_failed = false;
+        let mut next_watch = Instant::now();
+        let mut next_backstop = Instant::now();
         let mut next_cap = Instant::now() + CAP_EVERY;
         loop {
             let now = Instant::now();
-            let wait = if self.active.is_some() {
-                DRAIN_EVERY
-            } else {
-                next_detect.saturating_duration_since(now)
-            };
+            let watch_alive = watcher
+                .as_ref()
+                .is_some_and(hark_meeting::probe_win::ChangeWatcher::is_alive);
+            if !watch_alive && now >= next_watch {
+                watcher.take();
+                let tx = watch_tx.clone();
+                let pending = notification_pending.clone();
+                match hark_meeting::probe_win::ChangeWatcher::start(move || {
+                    // Several registry writes can describe one mic transition.
+                    // At most one undrained wakeup is enough for a fresh snapshot.
+                    if !pending.swap(true, Ordering::AcqRel) {
+                        let _ = tx.send(Command::DetectionChanged);
+                    }
+                }) {
+                    Ok(started) => {
+                        watcher = Some(started);
+                        watch_failed = false;
+                        log::info!("meeting detection: registry notifications active");
+                    }
+                    Err(error) => {
+                        if !watch_failed {
+                            log::warn!("meeting registry notifications unavailable ({error}); using polling");
+                        }
+                        watch_failed = true;
+                    }
+                }
+                next_watch = now + WATCH_RETRY;
+            }
+            let mut wait = detection_wait(
+                next_backstop.saturating_duration_since(now),
+                self.observation_deadline(monotonic_ms()),
+                self.active.is_some(),
+            );
+            if watcher.as_ref().is_none_or(|w| !w.is_alive()) {
+                wait = wait.min(next_watch.saturating_duration_since(now));
+            }
+            let mut refresh = false;
             match rx.recv_timeout(wait) {
+                Ok(Command::Shutdown) => break,
+                Ok(Command::DetectionChanged) => {
+                    notification_pending.store(false, Ordering::Release);
+                    refresh = true;
+                }
                 Ok(cmd) => self.command(cmd),
                 Err(RecvTimeoutError::Timeout) => {}
                 Err(RecvTimeoutError::Disconnected) => break,
             }
             self.pump();
             let now = Instant::now();
-            if now >= next_detect {
+            if refresh
+                || now >= next_backstop
+                || self.observation_deadline(monotonic_ms()) == Some(0)
+            {
                 self.detect();
-                next_detect = now + DETECT_EVERY;
+            }
+            if now >= next_backstop {
+                let interval = if watcher.as_ref().is_some_and(|w| w.is_alive()) {
+                    DETECT_BACKSTOP
+                } else {
+                    DETECT_FALLBACK
+                };
+                next_backstop = now + interval;
             }
             if self.active.is_some() && now >= next_cap {
                 self.enforce_cap();
                 next_cap = now + CAP_EVERY;
             }
         }
+        // Retire the sender-holding watcher before closing capture and letting
+        // this coordinator's completion channel disconnect.
+        #[cfg(windows)]
+        drop(watcher);
         // Quitting: keep what was recorded; the after-call work would outlive
         // the process, so it is skipped (the meeting keeps its live lines).
         if let Some(active) = self.active.take() {
@@ -195,6 +262,8 @@ impl Coordinator {
 
     fn command(&mut self, cmd: Command) {
         match cmd {
+            // The receive loop handles these before dispatching UI commands.
+            Command::DetectionChanged | Command::Shutdown => {}
             Command::StartManual => self.start(Trigger::Manual, None),
             Command::Stop => {
                 if let Some(active) = self.active.take() {
@@ -233,6 +302,16 @@ impl Coordinator {
                 self.settings = *settings;
             }
         }
+    }
+
+    fn observation_deadline(&self, now_ms: u64) -> Option<u64> {
+        let watching =
+            self.settings.meeting.enabled && self.settings.meeting.auto_detect != AutoDetect::Off;
+        let auto_stopping = self.active.as_ref().is_some_and(|a| a.detected);
+        if self.probe_failed || !(watching || auto_stopping) {
+            return None;
+        }
+        self.detector.next_observation_in_ms(now_ms)
     }
 
     fn detect(&mut self) {
@@ -660,6 +739,17 @@ impl Coordinator {
     }
 }
 
+fn detection_wait(backstop: Duration, deadline_ms: Option<u64>, recording: bool) -> Duration {
+    let wait = deadline_ms
+        .map(Duration::from_millis)
+        .map_or(backstop, |deadline| deadline.min(backstop));
+    if recording {
+        wait.min(DRAIN_EVERY)
+    } else {
+        wait
+    }
+}
+
 fn recover_label(action: &hark_audio::RecoverAction) -> &'static str {
     match action {
         hark_audio::RecoverAction::None => "nothing to do",
@@ -708,6 +798,63 @@ fn monotonic_ms() -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn dropping_the_handle_stops_even_while_a_watcher_owns_a_sender() {
+        let (tx, rx) = mpsc::channel();
+        let watcher_tx = tx.clone();
+        let (done_tx, done) = mpsc::channel();
+        let stopped = Arc::new(AtomicBool::new(false));
+        let worker_stopped = stopped.clone();
+        let thread = std::thread::spawn(move || {
+            let _done = done_tx;
+            let _watcher_tx = watcher_tx;
+            if matches!(
+                rx.recv_timeout(Duration::from_secs(1)),
+                Ok(Command::Shutdown)
+            ) {
+                worker_stopped.store(true, Ordering::Release);
+            }
+        });
+        drop(MeetingHandle {
+            tx: Some(tx),
+            thread: Some(thread),
+            done,
+        });
+        assert!(stopped.load(Ordering::Acquire));
+    }
+
+    #[test]
+    fn detection_deadlines_wake_before_the_slow_backstop() {
+        assert_eq!(
+            detection_wait(DETECT_BACKSTOP, Some(5_000), false),
+            Duration::from_secs(5)
+        );
+        assert_eq!(
+            detection_wait(DETECT_BACKSTOP, Some(0), false),
+            Duration::ZERO
+        );
+        assert_eq!(
+            detection_wait(DETECT_BACKSTOP, None, false),
+            DETECT_BACKSTOP
+        );
+    }
+
+    #[test]
+    fn capture_drain_and_auto_stop_deadline_both_bound_the_wait() {
+        assert_eq!(
+            detection_wait(DETECT_BACKSTOP, Some(15_000), true),
+            DRAIN_EVERY
+        );
+        assert_eq!(
+            detection_wait(DETECT_BACKSTOP, Some(15), true),
+            Duration::from_millis(15)
+        );
+        assert_eq!(
+            detection_wait(Duration::from_millis(2), Some(15), true),
+            Duration::from_millis(2)
+        );
+    }
 
     #[test]
     fn detection_mode_follows_enabled_and_auto_detect() {

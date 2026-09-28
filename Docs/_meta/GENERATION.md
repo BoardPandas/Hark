@@ -1,5 +1,12 @@
 # Generation Metadata
 
+## Scoped registry-driven detection update — 2026-09-28 (0.52.0)
+
+- **Source reviewed:** `c0ae95b` plus only Polish item 2, registry notifications and deadline scheduling.
+- **Scope:** Meetings detection and operational behavior, overview, watcher mapping, and the existing meeting crate policy. No hotkey, config-schema, export, Gemini, or AEC change.
+- **Baseline policy:** the global baseline and `_toc.yaml` ref remain unchanged. Shifted detector/probe citations on the Meetings page use durable file links.
+- **Validation:** independently checked snapshot results are recorded in `SUMMARY.md`.
+
 ## Scoped saved-meeting rerun update — 2026-09-28 (0.51.0)
 
 - **Source reviewed:** `691d3fd` plus the feature-1-only saved-meeting rerun snapshot.

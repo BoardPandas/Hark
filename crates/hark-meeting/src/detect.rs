@@ -212,7 +212,28 @@ impl Detector {
         (limit > 0).then(|| limit.saturating_sub(now_ms.saturating_sub(*since)))
     }
 
-    /// Feed one poll.
+    /// Delay until another snapshot is required even without a registry change.
+    /// A mic-open notification starts the debounce, but no further write need
+    /// occur when its five seconds elapse. The same applies to auto-stop after
+    /// mic release. Callers must take a fresh snapshot at this deadline: a
+    /// cached snapshot could start or stop a call whose state changed meanwhile.
+    pub fn next_observation_in_ms(&self, now_ms: u64) -> Option<u64> {
+        match &self.phase {
+            Phase::Watching if self.config.mode != DetectMode::Off => self
+                .candidate
+                .as_ref()
+                .map(|(_, since)| DEBOUNCE_MS.saturating_sub(now_ms.saturating_sub(*since))),
+            Phase::Recording {
+                app: Some(_),
+                confirmed: false,
+                ..
+            } => Some(0),
+            Phase::Recording { .. } => self.stop_pending_ms(now_ms),
+            _ => None,
+        }
+    }
+
+    /// Feed one snapshot, prompted by a notification, deadline, or backstop poll.
     pub fn observe(&mut self, snapshot: &Snapshot, now_ms: u64) -> Verdict {
         let holding = self.holding(snapshot);
         let active = self.meeting_apps(&holding, snapshot);
@@ -503,6 +524,99 @@ mod tests {
         let fired = poll(&mut d, &teams_call(), 0, 20_000);
         // Seen at 0; 4 s is not enough; the first poll at >= 5 s is 6 s.
         assert_eq!(fired, vec![(6_000, Verdict::Prompt(TEAMS.to_string()))]);
+    }
+
+    #[test]
+    fn one_mic_open_notification_schedules_the_full_debounce() {
+        let mut d = Detector::new(config(DetectMode::Ask));
+        assert_eq!(d.next_observation_in_ms(100), None);
+        assert_eq!(d.observe(&teams_call(), 100), Verdict::None);
+        assert_eq!(d.next_observation_in_ms(100), Some(5_000));
+        // Extra notifications neither restart nor shorten the deadline.
+        assert_eq!(d.observe(&teams_call(), 333), Verdict::None);
+        assert_eq!(d.next_observation_in_ms(5_099), Some(1));
+        assert_eq!(d.observe(&teams_call(), 5_099), Verdict::None);
+        assert_eq!(d.next_observation_in_ms(5_100), Some(0));
+        assert_eq!(
+            d.observe(&teams_call(), 5_100),
+            Verdict::Prompt(TEAMS.to_string())
+        );
+        assert_eq!(d.next_observation_in_ms(5_100), None);
+    }
+
+    #[test]
+    fn debounce_deadline_uses_a_fresh_snapshot_after_a_short_call() {
+        let mut d = Detector::new(config(DetectMode::Auto));
+        d.observe(&teams_call(), 100);
+        // The mic-release notification was missed; the deadline still reads
+        // current state and must not start the call that has already ended.
+        assert_eq!(d.observe(&quiet(), 5_100), Verdict::None);
+        assert_eq!(d.next_observation_in_ms(5_100), None);
+        d.observe(&teams_call(), 5_200);
+        assert_eq!(d.next_observation_in_ms(5_200), Some(5_000));
+    }
+
+    #[test]
+    fn a_release_notification_schedules_exactly_fifteen_seconds() {
+        let mut cfg = config(DetectMode::Auto);
+        cfg.auto_stop_after_ms = 15_000;
+        let mut d = Detector::new(cfg);
+        d.observe(&teams_call(), 0);
+        assert_eq!(
+            d.observe(&teams_call(), 5_000),
+            Verdict::Start(TEAMS.into())
+        );
+        assert_eq!(d.next_observation_in_ms(5_000), None);
+        assert_eq!(d.observe(&quiet(), 6_321), Verdict::None);
+        assert_eq!(d.next_observation_in_ms(6_321), Some(15_000));
+        assert_eq!(d.observe(&quiet(), 21_320), Verdict::None);
+        assert_eq!(d.next_observation_in_ms(21_320), Some(1));
+        assert_eq!(d.observe(&quiet(), 21_321), Verdict::Stop);
+        assert_eq!(d.next_observation_in_ms(21_321), None);
+    }
+
+    #[test]
+    fn a_reopened_mic_cancels_the_stop_deadline_even_when_its_event_was_missed() {
+        let mut cfg = config(DetectMode::Auto);
+        cfg.auto_stop_after_ms = 15_000;
+        let mut d = Detector::new(cfg);
+        d.observe(&teams_call(), 0);
+        d.observe(&teams_call(), 5_000);
+        d.observe(&quiet(), 6_000);
+        assert_eq!(d.next_observation_in_ms(6_000), Some(15_000));
+        assert_eq!(d.observe(&teams_call(), 21_000), Verdict::None);
+        assert_eq!(d.next_observation_in_ms(21_000), None);
+        assert!(d.is_recording());
+    }
+
+    #[test]
+    fn disabled_detection_and_auto_stop_do_not_schedule_deadlines() {
+        let mut cfg = config(DetectMode::Auto);
+        cfg.auto_stop_after_ms = 0;
+        let mut d = Detector::new(cfg.clone());
+        d.observe(&teams_call(), 0);
+        cfg.mode = DetectMode::Off;
+        d.set_config(cfg);
+        assert_eq!(d.next_observation_in_ms(1_000), None);
+        d.started_manually();
+        assert_eq!(d.next_observation_in_ms(1_000), Some(0));
+        d.observe(&teams_call(), 1_000);
+        d.observe(&quiet(), 2_000);
+        assert_eq!(d.next_observation_in_ms(2_000), None);
+    }
+
+    #[test]
+    fn adopting_a_call_requests_one_immediate_confirmation() {
+        let mut d = Detector::new(config(DetectMode::Ask));
+        d.observe(&teams_call(), 10);
+        d.started_manually();
+        assert_eq!(d.next_observation_in_ms(10), Some(0));
+        d.observe(&quiet(), 10);
+        assert_eq!(d.next_observation_in_ms(10), None);
+        assert!(
+            d.is_recording(),
+            "a stale adoption becomes a manual meeting"
+        );
     }
 
     #[test]
