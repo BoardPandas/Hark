@@ -246,6 +246,9 @@ a per-OS `MicUsers` probe, so the logic is unit-tested on fixture snapshots with
    pane's indicator. It is never invisible.
 6. **Auto-stop** when the triggering app has released the mic for `auto_stop_after_s`. Manual
    stop always works. A manually started meeting is **never** auto-stopped by the detector.
+   **Revised 2026-09-28 (0.50.4):** a manual start *during a call* adopts that call (the app that held
+   the mic at the last check) and auto-stops with it; only a manual start with no call in progress
+   (an in-person meeting) is never auto-stopped.
 7. PTT dictation never counts as a meeting and never stops one.
 
 ### 4.9 Circular audio storage cap (Core)
@@ -626,3 +629,25 @@ Not scheduled. The §4.1 notes are kept so it can be picked up later without re-
   after hanging up. A correct-but-invisible wait is indistinguishable from a bug: the default is now
   15 s and the pending stop is shown (Meetings page + tray tooltip, with Stop now). Config schema v3
   moves a saved 60 (0.50.x wrote the default into every file) to 15 exactly once.
+
+**Learned from the second real call (2026-09-28, 0.50.3, Google Meet in Chrome, 20 min):**
+- Detection worked (Chrome held the mic at 15:30:51; "detected: chrome.exe (asking)" 6 s later), but
+  **the prompt window never appeared**. Root cause: eframe 0.36's wgpu path runs a hidden deferred
+  viewport's UI callback only when `ViewportInfo::visible()` is not `Some(false)`, and egui derives
+  that from minimized/occluded state, not from whether the window is shown. A viewport that makes
+  itself visible from its own callback therefore works or not depending on how egui happens to see
+  a hidden window (it worked for Teams, not for Meet). Fix: the root's `logic` sends `Visible(true)`
+  to the viewport and places it via Win32 in physical pixels; every prompt step is logged.
+  (The recording overlay reveals itself the same way and survives only because the root requests
+  its repaint on every pass while recording; it is worth moving to the same root-driven shape.)
+- An unanswered prompt times out as a dismissal and suppresses the app for the whole call, and a
+  manual start was never auto-stopped: together they recorded a minute past the hang-up. A manual
+  start during a call now adopts it.
+- Gemini Live answers a speechless 20–30 s chunk with nothing (1 frame, 0 interim, 0 final) and the
+  dictation budget turned that into a timeout: 19 "failed" chunks, almost all the user's own
+  near-silent stretches. Meeting chunks now use `Finalize::MEETING_CHUNK` (15 s / 45 s, wordless =
+  empty). Actual loss was small: 46 of the other side's lines and 9 of the user's were kept.
+- **The App Control policy on this box started blocking the build's own proc-macro DLLs**
+  (`target\debug\deps\yoke_derive-*.dll`, os error 4551) and `cargo-clippy.exe`, where both worked
+  the day before. Windows builds/lints are blocked locally until the policy changes; Linux (WSL,
+  full workspace) plus CI's Windows job are the verification for now.

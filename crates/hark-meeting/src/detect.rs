@@ -152,10 +152,14 @@ enum Phase {
     Watching,
     Prompting(String),
     Recording {
-        /// The app that triggered it; `None` for a manual start, which is
-        /// never auto-stopped.
+        /// The app whose call this is, which auto-stops it; `None` for a
+        /// manual start with no call in progress, which is never auto-stopped.
         app: Option<String>,
         released_at: Option<u64>,
+        /// Seen holding the mic since the recording started. A detected app
+        /// always has; one adopted by a manual start must be seen once more,
+        /// or the adoption is dropped (the call may have ended just before).
+        confirmed: bool,
     },
 }
 
@@ -199,6 +203,7 @@ impl Detector {
         let Phase::Recording {
             app: Some(_),
             released_at: Some(since),
+            ..
         } = &self.phase
         else {
             return None;
@@ -219,9 +224,21 @@ impl Detector {
             Phase::Recording {
                 app: Some(app),
                 released_at,
+                confirmed,
             } => {
                 if holding.contains(app) {
                     *released_at = None;
+                    *confirmed = true;
+                    return Verdict::None;
+                }
+                if !*confirmed {
+                    // Adopted from a call that was already over: this is a
+                    // plain manual meeting after all, never auto-stopped.
+                    self.phase = Phase::Recording {
+                        app: None,
+                        released_at: None,
+                        confirmed: true,
+                    };
                     return Verdict::None;
                 }
                 let since = *released_at.get_or_insert(now_ms);
@@ -277,6 +294,7 @@ impl Detector {
                 self.phase = Phase::Recording {
                     app: Some(app.clone()),
                     released_at: None,
+                    confirmed: true,
                 };
                 Verdict::Start(app)
             }
@@ -294,6 +312,7 @@ impl Detector {
             Answer::Start => Phase::Recording {
                 app: Some(app),
                 released_at: None,
+                confirmed: true,
             },
             Answer::NotThisMeeting | Answer::Dismissed => {
                 self.suppressed.push(app);
@@ -302,20 +321,31 @@ impl Detector {
         };
     }
 
-    /// A meeting was started by hand (tray or Meetings page). It is never
-    /// auto-stopped. Returns [`Verdict::Retract`] if a prompt was showing.
-    pub fn started_manually(&mut self) -> Verdict {
+    /// A meeting was started by hand (tray or Meetings page). Returns
+    /// [`Verdict::Retract`] if a prompt was showing, and the app it adopted.
+    ///
+    /// **A manual start during a call adopts that call:** if a meeting app
+    /// held the mic at the last observation (prompted, suppressed after an
+    /// unanswered prompt, or still in its debounce), the meeting auto-stops
+    /// when that app hangs up, like a detected one. Without a call in
+    /// progress it is a plain manual meeting (an in-person one, say) and is
+    /// never auto-stopped. The first real Meet call was started by hand after
+    /// its prompt went unseen, and then recorded a minute past the hang-up.
+    pub fn started_manually(&mut self) -> (Verdict, Option<String>) {
         let was_prompting = matches!(self.phase, Phase::Prompting(_));
+        let adopted = self.last_active.first().cloned();
         self.phase = Phase::Recording {
-            app: None,
+            app: adopted.clone(),
             released_at: None,
+            confirmed: false,
         };
         self.candidate = None;
-        if was_prompting {
+        let verdict = if was_prompting {
             Verdict::Retract
         } else {
             Verdict::None
-        }
+        };
+        (verdict, adopted)
     }
 
     /// The meeting stopped (by the user, or after a `Stop` verdict). Every
@@ -648,7 +678,7 @@ mod tests {
     #[test]
     fn a_manual_meeting_is_never_auto_stopped() {
         let mut d = Detector::new(config(DetectMode::Auto));
-        assert_eq!(d.started_manually(), Verdict::None);
+        assert_eq!(d.started_manually(), (Verdict::None, None));
         assert!(
             poll(&mut d, &teams_call(), 0, 30_000).is_empty(),
             "no start"
@@ -661,10 +691,50 @@ mod tests {
     }
 
     #[test]
+    fn a_manual_start_during_a_call_adopts_it_and_stops_after_hang_up() {
+        // The real case: the prompt went unseen, timed out (suppressed), and
+        // the user started by hand mid-call.
+        let mut d = Detector::new(config(DetectMode::Ask));
+        poll(&mut d, &teams_call(), 0, 6_000);
+        d.answer(Answer::Dismissed);
+        poll(&mut d, &teams_call(), 8_000, 60_000);
+        assert_eq!(
+            d.started_manually(),
+            (Verdict::None, Some(TEAMS.to_string()))
+        );
+        assert!(poll(&mut d, &teams_call(), 62_000, 120_000).is_empty());
+        assert_eq!(
+            poll(&mut d, &quiet(), 122_000, 190_000),
+            vec![(182_000, Verdict::Stop)],
+            "stops 60 s after the call releases the mic"
+        );
+    }
+
+    #[test]
+    fn an_adopted_call_that_already_ended_leaves_a_plain_manual_meeting() {
+        let mut d = Detector::new(config(DetectMode::Ask));
+        d.observe(&teams_call(), 0);
+        // The call ends between the last poll and the manual start.
+        assert_eq!(
+            d.started_manually(),
+            (Verdict::None, Some(TEAMS.to_string()))
+        );
+        assert!(
+            poll(&mut d, &quiet(), 2_000, 3_600_000).is_empty(),
+            "never auto-stopped: the adoption was never confirmed"
+        );
+        assert_eq!(d.stop_pending_ms(3_600_000), None);
+        assert!(d.is_recording());
+    }
+
+    #[test]
     fn a_manual_start_retracts_an_open_prompt() {
         let mut d = Detector::new(config(DetectMode::Ask));
         poll(&mut d, &teams_call(), 0, 6_000);
-        assert_eq!(d.started_manually(), Verdict::Retract);
+        assert_eq!(
+            d.started_manually(),
+            (Verdict::Retract, Some(TEAMS.to_string()))
+        );
     }
 
     #[test]

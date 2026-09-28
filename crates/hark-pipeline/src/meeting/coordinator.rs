@@ -289,10 +289,24 @@ impl Coordinator {
         if self.active.is_some() {
             return;
         }
-        if trigger == Trigger::Manual && self.detector.started_manually() == Verdict::Retract {
-            self.prompted = None;
-            let _ = self.events.send(MeetingEvent::PromptRetracted);
-        }
+        // Whose audio "Them" is follows the trigger (a manual start records
+        // everything except Hark), decided before a manual start adopts a call.
+        let loopback = Some(self.loopback_target(app.as_deref()));
+        let app = if trigger == Trigger::Manual {
+            let (verdict, adopted) = self.detector.started_manually();
+            if verdict == Verdict::Retract {
+                self.prompted = None;
+                let _ = self.events.send(MeetingEvent::PromptRetracted);
+            }
+            if let Some(adopted) = &adopted {
+                log::info!(
+                    "manual meeting adopts the {adopted} call: it stops when that call ends"
+                );
+            }
+            adopted
+        } else {
+            app
+        };
         let (session, action) = advance(SessionState::Idle, Event::Start);
         debug_assert_eq!(action, Action::StartCapture);
 
@@ -320,7 +334,6 @@ impl Coordinator {
             .mic_device
             .clone()
             .or_else(hark_audio::communications_default_device);
-        let loopback = Some(self.loopback_target(app.as_deref()));
         let jobs = live.as_ref().map(|l| l.jobs.clone());
         match Recorder::start(
             id.clone(),
@@ -396,7 +409,8 @@ impl Coordinator {
                 let client = hark_stt::shared_client().map_err(|e| e.to_string())?;
                 // The batch contract, as dictation's replay uses: a chunk is a
                 // finished clip, never a live session.
-                hark_stt::build(&crate::fallback_config(&cfg), client).map_err(|e| e.to_string())
+                hark_stt::build_meeting_chunks(&crate::fallback_config(&cfg), client)
+                    .map_err(|e| e.to_string())
             });
         match built {
             Ok(provider) => (Some(Engine::Cloud(provider)), label),

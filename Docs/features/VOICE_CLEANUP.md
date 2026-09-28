@@ -15,7 +15,7 @@ The following files were used as evidence for this page:
 - [crates/hark-pipeline/src/worker.rs:440-618](../../crates/hark-pipeline/src/worker.rs#L440-L618)
 - [crates/hark-pipeline/src/meeting/finish.rs:256-254](../../crates/hark-pipeline/src/meeting/finish.rs#L256-L254)
 - [crates/hark-stt/src/lib.rs:31-43](../../crates/hark-stt/src/lib.rs#L31-L43)
-- [crates/hark-stt/src/gemini_live.rs:355-375](../../crates/hark-stt/src/gemini_live.rs#L355-L375)
+- [crates/hark-stt/src/gemini_live.rs:409-378](../../crates/hark-stt/src/gemini_live.rs#L409-L378)
 
 </details>
 
@@ -123,11 +123,11 @@ For an ordinary transcript with a cleanup plan:
 
 This control flow is implemented in `cleaned_text` and keeps history honest: cleanup metadata appears only when its response actually shaped the injected text ([worker.rs:542-618](../../crates/hark-pipeline/src/worker.rs#L542-L618)).
 
-Gemini Live has a distinct fused `smart` mode. In that mode the single returned string is put in both `Transcript.text` and `Transcript.cleaned`; the marker tells the worker to skip Hark's separate voice call. This reduces one round trip but cannot preserve a guaranteed verbatim transcript, which is why the configured default remains `verbatim` ([lib.rs:31-43](../../crates/hark-stt/src/lib.rs#L31-L43), [gemini_live.rs:355-375](../../crates/hark-stt/src/gemini_live.rs#L355-L375), [lib.rs:119-145](../../crates/hark-config/src/lib.rs#L119-L145)). History labels that result as voice `smart` and attributes the STT model as the cleanup model; ordinary skipped/failed cleanup is labeled `verbatim` with no cleanup model ([worker.rs:496-530](../../crates/hark-pipeline/src/worker.rs#L496-L530)).
+Gemini Live has a distinct fused `smart` mode. In that mode the single returned string is put in both `Transcript.text` and `Transcript.cleaned`; the marker tells the worker to skip Hark's separate voice call. This reduces one round trip but cannot preserve a guaranteed verbatim transcript, which is why the configured default remains `verbatim` ([lib.rs:31-43](../../crates/hark-stt/src/lib.rs#L31-L43), [gemini_live.rs:409-378](../../crates/hark-stt/src/gemini_live.rs#L409-L378), [lib.rs:119-145](../../crates/hark-config/src/lib.rs#L119-L145)). History labels that result as voice `smart` and attributes the STT model as the cleanup model; ordinary skipped/failed cleanup is labeled `verbatim` with no cleanup model ([worker.rs:496-530](../../crates/hark-pipeline/src/worker.rs#L496-L530)).
 
 Meeting mode never sees Gemini Live's fused `smart` result: the live transcriber uses the ordinary batch `SttProvider::transcribe` path per chunk (or the on-device engine), never the streaming session, so a meeting line always goes through the spellbook corrector as text, with no fused-cleanup shortcut to skip ([live.rs:60-77](../../crates/hark-pipeline/src/meeting/live.rs#L60-L77)).
 
-Sources: [crates/hark-pipeline/src/worker.rs:451-530](../../crates/hark-pipeline/src/worker.rs#L451-L530), [crates/hark-pipeline/src/worker.rs:542-618](../../crates/hark-pipeline/src/worker.rs#L542-L618), [crates/hark-stt/src/gemini_live.rs:355-375](../../crates/hark-stt/src/gemini_live.rs#L355-L375), [crates/hark-config/src/lib.rs:119-145](../../crates/hark-config/src/lib.rs#L119-L145), [crates/hark-pipeline/src/meeting/live.rs:60-77](../../crates/hark-pipeline/src/meeting/live.rs#L60-L77)
+Sources: [crates/hark-pipeline/src/worker.rs:451-530](../../crates/hark-pipeline/src/worker.rs#L451-L530), [crates/hark-pipeline/src/worker.rs:542-618](../../crates/hark-pipeline/src/worker.rs#L542-L618), [crates/hark-stt/src/gemini_live.rs:409-378](../../crates/hark-stt/src/gemini_live.rs#L409-L378), [crates/hark-config/src/lib.rs:119-145](../../crates/hark-config/src/lib.rs#L119-L145), [crates/hark-pipeline/src/meeting/live.rs:60-77](../../crates/hark-pipeline/src/meeting/live.rs#L60-L77)
 <!-- END:AUTOGEN hark_09_voice_cleanup_pipeline -->
 
 ---

@@ -6,6 +6,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.50.4] - 2026-09-28
+
+### Fixed
+
+- **The "Take meeting notes?" prompt now appears reliably.** It could fail to show at all: it appeared for a Teams call and never for a Google Meet call in Chrome. Hark's main window now shows and positions the prompt itself, at the bottom-right of the screen you're using, and each step is noted in Hark's log so any future miss can be traced.
+- **Quiet stretches no longer count as failed transcription.** When you were mostly listening, parts of the call with no speech from you were recorded as failed lines with Gemini. They are now treated as silence, and Hark waits longer for meeting audio than for a dictation before giving up.
+
+### Changed
+
+- **Starting notes by hand during a call now stops them when the call ends.** If a meeting app such as Teams, Zoom or a Meet tab is using your microphone when you press Start, Hark ties the notes to that call and stops 15 seconds after it hangs up, just as if you had accepted the prompt. Starting notes with no call in progress, for an in-person meeting, still never stops on its own.
+
 ## [0.50.3] - 2026-09-27
 
 ### Changed

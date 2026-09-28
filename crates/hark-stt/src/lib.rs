@@ -82,6 +82,21 @@ pub trait SttProvider: Send {
     fn label(&self) -> &str;
 }
 
+/// Build the adapter for a meeting's live-transcript chunks. The same as
+/// [`build`] except that Gemini Live is tuned for 20-30 s clips that may hold
+/// no speech (see [`gemini_live::Finalize::MEETING_CHUNK`]).
+pub fn build_meeting_chunks(
+    config: &ProviderConfig,
+    client: reqwest::blocking::Client,
+) -> Result<Box<dyn SttProvider>, SttError> {
+    match config.kind {
+        ProviderKind::GeminiLive => Ok(Box::new(
+            gemini_live::GeminiLive::new(config, config.live_mode)?.for_meeting_chunks(),
+        )),
+        _ => build(config, client),
+    }
+}
+
 /// Build the adapter for a config, sharing the process-wide HTTP client.
 pub fn build(
     config: &ProviderConfig,

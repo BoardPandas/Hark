@@ -88,6 +88,60 @@ const _: () = assert!(FINALIZE_TOTAL_MS == crate::TOTAL_TIMEOUT_MS);
 // A streamed turn has less left to transcribe than a replay, never more.
 const _: () = assert!(STREAM_FINALIZE_TIMEOUT_MS < FINALIZE_TIMEOUT_MS);
 
+/// A meeting chunk's per-frame finalise wait. Longer than a dictation replay's:
+/// a meeting chunk is up to 30 s of audio rather than a few, and nothing is
+/// waiting on it (the live transcript lags the call by design), so patience
+/// costs nothing while a premature timeout costs a line.
+pub const MEETING_FINALIZE_TIMEOUT_MS: u64 = 15_000;
+/// A meeting chunk's whole finalise ceiling.
+pub const MEETING_FINALIZE_TOTAL_MS: u64 = 45_000;
+const _: () = assert!(MEETING_FINALIZE_TOTAL_MS > MEETING_FINALIZE_TIMEOUT_MS);
+const _: () = assert!(MEETING_FINALIZE_TIMEOUT_MS > FINALIZE_TIMEOUT_MS);
+
+/// How long, and on what terms, a session waits for the server to finish.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Finalize {
+    /// How long the server may stay silent between frames.
+    pub per_frame_ms: u64,
+    /// The ceiling that no stream of frames can push back.
+    pub total_ms: u64,
+    /// A session in which the server never produced a single word (no
+    /// interim, no final) returns an empty transcript instead of a timeout.
+    ///
+    /// Only for meeting chunks. A chunk can pass the loudness gate on a cough
+    /// or a keyboard and still hold no speech, and Gemini Live answers such a
+    /// turn with nothing at all: the first real call logged 19 of those as
+    /// timeouts. A dictation keeps the timeout: the user pressed the key to
+    /// say something, and silence there is a failure worth reporting.
+    pub quiet_is_empty: bool,
+}
+
+impl Finalize {
+    /// A dictation replayed from a finished clip.
+    pub const REPLAY: Finalize = Finalize {
+        per_frame_ms: FINALIZE_TIMEOUT_MS,
+        total_ms: FINALIZE_TOTAL_MS,
+        quiet_is_empty: false,
+    };
+    /// A dictation streamed while the key was held.
+    pub const STREAM: Finalize = Finalize {
+        per_frame_ms: STREAM_FINALIZE_TIMEOUT_MS,
+        total_ms: FINALIZE_TOTAL_MS,
+        quiet_is_empty: false,
+    };
+    /// A meeting's live-transcript chunk.
+    pub const MEETING_CHUNK: Finalize = Finalize {
+        per_frame_ms: MEETING_FINALIZE_TIMEOUT_MS,
+        total_ms: MEETING_FINALIZE_TOTAL_MS,
+        quiet_is_empty: true,
+    };
+}
+
+// Only meeting chunks may read a wordless turn as empty: a dictation's
+// silence is a failure worth reporting (see `Finalize::quiet_is_empty`).
+const _: () = assert!(!Finalize::REPLAY.quiet_is_empty && !Finalize::STREAM.quiet_is_empty);
+const _: () = assert!(Finalize::MEETING_CHUNK.quiet_is_empty);
+
 /// How long any single socket write may take.
 ///
 /// `SinkExt::send` has no timeout of its own, and these writes happen on the
@@ -534,15 +588,18 @@ pub(crate) mod session {
     /// End the turn and read until the transcript is final.
     ///
     /// `segments` carries whatever already arrived during the hold; this only
-    /// appends the tail. `per_frame_ms` is how long the server may stay silent:
-    /// [`STREAM_FINALIZE_TIMEOUT_MS`] for a streamed turn,
-    /// [`FINALIZE_TIMEOUT_MS`] for a replay with the whole clip still to do.
+    /// appends the tail. `budget` says how long the server may stay silent
+    /// ([`Finalize::STREAM`] for a streamed turn, [`Finalize::REPLAY`] for a
+    /// replay with the whole clip still to do) and whether a turn that never
+    /// produced a word is an empty transcript rather than a timeout.
     pub async fn finish(
         socket: &mut Socket,
         mode: TranscribeMode,
         mut segments: Vec<String>,
-        per_frame_ms: u64,
+        budget: Finalize,
     ) -> Result<String, SttError> {
+        let per_frame_ms = budget.per_frame_ms;
+        let total_ms = budget.total_ms;
         // Close the turn by hand. `activityEnd` is the signal that matters:
         // with automatic activity detection disabled, it is the only documented
         // way to tell the server speech has ended, and `audioStreamEnd` alone
@@ -554,7 +611,7 @@ pub(crate) mod session {
         let mut frames = 0u32;
         let mut interims = 0u32;
         let started = Instant::now();
-        let total = Duration::from_millis(FINALIZE_TOTAL_MS);
+        let total = Duration::from_millis(total_ms);
         let per_frame = Duration::from_millis(per_frame_ms);
         loop {
             // Whichever bound is closer. Without the total, every arriving
@@ -562,35 +619,40 @@ pub(crate) mod session {
             let remaining = match total.checked_sub(started.elapsed()) {
                 Some(left) if !left.is_zero() => left.min(per_frame),
                 _ => {
+                    if budget.quiet_is_empty && interims == 0 && segments.is_empty() {
+                        return Ok(quiet(socket, frames).await);
+                    }
                     log::warn!(
-                        "gemini live finalise hit its {FINALIZE_TOTAL_MS} ms ceiling: \
+                        "gemini live finalise hit its {total_ms} ms ceiling: \
                          {frames} frames seen, {interims} interim, {} final",
                         segments.len()
                     );
                     return Err(SttError::Timeout {
                         provider: "gemini-live".to_string(),
-                        configured_ms: FINALIZE_TOTAL_MS,
+                        configured_ms: total_ms,
                     });
                 }
             };
-            let frame = tokio::time::timeout(remaining, socket.next())
-                .await
-                .map_err(|_| {
-                    // A bare timeout cannot distinguish "the server never
-                    // heard us" from "it is still thinking"; the counts can.
-                    // The mode is in the line because SMART has a failure of
-                    // its own with exactly this shape (see TranscribeMode).
-                    log::warn!(
-                        "gemini live finalise timed out after {per_frame_ms} ms ({} mode): \
+            let frame = tokio::time::timeout(remaining, socket.next()).await;
+            if frame.is_err() && budget.quiet_is_empty && interims == 0 && segments.is_empty() {
+                return Ok(quiet(socket, frames).await);
+            }
+            let frame = frame.map_err(|_| {
+                // A bare timeout cannot distinguish "the server never
+                // heard us" from "it is still thinking"; the counts can.
+                // The mode is in the line because SMART has a failure of
+                // its own with exactly this shape (see TranscribeMode).
+                log::warn!(
+                    "gemini live finalise timed out after {per_frame_ms} ms ({} mode): \
                          {frames} frames seen, {interims} interim, {} final",
-                        mode.wire(),
-                        segments.len()
-                    );
-                    SttError::Timeout {
-                        provider: "gemini-live".to_string(),
-                        configured_ms: per_frame_ms,
-                    }
-                })?;
+                    mode.wire(),
+                    segments.len()
+                );
+                SttError::Timeout {
+                    provider: "gemini-live".to_string(),
+                    configured_ms: per_frame_ms,
+                }
+            })?;
             let Some(frame) = frame else { break };
             let frame = frame.map_err(|e| fail(format!("socket read failed: {e}")))?;
             frames += 1;
@@ -615,7 +677,19 @@ pub(crate) mod session {
         let _ =
             tokio::time::timeout(Duration::from_millis(SEND_TIMEOUT_MS), socket.close(None)).await;
 
+        if budget.quiet_is_empty && segments.is_empty() {
+            return Ok(String::new());
+        }
         collected(mode, &segments)
+    }
+
+    /// The server heard nothing it would transcribe: close the socket (bounded,
+    /// like every write) and report an empty transcript.
+    async fn quiet(socket: &mut Socket, frames: u32) -> String {
+        log::debug!("gemini live: no speech in the clip ({frames} frames seen); empty transcript");
+        let _ =
+            tokio::time::timeout(Duration::from_millis(SEND_TIMEOUT_MS), socket.close(None)).await;
+        String::new()
     }
 
     /// The finished transcript, or the error for a session that produced none.
@@ -637,6 +711,7 @@ pub(crate) mod session {
         setup: Value,
         pcm: Vec<u8>,
         mode: TranscribeMode,
+        budget: Finalize,
     ) -> Result<String, SttError> {
         let mut socket = connect(url, setup).await?;
         let mut segments = Vec::new();
@@ -646,7 +721,7 @@ pub(crate) mod session {
         if send_audio(&mut socket, &pcm, &mut segments).await? {
             return collected(mode, &segments);
         }
-        finish(&mut socket, mode, segments, FINALIZE_TIMEOUT_MS).await
+        finish(&mut socket, mode, segments, budget).await
     }
 }
 
@@ -660,6 +735,9 @@ pub struct GeminiLive {
     api_key: String,
     bias_terms: Vec<String>,
     mode: TranscribeMode,
+    /// How a replayed clip finalises: [`Finalize::REPLAY`] for dictation,
+    /// [`Finalize::MEETING_CHUNK`] for a meeting's live chunks.
+    finalize: Finalize,
     #[cfg(feature = "live")]
     runtime: std::sync::Arc<tokio::runtime::Runtime>,
 }
@@ -676,6 +754,7 @@ impl GeminiLive {
             api_key: config.api_key.clone(),
             bias_terms: config.bias_terms.clone(),
             mode,
+            finalize: Finalize::REPLAY,
             #[cfg(feature = "live")]
             runtime: std::sync::Arc::new(
                 tokio::runtime::Builder::new_current_thread()
@@ -684,6 +763,14 @@ impl GeminiLive {
                     .map_err(|e| fail(format!("could not start the Live API runtime: {e}")))?,
             ),
         })
+    }
+}
+
+impl GeminiLive {
+    /// Tune a replay adapter for meeting chunks (see [`Finalize::MEETING_CHUNK`]).
+    pub fn for_meeting_chunks(mut self) -> Self {
+        self.finalize = Finalize::MEETING_CHUNK;
+        self
     }
 }
 
@@ -699,9 +786,9 @@ impl SttProvider for GeminiLive {
         let url = live_url(&self.api_key);
 
         let started = Instant::now();
-        let text = self
-            .runtime
-            .block_on(session::run(url, setup, pcm, self.mode))?;
+        let text =
+            self.runtime
+                .block_on(session::run(url, setup, pcm, self.mode, self.finalize))?;
         Ok(transcript_for(
             self.mode,
             text,
@@ -774,7 +861,7 @@ impl crate::LiveSession for GeminiLiveSession {
             session::collected(mode, &segments)?
         } else {
             self.runtime.block_on(async move {
-                session::finish(&mut socket, mode, segments, STREAM_FINALIZE_TIMEOUT_MS).await
+                session::finish(&mut socket, mode, segments, Finalize::STREAM).await
             })?
         };
         log::info!(
