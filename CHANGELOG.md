@@ -6,6 +6,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.51.0] - 2026-09-28
+
+### Added
+
+- **Re-run a saved meeting's final pass.** Confirm an upload to Deepgram using your own key to replace the transcript from retained stereo audio. The archive is sent unchanged; uncompressed recordings use their original WAV tracks. Notes and the meeting title stay, and speaker names reset only after a successful replacement.
+
+### Fixed
+
+- A failed or empty final pass keeps the previous transcript. Transcript replacement, search-index changes, and speaker-name resets commit together; the UI reports completion only after the storage worker confirms the save. Busy meetings cannot be deleted, renamed by speaker, or reprocessed again while that work is running.
+
 ## [0.50.5] - 2026-09-28
 
 ### Changed

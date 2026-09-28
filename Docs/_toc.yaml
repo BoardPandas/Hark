@@ -1006,6 +1006,7 @@ pages:
       - "crates/hark-pipeline/src/meeting/recorder.rs"
       - "crates/hark-pipeline/src/meeting/live.rs"
       - "crates/hark-pipeline/src/meeting/finish.rs"
+      - "crates/hark-pipeline/src/meeting/rerun.rs"
       - "crates/hark-config/src/meeting.rs"
       - "crates/hark-store/src/meetings.rs"
       - "crates/hark-store/migrations/004_meetings.sql"
@@ -1057,6 +1058,8 @@ pages:
         source_files:
           - "crates/hark-stt/src/meeting.rs"
           - "crates/hark-pipeline/src/meeting/finish.rs"
+          - "crates/hark-pipeline/src/meeting/rerun.rs"
+          - "crates/hark-stt/tests/meeting_upload.rs"
         diagrams_needed: false
         diagram_types: []
       - id: hark_15_meetings_notes

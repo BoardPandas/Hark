@@ -64,6 +64,8 @@ pub struct MeetingController {
     notices: Vec<String>,
     /// The detected app hung up: (unix ms the notes stop at, app name).
     auto_stop: Option<(i64, String)>,
+    /// Status of the last explicit final-pass request (labels only).
+    rerun_status: Option<(String, String)>,
 }
 
 impl MeetingController {
@@ -80,6 +82,7 @@ impl MeetingController {
             prompt: None,
             notices: Vec::new(),
             auto_stop: None,
+            rerun_status: None,
         }
     }
 
@@ -190,6 +193,28 @@ impl MeetingController {
         &self.finishing
     }
 
+    pub fn rerun_status(&self, id: &str) -> Option<&str> {
+        self.rerun_status
+            .as_ref()
+            .filter(|(i, _)| i == id)
+            .map(|(_, text)| text.as_str())
+    }
+
+    pub fn rerun(&mut self, id: &str, audio_ms: u64) {
+        if self.finishing.iter().any(|i| i == id) {
+            return;
+        }
+        if let Some(handle) = &self.handle {
+            self.finishing.push(id.into());
+            self.rerun_status = Some((
+                id.into(),
+                "Re-running the final pass… Your current transcript stays until this succeeds."
+                    .into(),
+            ));
+            handle.rerun(id, audio_ms);
+        }
+    }
+
     /// When a detected meeting will stop on its own because its app released
     /// the mic, and which app: (unix ms, name).
     pub fn auto_stop(&self) -> Option<(i64, &str)> {
@@ -252,12 +277,17 @@ impl MeetingController {
                 }
             }
             MeetingEvent::Finished { id, .. } => self.finishing.retain(|x| x != &id),
+            MeetingEvent::ReprocessFinished { id, error } => {
+                self.finishing.retain(|x| x != &id);
+                self.rerun_status = Some((id, error.unwrap_or_else(|| "Final pass complete. Notes were preserved; speaker names can be set again.".into())));
+            }
             MeetingEvent::Notice { text, .. } => self.push_notice(text),
             MeetingEvent::Failed { detail, .. } => {
                 self.push_notice(format!("The meeting could not be recorded: {detail}"))
             }
             // Database-only events: the pump already sent them to storage.
             MeetingEvent::Refined { .. }
+            | MeetingEvent::Reprocessed { .. }
             | MeetingEvent::Notes { .. }
             | MeetingEvent::EnforceAudioCap { .. } => {}
         }
@@ -299,7 +329,19 @@ fn spawn_pump(
     std::thread::Builder::new()
         .name("hark-meeting-pump".to_string())
         .spawn(move || {
-            for event in rx {
+            let mut replacements = std::collections::HashMap::new();
+            for mut event in rx {
+                if let MeetingEvent::Reprocessed { id, segments } = &event {
+                    let result = save_replacement(storage.as_ref(), id, segments);
+                    replacements.insert(id.clone(), result);
+                }
+                if let MeetingEvent::ReprocessFinished { id, error } = &mut event {
+                    if error.is_none() {
+                        if let Some(Err(failure)) = replacements.remove(id) {
+                            *error = Some(failure);
+                        }
+                    }
+                }
                 if let (Some(storage), Some(cmd)) = (&storage, storage_cmd(&event, &cap_bytes)) {
                     let _ = storage.send(StorageCmd::Meeting(cmd));
                 }
@@ -310,6 +352,29 @@ fn spawn_pump(
         })
         .expect("spawning the meeting pump cannot fail");
     ui_rx
+}
+
+/// A provider response is not a successful replacement until SQLite commits.
+/// Wait on the pump worker, never the UI/capture/hook thread.
+fn save_replacement(
+    storage: Option<&Sender<StorageCmd>>,
+    id: &str,
+    segments: &[LiveSegment],
+) -> Result<(), String> {
+    let storage =
+        storage.ok_or("The local database is unavailable; the transcript was not replaced.")?;
+    let (reply, done) = mpsc::channel();
+    storage
+        .send(StorageCmd::Meeting(MeetingCmd::Reprocessed {
+            id: id.into(),
+            segments: segments.iter().map(stored).collect(),
+            reply,
+        }))
+        .map_err(|_| {
+            "The storage worker is unavailable; the transcript was not replaced.".to_string()
+        })?;
+    done.recv_timeout(std::time::Duration::from_secs(15))
+        .map_err(|_| "The final pass returned, but saving has not been confirmed. Check the meeting and storage status.".to_string())?
 }
 
 /// The database write an event implies, if any.
@@ -352,6 +417,8 @@ fn storage_cmd(event: &MeetingEvent, cap_bytes: &AtomicU64) -> Option<MeetingCmd
             protected: protected.clone(),
         },
         MeetingEvent::Prompt { .. }
+        | MeetingEvent::Reprocessed { .. }
+        | MeetingEvent::ReprocessFinished { .. }
         | MeetingEvent::PromptRetracted
         | MeetingEvent::AutoStopPending { .. }
         | MeetingEvent::AutoStopCancelled { .. }
@@ -373,6 +440,24 @@ fn stored(s: &LiveSegment) -> MeetingSegment {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn reprocessing_waits_for_storage_and_surfaces_a_failed_commit() {
+        let (tx, rx) = mpsc::channel();
+        let writer = std::thread::spawn(move || {
+            let StorageCmd::Meeting(MeetingCmd::Reprocessed { reply, .. }) = rx.recv().unwrap()
+            else {
+                panic!("expected replacement");
+            };
+            reply.send(Err("fixture write failure".into())).unwrap();
+        });
+        assert_eq!(
+            save_replacement(Some(&tx), "m", &[seg(0, 0, "fixture")]),
+            Err("fixture write failure".into())
+        );
+        writer.join().unwrap();
+        assert!(save_replacement(None, "m", &[]).is_err());
+    }
 
     fn seg(channel: u8, start_ms: u64, text: &str) -> LiveSegment {
         LiveSegment {

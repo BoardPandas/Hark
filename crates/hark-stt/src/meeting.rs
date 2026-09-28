@@ -24,6 +24,22 @@ use std::time::Duration;
 /// uploading ~230 MB/h of stereo 16 kHz PCM16, so it is well past that.
 pub const FINAL_PASS_TIMEOUT_MS: u64 = 900_000;
 
+/// Container format for a complete stereo meeting, never a mono share export.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MeetingEncoding {
+    Wav,
+    Mp3,
+}
+
+impl MeetingEncoding {
+    pub fn content_type(self) -> &'static str {
+        match self {
+            Self::Wav => "audio/wav",
+            Self::Mp3 => "audio/mpeg",
+        }
+    }
+}
+
 /// One diarized utterance from the final pass.
 pub struct FinalSegment {
     /// 0 = left = Me (microphone), 1 = right = Them (system audio).
@@ -132,6 +148,17 @@ pub fn parse_final_pass(json: &str, audio_ms: u64) -> Result<Vec<FinalSegment>, 
         detail: format!("missing results: {}", truncate_snippet(json)),
     })?;
 
+    if results
+        .utterances
+        .iter()
+        .any(|u| u.channel > 1 || !u.start.is_finite() || !u.end.is_finite())
+    {
+        return Err(SttError::Provider {
+            provider: "deepgram".into(),
+            detail: "invalid channel or timestamp in meeting result".into(),
+        });
+    }
+
     let mut segments: Vec<FinalSegment> = results
         .utterances
         .into_iter()
@@ -229,13 +256,38 @@ pub fn deepgram_final_pass(
     keyterms: &[String],
     audio_ms: u64,
 ) -> Result<Vec<FinalSegment>, SttError> {
+    deepgram_final_pass_encoded(
+        client,
+        base_url,
+        api_key,
+        body,
+        body_len,
+        keyterms,
+        audio_ms,
+        MeetingEncoding::Wav,
+    )
+}
+
+/// Upload the retained stereo archive unchanged, or the original stereo WAV.
+/// The caller can reopen the recording for a retry; this function sends once.
+#[allow(clippy::too_many_arguments)]
+pub fn deepgram_final_pass_encoded(
+    client: &Client,
+    base_url: &str,
+    api_key: &str,
+    body: Box<dyn Read + Send>,
+    body_len: u64,
+    keyterms: &[String],
+    audio_ms: u64,
+    encoding: MeetingEncoding,
+) -> Result<Vec<FinalSegment>, SttError> {
     let label = "deepgram";
     let url = final_pass_url(base_url, keyterms)?;
 
     let response = client
         .post(&url)
         .header("Authorization", format!("Token {api_key}"))
-        .header("Content-Type", "audio/wav")
+        .header("Content-Type", encoding.content_type())
         .timeout(Duration::from_millis(FINAL_PASS_TIMEOUT_MS))
         .body(Body::sized(body, body_len))
         .send()

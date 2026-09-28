@@ -23,6 +23,7 @@ pub(super) struct DetailView {
     /// Speaker being renamed and its edit buffer.
     renaming: Option<(u32, String)>,
     confirm: Option<widgets::Confirm>,
+    confirm_rerun: Option<widgets::Confirm>,
     sharing: Sharing,
 }
 
@@ -36,6 +37,7 @@ impl DetailView {
             title: String::new(),
             renaming: None,
             confirm: None,
+            confirm_rerun: None,
             sharing: Sharing::new(),
         }
     }
@@ -45,7 +47,14 @@ impl DetailView {
     }
 
     /// Returns true when the user went back to the list (or deleted it).
-    pub fn show(&mut self, ui: &mut Ui, storage: &StorageHandle, id: &str, tz: &TimeZone) -> bool {
+    pub fn show(
+        &mut self,
+        ui: &mut Ui,
+        storage: &StorageHandle,
+        id: &str,
+        tz: &TimeZone,
+        meetings: &mut crate::meeting::MeetingController,
+    ) -> bool {
         self.refresh(storage, id);
         let mut back = ui.button("‹ All meetings").clicked();
         ui.add_space(theme::GAP);
@@ -98,14 +107,24 @@ impl DetailView {
         ui.add_space(theme::GAP);
 
         let mut action = None;
+        let mut busy =
+            meetings.finishing().iter().any(|i| i == id) || detail.summary.ended_ms.is_none();
         ui.horizontal(|ui| {
-            action = share::menu(ui, detail.summary.audio_evicted_ms.is_none());
+            action = share::menu(ui, !busy && detail.summary.audio_evicted_ms.is_none());
+            if ui.add_enabled(!busy && meetings.is_available() && detail.summary.audio_evicted_ms.is_none() && detail.summary.audio_bytes > 0,
+                egui::Button::new("Re-run final pass")).clicked() {
+                self.confirm_rerun = Some(widgets::Confirm::new(
+                    "Re-run the final pass with Deepgram?",
+                    "Uploads this recording to Deepgram using your key. On success, it replaces the transcript and resets speaker names. Notes and audio stay. Provider usage charges apply.",
+                    "Re-run final pass",
+                ));
+            }
             if ui
-                .button(theme::icon_label_job(
+                .add_enabled(!busy, egui::Button::new(theme::icon_label_job(
                     ui.style(),
                     theme::icons::TRASH,
                     "Delete",
-                ))
+                )))
                 .clicked()
             {
                 self.confirm = Some(widgets::Confirm::new(
@@ -115,6 +134,27 @@ impl DetailView {
                 ));
             }
         });
+        if let Some(status) = meetings.rerun_status(id) {
+            ui.label(RichText::new(status).small());
+        }
+        if let Some(confirm) = &mut self.confirm_rerun {
+            match confirm.show(ui, "meeting-rerun") {
+                Some(true) => {
+                    let duration = detail
+                        .summary
+                        .ended_ms
+                        .unwrap_or(detail.summary.started_ms)
+                        .saturating_sub(detail.summary.started_ms)
+                        .max(0) as u64;
+                    meetings.rerun(id, duration);
+                    self.renaming = None;
+                    busy = true;
+                    self.confirm_rerun = None;
+                }
+                Some(false) => self.confirm_rerun = None,
+                None => {}
+            }
+        }
         if let Some(status) = self.sharing.status() {
             ui.label(RichText::new(status).small().weak());
         }
@@ -127,7 +167,10 @@ impl DetailView {
             self.notes_card(ui, storage, id, notes);
             ui.add_space(theme::SECTION_GAP);
         }
-        self.speakers_card(ui, storage, id, detail);
+        if busy {
+            self.renaming = None;
+        }
+        ui.add_enabled_ui(!busy, |ui| self.speakers_card(ui, storage, id, detail));
         transcript(ui, detail);
 
         if let Some(confirm) = &mut self.confirm {
@@ -160,6 +203,8 @@ impl DetailView {
                     .and_then(|d| d.notes_json.as_deref())
                     .and_then(|json| MeetingNotes::from_json(json).ok());
                 if fresh_meeting {
+                    self.confirm = None;
+                    self.confirm_rerun = None;
                     self.title = detail
                         .as_ref()
                         .and_then(|d| d.summary.title.clone())

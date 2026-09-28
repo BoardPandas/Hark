@@ -89,7 +89,7 @@ impl MeetingsPage {
                 self.selected = None;
                 return None;
             };
-            if self.detail.show(ui, storage, &id, &self.tz) {
+            if self.detail.show(ui, storage, &id, &self.tz, meetings) {
                 self.selected = None;
             }
             return None;

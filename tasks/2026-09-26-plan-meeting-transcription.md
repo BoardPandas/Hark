@@ -11,8 +11,9 @@ tested on Windows and Linux. **Real-call validation reported by the product owne
 a 20-minute Google Meet call in Chrome** (2026-09-28); the findings and fixes are in §8.
 The 0.50.4 Meet prompt/15-second auto-stop retest remains pending in the handoff.
 Zoom/Webex/GoTo/RingCentral executable names still need live-call validation.
-**Current step:** Ship: Windows documentation and lessons for patch 0.50.5, then Polish in
-the order below. CI on `9a61d11` passed on Windows, Linux, and macOS on 2026-09-28;
+**Current step:** Polish item 1 is implemented in the isolated 0.51.0 review snapshot, based on `691d3fd`. This snapshot contains no implementation of items 2–6 and has not been committed, pushed, or released. Scope and requirements: [saved-meeting rerun intent](../intent/meeting-transcripts-need-refinement/intent.md) and [specification](../intent/meeting-transcripts-need-refinement/spec.md).
+
+CI on `9a61d11` passed on Windows, Linux, and macOS on 2026-09-28;
 that compile/test result does not establish native call behavior.
 The `v0.50.4` Release workflow also completed successfully on 2026-09-28,
 including the Windows signed installer, Linux packages, and Arch package.
@@ -714,3 +715,10 @@ Not scheduled. The §4.1 notes are kept so it can be picked up later without re-
   commit and advancing the branch without force. LL-G CI still fails on the same two
   unrelated blank-line issues as its parent commit; no new failure was reported.
   No Claude eval was added: these are technology/product lessons, not configuration defects.
+
+
+**Learned while preparing saved-meeting reruns (2026-09-28, 0.51.0 review snapshot):**
+
+- A successful provider response is not a successful local replacement. The storage worker acknowledges the SQLite transaction; transcript segments, FTS changes, and old speaker-name removal roll back together if an insert fails. Notes and title stay unchanged.
+- A pending speaker edit must be cleared while reprocessing, or saving it after completion can apply the old name to a newly assigned speaker number.
+- The retained MP3 can be uploaded byte for byte with `audio/mpeg`; no decode or re-encode is needed for a Deepgram rerun. Path validation rejects traversal and symlinks.

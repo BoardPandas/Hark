@@ -133,7 +133,33 @@ impl Store {
         segments: &[MeetingSegment],
         refined: bool,
     ) -> Result<(), StoreError> {
+        self.replace_segments(id, segments, refined, false)
+    }
+
+    /// A new diarization may number people differently. Reset names atomically
+    /// with replacement; preserve the title, notes, and their action checkboxes.
+    pub fn reprocess_meeting_segments(
+        &mut self,
+        id: &str,
+        segments: &[MeetingSegment],
+    ) -> Result<(), StoreError> {
+        self.replace_segments(id, segments, true, true)
+    }
+
+    fn replace_segments(
+        &mut self,
+        id: &str,
+        segments: &[MeetingSegment],
+        refined: bool,
+        reset_speakers: bool,
+    ) -> Result<(), StoreError> {
         let tx = self.conn.transaction()?;
+        if reset_speakers {
+            tx.execute(
+                "DELETE FROM meeting_speakers WHERE meeting_id = ?1",
+                params![id],
+            )?;
+        }
         tx.execute(
             "DELETE FROM meeting_segments WHERE meeting_id = ?1",
             params![id],

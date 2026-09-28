@@ -1,5 +1,12 @@
 # Generation Metadata
 
+## Scoped saved-meeting rerun update — 2026-09-28 (0.51.0)
+
+- **Source reviewed:** `691d3fd` plus the feature-1-only saved-meeting rerun snapshot.
+- **Scope:** README, overview, Getting Started, Meetings final-pass behavior, storage transactions, and glossary; the new worker and upload fixture are mapped in `_toc.yaml`. Shifted source references on these pages now link to files rather than stale line ranges.
+- **Baseline policy:** the global baseline and `_toc.yaml` ref remain unchanged. Other Polish items are outside this snapshot.
+- **Validation:** the independently checked snapshot results are recorded in `SUMMARY.md`.
+
 ## Scoped Meetings shipping update — 2026-09-28
 
 - **Source reviewed:** `9a61d11d06056d6b54b9ad6f4cd8c4fb1f2fe654` plus the

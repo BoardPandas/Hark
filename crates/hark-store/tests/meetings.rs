@@ -15,6 +15,57 @@ fn meeting(id: &str, started_ms: i64) -> NewMeeting {
     }
 }
 
+#[test]
+fn reprocessing_resets_speaker_names_and_fts_but_preserves_notes_and_title() {
+    let mut store = Store::open_in_memory().unwrap();
+    store.create_meeting(&meeting("m", 0)).unwrap();
+    store.set_meeting_title("m", "Kept title").unwrap();
+    store
+        .set_meeting_notes("m", Some("kept notes and checked actions"))
+        .unwrap();
+    store
+        .append_meeting_segment("m", &segment(0, 100, 1, Some(0), "oldword"))
+        .unwrap();
+    store.rename_meeting_speaker("m", 0, "Old person").unwrap();
+    store
+        .reprocess_meeting_segments("m", &[segment(0, 120, 1, Some(0), "newword")])
+        .unwrap();
+    let detail = store.meeting("m").unwrap().unwrap();
+    assert!(detail.summary.refined);
+    assert!(detail.speakers.is_empty());
+    assert_eq!(detail.summary.title.as_deref(), Some("Kept title"));
+    assert_eq!(
+        detail.notes_json.as_deref(),
+        Some("kept notes and checked actions")
+    );
+    assert!(store.meetings(Some("oldword")).unwrap().is_empty());
+    assert_eq!(store.meetings(Some("newword")).unwrap().len(), 1);
+}
+
+#[test]
+fn failed_reprocessing_rolls_back_transcript_and_speaker_names() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("rollback.db");
+    let mut store = Store::open(&path).unwrap();
+    store.create_meeting(&meeting("m", 0)).unwrap();
+    store
+        .append_meeting_segment("m", &segment(0, 100, 1, Some(0), "keepword"))
+        .unwrap();
+    store.rename_meeting_speaker("m", 0, "Kept person").unwrap();
+    // Inject an insertion failure after replacement has deleted the old rows.
+    // This exercises real SQLite rollback without changing the product schema.
+    let connection = rusqlite::Connection::open(&path).unwrap();
+    connection.execute_batch("CREATE TRIGGER reject_replacement BEFORE INSERT ON meeting_segments BEGIN SELECT RAISE(ABORT, 'fixture failure'); END;").unwrap();
+    assert!(store
+        .reprocess_meeting_segments("m", &[segment(0, 100, 1, Some(0), "badword")])
+        .is_err());
+    let detail = store.meeting("m").unwrap().unwrap();
+    assert_eq!(detail.segments[0].text, "keepword");
+    assert_eq!(detail.speakers[0].1, "Kept person");
+    assert_eq!(store.meetings(Some("keepword")).unwrap().len(), 1);
+    assert!(store.meetings(Some("badword")).unwrap().is_empty());
+}
+
 fn segment(
     start_ms: i64,
     end_ms: i64,

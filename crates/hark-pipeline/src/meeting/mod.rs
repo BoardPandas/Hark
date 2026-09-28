@@ -26,6 +26,7 @@ mod coordinator;
 mod finish;
 mod live;
 mod recorder;
+mod rerun;
 
 pub use coordinator::{run, MeetingHandle};
 pub use finish::DEEPGRAM_ACCOUNT;
@@ -109,6 +110,15 @@ pub enum MeetingEvent {
     Refined {
         id: String,
         segments: Vec<LiveSegment>,
+    },
+    /// Explicit reprocessing succeeded; replace segments and reset speaker renames.
+    Reprocessed {
+        id: String,
+        segments: Vec<LiveSegment>,
+    },
+    ReprocessFinished {
+        id: String,
+        error: Option<String>,
     },
     /// Notes JSON (`hark_voice::MeetingNotes`) and the suggested title.
     Notes {

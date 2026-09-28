@@ -373,3 +373,12 @@ snapshot. It is historical. The current TOC records 15 crates and 16 pages.
 - The existing `v0.50.4` Release workflow completed successfully, including the
   Windows signed installer, Linux packages, and Arch package. No 0.50.5 commit,
   push, tag, or release has occurred during this preparation.
+
+
+## Scoped saved-meeting rerun validation — 2026-09-28 (0.51.0 review snapshot)
+
+- **Source:** `691d3fd` plus only Polish item 1, assembled in `C:/Users/chaz/.codex/worktrees/meeting-rerun/Hark`. The root checkout's other Polish changes are outside this snapshot.
+- **Documentation:** README, Getting Started, overview, glossary, Meetings, and data storage now describe the confirmed Deepgram rerun and transactional replacement. The new worker and HTTP fixture are mapped; shifted citations in the edited pages use file links. The global documentation baseline remains unchanged.
+- **Gates passed:** `npm run check:claude`; `npm run check:docs` (17 mapped pages, no silent mapped-source drift); WSL Debian `cargo fmt --all -- --check`; `cargo clippy --offline --all-targets -- -D warnings`; `cargo test --offline --workspace` (**957 passed, 0 failed, 1 ignored** across 41 test suites, including doc-test suites).
+- **Evidence:** the tests cover unchanged MP3 upload bytes/content type, path traversal and Unix symlinks, worker protection release, transactional transcript/FTS replacement with speaker reset, rollback preserving previous state, and failed-save acknowledgement. The ignored test requires the downloaded on-device model.
+- **Limits:** these Linux checks do not establish native Windows UI, audio capture, keychain, or real-provider behavior. This snapshot has not been committed, pushed, packaged, or released. `cargo update --workspace --offline` changed only the 16 local workspace package versions; no external dependency was added or updated. Neither case-colliding agent guide was included.

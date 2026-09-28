@@ -27,6 +27,7 @@ const SHUTDOWN_GRACE: Duration = Duration::from_secs(3);
 enum Command {
     StartManual,
     Stop,
+    Rerun { id: String, audio_ms: u64 },
     Answer(Answer),
     Settings(Box<Settings>),
 }
@@ -48,6 +49,14 @@ impl MeetingHandle {
 
     pub fn stop(&self) {
         self.send(Command::Stop);
+    }
+
+    /// Explicitly re-run the final pass using the retained meeting audio.
+    pub fn rerun(&self, id: &str, audio_ms: u64) {
+        self.send(Command::Rerun {
+            id: id.into(),
+            audio_ms,
+        });
     }
 
     pub fn answer(&self, answer: Answer) {
@@ -192,6 +201,24 @@ impl Coordinator {
                     self.detector.stopped();
                     self.close(active, true);
                 }
+            }
+            Command::Rerun { id, audio_ms } => {
+                let Ok(mut protected) = self.protected.lock() else {
+                    return;
+                };
+                if protected.contains(&id) {
+                    return;
+                }
+                protected.push(id.clone());
+                drop(protected);
+                super::rerun::spawn(super::rerun::Job {
+                    id,
+                    audio_ms,
+                    root: self.meetings_dir.clone(),
+                    settings: self.settings.clone(),
+                    events: self.events.clone(),
+                    protected: self.protected.clone(),
+                });
             }
             Command::Answer(answer) => {
                 self.detector.answer(answer);

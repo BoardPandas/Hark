@@ -11,6 +11,11 @@ use hark_store::{MeetingSegment, NewMeeting, Store, StoreError};
 use std::path::Path;
 
 pub enum MeetingCmd {
+    Reprocessed {
+        id: String,
+        segments: Vec<MeetingSegment>,
+        reply: std::sync::mpsc::Sender<Result<(), String>>,
+    },
     Started(NewMeeting),
     Segment {
         id: String,
@@ -68,6 +73,15 @@ pub enum MeetingCmd {
 /// Execute one command; `Ok(true)` when anything changed.
 pub fn apply(store: &mut Store, dir: &Path, cmd: MeetingCmd) -> Result<bool, StoreError> {
     match cmd {
+        MeetingCmd::Reprocessed {
+            id,
+            segments,
+            reply,
+        } => {
+            let result = store.reprocess_meeting_segments(&id, &segments);
+            let _ = reply.send(result.as_ref().map(|_| ()).map_err(|_| "The replacement transcript could not be saved. The previous transcript was kept.".into()));
+            result.map(|_| true)
+        }
         MeetingCmd::Started(m) => store.create_meeting(&m).map(|_| true),
         MeetingCmd::Segment { id, segment } => {
             store.append_meeting_segment(&id, &segment).map(|_| true)
