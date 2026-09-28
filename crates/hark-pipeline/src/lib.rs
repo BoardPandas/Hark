@@ -439,6 +439,27 @@ pub fn run(
     api_key: String,
     events: mpsc::Sender<PipelineEvent>,
 ) -> Result<PipelineHandle, PipelineError> {
+    run_inner(settings, api_key, events, None)
+}
+
+/// Start dictation with an externally owned shortcut source. The desktop app
+/// uses this to share one hook with meetings, even when dictation is unavailable.
+/// The caller must close the input sender before dropping the returned handle.
+pub fn run_with_input(
+    settings: &Settings,
+    api_key: String,
+    events: mpsc::Sender<PipelineEvent>,
+    input: mpsc::Receiver<hark_hotkey::PttEvent>,
+) -> Result<PipelineHandle, PipelineError> {
+    run_inner(settings, api_key, events, Some(input))
+}
+
+fn run_inner(
+    settings: &Settings,
+    api_key: String,
+    events: mpsc::Sender<PipelineEvent>,
+    input: Option<mpsc::Receiver<hark_hotkey::PttEvent>>,
+) -> Result<PipelineHandle, PipelineError> {
     let chord = hark_hotkey::PttChord::parse(&settings.hotkey.ptt_key)
         .map_err(hark_hotkey::HotkeyError::from)?;
     let client = hark_stt::shared_client()?;
@@ -489,8 +510,15 @@ pub fn run(
         provider_cfg.label
     );
 
-    let (ptt_tx, ptt_rx) = mpsc::channel();
-    let listener = hark_hotkey::spawn_listener(chord, settings.hotkey.swallow_lock_keys, ptt_tx)?;
+    let (listener, ptt_rx) = match input {
+        Some(input) => (None, input),
+        None => {
+            let (ptt_tx, ptt_rx) = mpsc::channel();
+            let listener =
+                hark_hotkey::spawn_listener(chord, settings.hotkey.swallow_lock_keys, ptt_tx)?;
+            (Some(listener), ptt_rx)
+        }
+    };
 
     let recording = Arc::new(AtomicBool::new(false));
     let w = worker::Worker {
@@ -532,7 +560,7 @@ pub fn run(
         .expect("spawning the worker thread cannot fail");
 
     Ok(PipelineHandle {
-        listener: Some(listener),
+        listener,
         worker: Some(worker),
         worker_done,
         level,

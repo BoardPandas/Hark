@@ -337,6 +337,7 @@ pages:
       - "crates/hark-hotkey/src/hook_win.rs"
       - "crates/hark-hotkey/src/hook_linux.rs"
       - "crates/hark-hotkey/src/edges.rs"
+      - "crates/hark-hotkey/src/shortcuts.rs"
       - "crates/hark-hotkey/src/capture.rs"
       - "crates/hark-hotkey/src/keycode.rs"
     sections:
@@ -378,6 +379,7 @@ pages:
         autogen: true
         source_files:
           - "crates/hark-hotkey/src/edges.rs"
+          - "crates/hark-hotkey/src/shortcuts.rs"
         diagrams_needed: false
         diagram_types: []
       - id: hark_06_audio_capture_meeting

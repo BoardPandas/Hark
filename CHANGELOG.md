@@ -6,6 +6,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.53.0] - 2026-09-28
+
+### Added
+
+- **An optional Windows meeting shortcut.** Set **Start / stop shortcut** in Settings → Meetings, then press once to start and again to stop. It starts unassigned, works even when dictation has no provider key, and stays inactive while Meetings is disabled.
+
+### Changed
+
+- Push-to-talk and meeting shortcuts share one Windows keyboard hook. Repeats and injected input cannot create extra meeting toggles; equal chords and chords containing all of the other's keys are rejected. Recording a dictation shortcut temporarily bypasses both bindings.
+- Config schema 4 adds the optional meeting binding with a versioned backup and immediate save on migration. Existing provider choices and user-selected auto-stop values stay unchanged.
+
 ## [0.52.0] - 2026-09-28
 
 ### Changed

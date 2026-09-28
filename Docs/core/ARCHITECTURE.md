@@ -28,13 +28,15 @@ The following files were used as evidence for this page:
 <!-- BEGIN:AUTOGEN hark_02_architecture_process_model -->
 ## Process and Threading Model
 
-Hark is one desktop process. The main thread owns eframe, egui, the tray, window state, and UI-side orchestration. Hotkey capture, audio capture, dictation, meeting capture, storage, update checks, and single-instance activation listening run behind channels on worker threads; the UI never performs provider I/O ([main.rs:1-10](../../crates/hark-app/src/main.rs#L1-L10), [app.rs:22-70](../../crates/hark-app/src/app.rs#L22-L70), [pipeline.rs:1-3](../../crates/hark-app/src/pipeline.rs#L1-L3)).
+Hark is one desktop process. The main thread owns eframe, egui, the tray, window state, and UI-side orchestration. Hotkey capture, audio capture, dictation, meeting capture, storage, update checks, and single-instance activation listening run behind channels on worker threads; the UI never performs provider I/O ([main.rs:1-10](../../crates/hark-app/src/main.rs#L1-L10), [app.rs](../../crates/hark-app/src/app.rs), [pipeline.rs](../../crates/hark-app/src/pipeline.rs)).
 
-Startup acquires the single-instance guard, starts the root viewport hidden, and enters `eframe::run_native`. If another normal launch finds Hark running, it signals that instance to show its window and exits; updater and autostart launches deliberately stay silent ([main.rs:41-87](../../crates/hark-app/src/main.rs#L41-L87), [main.rs:89-125](../../crates/hark-app/src/main.rs#L89-L125)). `HarkApp::new` loads settings, opens storage, starts the pipeline and the meeting coordinator, and starts the activation listener. The tray is created on the first event-loop callback so the macOS main-thread requirement is satisfied ([app.rs:73-163](../../crates/hark-app/src/app.rs#L73-L163), [app.rs:165-187](../../crates/hark-app/src/app.rs#L165-L187)).
+Startup acquires the single-instance guard, starts the root viewport hidden, and enters `eframe::run_native`. If another normal launch finds Hark running, it signals that instance to show its window and exits; updater and autostart launches deliberately stay silent ([main.rs:41-87](../../crates/hark-app/src/main.rs#L41-L87), [main.rs:89-125](../../crates/hark-app/src/main.rs#L89-L125)). `HarkApp::new` loads settings, opens storage, starts the pipeline and the meeting coordinator, and starts the activation listener. The tray is created on the first event-loop callback so the macOS main-thread requirement is satisfied ([app.rs](../../crates/hark-app/src/app.rs), [app.rs](../../crates/hark-app/src/app.rs)).
 
-Field order is part of shutdown correctness: pipeline, meeting, and listener handles are declared before the channels and storage handles they feed, so their bounded drops run first — dropping `MeetingController` closes a meeting in progress and lets its final writes reach the storage worker before that worker is joined ([app.rs:22-70](../../crates/hark-app/src/app.rs#L22-L70)).
+`PipelineController` owns the shared listener independently of dictation startup. `spawn_shared_listener` emits `ShortcutEvent`s; an app dispatcher forwards dictation edges into `run_with_input` and meeting toggles to the UI, waking the root viewport even when hidden. `App::logic` forwards each toggle to the meeting coordinator, which decides start versus stop from its current state. Missing dictation credentials or a busy dictation worker therefore do not disable meeting controls ([app dispatcher and tests](../../crates/hark-app/src/pipeline.rs), [UI event drain](../../crates/hark-app/src/app.rs), [externally owned pipeline input](../../crates/hark-pipeline/src/lib.rs)).
 
-Meeting mode (plan `tasks/2026-09-26-plan-meeting-transcription.md`) is deliberately a separate set of worker threads (the coordinator also announces a pending auto-stop, `AutoStopPending`/`AutoStopCancelled`, once per change rather than per 2 s tick; those events are UI-only and never reach the database), not a mode of the dictation pipeline above: `hark-pipeline::meeting::run` starts a **coordinator** thread that owns the detector and the active recording and drains capture every 100 ms, one **live transcriber** thread per meeting that runs chunks through the STT provider FIFO across both channels, and one **finisher** thread per meeting for the after-call work (the Deepgram final pass, the summary, the MP3 archive), so an older meeting can still be finishing while a new one starts recording ([meeting/mod.rs:1-23](../../crates/hark-pipeline/src/meeting/mod.rs#L1-L23)). On the UI side, `hark-app`'s `MeetingController` is the same shape as `PipelineController`: a pump thread receives `MeetingEvent`s, tees database writes to the storage worker, forwards the rest to the UI, and wakes it with `wake_ui` so a hidden window still records every line and shows the detection prompt ([meeting.rs:1-9](../../crates/hark-app/src/meeting.rs#L1-L9)). Push-to-talk dictation keeps its own one-shot state machine untouched; the two systems never share state, and a meeting recording never blocks or is blocked by a dictation.
+Field order is part of shutdown correctness: the shared listener closes before the dictation worker; pipeline, meeting, and listener handles are declared before the channels and storage handles they feed, so their bounded drops run first — dropping `MeetingController` closes a meeting in progress and lets its final writes reach the storage worker before that worker is joined ([app.rs](../../crates/hark-app/src/app.rs)).
+
+Meeting mode (plan `tasks/2026-09-26-plan-meeting-transcription.md`) is deliberately a separate set of worker threads (the coordinator also announces a pending auto-stop, `AutoStopPending`/`AutoStopCancelled`, once per change rather than per observation; those events are UI-only and never reach the database), not a mode of the dictation pipeline above: `hark-pipeline::meeting::run` starts a **coordinator** thread that owns the detector and the active recording and drains capture every 100 ms, one **live transcriber** thread per meeting that runs chunks through the STT provider FIFO across both channels, and one **finisher** thread per meeting for the after-call work (the Deepgram final pass, the summary, the MP3 archive), so an older meeting can still be finishing while a new one starts recording ([meeting/mod.rs:1-23](../../crates/hark-pipeline/src/meeting/mod.rs#L1-L23)). On the UI side, `hark-app`'s `MeetingController` is the same shape as `PipelineController`: a pump thread receives `MeetingEvent`s, tees database writes to the storage worker, forwards the rest to the UI, and wakes it with `wake_ui` so a hidden window still records every line and shows the detection prompt ([meeting.rs](../../crates/hark-app/src/meeting.rs)). Push-to-talk dictation keeps its own one-shot state machine untouched; their capture and processing state stays separate. They share the app-owned keyboard listener, and meeting toggles do not wait for dictation input to drain.
 
 ```mermaid
 graph TD
@@ -52,14 +54,16 @@ graph TD
     end
     C -->|"start/stop"| F
     D -->|"ring buffer"| F
-    E -->|"PttEvent"| F
+    E -->|"ShortcutEvent"| J["Shortcut dispatcher"]
+    J -->|"PttEvent"| F
+    J -->|"MeetingToggle + wake_ui"| C
     F -->|"PipelineEvent"| G
     G -->|"request_repaint"| A
     G -->|"StorageCmd"| H
     I -->|"channels and repaint"| A
 ```
 
-Sources: [main.rs:41-125](../../crates/hark-app/src/main.rs#L41-L125), [app.rs:22-187](../../crates/hark-app/src/app.rs#L22-L187), [pipeline.rs:1-66](../../crates/hark-app/src/pipeline.rs#L1-L66), [meeting/mod.rs:1-23](../../crates/hark-pipeline/src/meeting/mod.rs#L1-L23), [hark-app/src/meeting.rs:1-9](../../crates/hark-app/src/meeting.rs#L1-L9)
+Sources: [main.rs:41-125](../../crates/hark-app/src/main.rs#L41-L125), [app.rs](../../crates/hark-app/src/app.rs), [pipeline.rs](../../crates/hark-app/src/pipeline.rs), [meeting/mod.rs:1-23](../../crates/hark-pipeline/src/meeting/mod.rs#L1-L23), [hark-app/src/meeting.rs](../../crates/hark-app/src/meeting.rs)
 <!-- END:AUTOGEN hark_02_architecture_process_model -->
 
 ---
@@ -67,7 +71,7 @@ Sources: [main.rs:41-125](../../crates/hark-app/src/main.rs#L41-L125), [app.rs:2
 <!-- BEGIN:AUTOGEN hark_02_architecture_pipeline -->
 ## The Release-to-Inject Pipeline
 
-`hark_pipeline::run` builds the shared blocking HTTP client, cleanup plan, batch STT adapter, optional live adapter, continuous capture, native hook, and long-lived worker. A local-primary configuration is keyless and does not construct a cloud adapter; cloud-backed modes resolve their secret before the hook starts ([lib.rs:432-541](../../crates/hark-pipeline/src/lib.rs#L432-L541)).
+`hark_pipeline::run` builds the shared blocking HTTP client, cleanup plan, batch STT adapter, optional live adapter, continuous capture, native hook, and long-lived worker. A local-primary configuration is keyless and does not construct a cloud adapter; cloud-backed modes resolve their secret before the hook starts ([lib.rs](../../crates/hark-pipeline/src/lib.rs)).
 
 With Gemini Live, key-down opens a live session and pumps resampled PCM from the ring while the user is speaking. The live path is only an accelerator: failure to open, send, keep up, or finish drops back to the ordinary batch path because streaming reads rather than consumes the ring ([stream.rs:1-25](../../crates/hark-pipeline/src/stream.rs#L1-L25), [stream.rs:44-130](../../crates/hark-pipeline/src/stream.rs#L44-L130)). Other providers begin at key-up.
 
@@ -100,7 +104,7 @@ sequenceDiagram
     Worker-->>User: text appears at cursor
 ```
 
-Sources: [lib.rs:432-541](../../crates/hark-pipeline/src/lib.rs#L432-L541), [worker.rs:170-228](../../crates/hark-pipeline/src/worker.rs#L170-L228), [worker.rs:324-532](../../crates/hark-pipeline/src/worker.rs#L324-L532), [stream.rs:1-148](../../crates/hark-pipeline/src/stream.rs#L1-L148)
+Sources: [lib.rs](../../crates/hark-pipeline/src/lib.rs), [worker.rs:170-228](../../crates/hark-pipeline/src/worker.rs#L170-L228), [worker.rs:324-532](../../crates/hark-pipeline/src/worker.rs#L324-L532), [stream.rs:1-148](../../crates/hark-pipeline/src/stream.rs#L1-L148)
 <!-- END:AUTOGEN hark_02_architecture_pipeline -->
 
 ---
@@ -153,9 +157,9 @@ The pipeline sends best-effort events through a non-blocking channel. `Dictation
 | `Errored` | The last dictation failed; sticky until the next dictation |
 | `Stopped` | Pipeline is not running because startup or configuration failed |
 
-The event-pump thread forwards events, stores successful records, and requests an egui repaint. `PipelineController::drain_events` maps them to the statuses above. `ShortcutIntercepted` is advisory: it records a warning without stopping dictation or replacing the current status ([pipeline.rs:220-298](../../crates/hark-app/src/pipeline.rs#L220-L298), [pipeline.rs:300-338](../../crates/hark-app/src/pipeline.rs#L300-L338)).
+The event-pump thread forwards events, stores successful records, and requests an egui repaint. `PipelineController::drain_events` maps them to the statuses above. `ShortcutIntercepted` is advisory: it records a warning without stopping dictation or replacing the current status ([pipeline.rs](../../crates/hark-app/src/pipeline.rs), [pipeline.rs](../../crates/hark-app/src/pipeline.rs)).
 
-Sources: [events.rs:1-97](../../crates/hark-pipeline/src/events.rs#L1-L97), [pipeline.rs:12-39](../../crates/hark-app/src/pipeline.rs#L12-L39), [pipeline.rs:220-338](../../crates/hark-app/src/pipeline.rs#L220-L338)
+Sources: [events.rs:1-97](../../crates/hark-pipeline/src/events.rs#L1-L97), [pipeline.rs](../../crates/hark-app/src/pipeline.rs), [pipeline.rs](../../crates/hark-app/src/pipeline.rs)
 <!-- END:AUTOGEN hark_02_architecture_events -->
 
 ---
@@ -172,7 +176,7 @@ Latency is the product, so a dictation has one retry budget. Only timeouts and c
 | Other `Http` | No | The request may already have reached the provider |
 | `Auth`, `RateLimited`, `BadAudio`, `Provider` | No | An immediate replay cannot safely repair them |
 
-A failed live session may fall back to batch, but that replay consumes the one retry. The batch helper has no loop and can make at most one additional call ([worker.rs:417-448](../../crates/hark-pipeline/src/worker.rs#L417-L448), [worker.rs:730-746](../../crates/hark-pipeline/src/worker.rs#L730-L746)). The shared client preserves connections across dictations, and streaming uploads most audio before release when available ([lib.rs:432-445](../../crates/hark-pipeline/src/lib.rs#L432-L445), [stream.rs:138-148](../../crates/hark-pipeline/src/stream.rs#L138-L148)).
+A failed live session may fall back to batch, but that replay consumes the one retry. The batch helper has no loop and can make at most one additional call ([worker.rs:417-448](../../crates/hark-pipeline/src/worker.rs#L417-L448), [worker.rs:730-746](../../crates/hark-pipeline/src/worker.rs#L730-L746)). The shared client preserves connections across dictations, and streaming uploads most audio before release when available ([lib.rs](../../crates/hark-pipeline/src/lib.rs), [stream.rs:138-148](../../crates/hark-pipeline/src/stream.rs#L138-L148)).
 
 Sources: [retry.rs:1-27](../../crates/hark-pipeline/src/retry.rs#L1-L27), [worker.rs:417-448](../../crates/hark-pipeline/src/worker.rs#L417-L448), [worker.rs:730-746](../../crates/hark-pipeline/src/worker.rs#L730-L746), [stream.rs:138-148](../../crates/hark-pipeline/src/stream.rs#L138-L148)
 <!-- END:AUTOGEN hark_02_architecture_retry -->
@@ -195,9 +199,9 @@ Every non-injecting outcome has an explicit `FailStage`. Details are display-saf
 | `Abandoned` | Release was lost and the hold exceeded its maximum | Show a non-error hint |
 | `Internal` | A dictation panicked | Show `Errored`; keep the worker alive |
 
-`dictate_guarded` catches per-dictation panics, emits `Internal`, and returns the state machine to `Idle` rather than killing the long-lived worker ([worker.rs:285-320](../../crates/hark-pipeline/src/worker.rs#L285-L320)). Startup errors are separate: `PipelineController::start` maps a bad key, bad provider configuration, or capture failure to `Stopped`, leaving the application usable ([pipeline.rs:120-176](../../crates/hark-app/src/pipeline.rs#L120-L176)). Pipeline drop uses bounded joins so a stuck request cannot hold application shutdown forever ([lib.rs:121-165](../../crates/hark-pipeline/src/lib.rs#L121-L165)).
+`dictate_guarded` catches per-dictation panics, emits `Internal`, and returns the state machine to `Idle` rather than killing the long-lived worker ([worker.rs:285-320](../../crates/hark-pipeline/src/worker.rs#L285-L320)). Startup errors are separate: `PipelineController::start` maps a bad key, bad provider configuration, or capture failure to `Stopped`, leaving the application usable ([pipeline.rs](../../crates/hark-app/src/pipeline.rs)). Pipeline drop uses bounded joins so a stuck request cannot hold application shutdown forever ([lib.rs](../../crates/hark-pipeline/src/lib.rs)).
 
-Sources: [events.rs:42-97](../../crates/hark-pipeline/src/events.rs#L42-L97), [state.rs:46-87](../../crates/hark-pipeline/src/state.rs#L46-L87), [pipeline.rs:120-176](../../crates/hark-app/src/pipeline.rs#L120-L176), [worker.rs:285-320](../../crates/hark-pipeline/src/worker.rs#L285-L320), [lib.rs:121-165](../../crates/hark-pipeline/src/lib.rs#L121-L165)
+Sources: [events.rs:42-97](../../crates/hark-pipeline/src/events.rs#L42-L97), [state.rs:46-87](../../crates/hark-pipeline/src/state.rs#L46-L87), [pipeline.rs](../../crates/hark-app/src/pipeline.rs), [worker.rs:285-320](../../crates/hark-pipeline/src/worker.rs#L285-L320), [lib.rs](../../crates/hark-pipeline/src/lib.rs)
 <!-- END:AUTOGEN hark_02_architecture_failure -->
 
 ---

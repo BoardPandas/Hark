@@ -73,6 +73,13 @@ impl PttChord {
         &self.keys
     }
 
+    /// Whether either chord can engage while pressing the other. Trackers
+    /// ignore unrelated keys, so equality and subset/superset both conflict.
+    pub fn conflicts_with(&self, other: &Self) -> bool {
+        self.keys.iter().all(|key| other.keys.contains(key))
+            || other.keys.iter().all(|key| self.keys.contains(key))
+    }
+
     /// Why this chord cannot be bound, if it cannot.
     ///
     /// Policy, not syntax: [`Self::parse`] stays a pure syntax check, so a
@@ -243,6 +250,10 @@ pub struct ChordTracker {
 }
 
 impl ChordTracker {
+    pub fn is_engaged(&self) -> bool {
+        self.engaged
+    }
+
     pub fn new(chord: PttChord) -> ChordTracker {
         ChordTracker::with_lock_suppression(chord, false)
     }

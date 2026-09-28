@@ -58,6 +58,10 @@ const MAX_AUDIO_CAP_MB: u32 = 1_048_576;
 pub struct Meeting {
     /// Master switch. Everything below is inert while this is `false`.
     pub enabled: bool,
+    /// Optional Windows global start/stop shortcut. None leaves manual and
+    /// detected starts unchanged; it must not overlap the dictation chord.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub toggle_key: Option<String>,
     /// Which microphone to record "Me" from, by cpal device name. `None`
     /// falls back to the Windows communications-default microphone, which is
     /// the device Windows already treats as the one calls/meetings use.
@@ -100,6 +104,7 @@ impl Default for Meeting {
     fn default() -> Self {
         Meeting {
             enabled: true,
+            toggle_key: None,
             mic_device: None,
             system_source: SystemSource::App,
             live_transcript: true,
@@ -146,6 +151,8 @@ const OLD_AUTO_STOP_S: u32 = 60;
 /// and rewrites the file (after backing it up), so a later deliberate 60 is
 /// never touched again. Any other value was chosen and stays.
 pub(crate) fn migrate(meeting: &mut Meeting, file_version: u32) {
+    // v3 -> v4: serde supplies toggle_key = None for an absent binding.
+    // Preserve explicit fields in older files and the final-pass provider.
     if file_version < 3 && meeting.auto_stop_after_s == OLD_AUTO_STOP_S {
         log::info!(
             "config schema v{file_version} -> v3: meeting.auto_stop_after_s {OLD_AUTO_STOP_S} -> {DEFAULT_AUTO_STOP_S} (the new default)"
@@ -172,6 +179,64 @@ pub(crate) fn clamp(meeting: &mut Meeting) {
 mod tests {
     use super::*;
     use crate::{ConfigError, Settings};
+
+    #[test]
+    fn v3_migration_leaves_the_shortcut_unbound_and_preserves_provider_choices() {
+        for provider in ["none", "deepgram"] {
+            let settings = Settings::from_toml(&format!(
+                "version = 3\n[meeting]\nfinal_pass = '{provider}'\nauto_stop_after_s = 60\n"
+            ))
+            .unwrap();
+            assert_eq!(settings.version, 4);
+            assert_eq!(settings.meeting.toggle_key, None);
+            assert_eq!(
+                settings.meeting.final_pass,
+                if provider == "none" {
+                    FinalPass::None
+                } else {
+                    FinalPass::Deepgram
+                }
+            );
+            assert_eq!(settings.meeting.auto_stop_after_s, 60);
+        }
+        let explicit = Settings::from_toml(
+            "version = 3\n[meeting]\ntoggle_key = 'LCtrl+F11'\nfinal_pass = 'none'\n",
+        )
+        .unwrap();
+        assert_eq!(explicit.meeting.toggle_key.as_deref(), Some("LCtrl+F11"));
+        assert_eq!(explicit.meeting.final_pass, FinalPass::None);
+    }
+
+    #[test]
+    fn v3_load_keeps_a_backup_and_persists_the_new_schema() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.toml");
+        let original = "version = 3\n[meeting]\nfinal_pass = 'none'\n";
+        std::fs::write(&path, original).unwrap();
+        let loaded = Settings::load(&path).unwrap();
+        assert_eq!(loaded.version, 4);
+        assert_eq!(
+            std::fs::read_to_string(path.with_extension("toml.v3.bak")).unwrap(),
+            original
+        );
+        assert!(std::fs::read_to_string(&path)
+            .unwrap()
+            .contains("version = 4"));
+        assert_eq!(Settings::load(&path).unwrap().meeting, loaded.meeting);
+    }
+
+    #[test]
+    fn invalid_and_containing_shortcuts_are_rejected_in_both_directions() {
+        for chord in ["", "not-a-key", "LWin+LCtrl", "LCtrl", "LCtrl+LWin+M"] {
+            assert!(
+                Settings::from_toml(&format!("[meeting]\ntoggle_key = '{chord}'\n")).is_err(),
+                "{chord}"
+            );
+        }
+        let mut settings = Settings::from_toml("[meeting]\ntoggle_key = 'LCtrl+F11'\n").unwrap();
+        settings.hotkey.ptt_key = "LCtrl+F11+F12".into();
+        assert!(settings.validate_meeting_shortcut().is_err());
+    }
 
     #[test]
     fn a_v2_file_with_the_old_auto_stop_default_moves_to_the_new_one() {
@@ -245,6 +310,7 @@ mod tests {
     fn full_round_trip_through_toml() {
         let meeting = Meeting {
             enabled: false,
+            toggle_key: Some("LCtrl+F11".into()),
             mic_device: Some("Yeti Stereo Microphone".to_string()),
             system_source: SystemSource::All,
             live_transcript: false,

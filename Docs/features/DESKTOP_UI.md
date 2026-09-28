@@ -106,7 +106,7 @@ Settings' Save changes / Discard bar stays outside its scroll area. The update b
 | Dictation | Speech provider, key, connection test, model/endpoint, voice, cleanup |
 | Audio & shortcut | Shortcut recording/manual entry, microphone picker and input meter |
 | On-device | Off/Backup/Primary modes, model download/progress/cancel/delete |
-| Meetings | Take notes toggle, microphone, detection (off/ask/auto, auto-stop delay, app list), speaker labels (Deepgram key, independent of the dictation key), storage cap and usage, delete all meeting audio |
+| Meetings | Take notes toggle, optional Windows start/stop shortcut, microphone, detection (off/ask/auto, auto-stop delay, app list), speaker labels (Deepgram key, independent of the dictation key), storage cap and usage, delete all meeting audio |
 | Behavior | Cleanup limits, single-word punctuation |
 | Privacy | History capture, retention, audio/text/provider disclosures |
 | Updates | Version, checking, download/install status, release details |

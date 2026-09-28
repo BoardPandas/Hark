@@ -77,10 +77,16 @@
 - **Edge semantics live in `edges.rs` only** (pure, exhaustively tested):
   engage on last chord member down, disengage on first up, auto-repeat
   filtered, non-chord keys ignored.
-- **Platform seam:** `spawn_listener(chord, swallow_locks, tx)` is the only entry point.
+- **Platform seam:** `spawn_listener(chord, swallow_locks, tx)` retains the dictation-only entry point; the desktop app owns `spawn_shared_listener` to multiplex dictation and the optional meeting toggle through one Windows hook.
   `hook_mac.rs` (CGEventTap, checkpoint 7, NEEDS MAC) must implement the same
   signature and feed the same `edges.rs` tracker; the tap thread owns its own
   `CFRunLoop` and must not fight the egui/winit main loop.
+
+## Shared Windows shortcuts
+
+- `ShortcutTracker` composes the existing chord trackers. Meetings emits only on a physical engage edge; repeats, injected events, and release recovery never toggle it. Keep the watchdog active while either chord is engaged.
+- The meeting chord observes keys only. Lock-key swallowing remains a dictation-only policy, disabled when there is no dictation worker. An armed capture tap bypasses both trackers.
+- Reject equal chords and either-direction subsets using order-independent key sets. Routing runs on a separate dispatcher, never inside the hook callback. Listener teardown closes input before the dictation worker is dropped.
 
 ## Linux (`hook_linux.rs`, evdev)
 

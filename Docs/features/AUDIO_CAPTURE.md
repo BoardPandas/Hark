@@ -80,11 +80,14 @@ An `Xrun` is counted as a recovered discontinuity because cpal is already delive
 <!-- BEGIN:AUTOGEN hark_06_audio_capture_hotkey -->
 ## Push-to-Talk Key Hooks
 
-Windows uses a low-level keyboard hook; Linux reads evdev input. Both feed the same `PttChord` and `ChordTracker`, and both can temporarily switch into shortcut-recording mode so Settings uses real key edges rather than asking users to type names ([hotkey/lib.rs:229-285](../../crates/hark-hotkey/src/lib.rs#L229-L285), [edges.rs:20-142](../../crates/hark-hotkey/src/edges.rs#L20-L142)). macOS capture remains unsupported until a CGEventTap implementation exists.
+Windows uses a low-level keyboard hook; Linux reads evdev input. Both feed the same `PttChord` and `ChordTracker`, and both can temporarily switch into shortcut-recording mode so Settings uses real key edges rather than asking users to type names ([hotkey/lib.rs](../../crates/hark-hotkey/src/lib.rs), [edges.rs](../../crates/hark-hotkey/src/edges.rs)). macOS capture remains unsupported until a CGEventTap implementation exists.
 
-Injected events are always ignored, so Hark's own synthesized paste cannot re-trigger push-to-talk. The tracker verifies other chord members against physical state before engagement, preventing a missed release from silently turning a multi-key chord into a one-key chord ([edges.rs:295-369](../../crates/hark-hotkey/src/edges.rs#L295-L369)).
+Injected events are always ignored, so Hark's own synthesized paste cannot re-trigger push-to-talk. The tracker verifies other chord members against physical state before engagement, preventing a missed release from silently turning a multi-key chord into a one-key chord ([edges.rs](../../crates/hark-hotkey/src/edges.rs)).
 
-Optional Caps Lock or Scroll Lock suppression is narrowly constrained and Windows-only. It swallows key-down only, requires a multi-key chord with exactly one suppressible lock and no Alt/Win menu modifier, and never swallows injected input. Linux leaves the setting inert because grabbing one evdev key would require grabbing the whole device ([edges.rs:183-210](../../crates/hark-hotkey/src/edges.rs#L183-L210), [edges.rs:264-285](../../crates/hark-hotkey/src/edges.rs#L264-L285), [hotkey/lib.rs:236-264](../../crates/hark-hotkey/src/lib.rs#L236-L264)).
+Optional Caps Lock or Scroll Lock suppression is narrowly constrained and Windows-only. It swallows key-down only, requires a multi-key chord with exactly one suppressible lock and no Alt/Win menu modifier, and never swallows injected input. Linux leaves the setting inert because grabbing one evdev key would require grabbing the whole device ([edges.rs](../../crates/hark-hotkey/src/edges.rs), [edges.rs](../../crates/hark-hotkey/src/edges.rs), [hotkey/lib.rs](../../crates/hark-hotkey/src/lib.rs)).
+The desktop app uses `spawn_shared_listener` to share one Windows hook between dictation and the optional meeting toggle. The pure `ShortcutTracker` holds two existing chord trackers: it preserves all dictation edges and emits a meeting event only for a physical `Down` edge. Injected events and repeats remain filtered; release recovery never creates a toggle. The watchdog stays armed while either chord is engaged. Shortcut recording bypasses both trackers. Meeting keys are always observed, and dictation lock-key suppression is disabled when no dictation worker exists ([router and fixtures](../../crates/hark-hotkey/src/shortcuts.rs), [hook](../../crates/hark-hotkey/src/hook_win.rs), [app ownership](../../crates/hark-app/src/pipeline.rs)).
+
+Linux continues using its existing evdev dictation listener through the shared entry point; it emits no meeting toggles. macOS remains unsupported at the hook seam ([platform dispatch](../../crates/hark-hotkey/src/lib.rs)).
 <!-- END:AUTOGEN hark_06_audio_capture_hotkey -->
 
 ---
@@ -92,14 +95,14 @@ Optional Caps Lock or Scroll Lock suppression is narrowly constrained and Window
 <!-- BEGIN:AUTOGEN hark_06_audio_capture_edges -->
 ## Chord Edge Detection
 
-`ChordTracker` emits `Down` once when every configured member is held and `Up` when the first member is released. Duplicate downs, repeats, and stray releases do not create extra dictations ([edges.rs:222-369](../../crates/hark-hotkey/src/edges.rs#L222-L369)).
+`ChordTracker` emits `Down` once when every configured member is held and `Up` when the first member is released. Duplicate downs, repeats, and stray releases do not create extra dictations ([edges.rs](../../crates/hark-hotkey/src/edges.rs)).
 
 Two recovery signals cover hook interference:
 
 - `UpMissed` is synthesized when periodic physical-state reconciliation finds the chord released even though no release callback arrived. The pipeline abandons an overlong unknown-release recording instead of injecting room audio.
-- `Intercepted(key)` is emitted once when auto-repeat proves a key is held but the OS says it is up, evidence that another hook swallowed the press. The chord keeps working, while the UI surfaces an advisory warning ([edges.rs:161-180](../../crates/hark-hotkey/src/edges.rs#L161-L180), [edges.rs:372-460](../../crates/hark-hotkey/src/edges.rs#L372-L460)).
+- `Intercepted(key)` is emitted once when auto-repeat proves a key is held but the OS says it is up, evidence that another hook swallowed the press. The chord keeps working, while the UI surfaces an advisory warning ([edges.rs](../../crates/hark-hotkey/src/edges.rs), [edges.rs](../../crates/hark-hotkey/src/edges.rs)).
 
-Fresh hook evidence outranks a contradictory key-state read for 1.5 seconds, long enough to cover the slowest configured keyboard repeat delay without turning interception into false releases ([edges.rs:213-220](../../crates/hark-hotkey/src/edges.rs#L213-L220)).
+Fresh hook evidence outranks a contradictory key-state read for 1.5 seconds, long enough to cover the slowest configured keyboard repeat delay without turning interception into false releases ([edges.rs](../../crates/hark-hotkey/src/edges.rs)).
 <!-- END:AUTOGEN hark_06_audio_capture_edges -->
 
 ---

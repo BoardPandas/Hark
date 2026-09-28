@@ -37,7 +37,10 @@ use thiserror::Error;
 ///
 /// Bumped to 3 in 0.50.3, when the meeting auto-stop default fell from 60 s to
 /// 15 s (see [`meeting::migrate`]).
-pub const CONFIG_VERSION: u32 = 3;
+/// Schema 4 adds the optional meeting toggle (unbound for existing users).
+/// Uses an additive default, with the same versioned backup and immediate
+/// persistence as earlier migrations.
+pub const CONFIG_VERSION: u32 = 4;
 
 #[derive(Debug, Error)]
 pub enum ConfigError {
@@ -647,6 +650,24 @@ impl Settings {
         })
     }
 
+    /// Validate the optional meeting binding against push-to-talk. Exposed
+    /// for immediate settings feedback and hand-built runtime settings.
+    pub fn validate_meeting_shortcut(&self) -> Result<(), ConfigError> {
+        let Some(meeting) = self.meeting.toggle_key.as_deref() else {
+            return Ok(());
+        };
+        let meeting = hark_hotkey::PttChord::parse(meeting)
+            .map_err(|e| ConfigError::Invalid(format!("meeting.toggle_key: {e}")))?;
+        let ptt = hark_hotkey::PttChord::parse(&self.hotkey.ptt_key)
+            .map_err(|e| ConfigError::Invalid(format!("hotkey.ptt_key: {e}")))?;
+        if meeting.conflicts_with(&ptt) {
+            return Err(ConfigError::Invalid(
+                "meeting.toggle_key conflicts with push-to-talk; neither shortcut may contain all keys of the other".into(),
+            ));
+        }
+        Ok(())
+    }
+
     fn validate(&self) -> Result<(), ConfigError> {
         if self.provider.kind == ProviderKind::OpenaiCompatible && self.provider.base_url.is_none()
         {
@@ -677,6 +698,7 @@ impl Settings {
         }
         voice::validate(&self.voice)?;
         local::validate(&self.local_stt)?;
+        self.validate_meeting_shortcut()?;
         Ok(())
     }
 }

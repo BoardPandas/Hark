@@ -11,7 +11,7 @@ tested on Windows and Linux. **Real-call validation reported by the product owne
 a 20-minute Google Meet call in Chrome** (2026-09-28); the findings and fixes are in §8.
 The 0.50.4 Meet prompt/15-second auto-stop retest remains pending in the handoff.
 Zoom/Webex/GoTo/RingCentral executable names still need live-call validation.
-**Current step:** Polish item 1 was committed and pushed as `c0ae95b` (0.51.0). Windows, Linux, and macOS CI passed (run `36462226486`); tag `v0.51.0` was pushed and its release workflow started. Release completion is not yet confirmed. Item 2 is implemented in the isolated 0.52.0 registry-notification review snapshot; items 3–6 remain outside this snapshot. The product owner authorized committing, pushing, and tagging all six on 2026-09-28; the parent task owns those actions after each snapshot passes its checks. Item 2 scope: [intent](../intent/meeting-detection-lags/intent.md) and [specification](../intent/meeting-detection-lags/spec.md).
+**Current step:** Polish item 1 is committed at `c0ae95b` (0.51.0), and item 2 at `713434de` (0.52.0), both pushed. Item 3 is implemented in the isolated 0.53.0 shared meeting-shortcut snapshot; items 4–6 remain outside this snapshot. The product owner authorized commit, push, and tag actions for all six; the parent task owns those operations. Item 3 scope: [intent](../intent/meeting-controls-need-a-shortcut/intent.md) and [specification](../intent/meeting-controls-need-a-shortcut/spec.md).
 
 CI on `9a61d11` passed on Windows, Linux, and macOS on 2026-09-28;
 that compile/test result does not establish native call behavior.
@@ -729,3 +729,10 @@ Not scheduled. The §4.1 notes are kept so it can be picked up later without re-
 - A registry watcher must rearm before handing off its notification. Debounce and auto-stop still need independent deadlines and fresh snapshots, because no new registry write is guaranteed when the interval ends.
 - Browser title changes do not necessarily change ConsentStore, so notification-driven detection keeps a timed backstop.
 - A worker that owns a command-channel sender prevents disconnection-based shutdown. Send an explicit shutdown command and retire the watcher before waiting for coordinator completion.
+
+
+**Learned while preparing the shared meeting shortcut (2026-09-28, 0.53.0 snapshot):**
+
+- Owning the hook inside successful dictation startup would make meeting controls depend on a dictation key. Keep the listener in the app and route dictation and meeting events independently.
+- Conflict checks compare key sets in both subset directions. Chords sharing a modifier are valid when neither contains the other's complete set; ordering and repeated key names cannot evade validation.
+- The schema-4 snapshot adds only an optional unassigned chord. Migration backs up and rewrites the file while preserving final-pass choice and explicit auto-stop values; later provider fields belong to their own schema change.

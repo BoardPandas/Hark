@@ -24,8 +24,9 @@
 //!   (`watchdog_tick`).
 
 use crate::capture::{CaptureEvent, HeldScan};
-use crate::edges::{ChordTracker, PttChord, PttEvent};
+use crate::edges::{PttChord, PttEvent};
 use crate::keycode::PttKeyCode;
+use crate::shortcuts::{ShortcutEvent, ShortcutTracker};
 use crate::{CaptureTap, HotkeyError, ListenerHandle};
 use std::cell::{Cell, RefCell};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -324,8 +325,8 @@ enum HookState {
     /// unless the settings recorder has armed the tap, in which case the raw
     /// edge goes there instead and the tracker never sees it.
     Ptt {
-        tracker: ChordTracker,
-        tx: Sender<PttEvent>,
+        tracker: ShortcutTracker,
+        tx: EventSink,
         /// Published once, immediately after the hook installs. A `OnceLock`
         /// rather than a plain `Arc` only because the tap needs the hook
         /// thread's liveness flag, which does not exist until the thread does.
@@ -333,6 +334,23 @@ enum HookState {
     },
     /// Recording: forward every non-injected chord-capable key edge.
     Capture { tx: Sender<CaptureEvent> },
+}
+
+enum EventSink {
+    Dictation(Sender<PttEvent>),
+    Shared(Sender<ShortcutEvent>),
+}
+
+impl EventSink {
+    fn disconnected_after(&self, event: ShortcutEvent) -> bool {
+        match self {
+            Self::Dictation(tx) => match event {
+                ShortcutEvent::Dictation(event) => tx.send(event).is_err(),
+                ShortcutEvent::MeetingToggle => false,
+            },
+            Self::Shared(tx) => tx.send(event).is_err(),
+        }
+    }
 }
 
 /// Clears the handle's liveness flag on the way out of the hook thread,
@@ -377,19 +395,17 @@ fn set_watchdog(armed: bool) {
 /// while a chord is engaged.
 fn watchdog_tick() {
     let mut disconnected = false;
-    let mut healed = false;
+    let mut engaged = false;
     HOOK_STATE.with(|state| {
         if let Some(HookState::Ptt { tracker, tx, .. }) = state.borrow_mut().as_mut() {
-            if let Some(event) = tracker.resync_released(physically_down, Instant::now()) {
+            if let Some(event) = tracker.resync(physically_down, Instant::now()) {
                 log::warn!("push-to-talk release never arrived; ending the recording");
-                disconnected = tx.send(event).is_err();
-                healed = true;
+                disconnected = tx.disconnected_after(event);
             }
+            engaged = tracker.engaged();
         }
     });
-    if healed {
-        set_watchdog(false);
-    }
+    set_watchdog(engaged);
     if disconnected {
         // Same contract as the hook callback: no receiver, no reason to hook.
         unsafe { PostQuitMessage(0) };
@@ -425,7 +441,7 @@ unsafe extern "system" fn keyboard_hook(code: i32, wparam: WPARAM, lparam: LPARA
                             // Asked AFTER the tracker consumes the event, so
                             // the engage edge itself can be swallowed. Reads
                             // only tracker state; see ChordTracker::swallow.
-                            let event = tracker.on_event_verified(
+                            let events = tracker.on_event(
                                 key,
                                 down,
                                 injected,
@@ -433,19 +449,14 @@ unsafe extern "system" fn keyboard_hook(code: i32, wparam: WPARAM, lparam: LPARA
                                 Instant::now(),
                             );
                             swallow = tracker.swallow(key, down, injected);
-                            match event {
-                                Some(event) => {
-                                    // The watchdog exists only for the span of
-                                    // a hold: armed on engage, disarmed on the
-                                    // release that ends it. An interception
-                                    // report arrives mid-hold and is no edge.
-                                    if !matches!(event, PttEvent::Intercepted(_)) {
-                                        set_watchdog(event == PttEvent::Down);
-                                    }
-                                    tx.send(event).is_err()
-                                }
-                                None => false,
-                            }
+                            // Either hold needs the same release watchdog.
+                            // Releasing dictation must not strand a held
+                            // meeting chord (or vice versa).
+                            set_watchdog(tracker.engaged());
+                            events
+                                .into_iter()
+                                .flatten()
+                                .any(|event| tx.disconnected_after(event))
                         }
                         HookState::Capture { tx } => {
                             // Injected input (our own synthesized Ctrl+V) must
@@ -516,6 +527,24 @@ pub(crate) fn spawn_listener(
     swallow_locks: bool,
     tx: Sender<PttEvent>,
 ) -> Result<ListenerHandle, HotkeyError> {
+    spawn_routed(chord, swallow_locks, None, EventSink::Dictation(tx))
+}
+
+pub(crate) fn spawn_shared_listener(
+    chord: PttChord,
+    swallow_locks: bool,
+    meeting: Option<PttChord>,
+    tx: Sender<ShortcutEvent>,
+) -> Result<ListenerHandle, HotkeyError> {
+    spawn_routed(chord, swallow_locks, meeting, EventSink::Shared(tx))
+}
+
+fn spawn_routed(
+    chord: PttChord,
+    swallow_locks: bool,
+    meeting: Option<PttChord>,
+    tx: EventSink,
+) -> Result<ListenerHandle, HotkeyError> {
     let (capture_tx, capture_rx) = mpsc::channel();
     // The tap needs the hook thread's liveness flag, and the flag is created
     // inside spawn_hook, so the tap is built from the handle afterwards and
@@ -524,7 +553,7 @@ pub(crate) fn spawn_listener(
     let mut handle = spawn_hook(
         "hark-hotkey",
         HookState::Ptt {
-            tracker: ChordTracker::with_lock_suppression(chord, swallow_locks),
+            tracker: ShortcutTracker::new(chord, swallow_locks, meeting),
             tx,
             tap: shared.clone(),
         },

@@ -11,6 +11,7 @@ pub mod capture;
 pub mod edges;
 pub mod keycode;
 pub mod known;
+mod shortcuts;
 
 #[cfg(windows)]
 mod hook_win;
@@ -22,6 +23,7 @@ pub use capture::{CaptureBuffer, CaptureEvent, HeldScan, Rejected};
 pub use edges::{pretty_chord, ChordParseError, ChordTracker, PttChord, PttEvent};
 pub use keycode::{KeyClass, PttKeyCode, ALL_KEYS};
 pub use known::{KnownShortcut, Tier};
+pub use shortcuts::ShortcutEvent;
 
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc::{Receiver, Sender};
@@ -34,6 +36,8 @@ pub enum HotkeyError {
     Chord(#[from] ChordParseError),
     #[error("cannot install the keyboard hook: {0}")]
     Install(String),
+    #[error("meeting shortcut conflicts with push-to-talk; neither chord may contain all keys of the other")]
+    ConflictingChords,
     #[error("push-to-talk is not implemented for this platform yet")]
     UnsupportedPlatform,
 }
@@ -260,6 +264,42 @@ pub fn spawn_listener(
         // CGEventTap arrives in checkpoint 7 (NEEDS MAC).
         let _ = (chord, swallow_locks, tx);
         Err(HotkeyError::UnsupportedPlatform)
+    }
+}
+
+/// One native listener for dictation and the optional meeting toggle. The
+/// caller owns routing, so an unavailable dictation provider cannot disable
+/// meeting shortcuts. Meeting capture is Windows-only; other platforms keep
+/// their existing dictation listener and never emit meeting toggles.
+pub fn spawn_shared_listener(
+    chord: PttChord,
+    swallow_locks: bool,
+    meeting: Option<PttChord>,
+    tx: Sender<ShortcutEvent>,
+) -> Result<ListenerHandle, HotkeyError> {
+    if meeting.as_ref().is_some_and(|m| chord.conflicts_with(m)) {
+        return Err(HotkeyError::ConflictingChords);
+    }
+    #[cfg(windows)]
+    {
+        hook_win::spawn_shared_listener(chord, swallow_locks, meeting, tx)
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = meeting;
+        let (ptt_tx, ptt_rx) = std::sync::mpsc::channel();
+        let listener = spawn_listener(chord, swallow_locks, ptt_tx)?;
+        std::thread::Builder::new()
+            .name("hark-hotkey-route".into())
+            .spawn(move || {
+                for event in ptt_rx {
+                    if tx.send(ShortcutEvent::Dictation(event)).is_err() {
+                        break;
+                    }
+                }
+            })
+            .map_err(|e| HotkeyError::Install(format!("cannot route shortcuts: {e}")))?;
+        Ok(listener)
     }
 }
 

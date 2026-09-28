@@ -1,5 +1,12 @@
 # Generation Metadata
 
+## Scoped meeting shortcut update — 2026-09-28 (0.53.0)
+
+- **Source reviewed:** `713434de` plus only Polish item 3, shared shortcut routing and config schema 4.
+- **Scope:** Windows meeting shortcut setup, shared listener ownership, pure router invariants, migration/validation, and related source citations. Storage, Spellbook, and Voice Cleanup received citation-only updates where their shared source files shifted. No Gemini enum/model/schema-5 setting is included.
+- **Baseline policy:** global baseline and `_toc.yaml` ref remain unchanged. The new pure router is mapped; source citations affected by shifted lines link to current files.
+- **Validation:** independent snapshot gate results are recorded in `SUMMARY.md`.
+
 ## Scoped registry-driven detection update — 2026-09-28 (0.52.0)
 
 - **Source reviewed:** `c0ae95b` plus only Polish item 2, registry notifications and deadline scheduling.

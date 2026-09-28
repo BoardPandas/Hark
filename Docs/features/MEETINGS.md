@@ -69,6 +69,13 @@ graph TD
 ```
 
 One `SessionState` machine per meeting — `Idle -> Recording -> Finalizing -> Summarizing -> Done | Failed` — governs a single meeting's lifecycle. It is deliberately separate from `hark-pipeline::state`'s one-shot press/release machine: a meeting is long-lived, and back-to-back meetings mean an old machine can still be summarizing while a new one starts recording ([session.rs:1-30](../../crates/hark-meeting/src/session.rs#L1-L30)). `advance` is total, so a stray or duplicate event (an auto-stop racing a manual stop, for example) is inert rather than a panic ([session.rs:88-122](../../crates/hark-meeting/src/session.rs#L88-L122)). A failed or skipped final pass or summary is *not* a `Failure`: the meeting keeps whatever it has (the live transcript, or the transcript without notes) and `Failed` is reserved for "nothing to keep" ([session.rs:32-42](../../crates/hark-meeting/src/session.rs#L32-L42)).
+### Start / Stop Shortcut
+
+On Windows, set **Start / stop shortcut** in Settings → Meetings to a `+`-separated chord, for example `LCtrl+F11`. Blank or **Clear** leaves it unassigned. Press once to start a manual meeting and again to stop; manual capture scope and call-adoption behavior apply. The shortcut is inactive when Meetings is disabled or unsupported, and does not depend on a dictation provider key ([settings UI](../../crates/hark-app/src/ui/settings/meetings.rs), [app routing](../../crates/hark-app/src/pipeline.rs), [coordinator toggle](../../crates/hark-pipeline/src/meeting/coordinator.rs)).
+
+The one Windows keyboard hook feeds both chords. Meeting toggles fire only on a physical engage edge; release, repeat, injected input, and release-recovery polling do not toggle. Equal chords and either-direction subsets are rejected regardless of key order, while distinct chords may share modifiers. The meeting chord always observes keys; the existing narrow lock-key suppression belongs only to active dictation. Recording a new dictation shortcut bypasses both trackers ([shortcut router and fixtures](../../crates/hark-hotkey/src/shortcuts.rs), [Windows hook](../../crates/hark-hotkey/src/hook_win.rs)).
+
+Config schema 4 adds optional `[meeting] toggle_key`, defaulting to no binding. Loading a v3 file backs up the original before saving v4, preserving explicit provider choices and auto-stop values. See [Configuration](../core/CONFIGURATION.md#meeting-shortcut-migration) for validation and migration details.
 <!-- END:AUTOGEN hark_15_meetings_overview -->
 
 ---
@@ -203,7 +210,7 @@ Content hygiene matches the dictation-history rule: nothing that carries meeting
 - **The Deepgram final-pass key is independent of the dictation provider.** It lives under keychain account `deepgram` regardless of what STT provider dictation uses, so a Gemini-for-dictation user can still get Deepgram speaker labels for meetings, and vice versa.
 - **`hark-meeting` is pure by construction**, with exactly two fenced exceptions: `storage_fs.rs` (measure and delete meeting audio) and `probe_win.rs` with its `probe_watch_win.rs` worker (read who holds the microphone and notify changes). Every decision — the session machine, the chunker's cut points, the merge order, the detector's verdicts, the eviction plan, the export rendering — is tested on fixtures with no I/O, no threads, and no wall-clock time; offsets are 16 kHz sample counts throughout.
 - **Finishing survives a quit or a crash.** A `.finishing` marker is written into a meeting's folder when it starts and removed only after its results (final pass, notes, archive) are sent. At startup the coordinator finishes any meeting whose folder still has it, so quitting mid-call or during a 15-minute final pass costs a re-run, never the results ([finish.rs:26-31](../../crates/hark-pipeline/src/meeting/finish.rs#L26-L31), [coordinator.rs](../../crates/hark-pipeline/src/meeting/coordinator.rs)). Without the live transcript at that point, notes are written only when the final pass produces a transcript.
-- **Meeting mode never touches the push-to-talk pipeline.** Its own capture streams, its own state machine, its own worker threads. A dictation and a meeting can be live at the same time with no shared state.
+- **Meetings keeps separate capture and processing.** Dictation and meetings share one Windows keyboard listener and a lightweight dispatcher, while their recording buffers, state machines, and processing workers remain independent. A missing or busy dictation worker does not prevent a meeting toggle.
 <!-- END:AUTOGEN hark_15_meetings_operational -->
 
 ---

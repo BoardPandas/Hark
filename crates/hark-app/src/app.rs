@@ -519,6 +519,9 @@ impl eframe::App for HarkApp {
         self.pipeline.drain_events();
         self.meetings.drain_events();
         self.sync_meeting_settings(ctx);
+        for _ in 0..self.pipeline.drain_meeting_toggles() {
+            self.meetings.toggle();
+        }
         self.show_meeting_prompt(ctx);
         self.views.settings.poll();
         self.updater.poll();

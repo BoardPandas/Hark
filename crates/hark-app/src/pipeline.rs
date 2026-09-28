@@ -40,7 +40,11 @@ pub enum PipelineStatus {
 
 /// Owns the `PipelineHandle` and the UI-side end of the event stream.
 pub struct PipelineController {
+    // The app owns the one hook independently of dictation startup. Keep it
+    // before the worker handle so implicit destruction also closes input first.
+    listener: Option<hark_hotkey::ListenerHandle>,
     handle: Option<PipelineHandle>,
+    meeting_toggles: Option<Receiver<()>>,
     events: Option<Receiver<PipelineEvent>>,
     status: PipelineStatus,
     /// Successful dictations this app session (survives restarts; the Get
@@ -68,7 +72,9 @@ pub struct PipelineController {
 impl PipelineController {
     pub fn new(storage: Option<Sender<StorageCmd>>) -> Self {
         PipelineController {
+            listener: None,
             handle: None,
+            meeting_toggles: None,
             events: None,
             status: PipelineStatus::Stopped {
                 detail: "Not started".to_string(),
@@ -121,6 +127,45 @@ impl PipelineController {
     /// running with a visible cause in the footer.
     pub fn start(&mut self, settings: &Settings, ctx: &egui::Context) {
         self.stop();
+        if let Err(e) = self.start_shared(settings, ctx) {
+            self.mark_stopped(e);
+        }
+    }
+
+    fn start_shared(&mut self, settings: &Settings, ctx: &egui::Context) -> Result<(), String> {
+        settings
+            .validate_meeting_shortcut()
+            .map_err(|e| e.to_string())?;
+        let chord =
+            hark_hotkey::PttChord::parse(&settings.hotkey.ptt_key).map_err(|e| e.to_string())?;
+        let meeting = meeting_chord(settings)?;
+        let (input_tx, input_rx) = mpsc::channel();
+        self.start_worker(settings, ctx, input_rx);
+        let (shortcut_tx, shortcut_rx) = mpsc::channel();
+        self.listener = Some(
+            hark_hotkey::spawn_shared_listener(
+                chord,
+                // No dictation worker means no visible recording to justify
+                // suppressing its lock key. The meeting chord always observes.
+                settings.hotkey.swallow_lock_keys && self.handle.is_some(),
+                meeting,
+                shortcut_tx,
+            )
+            .map_err(|e| e.to_string())?,
+        );
+        self.meeting_toggles = Some(
+            spawn_shortcut_pump(shortcut_rx, input_tx, ctx.clone())
+                .map_err(|e| format!("Cannot route keyboard shortcuts: {e}"))?,
+        );
+        Ok(())
+    }
+
+    fn start_worker(
+        &mut self,
+        settings: &Settings,
+        ctx: &egui::Context,
+        input: Receiver<hark_hotkey::PttEvent>,
+    ) {
         // Every (re)start is a policy application point: retention changed
         // in a save takes effect now, and app startup prunes old entries
         // before the first dictation.
@@ -144,7 +189,7 @@ impl PipelineController {
             }
         };
         let (tx, rx) = mpsc::channel();
-        match hark_pipeline::run(settings, api_key, tx) {
+        match hark_pipeline::run_with_input(settings, api_key, tx, input) {
             Ok(handle) => {
                 // The record policy travels with this pipeline run: settings
                 // changes restart the pipeline, so the pump never needs a
@@ -175,21 +220,20 @@ impl PipelineController {
         }
     }
 
-    /// Arm the listener's capture tap for the settings recorder. `None` when
-    /// the pipeline is stopped (no hook exists to tap); the caller then falls
-    /// back to installing a hook of its own.
+    /// The tap remains available when dictation lacks a provider key. It
+    /// bypasses both shortcuts on the same hook while the recorder is armed.
     pub fn arm_capture(&self) -> Option<Arc<hark_hotkey::CaptureTap>> {
-        self.handle.as_ref()?.arm_capture()
+        self.listener.as_ref()?.arm_capture()
     }
 
     pub fn disarm_capture(&self) {
-        if let Some(handle) = self.handle.as_ref() {
+        if let Some(handle) = self.listener.as_ref() {
             handle.disarm_capture();
         }
     }
 
     pub fn drain_capture(&self, f: impl FnMut(hark_hotkey::CaptureEvent)) {
-        if let Some(handle) = self.handle.as_ref() {
+        if let Some(handle) = self.listener.as_ref() {
             handle.drain_capture(f);
         }
     }
@@ -200,11 +244,21 @@ impl PipelineController {
         if let Some(feedback) = self.feedback.take() {
             feedback.disable();
         }
+        // The router releases its worker sender after the native listener
+        // closes. A meeting lane can never keep dictation shutdown waiting.
+        self.listener = None;
+        self.meeting_toggles = None;
         self.handle = None;
         self.events = None;
         self.level = None;
         self.recording = None;
         self.shortcut_warning = None;
+    }
+
+    pub fn drain_meeting_toggles(&self) -> usize {
+        self.meeting_toggles
+            .as_ref()
+            .map_or(0, |rx| rx.try_iter().count())
     }
 
     /// Stop (if running) and surface a non-key cause in the footer, e.g. a
@@ -242,6 +296,47 @@ impl PipelineController {
             self.status = next;
         }
     }
+}
+
+fn meeting_chord(settings: &Settings) -> Result<Option<hark_hotkey::PttChord>, String> {
+    if !settings.meeting.enabled || !hark_pipeline::meeting::meetings_supported() {
+        return Ok(None);
+    }
+    settings
+        .meeting
+        .toggle_key
+        .as_deref()
+        .map(hark_hotkey::PttChord::parse)
+        .transpose()
+        .map_err(|e| e.to_string())
+}
+
+/// Dispatch outside the hook. A missing/busy dictation worker has no effect
+/// on meeting toggles; each toggle wakes the root UI even while it is hidden.
+fn spawn_shortcut_pump(
+    rx: Receiver<hark_hotkey::ShortcutEvent>,
+    dictation: Sender<hark_hotkey::PttEvent>,
+    ctx: egui::Context,
+) -> std::io::Result<Receiver<()>> {
+    let (meetings, ui_rx) = mpsc::channel();
+    std::thread::Builder::new()
+        .name("hark-shortcut-dispatch".into())
+        .spawn(move || {
+            for event in rx {
+                match event {
+                    hark_hotkey::ShortcutEvent::Dictation(event) => {
+                        let _ = dictation.send(event);
+                    }
+                    hark_hotkey::ShortcutEvent::MeetingToggle => {
+                        if meetings.send(()).is_err() {
+                            break;
+                        }
+                        crate::app::wake_ui(&ctx);
+                    }
+                }
+            }
+        })?;
+    Ok(ui_rx)
 }
 
 /// Variant name only: the detail strings belong to the UI, and the pipeline
@@ -342,6 +437,52 @@ fn spawn_repaint_pump(
 mod tests {
     use super::*;
     use hark_pipeline::DictationRecord;
+
+    #[test]
+    fn meeting_toggles_survive_an_absent_dictation_worker() {
+        use hark_hotkey::{PttEvent, ShortcutEvent};
+        let (tx, rx) = mpsc::channel();
+        let (ptt_tx, ptt_rx) = mpsc::channel();
+        drop(ptt_rx); // Missing provider key: no dictation worker exists.
+        let meetings = spawn_shortcut_pump(rx, ptt_tx, egui::Context::default()).unwrap();
+        tx.send(ShortcutEvent::Dictation(PttEvent::Down)).unwrap();
+        tx.send(ShortcutEvent::MeetingToggle).unwrap();
+        tx.send(ShortcutEvent::Dictation(PttEvent::Up)).unwrap();
+        tx.send(ShortcutEvent::MeetingToggle).unwrap();
+        drop(tx);
+        assert_eq!(meetings.iter().count(), 2);
+    }
+
+    #[test]
+    fn meeting_toggle_never_waits_for_dictation_to_drain_its_input() {
+        use hark_hotkey::{PttEvent, ShortcutEvent};
+        let (tx, rx) = mpsc::channel();
+        let (ptt_tx, ptt_rx) = mpsc::channel();
+        let meetings = spawn_shortcut_pump(rx, ptt_tx, egui::Context::default()).unwrap();
+        tx.send(ShortcutEvent::Dictation(PttEvent::Down)).unwrap();
+        tx.send(ShortcutEvent::MeetingToggle).unwrap();
+        meetings
+            .recv_timeout(std::time::Duration::from_secs(1))
+            .unwrap();
+        assert_eq!(ptt_rx.try_recv(), Ok(PttEvent::Down));
+        drop(tx);
+        assert_eq!(
+            ptt_rx.recv_timeout(std::time::Duration::from_secs(1)),
+            Err(mpsc::RecvTimeoutError::Disconnected)
+        );
+    }
+
+    #[test]
+    fn disabled_meetings_never_bind_a_shortcut() {
+        let mut settings = Settings::default();
+        settings.meeting.enabled = false;
+        settings.meeting.toggle_key = Some("LCtrl+F11".into());
+        assert_eq!(meeting_chord(&settings).unwrap(), None);
+        if !hark_pipeline::meeting::meetings_supported() {
+            settings.meeting.enabled = true;
+            assert_eq!(meeting_chord(&settings).unwrap(), None);
+        }
+    }
 
     fn record() -> DictationRecord {
         DictationRecord {

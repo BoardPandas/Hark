@@ -172,6 +172,12 @@ impl MeetingController {
         }
     }
 
+    pub fn toggle(&self) {
+        if let Some(handle) = &self.handle {
+            handle.toggle();
+        }
+    }
+
     /// The user answered the detection prompt.
     pub fn answer(&mut self, answer: Answer) {
         self.prompt = None;

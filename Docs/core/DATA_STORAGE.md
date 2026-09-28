@@ -13,9 +13,9 @@ The following files were used as evidence for this page:
 - [crates/hark-store/tests/store.rs:1-465](../../crates/hark-store/tests/store.rs#L1-L465)
 - [crates/hark-app/src/storage/mod.rs:1-249](../../crates/hark-app/src/storage/mod.rs#L1-L249)
 - [crates/hark-app/src/storage/meetings.rs](../../crates/hark-app/src/storage/meetings.rs)
-- [crates/hark-app/src/app.rs:488-506](../../crates/hark-app/src/app.rs#L488-L506)
-- [crates/hark-config/src/lib.rs:381-405](../../crates/hark-config/src/lib.rs#L381-L405)
-- [crates/hark-config/src/lib.rs:727-756](../../crates/hark-config/src/lib.rs#L727-L756)
+- [crates/hark-app/src/app.rs](../../crates/hark-app/src/app.rs)
+- [crates/hark-config/src/lib.rs](../../crates/hark-config/src/lib.rs)
+- [crates/hark-config/src/lib.rs](../../crates/hark-config/src/lib.rs)
 - [crates/hark-pipeline/src/events.rs:6-40](../../crates/hark-pipeline/src/events.rs#L6-L40)
 
 </details>
@@ -41,9 +41,9 @@ The same database also holds meeting transcripts and notes (migration 004; see [
 | macOS | `~/Library/Application Support/hark` |
 | Linux | `$XDG_DATA_HOME/hark` when that variable is absolute; otherwise `~/.local/share/hark` |
 
-The platform resolution lives in `default_data_dir`; if no OS data directory can be resolved, startup disables history and stats for that session without disabling dictation ([lib.rs:718-747](../../crates/hark-config/src/lib.rs#L718-L747), [app.rs:396-416](../../crates/hark-app/src/app.rs#L396-L416)).
+The platform resolution lives in `default_data_dir`; if no OS data directory can be resolved, startup disables history and stats for that session without disabling dictation ([lib.rs](../../crates/hark-config/src/lib.rs), [app.rs](../../crates/hark-app/src/app.rs)).
 
-Sources: [crates/hark-store/src/lib.rs:1-15](../../crates/hark-store/src/lib.rs#L1-L15), [crates/hark-store/src/lib.rs:116-168](../../crates/hark-store/src/lib.rs#L116-L168), [crates/hark-config/src/lib.rs:718-747](../../crates/hark-config/src/lib.rs#L718-L747), [crates/hark-app/src/app.rs:396-416](../../crates/hark-app/src/app.rs#L396-L416)
+Sources: [crates/hark-store/src/lib.rs:1-15](../../crates/hark-store/src/lib.rs#L1-L15), [crates/hark-store/src/lib.rs:116-168](../../crates/hark-store/src/lib.rs#L116-L168), [crates/hark-config/src/lib.rs](../../crates/hark-config/src/lib.rs), [crates/hark-app/src/app.rs](../../crates/hark-app/src/app.rs)
 <!-- END:AUTOGEN hark_05_data_storage_overview -->
 
 ---
@@ -136,7 +136,7 @@ Sources: [crates/hark-store/src/lib.rs:88-100](../../crates/hark-store/src/lib.r
 <!-- BEGIN:AUTOGEN hark_05_data_storage_retention -->
 ## Retention and Pruning
 
-`Retention` combines `max_entries` and `max_age_days`; configuration validation requires both to be at least one, while the store simply executes the supplied policy. Defaults are 1,000 entries and 90 days ([lib.rs:102-110](../../crates/hark-store/src/lib.rs#L102-L110), [lib.rs:379-403](../../crates/hark-config/src/lib.rs#L379-L403)).
+`Retention` combines `max_entries` and `max_age_days`; configuration validation requires both to be at least one, while the store simply executes the supplied policy. Defaults are 1,000 entries and 90 days ([lib.rs:102-110](../../crates/hark-store/src/lib.rs#L102-L110), [lib.rs](../../crates/hark-config/src/lib.rs)).
 
 `Store::prune` applies both rules in one transaction:
 

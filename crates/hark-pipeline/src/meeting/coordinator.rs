@@ -31,6 +31,7 @@ const SHUTDOWN_GRACE: Duration = Duration::from_secs(3);
 enum Command {
     StartManual,
     Stop,
+    Toggle,
     Rerun { id: String, audio_ms: u64 },
     Answer(Answer),
     Settings(Box<Settings>),
@@ -55,6 +56,10 @@ impl MeetingHandle {
 
     pub fn stop(&self) {
         self.send(Command::Stop);
+    }
+
+    pub fn toggle(&self) {
+        self.send(Command::Toggle);
     }
 
     /// Explicitly re-run the final pass using the retained meeting audio.
@@ -288,6 +293,15 @@ impl Coordinator {
                     events: self.events.clone(),
                     protected: self.protected.clone(),
                 });
+            }
+            Command::Toggle => {
+                // Decide on this thread's current state, not an asynchronously
+                // repainted UI status. Repeated physical presses serialize.
+                if self.active.is_some() {
+                    self.command(Command::Stop);
+                } else if self.settings.meeting.enabled {
+                    self.start(Trigger::Manual, None);
+                }
             }
             Command::Answer(answer) => {
                 self.detector.answer(answer);

@@ -18,6 +18,7 @@ pub struct MeetingsSettings {
     deepgram: KeySection,
     /// One app id per line, mirrored into `detect_apps`.
     apps: String,
+    toggle_key: String,
     /// On-disk usage, re-measured when the database changes.
     usage: Option<(u64, Vec<StoredAudio>)>,
     confirm: Option<widgets::Confirm>,
@@ -31,6 +32,7 @@ impl MeetingsSettings {
                 hark_pipeline::meeting::DEEPGRAM_ACCOUNT,
             ),
             apps: apps_text(settings),
+            toggle_key: settings.meeting.toggle_key.clone().unwrap_or_default(),
             usage: None,
             confirm: None,
         }
@@ -39,6 +41,7 @@ impl MeetingsSettings {
     /// Re-seed buffers from the saved model (after Discard).
     pub fn reset(&mut self, settings: &Settings) {
         self.apps = apps_text(settings);
+        self.toggle_key = settings.meeting.toggle_key.clone().unwrap_or_default();
     }
 
     pub fn show(
@@ -52,11 +55,48 @@ impl MeetingsSettings {
     ) {
         theme::card(ui, |ui| self.general(ui, draft, mic_devices));
         ui.add_space(theme::SECTION_GAP);
+        theme::card(ui, |ui| self.shortcut(ui, draft));
+        ui.add_space(theme::SECTION_GAP);
         theme::card(ui, |ui| self.detection(ui, draft));
         ui.add_space(theme::SECTION_GAP);
         theme::card(ui, |ui| self.speakers(ui, draft));
         ui.add_space(theme::SECTION_GAP);
         theme::card(ui, |ui| self.storage(ui, draft, saved, meetings, storage));
+    }
+
+    fn shortcut(&mut self, ui: &mut Ui, draft: &mut Settings) {
+        ui.label(RichText::new("Start / stop shortcut").text_style(theme::subheading()));
+        ui.add_enabled_ui(hark_pipeline::meeting::meetings_supported(), |ui| {
+            ui.horizontal(|ui| {
+                if ui
+                    .add(
+                        egui::TextEdit::singleline(&mut self.toggle_key)
+                            .hint_text("Unassigned, e.g. LCtrl+F11")
+                            .desired_width(250.0),
+                    )
+                    .changed()
+                {
+                    draft.meeting.toggle_key = optional_shortcut(&self.toggle_key);
+                }
+                if draft.meeting.toggle_key.is_some() && ui.small_button("Clear").clicked() {
+                    self.toggle_key.clear();
+                    draft.meeting.toggle_key = None;
+                }
+            });
+        });
+        ui.label(RichText::new("Windows: press once to start meeting notes, then again to stop. Leave blank to use the buttons. Use key names such as LCtrl, LAlt, LShift, F11, separated by +.").small().weak());
+        if let Err(error) = draft.validate_meeting_shortcut() {
+            ui.label(RichText::new(error.to_string()).color(theme::danger(ui.visuals())));
+        } else if let Some(chord) = draft
+            .meeting
+            .toggle_key
+            .as_deref()
+            .and_then(|s| hark_hotkey::PttChord::parse(s).ok())
+        {
+            if let Some(why) = chord.rejection() {
+                ui.label(RichText::new(why.message()).color(theme::warning(ui.visuals())));
+            }
+        }
     }
 
     fn general(&mut self, ui: &mut Ui, draft: &mut Settings, mic_devices: &[String]) {
@@ -340,6 +380,11 @@ fn apps_text(settings: &Settings) -> String {
         Some(apps) => apps.join("\n"),
         None => detect::DEFAULT_APPS.join("\n"),
     }
+}
+
+fn optional_shortcut(text: &str) -> Option<String> {
+    let text = text.trim();
+    (!text.is_empty()).then(|| text.to_string())
 }
 
 /// The edited list; `None` when it is exactly the built-in one.
