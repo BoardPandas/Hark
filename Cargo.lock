@@ -1448,6 +1448,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "docx-rs"
+version = "0.4.22"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7fdf00e8af6d0b3e92d4bbf9b76f773d8b84ea80f310324ad16cbdc2e653e02c"
+dependencies = [
+ "base64 0.22.1",
+ "crc32fast",
+ "quick-xml",
+ "serde",
+ "serde_json",
+ "smallvec",
+ "thiserror 2.0.20",
+ "zip 8.6.0",
+]
+
+[[package]]
 name = "downcast-rs"
 version = "1.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2471,8 +2487,9 @@ dependencies = [
 
 [[package]]
 name = "hark-app"
-version = "0.53.1"
+version = "0.54.0"
 dependencies = [
+ "docx-rs",
  "eframe",
  "egui",
  "env_logger",
@@ -2501,7 +2518,7 @@ dependencies = [
 
 [[package]]
 name = "hark-audio"
-version = "0.53.1"
+version = "0.54.0"
 dependencies = [
  "cpal",
  "hound",
@@ -2517,7 +2534,7 @@ dependencies = [
 
 [[package]]
 name = "hark-autostart"
-version = "0.53.1"
+version = "0.54.0"
 dependencies = [
  "hark-config",
  "tempfile",
@@ -2527,7 +2544,7 @@ dependencies = [
 
 [[package]]
 name = "hark-config"
-version = "0.53.1"
+version = "0.54.0"
 dependencies = [
  "hark-hotkey",
  "log",
@@ -2539,7 +2556,7 @@ dependencies = [
 
 [[package]]
 name = "hark-hotkey"
-version = "0.53.1"
+version = "0.54.0"
 dependencies = [
  "evdev",
  "libc",
@@ -2550,7 +2567,7 @@ dependencies = [
 
 [[package]]
 name = "hark-inject"
-version = "0.53.1"
+version = "0.54.0"
 dependencies = [
  "arboard",
  "enigo",
@@ -2561,7 +2578,7 @@ dependencies = [
 
 [[package]]
 name = "hark-keychain"
-version = "0.53.1"
+version = "0.54.0"
 dependencies = [
  "keyring",
  "thiserror 2.0.20",
@@ -2569,7 +2586,7 @@ dependencies = [
 
 [[package]]
 name = "hark-local-stt"
-version = "0.53.1"
+version = "0.54.0"
 dependencies = [
  "hark-config",
  "log",
@@ -2582,7 +2599,7 @@ dependencies = [
 
 [[package]]
 name = "hark-meeting"
-version = "0.53.1"
+version = "0.54.0"
 dependencies = [
  "hark-audio",
  "log",
@@ -2593,7 +2610,7 @@ dependencies = [
 
 [[package]]
 name = "hark-pipeline"
-version = "0.53.1"
+version = "0.54.0"
 dependencies = [
  "hark-audio",
  "hark-config",
@@ -2614,7 +2631,7 @@ dependencies = [
 
 [[package]]
 name = "hark-single-instance"
-version = "0.53.1"
+version = "0.54.0"
 dependencies = [
  "hark-config",
  "libc",
@@ -2625,7 +2642,7 @@ dependencies = [
 
 [[package]]
 name = "hark-spellbook"
-version = "0.53.1"
+version = "0.54.0"
 dependencies = [
  "rphonetic",
  "strsim",
@@ -2633,7 +2650,7 @@ dependencies = [
 
 [[package]]
 name = "hark-store"
-version = "0.53.1"
+version = "0.54.0"
 dependencies = [
  "rusqlite",
  "tempfile",
@@ -2642,7 +2659,7 @@ dependencies = [
 
 [[package]]
 name = "hark-stt"
-version = "0.53.1"
+version = "0.54.0"
 dependencies = [
  "base64 0.23.1",
  "env_logger",
@@ -2660,7 +2677,7 @@ dependencies = [
 
 [[package]]
 name = "hark-update"
-version = "0.53.1"
+version = "0.54.0"
 dependencies = [
  "log",
  "reqwest",
@@ -2673,7 +2690,7 @@ dependencies = [
 
 [[package]]
 name = "hark-voice"
-version = "0.53.1"
+version = "0.54.0"
 dependencies = [
  "hark-stt",
  "log",
@@ -4562,6 +4579,7 @@ version = "0.41.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e660451e55124f798a69a5af3f49ccfbefbd41910eefd25caf2393e1f3473ec1"
 dependencies = [
+ "encoding_rs",
  "memchr",
 ]
 
@@ -5305,7 +5323,7 @@ dependencies = [
  "bzip2 0.4.4",
  "tar",
  "ureq",
- "zip",
+ "zip 2.4.2",
 ]
 
 [[package]]
@@ -6100,6 +6118,12 @@ checksum = "cb30dbbd9036155e74adad6812e9898d03ec374946234fbcebd5dfc7b9187b90"
 dependencies = [
  "rustc-hash 2.1.3",
 ]
+
+[[package]]
+name = "typed-path"
+version = "0.12.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8e28f89b80c87b8fb0cf04ab448d5dd0dd0ade2f8891bae878de66a75a28600e"
 
 [[package]]
 name = "typeid"
@@ -7704,6 +7728,20 @@ dependencies = [
  "zeroize",
  "zopfli",
  "zstd",
+]
+
+[[package]]
+name = "zip"
+version = "8.6.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2d04a6b5381502aa6087c94c669499eb1602eb9c5e8198e534de571f7154809b"
+dependencies = [
+ "crc32fast",
+ "flate2",
+ "indexmap",
+ "memchr",
+ "typed-path",
+ "zopfli",
 ]
 
 [[package]]

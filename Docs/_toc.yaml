@@ -333,6 +333,7 @@ pages:
       - "crates/hark-audio/src/spool.rs"
       - "crates/hark-audio/src/stereo.rs"
       - "crates/hark-audio/src/mp3.rs"
+      - "crates/hark-audio/src/mp3/excerpt.rs"
       - "crates/hark-hotkey/src/lib.rs"
       - "crates/hark-hotkey/src/hook_win.rs"
       - "crates/hark-hotkey/src/hook_linux.rs"
@@ -390,6 +391,7 @@ pages:
           - "crates/hark-audio/src/spool.rs"
           - "crates/hark-audio/src/stereo.rs"
           - "crates/hark-audio/src/mp3.rs"
+          - "crates/hark-audio/src/mp3/excerpt.rs"
         diagrams_needed: false
         diagram_types: []
       - id: hark_06_audio_capture_notes
@@ -1004,6 +1006,7 @@ pages:
       - "crates/hark-meeting/src/storage.rs"
       - "crates/hark-meeting/src/storage_fs.rs"
       - "crates/hark-meeting/src/export.rs"
+      - "crates/hark-meeting/src/export/subtitles.rs"
       - "crates/hark-pipeline/src/meeting/mod.rs"
       - "crates/hark-pipeline/src/meeting/coordinator.rs"
       - "crates/hark-pipeline/src/meeting/recorder.rs"
@@ -1021,6 +1024,10 @@ pages:
       - "crates/hark-app/src/ui/meetings/mod.rs"
       - "crates/hark-app/src/ui/meetings/detail.rs"
       - "crates/hark-app/src/ui/meetings/share.rs"
+      - "crates/hark-app/src/ui/meetings/share/excerpt.rs"
+      - "crates/hark-app/src/ui/meetings/share/files.rs"
+      - "crates/hark-app/src/ui/meetings/share/native.rs"
+      - "crates/hark-app/src/ui/meetings/share/word.rs"
       - "crates/hark-app/src/ui/settings/meetings.rs"
     sections:
       - id: hark_15_meetings_overview
@@ -1091,7 +1098,12 @@ pages:
         autogen: true
         source_files:
           - "crates/hark-meeting/src/export.rs"
+          - "crates/hark-meeting/src/export/subtitles.rs"
           - "crates/hark-app/src/ui/meetings/share.rs"
+          - "crates/hark-app/src/ui/meetings/share/excerpt.rs"
+          - "crates/hark-app/src/ui/meetings/share/files.rs"
+          - "crates/hark-app/src/ui/meetings/share/native.rs"
+          - "crates/hark-app/src/ui/meetings/share/word.rs"
           - "crates/hark-audio/src/mp3.rs"
         diagrams_needed: false
         diagram_types: []

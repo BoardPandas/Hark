@@ -1,5 +1,12 @@
 # Generation Metadata
 
+## Scoped meeting exports update — 2026-09-28 (0.54.0)
+
+- **Source reviewed:** `6ee98fbe` (including the Windows hook ownership fix) plus only Polish item 4: subtitle timing, excerpts, Word export, and Windows text sharing.
+- **Scope:** README/setup, overview, glossary, Meetings, audio capture, and desktop UI. The new export/encoding/share modules are mapped; changed-source citations use file links. Config schema remains 4; later Gemini speaker labels are excluded.
+- **Baseline policy:** global baseline and `_toc.yaml` ref remain unchanged.
+- **Validation:** independent snapshot and native harness results are recorded in `SUMMARY.md`.
+
 ## Scoped Windows shortcut build fix — 2026-09-28 (0.53.1)
 
 - **Source reviewed:** `287df97` plus the tracker ownership fix discovered by Windows CI run `36464405873`.

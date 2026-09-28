@@ -414,3 +414,12 @@ failures**. This is a layout/ownership correction; shortcut routing is unchanged
 The parent will verify Windows CI before creating the shortcut release tag.
 The AI review workflows for 0.50.5 through 0.53.0 skipped their review because
 `ANTHROPIC_API_KEY` was absent; their green workflow status is not a code review.
+
+
+## Scoped meeting export validation — 2026-09-28 (0.54.0 snapshot)
+
+- **Source:** `6ee98fbe` plus Polish item 4 in the managed worktree. Previous features and config schema 4 remain; Gemini window-scoped labels and provider work are excluded. The snapshot includes subtitle timing, line/time excerpts, DOCX, and native Windows text sharing. Export tests were run before the Windows-only 0.53.1 ownership fix was incorporated; the incorporated fix passed native Windows `cargo test --offline -p hark-hotkey` (**87 passed, 0 failed**) and a new format check.
+- **Gates:** WSL Debian `cargo fmt --all -- --check`; `cargo clippy --offline --all-targets -- -D warnings`; `cargo test --offline --workspace` (**986 passed, 0 failed, 1 ignored**, 41 suites including doc-tests). The local-STT fixture requiring downloaded weights is ignored. Both npm guards pass after the mapped documentation updates.
+- **Native verification:** Windows `cargo test --offline -p hark-audio -p hark-meeting` passed **200 tests, 0 failed**. A standalone native share harness compiled the snapshot's actual WinRT source and exercised its actual Word and excerpt modules plus copied pure export module: **28 passed, 0 failed**. DOCX tests inspect escaping/styles/Unicode/line breaks and reopen packed output; audio tests verify exact samples across chunks, MP3 decode-before-cut, EOF clipping, and preservation of existing output on failure.
+- **Harness limits:** save dialogs, file operations, and audio calls are stubbed in the share harness; their real audio implementations are covered by the separate crate tests. It does not open a share chooser or save dialog, test real capture, or establish interactive native behavior.
+- **Dependency resolution:** approved `docx-rs` 0.4.22 has default features disabled. The initial offline resolver hit a cached wasm-bindgen/js-sys conflict; seeding the already-resolved root lock and rerunning `cargo update --workspace --offline` succeeded. External additions are only docx-rs 0.4.22, zip 8.6.0, and typed-path 0.12.3; existing package versions are unchanged, with dependency-name disambiguation for the two zip versions. Agent guides are excluded; parent owns commit/push/tag operations.

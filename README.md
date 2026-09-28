@@ -9,7 +9,7 @@ A lean, system-wide, push-to-talk voice dictation tool for **Windows**, **macOS*
 - **Push-to-talk dictation:** hold a shortcut, speak, and release to type polished English in the focused app.
 - **Your providers or an on-device model:** bring your own cloud keys, or use Parakeet for local dictation.
 - **Spellbook and invocations:** correct your vocabulary and expand spoken phrases into text you wrote.
-- **Meetings (Windows):** record your microphone and meeting audio without a bot, follow a live Me/Them transcript, and get speaker labels and notes with your own provider keys. Start and stop with an optional Windows shortcut, search transcripts, rename speakers, re-run the final pass on retained recordings, and share text or audio files. See [Meetings](Docs/features/MEETINGS.md) and the [privacy details](#privacy) below.
+- **Meetings (Windows):** record your microphone and meeting audio without a bot, follow a live Me/Them transcript, and get speaker labels and notes with your own provider keys. Start and stop with an optional Windows shortcut, search transcripts, rename speakers, re-run the final pass on retained recordings, and share text, Word, subtitle, or audio files, including selected excerpts. See [Meetings](Docs/features/MEETINGS.md) and the [privacy details](#privacy) below.
 
 ## Design principles
 

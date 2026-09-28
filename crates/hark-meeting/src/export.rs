@@ -13,6 +13,9 @@
 
 use crate::Channel;
 
+mod subtitles;
+pub use subtitles::{excerpt, to_srt, to_vtt};
+
 /// One meeting, ready to render. Built by the caller from the database.
 pub struct ExportMeeting {
     pub title: String,
@@ -28,6 +31,7 @@ pub struct ExportMeeting {
 /// this module never sees a raw speaker id.
 pub struct ExportLine {
     pub at_ms: u64,
+    pub end_ms: u64,
     pub speaker: String,
     pub text: String,
 }
@@ -378,11 +382,13 @@ mod tests {
             lines: vec![
                 ExportLine {
                     at_ms: 0,
+                    end_ms: 10_000,
                     speaker: "Me".to_string(),
                     text: "Let's get started.".to_string(),
                 },
                 ExportLine {
                     at_ms: 12_000,
+                    end_ms: 14_000,
                     speaker: "Dana".to_string(),
                     text: "Sounds good.".to_string(),
                 },
@@ -622,16 +628,19 @@ mod tests {
         m.lines = vec![
             ExportLine {
                 at_ms: 0,
+                end_ms: 1_000,
                 speaker: "Me".to_string(),
                 text: "# not a heading".to_string(),
             },
             ExportLine {
                 at_ms: 1_000,
+                end_ms: 2_000,
                 speaker: "Me".to_string(),
                 text: "1. item".to_string(),
             },
             ExportLine {
                 at_ms: 2_000,
+                end_ms: 3_000,
                 speaker: "Me".to_string(),
                 text: "[link](x)".to_string(),
             },

@@ -6,6 +6,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.54.0] - 2026-09-28
+
+### Added
+
+- **More ways to share meetings:** save SRT/VTT subtitles, export a Word document, or open the native Windows Share sheet with the meeting's text.
+- **Save an excerpt with audio.** Select transcript lines or enter a time range, then export a mono MP3 or WAV alongside matching transcript text. Crossing transcript lines are included in full, with rebased timestamps; meeting-wide notes are omitted.
+
+### Changed
+
+- Audio excerpts decode before sample selection and re-encode only the chosen range. Exports reject Hark's internal meeting-storage folder, use owned temporary files, and refuse to overwrite an existing companion excerpt transcript. Save dialogs and file writes stay on workers; the Windows Share source stays on the main UI thread.
+
 ## [0.53.1] - 2026-09-28
 
 ### Fixed

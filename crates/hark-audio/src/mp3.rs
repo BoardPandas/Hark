@@ -30,6 +30,9 @@ use symphonia::core::probe::Hint;
 use crate::spool;
 use crate::stereo::{self, SpoolPairChunks};
 
+mod excerpt;
+pub use excerpt::{export_excerpt_mp3, export_excerpt_wav};
+
 /// The archive file name inside a meeting's directory.
 pub const ARCHIVE_FILE: &str = "audio.mp3";
 
@@ -39,6 +42,41 @@ const CHUNK_FRAMES: usize = 4096;
 
 /// One chunk of time-aligned (left, right) i16 samples.
 type StereoChunk = (Vec<i16>, Vec<i16>);
+
+/// A bounded decoder for saved meeting audio, always 16 kHz PCM. Each item
+/// owns at most 4096 frames per channel, with shorter final chunks.
+pub struct MeetingAudioChunks {
+    source: MixSource,
+    finished: bool,
+}
+
+pub fn stereo_chunks(src: &MeetingAudio) -> Result<MeetingAudioChunks, EncodeError> {
+    Ok(MeetingAudioChunks {
+        source: MixSource::open(src, CHUNK_FRAMES)?,
+        finished: false,
+    })
+}
+
+impl Iterator for MeetingAudioChunks {
+    type Item = Result<(Vec<i16>, Vec<i16>), EncodeError>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.finished {
+            return None;
+        }
+        match self.source.next_chunk() {
+            Ok(Some(chunk)) => Some(Ok(chunk)),
+            Ok(None) => {
+                self.finished = true;
+                None
+            }
+            Err(error) => {
+                self.finished = true;
+                Some(Err(error))
+            }
+        }
+    }
+}
 
 #[derive(Debug, thiserror::Error)]
 pub enum EncodeError {
@@ -387,6 +425,20 @@ impl ArchiveDecoder {
             .default_track()
             .ok_or_else(|| EncodeError::Decode("no default audio track".into()))?;
         let track_id = track.id;
+        if track.codec_params.sample_rate != Some(spool::SPOOL_RATE) {
+            return Err(EncodeError::Decode(
+                "meeting archives must use 16 kHz audio".into(),
+            ));
+        }
+        if track
+            .codec_params
+            .channels
+            .is_none_or(|channels| !matches!(channels.count(), 1 | 2))
+        {
+            return Err(EncodeError::Decode(
+                "meeting archives must have one or two channels".into(),
+            ));
+        }
         let decoder = symphonia::default::get_codecs()
             .make(&track.codec_params, &DecoderOptions::default())
             .map_err(|e| EncodeError::Decode(e.to_string()))?;

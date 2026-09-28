@@ -64,7 +64,13 @@ windows = { version = "0.62.2", features = [
     "Win32_Graphics_Gdi",
     "Win32_UI_HiDpi",
     "Win32_UI_WindowsAndMessaging",
+    "Win32_UI_Shell",
+    "Win32_System_WinRT",
+    "ApplicationModel_DataTransfer",
+    "Foundation",
 ] }
+# Text-only Word meeting exports; image codecs are unnecessary.
+docx-rs = { version = "0.4.22", default-features = false }
 # The meeting Share menu's save dialogs (plan §4.10), Windows only: meetings
 # ship there first (D4), and rfd's Linux portal backend would drag in a second
 # async runtime (plan §8). No default features: those are Linux-only too.

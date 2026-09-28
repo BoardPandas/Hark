@@ -11,7 +11,7 @@ tested on Windows and Linux. **Real-call validation reported by the product owne
 a 20-minute Google Meet call in Chrome** (2026-09-28); the findings and fixes are in §8.
 The 0.50.4 Meet prompt/15-second auto-stop retest remains pending in the handoff.
 Zoom/Webex/GoTo/RingCentral executable names still need live-call validation.
-**Current step:** Polish item 1 is committed at `c0ae95b` (0.51.0), and item 2 at `713434de` (0.52.0), both pushed. Item 3 is implemented in the isolated 0.53.0 shared meeting-shortcut snapshot; items 4–6 remain outside this snapshot. The product owner authorized commit, push, and tag actions for all six; the parent task owns those operations. Item 3 scope: [intent](../intent/meeting-controls-need-a-shortcut/intent.md) and [specification](../intent/meeting-controls-need-a-shortcut/spec.md).
+**Current step:** Polish items 1–3 are committed as `c0ae95b` (0.51.0), `713434de` (0.52.0), and `287df97e` (0.53.0), followed by Windows hook build fix `6ee98fbe` (0.53.1). Item 4 is implemented in the isolated 0.54.0 export snapshot; items 5–6 remain outside this snapshot. The product owner authorized commit, push, and tag actions for all six; the parent task owns those operations and records their verified outcomes. Item 4 scope: [intent](../intent/meeting-content-needs-portable-exports/intent.md) and [specification](../intent/meeting-content-needs-portable-exports/spec.md).
 
 CI on `9a61d11` passed on Windows, Linux, and macOS on 2026-09-28;
 that compile/test result does not establish native call behavior.
@@ -736,3 +736,11 @@ Not scheduled. The §4.1 notes are kept so it can be picked up later without re-
 - Owning the hook inside successful dictation startup would make meeting controls depend on a dictation key. Keep the listener in the app and route dictation and meeting events independently.
 - Conflict checks compare key sets in both subset directions. Chords sharing a modifier are valid when neither contains the other's complete set; ordering and repeated key names cannot evade validation.
 - The schema-4 snapshot adds only an optional unassigned chord. Migration backs up and rewrites the file while preserving final-pass choice and explicit auto-stop values; later provider fields belong to their own schema change.
+
+
+**Learned while preparing meeting exports (2026-09-28, 0.54.0 snapshot):**
+
+- A transcript excerpt can only select whole segments without word timestamps. Include crossing segments in full, clip/rebase their timestamps, and omit meeting-wide notes so unrelated notes are not exported.
+- Cutting compressed MP3 bytes is not a time-range export. Decode to PCM, select exact frames, re-encode only the chosen range, and use the actual saved audio length for matching text.
+- The audio save dialog does not authorize replacing a same-name transcript beside it. Reserve the companion with `create_new`, protect the internal audio directory, and report partial output honestly.
+- Windows Share owns a UI-thread WinRT callback; retain it for the chooser lifetime and unregister it before apartment teardown. Compilation does not prove native chooser behavior.

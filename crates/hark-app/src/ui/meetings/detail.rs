@@ -161,6 +161,7 @@ impl DetailView {
         if let Some(action) = action {
             self.run_share(ui.ctx(), action, detail, id, tz);
         }
+        self.sharing.show(ui.ctx());
         ui.add_space(theme::SECTION_GAP);
 
         if let Some(notes) = self.notes.clone() {
