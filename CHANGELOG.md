@@ -6,6 +6,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.57.0] - 2026-09-28
+
+### Added
+
+- **Optional meeting speaker echo reduction:** enable **Reduce speaker echo** in Settings > Meetings for the next call. It uses captured playback to reduce echo in your microphone recording and live transcript. It starts off so existing headphone recordings keep their current sound.
+
+### Changed
+
+- Microphone audio falls back to the original when the echo reference is unavailable or processing fails. Recording endings and the other side's audio retain their full sample counts. Config schema 6 preserves existing choices and backs up older settings during migration.
+- Include the Rust AEC3/WebRTC notices in Windows and Linux packages. Synthetic echo and headphone comparisons informed this choice; real speakerphone quality remains unverified, with further testing explicitly deferred by the product owner.
+
 ## [0.56.1] - 2026-09-28
 
 ### Fixed

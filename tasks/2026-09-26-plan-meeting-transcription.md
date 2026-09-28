@@ -11,13 +11,13 @@ tested on Windows and Linux. **Real-call validation reported by the product owne
 a 20-minute Google Meet call in Chrome** (2026-09-28); the findings and fixes are in §8.
 The 0.50.4 Meet prompt/15-second auto-stop retest remains pending in the handoff.
 Zoom/Webex/GoTo/RingCentral executable names still need live-call validation.
-**Current step:** Polish items 1–5 are committed individually through `7cbdc234` (0.55.0). Item 6's reproducible AEC comparison and final documentation are prepared as the isolated 0.56.0 snapshot; production AEC remains disabled. The product owner's later "commit and push and tag all" instruction authorizes delivery without repeated approvals. Verified delivery states are recorded in §5; the real-speaker test and engine choice remain open. Overall [intent](../intent/meeting-polish/intent.md) and [specification](../intent/meeting-polish/spec.md) preserve that boundary.
+**Current step:** Polish items 1–5 and the AEC comparison are delivered through 0.56.0; the MP3 ending fix is pushed/tagged as 0.56.1. On 2026-09-28 the owner delegated the AEC choice, waived further speakerphone testing, and authorized commit, main push, and a new build tag. The 0.57.0 implementation selects optional Rust AEC3; default off preserves headphone recordings. See the updated [intent](../intent/meeting-polish/intent.md), [specification](../intent/meeting-polish/spec.md), and §5 verification state.
 
 The `v0.50.5` release completed successfully with its signed Windows installer and
 all Linux/Arch assets (Release run `36462341560`). AI review workflows for 0.50.5
 through 0.53.0 skipped review because `ANTHROPIC_API_KEY` was absent; green workflow
 status is not evidence of an automated code review. Native manual call retests
-and the AEC engine decision remain separate work.
+remain separate from CI validation; speakerphone testing is no longer a release prerequisite.
 
 CI on `9a61d11` passed on Windows, Linux, and macOS on 2026-09-28;
 that compile/test result does not establish native call behavior.
@@ -66,7 +66,7 @@ Push-to-talk dictation keeps working, unchanged, while a meeting is being record
 | D3 | Raw audio on disk | **Keep recordings under a circular storage cap** set in Settings (default **5 GB**). When a new recording would push the total over the cap, delete the **oldest recordings' audio** until it fits. Transcripts/notes stay. A cap of **0 = don't keep audio**, meaning audio is deleted as soon as the transcript is saved. Full rules in §4.9. | **locked 2026-09-26** |
 | D4 | Platform order | **Windows first, macOS once Windows is good; Linux deferred** (parity is not a goal for now). macOS needs a signed build + TCC key and a real-Mac spike. Meeting mode does *not* need the unimplemented macOS hotkey seam, so macOS can get Meetings before PTT. Linux must still **compile** (release CI builds .deb/.rpm/PKGBUILD): meeting capture and detection return `UnsupportedPlatform` there, the same way `hark-hotkey` does on macOS, and the UI hides Meetings. | **locked 2026-09-26** |
 | D5 | Auto-detect in MVP? | **Yes, it ships in Core.** Mode `off / ask / auto`, default **ask**, with auto-stop. Full rules in §4.8. | **locked 2026-09-26** |
-| D6 | Mic bleed (user on speakers) | Core: recommend headphones and flag it in the UI. Polish: AEC with the loopback as far-end reference (`aec3` pure-Rust vs `webrtc-audio-processing` bake-off). | proposed |
+| D6 | Mic bleed (user on speakers) | Rust `aec3` 0.4.0 using captured playback as reference, optional and off by default. User delegated selection and waived more speakerphone testing; original-mic fallback preserves audio on unavailable reference/engine failure. | **locked 2026-09-28** |
 | D7 | Summary call shape | One long-context call (60 min ≈ 9–10k words ≈ 13k tokens fits every current model). No map-reduce. | locked (confirmed by 2026-09-28 handoff) |
 | D8 | Shareable audio format | **MP3, 32 kbps mono** (~14 MB per hour: a 1-hour meeting fits under a 25 MB email limit) via `mp3lame-encoder`. Plus **WAV** as the "original quality" option, which needs no new dependency (`hound` is already locked). The product owner only requires "a file people can easily play" (2026-09-26); the format is Claude's pick. Rationale in §4.10. | approved 2026-09-26 |
 | D9 | Compress kept recordings | **In Core.** Once the final pass and summary are saved, re-encode the WAV spools to **one stereo MP3** (L = Me, R = Them, 64 kbps, ~29 MB/h), verify it, then delete the WAVs. A 5 GB cap then holds **~170 h instead of ~21 h**. The MP3 encoder is already coming in for D8. Rules in §4.11. | **locked 2026-09-26** |
@@ -449,7 +449,7 @@ separate minor-version commits, with the Windows build correction between 3 and 
 | 3 | One shared Windows hook and optional meeting toggle, with PTT conflict validation and schema 4 | `287df97e`, 0.53.0; Windows CI found a large enum. Corrected in `6ee98fbe`, 0.53.1: all CI jobs passed (run `36465172327`), tag pushed. 0.53.0 remains untagged |
 | 4 | SRT/VTT, DOCX, selected text/audio excerpts, native Windows text Share | `3dfac02`, 0.54.0; pushed, all CI jobs passed (run `36466653741`), tag pushed |
 | 5 | Explicit Gemini after-call final pass, schema 5, bounded track windows, scoped speakers and remote cleanup | `7cbdc234`, 0.55.0; pushed, all eight CI jobs passed (run `36467977562`), annotated tag pushed; release workflow triggered, completion not yet verified |
-| 6 | Standalone AEC comparison and final documentation | Prepared 0.56.0 snapshot; 63 numeric rows and four harness tests; delivery pending |
+| 6 | Standalone AEC comparison plus optional production Rust AEC3 | Comparison released as 0.56.0. Production integration prepared for 0.57.0; verification/delivery recorded below |
 
 The user approved decoding/re-encoding excerpts and `docx-rs` 0.4.22 with default
 features disabled. Gemini is explicitly selected after Stop; a missing key or
@@ -472,9 +472,45 @@ Rust AEC3 attenuated the synthetic far-only signal more; the C++ wrapper process
 it faster. These signal metrics do not establish intelligibility or lost-word rate.
 Both WSL engines passed the four harness tests. The isolated Rust candidate passed
 four native Windows GNU tests and replayed seven synthetic pairs, producing 39,000
-complete frames. Native C++, MSVC, actual speaker quality, and Hark integration
-remain unverified. **D6 remains proposed; production AEC stays disabled** pending
-the user's listening test, engine choice, and capture timestamp/drift/queue design.
+complete frames. The owner later found original/A/B listening acceptable on the
+headphone comparison and waived further speakerphone testing. Actual speaker
+intelligibility remains unverified, and does not block the authorized release.
+
+#### Production AEC plan — 0.57.0
+
+1. Add a pinned Rust AEC3 wrapper owned by the meeting worker (its graph is
+   `!Send`), using the evaluated high-pass/AEC configuration without NS, AGC,
+   or the extra post-filter.
+2. Add schema 6 `meeting.echo_cancellation = false` and a next-meeting settings
+   switch. Preserve old settings with the existing migration backup.
+3. Pair 160-sample microphone/reference frames on the existing 16 kHz timeline,
+   retain at most two seconds of reference and 250 ms of waiting microphone
+   audio between drains, reset after capture/reference discontinuities, and
+   bypass original microphone samples on errors/missing reference. Compensate
+   AEC3's measured 128-sample (8 ms) delay with a separate original-audio guard. Flush
+   resampler tails and incomplete final frames before closing the spool.
+4. Preserve the system track and AEC-off audio exactly; verify saved/live
+   microphone agreement, device-loss handling, bounded retention, synthetic
+   echo reduction, and complete stop tails. Existing first-delivery placement
+   and automatic AEC delay estimation are not common hardware-clock alignment
+   or active drift correction.
+5. Ship notices with every binary format; run repository gates, then commit,
+   push main, and tag 0.57.0 under the user's explicit delivery authorization.
+
+**Pre-commit verification (2026-09-28):** both npm guards, WSL formatting,
+strict all-targets clippy, and full workspace tests passed: **1,029 passed,
+0 failed, 1 ignored**. The production wrapper has nine tests, including a
+latency probe against the identical high-pass reference and ending impulses
+after echo adaptation/reset. Nine pairing and five recorder regressions cover
+bounded allocations, missing reference, filter delay, tails, saved/live agreement,
+AEC-off preservation, and an error arriving between drain and close. Linux
+notice packaging passed syntax, positive/negative gate controls, Arch/tarball
+staging byte comparisons, a deb fixture, and rpm metadata inspection. Actual
+0.57.0 native CI and signed/package artifacts remain pending at this commit.
+
+The earlier 0.56.1 CI (`36483553537`) and full signed/package release
+(`36483572555`) are now verified successful. This does not qualify the new AEC
+source on Windows; that build's own CI remains required.
 
 ### Ship: Windows
 
@@ -801,3 +837,10 @@ Not scheduled. The §4.1 notes are kept so it can be picked up later without re-
 - LAME `FlushNoGap` drains a continuing stream's bit buffer without encoding its remaining PCM. Standalone files need `FlushGap` followed by the LAME timing tag; otherwise ending audio can disappear while a loose duration check passes. The 32,137-frame diagnostic lost 1,562 frames, but the loss varies by frame alignment.
 - At 16 kHz, a 32 kbps mono frame is 144 bytes and cannot hold the 169-byte header plus complete LAME tag. LAME silently disables the tag. A 40 kbps frame fits it; checking the requested tag flag is insufficient, so require the generated tag after finalization.
 - Verify exact decoded lengths and actual ending signal, including sub-frame clips and codec/chunk boundaries. Positive headphone listening checks do not establish speaker echo-removal performance or choose an AEC engine.
+
+**Learned while shipping optional AEC (2026-09-28, 0.57.0):**
+
+- AEC3's evaluated pipeline has 128 samples of fixed processing latency (64 from framing plus 64 from the suppression path), separate from acoustic delay. Compare against the identical high-pass path to avoid conflating phase with sample delay. Matching input/output lengths can still hide the last real samples; keep a bounded original-microphone guard and flush it before a raw fallback or incomplete ending frame.
+- Snapshot track-close decisions before flushing. Re-reading a device error after processing can close a track whose resampler/AEC tail was never drained. A source whose error changes between observations now pins this race.
+- A queue's final length is not its allocation bound: appending a whole stalled batch can retain a large VecDeque allocation. Feed bounded slices and check capacity as well as length. Production pairing retains at most 250 ms plus one working frame and the separate 128-sample tail guard, with a two-second reference allocation.
+- The AEC graph is `!Send` and a node error can leave its runtime slot replaced by a placeholder. Construct it on the owning worker and disable processing after error; full reconstruction is required for recovery.

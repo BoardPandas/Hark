@@ -43,6 +43,12 @@ An optional Windows meeting toggle shares the existing keyboard hook with push-t
 
 Windows meeting detection uses registry change notifications with timed checks for debounce, auto-stop, and browser title changes ([Meetings: Auto-Detection](features/MEETINGS.md#auto-detection)).
 
+The optional **Reduce speaker echo** setting uses Rust AEC3 to filter meeting
+microphone audio against captured playback before recording and transcription.
+It defaults off and applies from the next meeting. Synthetic evidence supports
+the choice; real-speaker quality and long-call clock alignment remain unverified
+([Meetings: Reduce Speaker Echo](features/MEETINGS.md#reduce-speaker-echo)).
+
 The application is one native Rust process: an always-on tray daemon plus an egui window opened on demand. Optional cleanup uses the user's own provider key, and Gemini Live Smart mode may perform that formatting in the transcription turn itself ([CLAUDE.md:3-22](../CLAUDE.md#L3-L22)).
 
 Sources: [README: Features](../README.md#features), [README: On-device transcription](../README.md#on-device-transcription), [CLAUDE.md:1-22](../CLAUDE.md#L1-L22)

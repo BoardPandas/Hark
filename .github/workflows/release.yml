@@ -518,7 +518,7 @@ jobs:
       # The $auto-derived entries are checked too: dpkg-shlibdeps failing to
       # launch is a WARNING, not an error, and produces a package that declares
       # no library dependencies at all.
-      - name: Verify the packages declare their dependencies
+      - name: Verify package dependencies and required files
         run: |
           set -euo pipefail
           # Belt and braces with the cleanup step: assert exactly one artifact
@@ -559,6 +559,11 @@ jobs:
             || { echo "::error::.deb does not install /usr/bin/hark"; exit 1; }
           echo "$contents" | grep -q '70-hark-uinput.rules$' \
             || { echo "::error::.deb does not install the udev rule; paste will fail on Wayland"; exit 1; }
+          grep -qE ' ./usr/share/doc/hark/THIRD_PARTY_NOTICES\.md(\.gz)?$' <<< "$contents" \
+            || { echo "::error::.deb is missing third-party notices"; exit 1; }
+          rpm_contents=$(rpm -qpl "$rpm")
+          grep -Fxq '/usr/share/doc/hark/THIRD_PARTY_NOTICES.md' <<< "$rpm_contents" \
+            || { echo "::error::.rpm is missing third-party notices"; exit 1; }
 
       # The escape hatch for distributions the three package formats do not
       # cover. Carries the support files too, because without the udev rule
@@ -573,9 +578,12 @@ jobs:
           cp target/release/hark-app "tarball/Hark-${VERSION}-linux-x64/hark"
           cp packaging/hark.desktop packaging/hark.svg \
              packaging/70-hark-uinput.rules packaging/hark-uinput.conf \
-             packaging/LINUX.md LICENSE README.md \
+             packaging/LINUX.md LICENSE README.md THIRD_PARTY_NOTICES.md \
              "tarball/Hark-${VERSION}-linux-x64/"
           tar -czf "dist/Hark-${VERSION}-linux-x64.tar.gz" -C tarball "Hark-${VERSION}-linux-x64"
+          tarball_contents=$(tar -tzf "dist/Hark-${VERSION}-linux-x64.tar.gz")
+          grep -Fxq "Hark-${VERSION}-linux-x64/THIRD_PARTY_NOTICES.md" <<< "$tarball_contents" \
+            || { echo "::error::tarball is missing third-party notices"; exit 1; }
 
           cp "$(ls target/debian/*.deb)" "dist/Hark-${VERSION}-linux-x64.deb"
           cp "$(ls target/generate-rpm/*.rpm)" "dist/Hark-${VERSION}-linux-x64.rpm"
@@ -729,7 +737,8 @@ jobs:
       # Same gate as the deb/rpm: the tray library is dlopened, so nothing
       # infers it and a dropped `depends` entry would ship a package whose tray
       # silently never appears.
-      - name: Verify the package declares its dependencies
+      - name: Verify package dependencies and required files
+        shell: bash
         env:
           VERSION: ${{ needs.version.outputs.version }}
         run: |
@@ -766,6 +775,8 @@ jobs:
             || { echo "::error::package does not install /usr/bin/hark"; exit 1; }
           echo "$files" | grep -q '70-hark-uinput.rules$' \
             || { echo "::error::package does not install the udev rule; paste will fail on Wayland"; exit 1; }
+          grep -qE '^(\./)?usr/share/licenses/hark/THIRD_PARTY_NOTICES\.md$' <<< "$files" \
+            || { echo "::error::Arch package is missing third-party notices"; exit 1; }
 
       - name: Attach the Arch package to the release
         shell: bash

@@ -141,6 +141,7 @@ assets = [
     ["../../packaging/hark-uinput.conf", "usr/lib/modules-load.d/hark-uinput.conf", "644"],
     ["../../packaging/LINUX.md", "usr/share/doc/hark/LINUX.md", "644"],
     ["../../README.md", "usr/share/doc/hark/README.md", "644"],
+    ["../../THIRD_PARTY_NOTICES.md", "usr/share/doc/hark/THIRD_PARTY_NOTICES.md", "644"],
 ]
 
 [package.metadata.generate-rpm]
@@ -176,6 +177,7 @@ assets = [
     { source = "packaging/hark-uinput.conf", dest = "/usr/lib/modules-load.d/hark-uinput.conf", mode = "644" },
     { source = "packaging/LINUX.md", dest = "/usr/share/doc/hark/LINUX.md", mode = "644", doc = true },
     { source = "README.md", dest = "/usr/share/doc/hark/README.md", mode = "644", doc = true },
+    { source = "THIRD_PARTY_NOTICES.md", dest = "/usr/share/doc/hark/THIRD_PARTY_NOTICES.md", mode = "644", doc = true },
     { source = "LICENSE", dest = "/usr/share/licenses/hark/LICENSE", mode = "644", doc = true },
 ]
 

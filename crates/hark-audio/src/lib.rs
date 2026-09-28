@@ -18,6 +18,7 @@ pub mod capture_win;
 pub mod gain;
 pub mod level;
 pub mod loopback_win;
+pub mod meeting_aec;
 pub mod mp3;
 pub mod resample;
 pub mod ring;

@@ -2,10 +2,12 @@
 
 Both engines built and processed every fixture successfully in WSL. This synthetic
 run found more far-only attenuation from `aec3 0.4.0` and lower processing
-time from `webrtc-audio-processing 2.1.0`. **No production engine is selected.**
-The comparison still needs the real Windows speaker test in [README.md](README.md)
-and native C++ build validation. The isolated Rust candidate also passed the
-native Windows GNU check described below.
+time from `webrtc-audio-processing 2.1.0`. Hark 0.57.0 subsequently selects
+**Rust `aec3 = 0.4.0`** for optional meeting microphone echo reduction. The user
+explicitly accepted that recommendation without further speakerphone testing.
+The measurements below are unchanged historical evidence; they do not establish
+real speakerphone quality. The isolated Rust candidate also passed the native
+Windows GNU check described below. Native C++ build validation remains open.
 
 ## Recorded evidence
 
@@ -123,10 +125,36 @@ file IO, fixture synthesis, and metric calculation. These wall-time samples
 on one fast WSL host are not native Windows latency guarantees. All outputs
 were finite; observed peak amplitudes stayed below 0.246 for both engines.
 
-## Decision still required
+## Production decision and remaining limits
 
-Complete the real-speakers/headphones listening procedure on the intended
-Windows hardware. Review local-word preservation during double talk, residual
-remote voice, build/distribution complexity, and the necessary capture
-timestamp/alignment work. The user chooses the engine after that evidence;
-Hark's production dependency graph and audio path are unchanged by this tool.
+Rust AEC3 was selected for the optional production path after the user accepted
+the recommendation and waived additional speakerphone testing. The synthetic
+far-only attenuation and the successful standalone native Windows GNU build
+support that choice; avoiding the C++ candidate's unqualified Windows build
+also reduces integration work. This is not a measured real-speaker quality win.
+
+Production **Reduce speaker echo** defaults off and applies from the next
+meeting. It processes only the microphone before its recording/live transcript,
+using 16 kHz/160-sample frames with the evaluated filter configuration. Microphone
+waiting for its reference is bounded to 250 ms and render history to two seconds.
+A separate 128-sample (8 ms) original-microphone guard compensates fixed engine
+latency: startup and reset discard leading delayed output; stop or fallback writes
+the original guard first, followed by pending mic audio and any incomplete frame.
+This preserves the real ending, not just the output sample count. Missing
+reference or errors preserve microphone audio; engine failures disable further
+processing for that meeting. Input discontinuities reset adaptation. The recorder
+captures track-close decisions before flushing resampler/AEC tails, so a later
+device error cannot cause closure to skip the flush.
+
+The production latency fixture compares AEC output with an identically
+high-pass-filtered bypass and pins the delay at 128 samples. The historical
+123-sample best-fit alignment above compared output against the unfiltered
+synthetic source; it is not this fixed-latency measurement. None of the historical
+signal or timing values were recomputed for the production compensation.
+
+The recorder retains first-delivery timeline estimation and automatic engine
+delay estimation. It has no hardware timestamp pairing or explicit device-clock
+drift correction. Local-word preservation on actual speakers, nonlinear echo,
+and long-call stability remain unverified. The [real recording procedure](README.md#replay-a-real-speaker-recording)
+remains available for later qualification. No new benchmark timings or quality
+measurements are claimed by the production decision.

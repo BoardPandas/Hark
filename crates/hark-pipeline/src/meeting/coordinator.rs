@@ -121,23 +121,26 @@ pub fn run(settings: &Settings, events: Sender<MeetingEvent>) -> Result<MeetingH
         .unwrap_or_default();
     let (tx, rx) = mpsc::channel();
     let (done_tx, done) = mpsc::channel::<()>();
-    let coordinator = Coordinator {
-        detector: Detector::new(detect_config(settings, &self_exe)),
-        settings: settings.clone(),
-        self_exe,
-        events,
-        meetings_dir,
-        active: None,
-        prompted: None,
-        protected: Arc::new(Mutex::new(Vec::new())),
-        probe_failed: false,
-    };
+    let settings = settings.clone();
     let thread = std::thread::Builder::new()
         .name("hark-meeting-coordinator".to_string())
         .spawn({
             let watch_tx = tx.clone();
             move || {
                 let _done = done_tx;
+                // The recorder's AEC graph is thread-local (!Send). Construct
+                // its owner here, so it never crosses a thread boundary.
+                let coordinator = Coordinator {
+                    detector: Detector::new(detect_config(&settings, &self_exe)),
+                    settings,
+                    self_exe,
+                    events,
+                    meetings_dir,
+                    active: None,
+                    prompted: None,
+                    protected: Arc::new(Mutex::new(Vec::new())),
+                    probe_failed: false,
+                };
                 coordinator.run(rx, watch_tx);
             }
         })
@@ -460,6 +463,7 @@ impl Coordinator {
             dir,
             mic_device,
             loopback,
+            self.settings.meeting.echo_cancellation,
             jobs,
             ChunkParams {
                 silence_rms: self.settings.audio.silence_rms,

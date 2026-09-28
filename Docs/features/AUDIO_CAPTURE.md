@@ -121,6 +121,29 @@ Meeting mode records two channels for the length of a call, beside push-to-talk'
 - **MP3 archive and export:** `mp3.rs` compresses a finished meeting's two WAV spools into one stereo 64 kbps `audio.mp3` (D9), and separately renders a mono 40 kbps MP3 or 16 kHz WAV mixdown for the Share menu's audio export (D8). Both go through `mp3lame-encoder` (LAME, LGPL — see [Release and Packaging](../operations/RELEASE_AND_PACKAGING.md#signing-and-secrets)) and decode back with `symphonia` (pure Rust) to verify a compression before deleting the WAVs. The archive uses LAME `Mode::Stereo`, never `JointStereo`: joint stereo leaks about -96 dBFS between channels, which would corrupt a Me/Them re-run through Deepgram ([mp3.rs](../../crates/hark-audio/src/mp3.rs), [mp3.rs](../../crates/hark-audio/src/mp3.rs)). `recover_meeting_dir` runs at startup before any of this is trusted: it removes an interrupted `audio.mp3.tmp`, and discards a corrupt archive from an interrupted run while keeping the WAVs so compression can retry ([mp3.rs](../../crates/hark-audio/src/mp3.rs)). Standalone MP3 files use the final flush that encodes buffered ending audio, then require a LAME timing tag. Mono exports use 40 kbps because a 32 kbps frame cannot fit that tag at 16 kHz; this preserves exact decoded duration, including very short excerpts. Existing archives are not rewritten and previously omitted endings cannot be restored.
 - Loopback, spool, stereo, and MP3 encode/decode are verified by hand on real hardware with `cargo run -p hark-audio --example loopback_smoke`; `cargo test` never opens an audio device but does exercise the pure spool/stereo/MP3 code against synthetic tones in a temp directory.
 Audio excerpts decode the saved archive or read the original spools, select exact 16 kHz PCM frames across chunk boundaries, and then write a mono WAV or re-encode mono MP3. Selection rejects empty/reversed/overflowing ranges and preserves an existing destination on failure. The returned frame count lets the matching text stop at the actual audio end, including MP3 trimming. The Gemini final-pass worker uses the same reader for independent track windows. `stereo_chunks` also exposes saved audio in chunks of at most 4096 frames per channel; archives with an incompatible sample rate or channel count are rejected ([selection and fixtures](../../crates/hark-audio/src/mp3/excerpt.rs), [decoder](../../crates/hark-audio/src/mp3.rs)).
+
+When **Reduce speaker echo** is enabled for a meeting, `MeetingAec` runs Rust
+`aec3 = 0.4.0` on its worker before microphone spool/chunking. It accepts paired
+16 kHz mono render/microphone frames of exactly 160 samples, checks finite input
+and output, and leaves the caller's output unchanged on an error. Render is
+analyzed first. High-pass filtering is on; noise suppression, gain control, and
+the extra post-filter are off. The graph is worker-owned and may allocate; it
+must never run in the cpal callback ([wrapper and tests](../../crates/hark-audio/src/meeting_aec.rs)).
+
+The pinned pipeline has 128 samples (8 ms) of processing latency, separate from
+acoustic echo delay. The recorder removes the leading delayed output on startup
+and reset, keeping a 128-sample original-microphone guard until corresponding
+processed output arrives. This guard is separate from the 250 ms reference-pairing
+wait. Stop or fallback writes the original guard before any pending microphone
+audio, including the incomplete final frame. Track-close decisions are captured
+once per drain so an error arriving during processing cannot bypass resampler
+and AEC tail flushing ([wrapper and latency fixtures](../../crates/hark-audio/src/meeting_aec.rs),
+[echo pairing](../../crates/hark-pipeline/src/meeting/echo.rs),
+[recorder](../../crates/hark-pipeline/src/meeting/recorder.rs)).
+
+See [Meetings](MEETINGS.md#reduce-speaker-echo) for the complete reset and bypass
+policy. Them and dictation keep their existing audio paths. The setting defaults
+off and applies next meeting.
 <!-- END:AUTOGEN hark_06_audio_capture_meeting -->
 
 ---
@@ -137,17 +160,17 @@ Audio excerpts decode the saved archive or read the original spools, select exac
 
 ---
 
-## Echo-cancellation experiment
+## Echo-cancellation evidence and limits
 
-The [standalone comparison](../../tools/meeting-aec-bakeoff/README.md) keeps both
-experimental engines outside Hark's workspace and capture path. Its
-[recorded results](../../tools/meeting-aec-bakeoff/RESULTS.md) compare synthetic
-attenuation, near-source signal metrics, and processing time. These results do
-not establish intelligibility or select an engine.
+The [standalone comparison](../../tools/meeting-aec-bakeoff/README.md) retains its
+own workspace and lockfile for comparing Rust AEC3 and C++ WebRTC. Its historical
+[results](../../tools/meeting-aec-bakeoff/RESULTS.md) cover synthetic attenuation,
+near-source signal metrics, and processing time. Rust AEC3 was selected for the
+optional production path; the C++ alternative remains confined to the experiment.
 
-Production AEC needs common-origin hardware timestamps, paired render/microphone
-queues, drift correction, underrun/device-reset policies, and bounded latency.
-The current recorder drains Me before Them and estimates initial placement from
-worker delivery timing; that does not prove AEC-grade alignment. Per-process
-loopback may also omit other audible apps. The user's speaker/headphone comparison,
-native C++/MSVC qualification, and engine choice remain open. AEC stays disabled.
+Production uses the existing first-delivery timeline estimate and the engine's
+automatic delay estimation. It does not pair hardware timestamps or correct
+device-clock drift. Bounded queues and discontinuity recovery protect the
+recording path, but synthetic fixtures do not establish real-speaker
+intelligibility or hour-long stability. Per-process loopback may also omit other
+audible apps, leaving that audio without a cancellation reference.

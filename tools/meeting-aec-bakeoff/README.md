@@ -2,9 +2,11 @@
 
 This standalone experiment compares `aec3 = 0.4.0`,
 `webrtc-audio-processing = 2.1.0` (bundled C++), and an unchanged-microphone
-baseline. It does not select an engine or enable AEC in Hark. Its own
-`[workspace]` and lockfile keep experimental dependencies out of Hark's package
-graph. All processing is offline; nothing here sends audio to a provider.
+baseline. Its own `[workspace]` and lockfile keep the comparison independent of
+Hark's package graph; running this tool never enables AEC in the app. Hark 0.57.0
+separately selects Rust `aec3 = 0.4.0` for the optional **Reduce speaker echo**
+meeting setting. The C++ candidate remains experimental. All processing here is
+offline; nothing sends audio to a provider.
 
 See [the recorded comparison](RESULTS.md) for the completed WSL run, raw
 numeric evidence, and the limits of its quality measurements.
@@ -109,15 +111,18 @@ physical recording dynamic range.
 
 ## Replay a real speaker recording
 
-The user must run this listening test on the intended Windows microphone and
-speakers before choosing an engine. Keep the recording local and use a short,
-non-sensitive test; do not add real voices or transcripts to Git.
+This remains an optional follow-up for evaluating the intended Windows
+microphone and speakers. The production Rust choice was explicitly accepted
+without further speakerphone testing; that decision does not establish real
+speakerphone quality. Keep recordings local and use a short, non-sensitive test;
+do not add real voices or transcripts to Git.
 
 1. Preserve uncompressed Hark `them.wav` and `me.wav` spools from the same test
    meeting. Use 16 kHz mono PCM16 or float32 originals, not normalized exports
    or the lossy MP3 archive. In Settings > Meetings, uncheck **Compress kept
    recordings (about 29 MB per hour)** for the test and retain a nonzero audio
-   cap. Copy the completed meeting's WAVs from its recordings folder before
+   cap. Leave **Reduce speaker echo** off to retain an unprocessed mic control.
+   Copy the completed meeting's WAVs from its recordings folder before
    restoring that preference. Record device, speaker volume, room, and capture mode.
 2. At the normal speaker volume, record far-only audio for 20 seconds, local
    speech alone for 10 seconds, both for 20 seconds, and far-only again for
@@ -140,9 +145,9 @@ non-sensitive test; do not add real voices or transcripts to Git.
    robotic/chopped sound during overlap, and recovery after overlap. Label
    outputs A/B when possible. A separate test may pass a known delay in
    milliseconds as the last argument, but apply the same hint to both.
-5. Choose an engine only after this listening evidence, native Windows build
-   validation, and capture alignment work are reviewed. Synthetic scores do
-   not establish that Hark's current meeting capture is ready for AEC.
+5. Use the listening evidence to review the chosen engine's local-word
+   preservation and remaining alignment limits. Synthetic scores alone do not
+   establish the quality of a real speakerphone recording.
 
 `process` refuses unequal input lengths, unsupported WAV formats, non-finite
 samples, unknown backends, and existing output files. `pair` and `bench` refuse
@@ -152,19 +157,32 @@ ignored by Git.
 
 ## Hark integration constraints
 
-The intended processing seam is on the meeting worker **after** continuous
+The production processing seam is on the meeting worker **after** continuous
 resampling/alignment and **before** the microphone spool/chunker. Maintain a
 10 ms render queue and feed the corresponding render frame before microphone
 capture. Never run this in a cpal callback or add locks/allocations there.
 
-Current `Recorder::pump` drains Me before Them. Its initial placement uses
-elapsed worker time minus delivered samples; it is not a measured hardware
-timestamp pairing. The Windows loopback exposes a first QPC timestamp, but
-the recorder does not use it, and the microphone callback discards its capture
-timestamp. The resampler is already persistent across drains. Before production
-AEC, specify common-origin timestamps, drift correction, underrun policy,
-paired queues, reset/reacquisition after device changes, and bounded latency.
-The current first-delivery approximation is not evidence of AEC-grade alignment.
+The production recorder feeds the render reference before processing paired
+microphone frames. It bounds microphone waiting for a reference to 250 ms and
+render history to two seconds. A separate 128-sample (8 ms) original-microphone
+guard compensates the pinned Rust engine's output latency: startup and reset
+discard leading delayed output, while stop or fallback writes the retained
+original guard before pending mic audio, including any incomplete final frame.
+Matching input/output lengths alone would not prove that the real ending survived.
+
+Missing references bypass processing; an engine failure disables processing for
+the meeting, and input discontinuities reset adaptation. Track-close decisions
+are captured once per drain so an error arriving during processing cannot close
+a track before its resampler/AEC tail is flushed. The setting is off by default
+and fixed for the recording when the meeting starts.
+
+Initial placement still uses elapsed worker time minus delivered samples; it
+is not measured hardware timestamp pairing. The Windows loopback exposes a first
+QPC timestamp, but the recorder does not use it, and the microphone callback
+discards its capture timestamp. Continuous resampling is persistent across
+drains. Automatic engine delay estimation does not add explicit device-clock
+drift correction. Common-origin timestamps and drift handling remain potential
+improvements; the first-delivery approximation is not evidence of precise alignment.
 
 Per-process loopback can omit other audible applications. An AEC fed only a
 meeting's render reference cannot cancel an unrelated app's speaker audio.
@@ -181,8 +199,9 @@ The C++ bundled build contains Unix command/archive assumptions (`cp -a`,
 `nm --defined-only`, `.a` archives, a `rust-objcopy` path without `.exe`) and
 Linux/macOS library search paths. A successful WSL build does not prove native
 Windows MSVC support. Pure Rust's simpler build is an integration advantage,
-not evidence of superior echo quality. Preserve upstream notices if either is
-eventually distributed. The isolated Rust candidate passed a native Windows
+not evidence of superior echo quality. Hark retains the selected Rust engine's
+MIT/WebRTC BSD license text and accompanying patent grant in
+[THIRD_PARTY_NOTICES.md](../../THIRD_PARTY_NOTICES.md). The isolated Rust candidate passed a native Windows
 GNU build, four tests, and replay of all seven saved synthetic fixtures on this
 host; see [the exact scope and commands](RESULTS.md#native-windows-rust-check).
 Native C++ builds, MSVC, Hark integration, and actual speaker quality remain
@@ -205,6 +224,8 @@ Primary sources, inspected 2026-09-28:
   the wheel URLs and verified download hashes in the bootstrap.
 
 Local integration evidence: `crates/hark-pipeline/src/meeting/recorder.rs`,
+`crates/hark-pipeline/src/meeting/echo.rs`,
+`crates/hark-audio/src/meeting_aec.rs`,
 `crates/hark-audio/src/capture_win.rs`,
 `crates/hark-audio/src/loopback_win.rs`, and
 `tasks/2026-09-26-plan-meeting-transcription.md` (Polish item 6 / decision D6).

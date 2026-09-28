@@ -139,6 +139,12 @@ impl MeetingsSettings {
                 .small()
                 .weak(),
         );
+        ui.checkbox(&mut m.echo_cancellation, "Reduce speaker echo")
+            .on_hover_text(
+                "Uses captured system audio to reduce speaker sound in your microphone recording. \
+                 Applies to the next meeting after saving. Leave off for headphones; turn it off \
+                 if your voice sounds distorted.",
+            );
         ui.add_space(theme::GAP);
         ui.label(RichText::new("Other people's audio").strong());
         ui.radio_value(&mut m.system_source, SystemSource::App, "Only the meeting app's audio")

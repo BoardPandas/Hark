@@ -115,6 +115,13 @@ Settings' Save changes / Discard bar stays outside its scroll area. The update b
 | Meetings | Take notes toggle, optional Windows start/stop shortcut, microphone, detection (off/ask/auto, auto-stop delay, app list), speaker labels (Deepgram key, independent of the dictation key), storage cap and usage, delete all meeting audio |
 | Behavior | Cleanup limits, single-word punctuation |
 | Privacy | History capture, retention, audio/text/provider disclosures |
+
+Meetings also exposes **Reduce speaker echo**, off by default. Save applies it
+from the next meeting. It reduces playback picked up by the meeting microphone;
+the helper text recommends leaving it off with headphones and turning it off if
+the local voice sounds worse. It does not change dictation or select a new
+provider ([settings](../../crates/hark-app/src/ui/settings/meetings.rs),
+[capture behavior](MEETINGS.md#reduce-speaker-echo)).
 | Updates | Version, checking, download/install status, release details |
 
 Section navigation is vertical when space permits and wraps above the content in narrow windows. Each section retains its own scroll position and shares one draft. Save validates, persists TOML, and restarts the pipeline; Discard restores saved fields. Theme changes, key actions, and model downloads remain immediate. Download and test completions are polled from root logic even when their section is hidden. Leaving shortcut settings or hiding the window cancels shortcut capture.

@@ -27,6 +27,7 @@ same person ([meeting labels](features/MEETINGS.md#gemini-files-final-pass)).
 <!-- BEGIN:AUTOGEN hark_14_glossary_terms -->
 ## Terms
 
+- **AEC (acoustic echo cancellation):** Uses captured playback as a reference to reduce speaker sound picked up by a microphone. Hark's optional **Reduce speaker echo** applies Rust AEC3 only to the meeting microphone, before recording and live transcription; it defaults off ([Meetings](features/MEETINGS.md#reduce-speaker-echo)).
 - **BYOK (bring your own key):** The user supplies credentials for cloud transcription, optional cleanup, and meeting processing. Keys live in the OS keychain, not `config.toml`; local-primary STT needs no cloud key, but meeting final-pass and notes calls have independent settings ([README: Privacy](../README.md#privacy)).
 - **Cleanup pass:** An optional OpenAI-compatible chat request that applies the selected voice after transcription. Verbatim mode, a fired invocation, or a Gemini Smart transcript skips this call ([Architecture](core/ARCHITECTURE.md#the-release-to-inject-pipeline)).
 - **Final pass:** The after-call Deepgram `multichannel=true&diarize=true` request over a whole meeting recording that replaces the live Me/Them transcript with diarized "Speaker N" labels within Them. Runs only with a Deepgram key configured for meetings; otherwise the live transcript stands ([Meetings](features/MEETINGS.md#deepgram-final-pass), [meeting.rs](../crates/hark-stt/src/meeting.rs)).

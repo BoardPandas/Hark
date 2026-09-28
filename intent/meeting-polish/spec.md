@@ -1,6 +1,6 @@
 # Specification: Meetings Polish
 
-Status: Approved scope; explicitly open choices remain pending
+Status: Approved scope; AEC choice delegated and selected on 2026-09-28
 Authority: product owner's 2026-09-28 handoff, "complete them all 1-6", and later "commit and push and tag all" authorization
 Plan: `tasks/2026-09-26-plan-meeting-transcription.md`, section 5, Polish
 
@@ -26,9 +26,21 @@ Plan: `tasks/2026-09-26-plan-meeting-transcription.md`, section 5, Polish
    validate responses, and attempt remote file deletion after success or failure,
    reporting cleanup failures and crash/retention limits.
    Preserve the old transcript unless the complete pass succeeds.
-6. Measure both `aec3` and `webrtc-audio-processing` with the same reproducible
-   fixtures and far-end reference. Deliver a real-speakers test procedure and
-   results; do not select or enable a production engine before the user's choice.
+6. The reproducible comparison is complete. The owner's later instruction
+   delegates engine selection and waives further real-speaker testing before
+   shipping. Use pinned Rust `aec3` 0.4.0 behind an opt-in "Reduce speaker echo"
+   setting (schema 6, default false, applied at the next meeting). Process only
+   the microphone on the meeting worker in 16 kHz / 10 ms frames before both
+   spool and live transcription. Keep the captured system track unchanged.
+   Bound microphone waiting to 250 ms of audio and reference retention to two
+   seconds. Preserve original microphone audio on missing reference or engine
+   failure, reset adaptation after discontinuities, and preserve every final
+   partial frame. Compensate the verified 128-sample processing latency and
+   retain those original microphone samples for stop/failure fallback; equal
+   output length alone is not proof that ending audio survives. Reuse existing session sample placement and the engine's
+   automatic delay estimator; do not claim common hardware-clock alignment or
+   active drift correction. Synthetic attenuation and headphone listening are
+   supporting evidence, not verified real-speaker intelligibility.
 
 ## Verification and delivery
 

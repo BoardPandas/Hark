@@ -140,6 +140,18 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "320119579fcad9c21884f5c4861d16174d0e06250625266f50fe6898340abefa"
 
 [[package]]
+name = "aec3"
+version = "0.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "95b94681e57494d8d3933597fbf49c3537be1f2f33647e41317aab3dfc3d6fc8"
+dependencies = [
+ "crossbeam-channel",
+ "log",
+ "num-complex",
+ "rustfft",
+]
+
+[[package]]
 name = "aes"
 version = "0.8.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2487,7 +2499,7 @@ dependencies = [
 
 [[package]]
 name = "hark-app"
-version = "0.56.1"
+version = "0.57.0"
 dependencies = [
  "docx-rs",
  "eframe",
@@ -2518,8 +2530,9 @@ dependencies = [
 
 [[package]]
 name = "hark-audio"
-version = "0.56.1"
+version = "0.57.0"
 dependencies = [
+ "aec3",
  "cpal",
  "hound",
  "log",
@@ -2534,7 +2547,7 @@ dependencies = [
 
 [[package]]
 name = "hark-autostart"
-version = "0.56.1"
+version = "0.57.0"
 dependencies = [
  "hark-config",
  "tempfile",
@@ -2544,7 +2557,7 @@ dependencies = [
 
 [[package]]
 name = "hark-config"
-version = "0.56.1"
+version = "0.57.0"
 dependencies = [
  "hark-hotkey",
  "log",
@@ -2556,7 +2569,7 @@ dependencies = [
 
 [[package]]
 name = "hark-hotkey"
-version = "0.56.1"
+version = "0.57.0"
 dependencies = [
  "evdev",
  "libc",
@@ -2567,7 +2580,7 @@ dependencies = [
 
 [[package]]
 name = "hark-inject"
-version = "0.56.1"
+version = "0.57.0"
 dependencies = [
  "arboard",
  "enigo",
@@ -2578,7 +2591,7 @@ dependencies = [
 
 [[package]]
 name = "hark-keychain"
-version = "0.56.1"
+version = "0.57.0"
 dependencies = [
  "keyring",
  "thiserror 2.0.20",
@@ -2586,7 +2599,7 @@ dependencies = [
 
 [[package]]
 name = "hark-local-stt"
-version = "0.56.1"
+version = "0.57.0"
 dependencies = [
  "hark-config",
  "log",
@@ -2599,7 +2612,7 @@ dependencies = [
 
 [[package]]
 name = "hark-meeting"
-version = "0.56.1"
+version = "0.57.0"
 dependencies = [
  "hark-audio",
  "log",
@@ -2610,7 +2623,7 @@ dependencies = [
 
 [[package]]
 name = "hark-pipeline"
-version = "0.56.1"
+version = "0.57.0"
 dependencies = [
  "hark-audio",
  "hark-config",
@@ -2631,7 +2644,7 @@ dependencies = [
 
 [[package]]
 name = "hark-single-instance"
-version = "0.56.1"
+version = "0.57.0"
 dependencies = [
  "hark-config",
  "libc",
@@ -2642,7 +2655,7 @@ dependencies = [
 
 [[package]]
 name = "hark-spellbook"
-version = "0.56.1"
+version = "0.57.0"
 dependencies = [
  "rphonetic",
  "strsim",
@@ -2650,7 +2663,7 @@ dependencies = [
 
 [[package]]
 name = "hark-store"
-version = "0.56.1"
+version = "0.57.0"
 dependencies = [
  "rusqlite",
  "tempfile",
@@ -2659,7 +2672,7 @@ dependencies = [
 
 [[package]]
 name = "hark-stt"
-version = "0.56.1"
+version = "0.57.0"
 dependencies = [
  "base64 0.23.1",
  "env_logger",
@@ -2677,7 +2690,7 @@ dependencies = [
 
 [[package]]
 name = "hark-update"
-version = "0.56.1"
+version = "0.57.0"
 dependencies = [
  "log",
  "reqwest",
@@ -2690,7 +2703,7 @@ dependencies = [
 
 [[package]]
 name = "hark-voice"
-version = "0.56.1"
+version = "0.57.0"
 dependencies = [
  "hark-stt",
  "log",

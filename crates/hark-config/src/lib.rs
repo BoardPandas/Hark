@@ -41,7 +41,8 @@ use thiserror::Error;
 /// Schema 5 adds an explicit Gemini final-pass choice and its model; existing
 /// final-pass choices stay unchanged. Both use additive defaults, with the
 /// same versioned backup and immediate persistence as earlier migrations.
-pub const CONFIG_VERSION: u32 = 5;
+/// Schema 6 adds opt-in meeting echo cancellation, off for existing users.
+pub const CONFIG_VERSION: u32 = 6;
 
 #[derive(Debug, Error)]
 pub enum ConfigError {

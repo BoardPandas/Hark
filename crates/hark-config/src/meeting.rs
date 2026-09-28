@@ -70,6 +70,9 @@ pub struct Meeting {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub mic_device: Option<String>,
     pub system_source: SystemSource,
+    /// Reduce speaker sound in the microphone using captured system audio.
+    /// Off by default to preserve headphone recordings; applies next meeting.
+    pub echo_cancellation: bool,
     /// Show a rolling transcript in the live pane while recording.
     pub live_transcript: bool,
     pub final_pass: FinalPass,
@@ -111,6 +114,7 @@ impl Default for Meeting {
             toggle_key: None,
             mic_device: None,
             system_source: SystemSource::App,
+            echo_cancellation: false,
             live_transcript: true,
             final_pass: FinalPass::Deepgram,
             gemini_model: "gemini-3.8-flash".into(),
@@ -159,6 +163,8 @@ pub(crate) fn migrate(meeting: &mut Meeting, file_version: u32) {
     // v3 -> v4: serde supplies toggle_key = None for an absent binding.
     // v4 -> v5: serde supplies gemini_model for an absent model. Preserve
     // explicit fields in older files and never switch the final-pass provider.
+    // v5 -> v6: serde supplies echo_cancellation = false when absent,
+    // preserving explicit choices in older files without changing capture.
     if file_version < 3 && meeting.auto_stop_after_s == OLD_AUTO_STOP_S {
         log::info!(
             "config schema v{file_version} -> v3: meeting.auto_stop_after_s {OLD_AUTO_STOP_S} -> {DEFAULT_AUTO_STOP_S} (the new default)"
@@ -194,7 +200,7 @@ mod tests {
                     "version = {version}\n[meeting]\nfinal_pass = '{name}'\nauto_stop_after_s = 60\n"
                 ))
                 .unwrap();
-                assert_eq!(settings.version, 5);
+                assert_eq!(settings.version, crate::CONFIG_VERSION);
                 assert_eq!(settings.meeting.toggle_key, None);
                 assert_eq!(settings.meeting.final_pass, provider);
                 assert_eq!(settings.meeting.gemini_model, "gemini-3.8-flash");
@@ -214,15 +220,65 @@ mod tests {
         let original = "version = 3\n[meeting]\nfinal_pass = 'none'\n";
         std::fs::write(&path, original).unwrap();
         let loaded = Settings::load(&path).unwrap();
-        assert_eq!(loaded.version, 5);
+        assert_eq!(loaded.version, crate::CONFIG_VERSION);
         assert_eq!(
             std::fs::read_to_string(path.with_extension("toml.v3.bak")).unwrap(),
             original
         );
         assert!(std::fs::read_to_string(&path)
             .unwrap()
-            .contains("version = 5"));
+            .contains(&format!("version = {}", crate::CONFIG_VERSION)));
         assert_eq!(Settings::load(&path).unwrap().meeting, loaded.meeting);
+    }
+
+    #[test]
+    fn v5_echo_cancellation_defaults_off_and_preserves_explicit_choices() {
+        for (field, expected) in [
+            ("", false),
+            ("echo_cancellation = true\n", true),
+            ("echo_cancellation = false\n", false),
+        ] {
+            let dir = tempfile::tempdir().unwrap();
+            let path = dir.path().join("config.toml");
+            let original = format!(
+                "version = 5\n[meeting]\n{field}mic_device = 'Chosen microphone'\n\
+                 final_pass = 'none'\nauto_stop_after_s = 60\n"
+            );
+            std::fs::write(&path, &original).unwrap();
+
+            let loaded = Settings::load(&path).unwrap();
+            assert_eq!(loaded.version, crate::CONFIG_VERSION);
+            assert_eq!(loaded.meeting.echo_cancellation, expected);
+            assert_eq!(
+                loaded.meeting.mic_device.as_deref(),
+                Some("Chosen microphone")
+            );
+            assert_eq!(loaded.meeting.final_pass, FinalPass::None);
+            assert_eq!(loaded.meeting.auto_stop_after_s, 60);
+
+            let saved = std::fs::read_to_string(&path).unwrap();
+            assert!(saved.contains(&format!("version = {}", crate::CONFIG_VERSION)));
+            assert!(saved.contains(&format!("echo_cancellation = {expected}")));
+            assert_eq!(Settings::load(&path).unwrap().meeting, loaded.meeting);
+            assert_eq!(
+                std::fs::read_to_string(path.with_extension("toml.v5.bak")).unwrap(),
+                original,
+                "migration retains the original config, including an absent field"
+            );
+        }
+    }
+
+    #[test]
+    fn echo_cancellation_can_be_enabled_and_disabled_across_saves() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.toml");
+        let mut settings = Settings::default();
+        for enabled in [true, false] {
+            settings.meeting.echo_cancellation = enabled;
+            settings.save(&path).unwrap();
+            settings = Settings::load(&path).unwrap();
+            assert_eq!(settings.meeting.echo_cancellation, enabled);
+        }
     }
 
     #[test]
@@ -274,6 +330,7 @@ mod tests {
         assert!(s.meeting.enabled);
         assert_eq!(s.meeting.mic_device, None);
         assert_eq!(s.meeting.system_source, SystemSource::App);
+        assert!(!s.meeting.echo_cancellation);
         assert!(s.meeting.live_transcript);
         assert_eq!(s.meeting.final_pass, FinalPass::Deepgram);
         assert!(s.meeting.summary);
@@ -318,6 +375,7 @@ mod tests {
             toggle_key: Some("LCtrl+F11".into()),
             mic_device: Some("Yeti Stereo Microphone".to_string()),
             system_source: SystemSource::All,
+            echo_cancellation: true,
             live_transcript: false,
             final_pass: FinalPass::None,
             gemini_model: "gemini-3.8-flash".into(),

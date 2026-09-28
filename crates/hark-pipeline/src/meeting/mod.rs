@@ -23,6 +23,7 @@
 //! `Debug`, and no log line carries text or audio.
 
 mod coordinator;
+mod echo;
 mod finish;
 mod gemini_final;
 mod live;

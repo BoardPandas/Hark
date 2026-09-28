@@ -330,6 +330,7 @@ pages:
       - "crates/hark-audio/src/resample.rs"
       - "crates/hark-audio/src/capture_win.rs"
       - "crates/hark-audio/src/loopback_win.rs"
+      - "crates/hark-audio/src/meeting_aec.rs"
       - "crates/hark-audio/src/spool.rs"
       - "crates/hark-audio/src/stereo.rs"
       - "crates/hark-audio/src/mp3.rs"
@@ -388,6 +389,7 @@ pages:
         autogen: true
         source_files:
           - "crates/hark-audio/src/loopback_win.rs"
+          - "crates/hark-audio/src/meeting_aec.rs"
           - "crates/hark-audio/src/spool.rs"
           - "crates/hark-audio/src/stereo.rs"
           - "crates/hark-audio/src/mp3.rs"
@@ -913,6 +915,9 @@ pages:
     category: runbook
     source_files:
       - "installer/hark.iss"
+      - "THIRD_PARTY_NOTICES.md"
+      - "crates/hark-app/Cargo.toml"
+      - "packaging/PKGBUILD"
       - ".github/workflows/release.yml"
       - ".github/RELEASING.md"
       - "package.json"
@@ -929,6 +934,9 @@ pages:
         autogen: true
         source_files:
           - "installer/hark.iss"
+          - "THIRD_PARTY_NOTICES.md"
+          - "crates/hark-app/Cargo.toml"
+          - "packaging/PKGBUILD"
         diagrams_needed: false
         diagram_types: []
       - id: hark_13_release_packaging_workflow
@@ -1011,6 +1019,10 @@ pages:
       - "crates/hark-pipeline/src/meeting/mod.rs"
       - "crates/hark-pipeline/src/meeting/coordinator.rs"
       - "crates/hark-pipeline/src/meeting/recorder.rs"
+      - "crates/hark-pipeline/src/meeting/recorder_tests.rs"
+      - "crates/hark-pipeline/src/meeting/echo.rs"
+      - "crates/hark-pipeline/src/meeting/echo_tests.rs"
+      - "crates/hark-audio/src/meeting_aec.rs"
       - "crates/hark-pipeline/src/meeting/live.rs"
       - "crates/hark-pipeline/src/meeting/finish.rs"
       - "crates/hark-pipeline/src/meeting/gemini_final.rs"
@@ -1055,6 +1067,10 @@ pages:
           - "crates/hark-audio/src/loopback_win.rs"
           - "crates/hark-audio/src/spool.rs"
           - "crates/hark-pipeline/src/meeting/recorder.rs"
+          - "crates/hark-pipeline/src/meeting/recorder_tests.rs"
+          - "crates/hark-pipeline/src/meeting/echo.rs"
+          - "crates/hark-pipeline/src/meeting/echo_tests.rs"
+          - "crates/hark-audio/src/meeting_aec.rs"
         diagrams_needed: false
         diagram_types: []
       - id: hark_15_meetings_detection

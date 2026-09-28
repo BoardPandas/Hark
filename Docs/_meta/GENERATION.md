@@ -1,5 +1,12 @@
 # Generation Metadata
 
+## Scoped optional meeting AEC release — 2026-09-28 (0.57.0)
+
+- **Source reviewed:** `7b8bb126` plus the production Rust AEC3 wrapper, bounded recorder pairing, schema 6 settings/UI, tail and failure regressions, and notice packaging.
+- **Scope:** setup, configuration, capture/meetings, architecture, desktop UI, notices, release packaging, and historical comparison context. New production modules are mapped in `_toc.yaml`; source-citation updates preserve generated-section boundaries.
+- **Baseline policy:** global baseline `784272c` remains unchanged.
+- **Validation:** both npm guards and WSL fmt/clippy/workspace tests passed; details below in `SUMMARY.md`. Real-speaker validation was explicitly deferred by the owner and is not claimed from synthetic or headphone evidence.
+
 ## Scoped MP3 finalization correction — 2026-09-28
 
 - **Source reviewed:** `b0d45b5` plus the MP3 finalizer, mono bitrate, and exact-duration/ending-audio regressions.

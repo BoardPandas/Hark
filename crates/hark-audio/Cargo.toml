@@ -21,6 +21,8 @@ thiserror = "2"
 # WAV reader/writer for the mono share export and the archive's verify pass
 # (already locked as a dev-dep for spool's own tests).
 hound = "3.5"
+# Meeting-worker acoustic echo cancellation, pinned to the evaluated Rust engine.
+aec3 = "=0.4.0"
 # Meeting audio archive (D9) and sharing (D8): resolves to 0.2.5 (sys 0.1.11,
 # LAME 3.100), confirmed in the CP0 spike. LAME is LGPL and statically
 # linked via mp3lame-sys's vendored build; the notice/relink obligation is

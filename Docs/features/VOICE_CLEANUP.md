@@ -135,6 +135,12 @@ Gemini Live has a distinct fused `smart` mode. In that mode the single returned 
 
 Meeting mode never sees Gemini Live's fused `smart` result: the live transcriber uses the ordinary batch `SttProvider::transcribe` path per chunk (or the on-device engine), never the streaming session, so a meeting line always goes through the spellbook corrector as text, with no fused-cleanup shortcut to skip ([live.rs:60-77](../../crates/hark-pipeline/src/meeting/live.rs#L60-L77)).
 
+The schema-6 meeting echo setting controls an earlier audio stage: it filters the
+microphone before recording and STT. Meeting notes still use the independent
+summary setting and text-provider request after transcription
+([echo processing](MEETINGS.md#reduce-speaker-echo),
+[configuration](../../crates/hark-config/src/meeting.rs)).
+
 Sources: [crates/hark-pipeline/src/worker.rs:451-530](../../crates/hark-pipeline/src/worker.rs#L451-L530), [crates/hark-pipeline/src/worker.rs:542-618](../../crates/hark-pipeline/src/worker.rs#L542-L618), [crates/hark-stt/src/gemini_live.rs](../../crates/hark-stt/src/gemini_live.rs), [crates/hark-config/src/lib.rs](../../crates/hark-config/src/lib.rs), [crates/hark-pipeline/src/meeting/live.rs:60-77](../../crates/hark-pipeline/src/meeting/live.rs#L60-L77)
 <!-- END:AUTOGEN hark_09_voice_cleanup_pipeline -->
 

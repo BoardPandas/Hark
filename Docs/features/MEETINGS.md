@@ -17,6 +17,8 @@ The following files were used as evidence for this page:
 - [crates/hark-pipeline/src/meeting/mod.rs](../../crates/hark-pipeline/src/meeting/mod.rs)
 - [crates/hark-pipeline/src/meeting/coordinator.rs](../../crates/hark-pipeline/src/meeting/coordinator.rs)
 - [crates/hark-pipeline/src/meeting/recorder.rs](../../crates/hark-pipeline/src/meeting/recorder.rs)
+- [crates/hark-pipeline/src/meeting/echo.rs](../../crates/hark-pipeline/src/meeting/echo.rs)
+- [crates/hark-audio/src/meeting_aec.rs](../../crates/hark-audio/src/meeting_aec.rs)
 - [crates/hark-pipeline/src/meeting/live.rs](../../crates/hark-pipeline/src/meeting/live.rs)
 - [crates/hark-pipeline/src/meeting/rerun.rs](../../crates/hark-pipeline/src/meeting/rerun.rs)
 - [crates/hark-pipeline/src/meeting/finish.rs](../../crates/hark-pipeline/src/meeting/finish.rs)
@@ -52,8 +54,10 @@ It is deliberately a second, independent system from push-to-talk dictation: its
 
 ```mermaid
 graph TD
-    Mic["Microphone (Me)"] --> Spool1["me.wav spool"]
+    Mic["Microphone (Me)"] --> Echo["Optional speaker echo reduction"]
+    Echo --> Spool1["me.wav spool"]
     Loopback["Per-process loopback (Them)"] --> Spool2["them.wav spool"]
+    Loopback -->|reference| Echo
     Spool1 --> Chunk1["Chunker"]
     Spool2 --> Chunk2["Chunker"]
     Chunk1 --> Live["Live transcriber"]
@@ -77,7 +81,7 @@ On Windows, set **Start / stop shortcut** in Settings → Meetings to a `+`-sepa
 
 The one Windows keyboard hook feeds both chords. Meeting toggles fire only on a physical engage edge; release, repeat, injected input, and release-recovery polling do not toggle. Equal chords and either-direction subsets are rejected regardless of key order, while distinct chords may share modifiers. The meeting chord always observes keys; the existing narrow lock-key suppression belongs only to active dictation. Recording a new dictation shortcut bypasses both trackers ([shortcut router and fixtures](../../crates/hark-hotkey/src/shortcuts.rs), [Windows hook](../../crates/hark-hotkey/src/hook_win.rs)).
 
-Config schema 4 adds optional `[meeting] toggle_key`, defaulting to no binding. Loading a v3 file backs up the original before saving v4, preserving explicit provider choices and auto-stop values. See [Configuration](../core/CONFIGURATION.md#meeting-shortcut-migration) for validation and migration details.
+Config schema 4 introduced optional `[meeting] toggle_key`, defaulting to no binding. Loading an older file backs up the original before saving the current schema (6), preserving explicit provider choices and deliberate auto-stop values. See [Configuration](../core/CONFIGURATION.md#meeting-shortcut-migration) for validation and migration details.
 <!-- END:AUTOGEN hark_15_meetings_overview -->
 
 ---
@@ -90,7 +94,53 @@ Two independent channels record for the length of the call, alongside push-to-ta
 - **Me (microphone):** the Windows communications-default device by default (the same device Teams and Zoom use), or an explicit `[meeting] mic_device` override ([coordinator.rs](../../crates/hark-pipeline/src/meeting/coordinator.rs)).
 - **Them (system audio):** per-process WASAPI loopback. A detected meeting captures just that app's process tree (`system_source = "app"`, the default); a manual start, or `system_source = "all"`, captures everything except Hark. Resolving "that app's process tree" means finding the root PID whose parent is not the same exe (covering a browser's or Teams' child processes) and falling back to "everything except Hark" if the app has no running process to target ([coordinator.rs](../../crates/hark-pipeline/src/meeting/coordinator.rs)). See [Audio Capture](AUDIO_CAPTURE.md#meeting-capture) for the WASAPI mechanics and the spool format both channels are written to.
 
-`Recorder` drains both tracks every 100 ms into their WAV spool and, when a live transcript is wanted, their chunker. Both tracks sit on one timeline counted in 16 kHz samples since the meeting started; a track that opens late (the mic ready before the loopback activates, or vice versa) is padded with leading silence, and samples a stalled drain lost are replaced with silence of the same length, so a line's offset is its real time in the call and the spools stay aligned for the stereo final pass ([recorder.rs:1-10](../../crates/hark-pipeline/src/meeting/recorder.rs#L1-L10)). The meeting records with whatever opened — mic only if the loopback failed, loopback only if the mic failed — and reports why through a notice; neither failure is fatal on its own ([recorder.rs:85-89](../../crates/hark-pipeline/src/meeting/recorder.rs#L85-L89)).
+`Recorder` drains both tracks every 100 ms into their WAV spool and, when a live transcript is wanted, their chunker. Both tracks use a timeline counted in 16 kHz samples since the meeting started. Initial placement estimates elapsed worker time minus delivered samples; leading silence places a late-opening track on that timeline, and lost drain samples become same-length silence. This preserves timeline length but is not hardware timestamp alignment or drift correction. The meeting records with whatever opened — mic only if loopback failed, loopback only if the mic failed — and reports why through a notice; neither failure is fatal on its own ([recorder.rs](../../crates/hark-pipeline/src/meeting/recorder.rs)).
+
+### Reduce Speaker Echo
+
+Enable **Reduce speaker echo** in Settings → Meetings and save to use it from
+the next meeting. The default is off (`[meeting] echo_cancellation = false`),
+including when upgrading an existing configuration. It is intended for playback
+through speakers; leave it off with headphones, or turn it off if the local
+voice sounds worse. Only the meeting microphone is filtered. Them and
+push-to-talk dictation are unchanged ([settings](../../crates/hark-app/src/ui/settings/meetings.rs),
+[configuration](../../crates/hark-config/src/meeting.rs)).
+
+The worker uses Rust `aec3 = 0.4.0` with 160-sample (10 ms) mono frames at 16 kHz,
+feeding render before microphone. High-pass filtering and automatic echo-delay
+estimation are enabled; separate noise suppression, gain control, and the extra
+post-filter are disabled. Processing happens before the microphone spool and
+live chunker, so both its retained recording and later transcription use the
+processed audio; Hark does not retain a second, unprocessed mic track
+([AEC wrapper](../../crates/hark-audio/src/meeting_aec.rs),
+[recorder](../../crates/hark-pipeline/src/meeting/recorder.rs)).
+
+Microphone audio waiting for its render reference is bounded to 250 ms, and
+render history to two seconds. A separate **128-sample (8 ms) original-microphone
+guard** covers the pinned engine's processing latency. Hark discards that leading
+processed delay on startup and after reset, retaining the original microphone
+samples whose delayed output has not yet arrived. This guard is separate from
+the reference-pairing wait and the estimated acoustic echo delay
+([wrapper](../../crates/hark-audio/src/meeting_aec.rs),
+[pairing and fallback](../../crates/hark-pipeline/src/meeting/echo.rs)).
+
+On stop or fallback, Hark writes the original guard first, followed by pending
+microphone audio, including any incomplete final 10 ms frame. The ending is
+therefore preserved as original audio rather than losing it behind equal input
+and output sample counts. Missing reference bypasses processing, discontinuities
+reset adaptation, and engine failures disable processing for the rest of the
+meeting. Track-close decisions are captured once per drain; a later device error
+waits for the next drain so resampler and AEC tails are flushed before the spool
+and chunker close ([echo handling](../../crates/hark-pipeline/src/meeting/echo.rs),
+[recorder](../../crates/hark-pipeline/src/meeting/recorder.rs)). These policies
+bound waiting and preserve the ending; they do not correct device-clock drift.
+
+The reference covers only the selected playback source. Per-process capture
+cannot cancel an unrelated app's audio absent from that reference. The
+[synthetic comparison](../../tools/meeting-aec-bakeoff/RESULTS.md) supported the
+Rust choice and its simpler native build; real speakerphone quality and long-call
+alignment remain unverified. No hardware timestamp pairing or explicit drift
+correction is implemented.
 <!-- END:AUTOGEN hark_15_meetings_capture -->
 
 ---
@@ -254,14 +304,15 @@ Content hygiene matches the dictation-history rule: nothing that carries meeting
 <!-- BEGIN:AUTOGEN hark_15_meetings_operational -->
 ## Operational Notes
 
-Echo cancellation remains an experiment. The isolated
-[AEC comparison](../../tools/meeting-aec-bakeoff/README.md) includes two engines,
-a bypass control, and [63 recorded synthetic measurements](../../tools/meeting-aec-bakeoff/RESULTS.md).
+The optional [speaker echo reduction](#reduce-speaker-echo) uses Rust AEC3.
+The isolated [AEC comparison](../../tools/meeting-aec-bakeoff/README.md) retains
+two engines, a bypass control, and
+[63 recorded synthetic measurements](../../tools/meeting-aec-bakeoff/RESULTS.md).
 Both WSL candidates passed four streaming/metric tests; the Rust candidate also
-passed a native Windows GNU check. These results do not establish real-speaker
-quality, native C++ or MSVC support, or production capture alignment. The user's
-speaker/headphone comparison and engine choice remain pending; Hark's production
-audio path does not enable AEC.
+passed a native Windows GNU check. Those measurements do not establish real
+speakerphone quality, native C++ or MSVC support, or hardware capture alignment.
+The production choice was accepted without further speakerphone testing; this
+does not turn the remaining hardware uncertainty into a verified result.
 
 - **Windows only, for now.** `meetings_supported()` gates the tray entry, the Meetings/Settings pages, and the coordinator itself; macOS is planned once Windows is stable in daily use, Linux is deferred (see the plan's Phases section). The Win32-only pieces (prompt placement, frame stripping, opening Explorer, the save dialog's parent window) are compiled out elsewhere rather than merely hidden, so Linux and macOS builds carry no dead Windows code; lint the whole workspace on Linux before pushing anything that touches them, because a Windows build never sees those `cfg` paths.
 - **Hand checks, not `cargo test`.** Per-process loopback and the Windows ConsentStore probe need real hardware and a real call: verify them with `cargo run -p hark-audio --example loopback_smoke` and `cargo run -p hark-meeting --example detect_smoke`. `cargo test` never opens an audio device or reads the live microphone registry; pure state machine, chunker, merge, detector, eviction, and export checks use fixtures and synthetic PCM. Windows watcher tests separately create and remove isolated temporary registry keys.

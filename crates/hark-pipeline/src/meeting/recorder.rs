@@ -8,6 +8,7 @@
 //! aligned for the stereo final pass. The mic is resampled from its device
 //! rate here; the loopback already arrives at 16 kHz.
 
+use super::echo::EchoReducer;
 use hark_audio::resample::StreamResampler;
 use hark_audio::ring::{Consumer, RangeError};
 use hark_audio::spool::{SpoolWriter, ME_FILE, THEM_FILE};
@@ -15,6 +16,7 @@ use hark_audio::{CaptureHandle, LoopbackHandle, LoopbackTarget};
 use hark_meeting::{Channel, Chunk, ChunkParams, Chunker};
 use std::io;
 use std::path::PathBuf;
+use std::sync::atomic::Ordering;
 use std::sync::mpsc::Sender;
 use std::time::Instant;
 
@@ -29,6 +31,12 @@ pub(super) type LiveJob = (Channel, Chunk);
 enum Source {
     Mic(CaptureHandle),
     Loopback(LoopbackHandle),
+    #[cfg(test)]
+    Test {
+        failed: bool,
+    },
+    #[cfg(test)]
+    FailingDuringDrain(std::cell::Cell<u32>),
 }
 
 impl Source {
@@ -36,6 +44,25 @@ impl Source {
         match self {
             Source::Mic(h) => h.stream_errored(),
             Source::Loopback(h) => h.stream_errored(),
+            #[cfg(test)]
+            Source::Test { failed } => *failed,
+            #[cfg(test)]
+            Source::FailingDuringDrain(checks) => {
+                let previous = checks.get();
+                checks.set(previous + 1);
+                previous > 0
+            }
+        }
+    }
+
+    fn discontinuities(&self) -> u64 {
+        match self {
+            Source::Mic(h) => h.discontinuities().load(Ordering::Relaxed),
+            Source::Loopback(h) => h.discontinuities().load(Ordering::Relaxed),
+            #[cfg(test)]
+            Source::Test { .. } => 0,
+            #[cfg(test)]
+            Source::FailingDuringDrain(_) => 0,
         }
     }
 }
@@ -53,6 +80,8 @@ struct Track {
     aligned: bool,
     /// Samples lost to ring overruns, for the log.
     lost: u64,
+    discontinuous: bool,
+    capture_discontinuities: u64,
     /// Declared last: fields drop in order, so the spool and chunker are done
     /// with before the capture thread is joined.
     source: Source,
@@ -74,6 +103,7 @@ pub(super) struct Recorder {
     me: Option<Track>,
     them: Option<Track>,
     live: Option<Sender<LiveJob>>,
+    echo: Option<EchoReducer>,
 }
 
 /// Why a track closed mid-meeting.
@@ -92,6 +122,7 @@ impl Recorder {
         dir: PathBuf,
         mic_device: Option<String>,
         loopback: Option<LoopbackTarget>,
+        echo_cancellation: bool,
         live: Option<Sender<LiveJob>>,
         chunk: ChunkParams,
     ) -> Result<(Recorder, Vec<String>), String> {
@@ -145,6 +176,17 @@ impl Recorder {
         if me.is_none() && them.is_none() {
             return Err(notices.join(" "));
         }
+        let echo = if echo_cancellation && me.is_some() && them.is_some() {
+            match EchoReducer::new() {
+                Ok(echo) => Some(echo),
+                Err(_) => {
+                    notices.push("Speaker echo reduction could not start; recording the original microphone audio.".into());
+                    None
+                }
+            }
+        } else {
+            None
+        };
         Ok((
             Recorder {
                 id,
@@ -153,6 +195,7 @@ impl Recorder {
                 me,
                 them,
                 live,
+                echo,
             },
             notices,
         ))
@@ -165,25 +208,55 @@ impl Recorder {
     /// Drain both tracks. A track whose stream died is closed (its audio so
     /// far is kept) and reported; the meeting carries on with the other.
     pub fn pump(&mut self) -> io::Result<Vec<TrackLost>> {
+        self.drain(false)
+    }
+
+    fn drain(&mut self, finishing: bool) -> io::Result<Vec<TrackLost>> {
         let elapsed = self.started.elapsed().as_millis() as u64;
-        let mut lost = Vec::new();
-        for slot in [&mut self.me, &mut self.them] {
+        let mut batches = [Vec::new(), Vec::new()];
+        let mut discontinuity = false;
+        let mut ending = finishing || self.me.is_none() || self.them.is_none();
+        let mut closing = [false; 2];
+        for (i, slot) in [&mut self.me, &mut self.them].into_iter().enumerate() {
             let Some(track) = slot else { continue };
-            track.pump(elapsed, self.live.as_ref())?;
-            if track.source.errored() {
+            batches[i] = track.read(elapsed)?;
+            discontinuity |= track.take_discontinuity();
+            // Reuse this decision when closing. A device can fail while AEC
+            // is running; closing on a second read would skip its audio tail.
+            closing[i] = finishing || track.source.errored();
+            if closing[i] {
+                batches[i].extend(track.drain_tail()?);
+                ending = true;
+            }
+        }
+        if let Some(echo) = &mut self.echo {
+            batches[0] = echo.push(&batches[0], &batches[1], discontinuity, ending);
+        }
+        for (i, slot) in [&mut self.me, &mut self.them].into_iter().enumerate() {
+            if let Some(track) = slot {
+                track.place(&batches[i], self.live.as_ref())?;
+            }
+        }
+        let mut lost = Vec::new();
+        for (i, slot) in [&mut self.me, &mut self.them].into_iter().enumerate() {
+            if closing[i] {
                 let track = slot.take().expect("checked above");
                 let channel = track.channel;
                 track.close(self.live.as_ref())?;
-                lost.push(TrackLost {
-                    channel,
-                    detail: match channel {
-                        Channel::Me => "The microphone stopped; recording continues without it.",
-                        Channel::Them => {
-                            "System audio stopped; recording continues with your microphone."
+                if !finishing {
+                    lost.push(TrackLost {
+                        channel,
+                        detail: match channel {
+                            Channel::Me => {
+                                "The microphone stopped; recording continues without it."
+                            }
+                            Channel::Them => {
+                                "System audio stopped; recording continues with your microphone."
+                            }
                         }
-                    }
-                    .to_string(),
-                });
+                        .to_string(),
+                    });
+                }
             }
         }
         Ok(lost)
@@ -198,14 +271,8 @@ impl Recorder {
     /// spools, and stop capture. Dropping the live sender afterwards lets the
     /// transcriber finish its queue and exit.
     pub fn stop(mut self) -> io::Result<Recorded> {
-        let elapsed = self.started.elapsed().as_millis() as u64;
+        self.drain(true)?;
         let mut samples = [0u64; 2];
-        for (i, slot) in [&mut self.me, &mut self.them].into_iter().enumerate() {
-            if let Some(mut track) = slot.take() {
-                track.pump(elapsed, self.live.as_ref())?;
-                samples[i] = track.close(self.live.as_ref())?;
-            }
-        }
         // Tracks that closed early still have their spool on disk.
         for (i, name) in [ME_FILE, THEM_FILE].into_iter().enumerate() {
             if samples[i] == 0 {
@@ -256,14 +323,16 @@ impl Track {
             chunker,
             aligned: false,
             lost: 0,
+            discontinuous: false,
+            capture_discontinuities: 0,
             source,
         })
     }
 
-    fn pump(&mut self, elapsed_ms: u64, live: Option<&Sender<LiveJob>>) -> io::Result<()> {
+    fn read(&mut self, elapsed_ms: u64) -> io::Result<Vec<f32>> {
         let total = self.consumer.total_written();
         if total <= self.read {
-            return Ok(());
+            return Ok(Vec::new());
         }
         // A stalled drain can let the ring lap us. Keep the timeline honest:
         // what was lost becomes silence of the same length.
@@ -289,6 +358,7 @@ impl Track {
         let mut out = Vec::new();
         if gap > 0 {
             self.lost += gap;
+            self.discontinuous = true;
             log::warn!(
                 "meeting {:?} track: {gap} samples lost to a ring overrun; padded with silence",
                 self.channel
@@ -314,7 +384,21 @@ impl Track {
             }
             self.aligned = true;
         }
-        self.place(&out, live)
+        Ok(out)
+    }
+
+    fn take_discontinuity(&mut self) -> bool {
+        let count = self.source.discontinuities();
+        let changed = count != self.capture_discontinuities;
+        self.capture_discontinuities = count;
+        std::mem::take(&mut self.discontinuous) || changed
+    }
+
+    fn drain_tail(&mut self) -> io::Result<Vec<f32>> {
+        match &mut self.resampler {
+            Some(r) => r.drain().map_err(|e| io::Error::other(e.to_string())),
+            None => Ok(Vec::new()),
+        }
     }
 
     fn place(&mut self, samples: &[f32], live: Option<&Sender<LiveJob>>) -> io::Result<()> {
@@ -330,13 +414,10 @@ impl Track {
         Ok(())
     }
 
-    /// Flush the resampler and chunker tails, close the spool, stop capture.
+    /// Flush the chunker, close the spool, stop capture. The resampler tail
+    /// must already have passed through the shared drain and optional AEC.
     /// Returns the samples on the timeline.
     fn close(mut self, live: Option<&Sender<LiveJob>>) -> io::Result<u64> {
-        if let Some(r) = &mut self.resampler {
-            let tail = r.drain().map_err(|e| io::Error::other(e.to_string()))?;
-            self.place(&tail, live)?;
-        }
         if let Some(chunk) = self.chunker.as_mut().and_then(Chunker::finish) {
             send(live, self.channel, chunk);
         }
@@ -365,3 +446,7 @@ fn send(live: Option<&Sender<LiveJob>>, channel: Channel, chunk: Chunk) {
         let _ = tx.send((channel, chunk));
     }
 }
+
+#[cfg(test)]
+#[path = "recorder_tests.rs"]
+mod tests;

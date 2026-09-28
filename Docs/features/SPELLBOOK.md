@@ -40,7 +40,7 @@ expansions remain disabled for every meeting path
 <!-- BEGIN:AUTOGEN hark_08_spellbook_overview -->
 ## Overview
 
-The spellbook is Hark's user-owned vocabulary. Each configuration entry has a canonical `term` and optional exact `aliases` for known mishearings. Canonical terms serve two independent paths: Hark post-corrects returned transcripts locally, and it sends the same terms to the selected STT provider as vocabulary hints. Aliases stay local because asking a provider to favor a known misspelling would work against the correction ([lib.rs](../../crates/hark-config/src/lib.rs)).
+The spellbook is Hark's user-owned vocabulary. Each configuration entry has a canonical `term` and optional exact `aliases` for known mishearings. Canonical terms serve two independent paths: Hark post-corrects returned transcripts locally, and it sends the same terms to the selected STT provider as vocabulary hints. Aliases stay local because asking a provider to favor a known misspelling would work against the correction ([lib.rs](../../crates/hark-config/src/lib.rs)). Config schema 6 adds the independent meeting echo setting while preserving these entries ([migration](../../crates/hark-config/src/meeting.rs)).
 
 The `hark-spellbook` crate is pure text processing: no network, disk, or async runtime. `Corrector` precomputes match data when the pipeline starts and applies exact aliases before guarded phonetic inference for every transcript ([lib.rs:1-16](../../crates/hark-spellbook/src/lib.rs#L1-L16), [lib.rs:31-65](../../crates/hark-spellbook/src/lib.rs#L31-L65), [lib.rs:91-107](../../crates/hark-spellbook/src/lib.rs#L91-L107)).
 

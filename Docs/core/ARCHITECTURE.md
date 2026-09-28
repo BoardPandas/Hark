@@ -71,6 +71,25 @@ graph TD
 ```
 
 Sources: [main.rs:41-125](../../crates/hark-app/src/main.rs#L41-L125), [app.rs](../../crates/hark-app/src/app.rs), [pipeline.rs](../../crates/hark-app/src/pipeline.rs), [meeting/mod.rs](../../crates/hark-pipeline/src/meeting/mod.rs), [hark-app/src/meeting.rs](../../crates/hark-app/src/meeting.rs)
+
+Optional meeting echo cancellation is constructed, processed, reset, and dropped
+on the meeting worker. The recorder feeds captured playback as a reference and
+filters only microphone audio before its spool and live chunker. It uses paired
+160-sample frames at 16 kHz with bounded queues; neither the audio callback nor
+the dictation worker runs the engine. The existing first-delivery timeline and
+automatic engine delay estimate do not provide hardware timestamp pairing or
+device-clock drift correction ([recorder](../../crates/hark-pipeline/src/meeting/recorder.rs),
+[pairing and bypass](../../crates/hark-pipeline/src/meeting/echo.rs),
+[AEC wrapper](../../crates/hark-audio/src/meeting_aec.rs)).
+
+A 128-sample (8 ms) original-microphone guard compensates the engine's fixed
+output latency, separately from the 250 ms reference-pairing wait. Startup and
+reset discard leading delayed output; stop or fallback writes the retained
+original guard before pending microphone audio and any incomplete final frame.
+Each drain snapshots which tracks will close before flushing their resampler
+and AEC tails. A device error that arrives later is handled by the next drain,
+so closure cannot skip that flush ([echo handling](../../crates/hark-pipeline/src/meeting/echo.rs),
+[recorder](../../crates/hark-pipeline/src/meeting/recorder.rs)).
 <!-- END:AUTOGEN hark_02_architecture_process_model -->
 
 ---

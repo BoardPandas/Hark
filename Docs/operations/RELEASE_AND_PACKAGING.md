@@ -85,7 +85,22 @@ Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; \
 
 Sources: [hark.iss:73-90](../../installer/hark.iss#L73-L90)
 
-Meeting mode encodes recordings to MP3 with LAME through `mp3lame-encoder`/`mp3lame-sys`, and LAME is LGPL-2.0+, statically linked. The installer ships `THIRD_PARTY_NOTICES.md` beside the exe to satisfy that (the notice states the relink right: Hark's source is public, so anyone can rebuild against a modified LAME) — the same file the About screen and root `THIRD_PARTY_NOTICES.md` point to ([hark.iss:73-76](../../installer/hark.iss#L73-L76), [THIRD_PARTY_NOTICES.md](../../THIRD_PARTY_NOTICES.md)).
+Meeting mode encodes recordings to MP3 with LAME through `mp3lame-encoder`/`mp3lame-sys`; LAME is LGPL-2.0+ and statically linked. The installer ships `THIRD_PARTY_NOTICES.md` beside the exe. That notice describes the LAME relink right and also reproduces the selected `aec3 0.4.0` package's complete LICENSE and PATENT files: MIT terms for its new Rust contributions, BSD terms for WebRTC-derived portions, and the accompanying Google patent grant. The package's `MIT OR BSD-3-Clause` manifest shorthand does not replace these component notices ([installer](../../installer/hark.iss), [notices](../../THIRD_PARTY_NOTICES.md)).
+
+The same notice accompanies every binary package:
+
+| Package | Notice location |
+| --- | --- |
+| Windows installer | `{app}/THIRD_PARTY_NOTICES.md`, beside `hark-app.exe` |
+| Debian / RPM | `/usr/share/doc/hark/THIRD_PARTY_NOTICES.md` |
+| Arch | `/usr/share/licenses/hark/THIRD_PARTY_NOTICES.md` |
+| Linux tarball | Archive root beside `LICENSE` and `README.md` |
+
+Linux release checks inspect each built package's notice entry before publishing.
+The manifest, PKGBUILD, and tarball staging each include the file explicitly;
+keeping it only in the Git repository would not include it in those binaries'
+distribution materials ([package assets](../../crates/hark-app/Cargo.toml),
+[Arch package](../../packaging/PKGBUILD), [release checks](../../.github/workflows/release.yml)).
 
 The `[Registry]` entry seeds launch-at-login so it works immediately after a fresh install, mirroring the exact format `hark-autostart` writes at runtime (quoted path plus `--hidden`), and `uninstalldeletevalue` removes it on uninstall so the value can never point at a deleted exe (`installer/hark.iss:83-90`). The desktop shortcut is opt-in via the `desktopicon` task, unchecked by default (`installer/hark.iss:70-71`). The `[Run]` step deliberately omits `--hidden` so a fresh install's first launch shows the onboarding window (no STT key configured yet), while `skipifsilent` keeps unattended installs headless (`installer/hark.iss:92-97`). User data at `%APPDATA%\hark` (`config.toml` + `history.db`) is intentionally left in place on uninstall (`installer/hark.iss:12-13`); meeting recordings under that same directory's `meetings/` folder are left in place too, since nothing about uninstall is meeting-aware.
 

@@ -226,10 +226,17 @@ download manager, the fallback policy, and the model catalogue.
 - **Phase 4 — Settings/history UI + storage:** SQLite, retention pruning, lifetime stats, egui window.
 - **Phase 5 — Ship:** processing indicator, packaging + notarization/signing, first-run permissions, launch-at-login, single-instance guard.
 
-The [meeting AEC comparison](tools/meeting-aec-bakeoff/README.md) is an isolated
-development experiment with reproducible fixtures and numeric results. It does
-not enable production echo cancellation; real-speaker testing and the engine
-choice remain open.
+For calls played through speakers, enable **Reduce speaker echo** in Settings →
+Meetings and save. It applies from the next meeting and is off by default. Hark
+uses captured playback to reduce its echo in the microphone recording and live
+transcript; the remote channel and push-to-talk dictation are unchanged. Only
+sound present in the captured playback can serve as a reference. Turn it off if
+your local voice sounds worse; headphones remain the low-echo option.
+
+The [meeting AEC comparison](tools/meeting-aec-bakeoff/README.md) records the
+synthetic evidence behind the Rust AEC3 choice. It does not establish real-speaker
+quality or long-call clock stability; the production integration uses estimated
+initial track alignment and automatic echo-delay estimation.
 
 ## Privacy
 

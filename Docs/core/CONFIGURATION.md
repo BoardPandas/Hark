@@ -86,6 +86,7 @@ The `Settings` struct is the single source of truth for the config schema; every
 | `[meeting]` | `toggle_key` | `Option<String>` | `None` | Optional Windows start/stop chord; blank in the UI clears it. Conflicts with push-to-talk are rejected ([meeting settings](../../crates/hark-config/src/meeting.rs), [validation](../../crates/hark-config/src/lib.rs)) |
 | `[meeting]` | `mic_device` | `Option<String>` | `None` | cpal device name for "Me"; unset falls back to the Windows communications-default microphone ([meeting.rs](../../crates/hark-config/src/meeting.rs)) |
 | `[meeting]` | `system_source` | enum | `"app"` | `app` (a detected meeting's own process tree) \| `all` (everything except Hark; always used for a manual start) ([meeting.rs](../../crates/hark-config/src/meeting.rs)) |
+| `[meeting]` | `echo_cancellation` | `bool` | `false` | **Reduce speaker echo**: process only the microphone against captured playback, before recording and live transcription. Applies from the next meeting after Save ([meeting.rs](../../crates/hark-config/src/meeting.rs), [settings](../../crates/hark-app/src/ui/settings/meetings.rs)) |
 | `[meeting]` | `final_pass` | enum | `"deepgram"` | `deepgram` (full stereo pass), `gemini` (each track in five-minute windows), or `none` (keep live transcript). Missing keys do not change this choice ([meeting.rs](../../crates/hark-config/src/meeting.rs)) |
 | `[meeting]` | `gemini_model` | `String` | `"gemini-3.8-flash"` | Independent Files final-pass model; blank values are rejected. Uses `HARK_GEMINI_KEY` or keychain account `gemini` ([settings](../../crates/hark-app/src/ui/settings/meetings.rs)) |
 | `[meeting]` | `audio_cap_mb` | `u32` | `5120` | Circular storage cap for kept recordings, in MB; `0` deletes audio as soon as it is processed. Clamped to `0..=1_048_576` (1 TB) at load ([meeting.rs](../../crates/hark-config/src/meeting.rs), [meeting.rs](../../crates/hark-config/src/meeting.rs)) |
@@ -129,6 +130,13 @@ Sources: [lib.rs](../../crates/hark-config/src/lib.rs), [lib.rs](../../crates/ha
 ### Meeting Shortcut Migration
 
 Schema 4 adds `meeting.toggle_key`, defaulting to `None`. Schema 5 adds `gemini_model` and the explicit Gemini choice. Migration from either schema 3 or 4 preserves `none`/`deepgram`, an explicit model/binding, and deliberate auto-stop values; it never opts into Gemini automatically. `Settings::load` writes a versioned backup before persisting a migrated file; for a v3 file this is `config.toml.v3.bak`. The v3 → v4 migration preserves final-pass selection and deliberate auto-stop settings, including 60 seconds. An explicit shortcut already present in an older file is retained ([migration and backup tests](../../crates/hark-config/src/meeting.rs), [load/save](../../crates/hark-config/src/lib.rs)).
+
+Schema 6 adds `meeting.echo_cancellation`, defaulting to `false` when absent.
+Migration preserves an explicit value and existing meeting preferences; it does
+not enable echo processing automatically. Saving a change affects the next
+meeting, so the active recording keeps one processing configuration throughout.
+See [speaker echo reduction](../features/MEETINGS.md#reduce-speaker-echo) for the
+capture scope and fallback behavior ([settings and migration](../../crates/hark-config/src/meeting.rs)).
 
 `validate_meeting_shortcut` parses both chords through `hark-hotkey` and rejects invalid names, empty configured strings, equal key sets, and either-direction subsets. For the default push-to-talk `LCtrl+LWin`, `LWin+LCtrl`, `LCtrl`, and `LCtrl+LWin+M` conflict; `LCtrl+F11` does not. The settings UI converts blank text to `None`, shows validation errors immediately, and restarts the shared listener after a valid save. This version adds no final-pass provider or model setting ([validation](../../crates/hark-config/src/lib.rs), [settings](../../crates/hark-app/src/ui/settings/meetings.rs)).
 <!-- END:AUTOGEN hark_04_configuration_schema -->

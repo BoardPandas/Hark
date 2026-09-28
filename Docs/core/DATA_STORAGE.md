@@ -22,8 +22,10 @@ The following files were used as evidence for this page:
 
 # Data Storage
 
-Schema 5 keeps prior meeting final-pass selections while adding the Gemini model
-default. Migration attempts a versioned TOML backup before saving; failure keeps
+Config schema 6 adds optional microphone echo reduction, defaulting off, while
+preserving explicit meeting preferences and the schema-5 Gemini model setting.
+This is a TOML change; the SQLite schema remains at migration 004.
+Migration attempts a versioned TOML backup before saving; failure keeps
 the in-memory settings usable, and a failed backup leaves the original file alone
 ([config persistence](../../crates/hark-config/src/lib.rs),
 [migration fixtures](../../crates/hark-config/src/meeting.rs)).
