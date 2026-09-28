@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.56.1] - 2026-09-28
+
+### Fixed
+
+- Meeting MP3 archives and audio exports now preserve the ending audio when encoding finishes, including very short excerpts. Mono MP3 exports use 40 kbps instead of 32 kbps so gapless timing metadata fits; nominal file sizes increase by 25%. Stereo archives remain 64 kbps. Existing recordings are unchanged and missing audio from older archives cannot be reconstructed.
+
 ## [0.56.0] - 2026-09-28
 
 ### Added

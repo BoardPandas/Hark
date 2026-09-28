@@ -1,5 +1,5 @@
 //! Meeting audio sharing (D8) and archiving (D9): a mono share export
-//! (32 kbps MP3 or 16 kHz WAV mixdown) and the one-file stereo 64 kbps MP3
+//! (40 kbps MP3 or 16 kHz WAV mixdown) and the one-file stereo 64 kbps MP3
 //! archive that replaces the two WAV spools once a meeting is processed.
 //!
 //! LAME mode matters: the archive uses `Mode::Stereo`, never
@@ -17,9 +17,7 @@ use std::fs::File;
 use std::io;
 use std::path::{Path, PathBuf};
 
-use mp3lame_encoder::{
-    Bitrate, DualPcm, Encoder as LameEncoder, FlushNoGap, Mode, MonoPcm, Quality,
-};
+use mp3lame_encoder::{Bitrate, DualPcm, Encoder as LameEncoder, FlushGap, Mode, MonoPcm, Quality};
 use symphonia::core::audio::SampleBuffer;
 use symphonia::core::codecs::{Decoder, DecoderOptions};
 use symphonia::core::formats::{FormatOptions, FormatReader};
@@ -39,6 +37,10 @@ pub const ARCHIVE_FILE: &str = "audio.mp3";
 /// Frames (samples per channel) handled per encode/decode step. Bounds
 /// memory to a small multiple of this regardless of meeting length.
 const CHUNK_FRAMES: usize = 4096;
+
+// At 16 kHz, a 32 kbps mono frame is too small for LAME's gapless tag,
+// so LAME silently omits it. 40 kbps is the smallest CBR rate that fits.
+const MONO_EXPORT_BITRATE: Bitrate = Bitrate::Kbps40;
 
 /// One chunk of time-aligned (left, right) i16 samples.
 type StereoChunk = (Vec<i16>, Vec<i16>);
@@ -114,9 +116,9 @@ pub fn meeting_audio(dir: &Path) -> Option<MeetingAudio> {
 }
 
 /// Shareable mono mixdown ((L + R) / 2, never clips: an i16 average of two
-/// i16s always fits an i16) at 32 kbps.
+/// i16s always fits an i16) at 40 kbps, with gapless timing metadata.
 pub fn export_mono_mp3(src: &MeetingAudio, out: &Path) -> Result<(), EncodeError> {
-    let mut encoder = lame_builder(1, Mode::Mono, Bitrate::Kbps32)?;
+    let mut encoder = lame_builder(1, Mode::Mono, MONO_EXPORT_BITRATE)?;
     let mut mix = MixSource::open(src, CHUNK_FRAMES)?;
     let mut buf = Vec::new();
     while let Some((l, r)) = mix.next_chunk()? {
@@ -327,14 +329,21 @@ fn lame_builder(channels: u8, mode: Mode, brate: Bitrate) -> Result<LameEncoder,
 /// trim the encoder delay/padding (gapless, exact duration on decode).
 fn finish_lame(encoder: &mut LameEncoder, out: &mut Vec<u8>) -> Result<(), EncodeError> {
     out.reserve(7200);
+    // This is the end of a standalone file. FlushNoGap only drains the
+    // bitstream for a continuing encode and leaves final PCM unencoded.
+    // FlushGap encodes that tail and records padding for gapless trimming.
     encoder
-        .flush_to_vec::<FlushNoGap>(out)
+        .flush_to_vec::<FlushGap>(out)
         .map_err(|e| EncodeError::Lame(e.to_string()))?;
     let mut tag = Vec::with_capacity(encoder.lame_tag_size().max(1));
-    if encoder.lame_tag_encode_to_vec(&mut tag).is_some() {
-        let at = encoder.id3v2_tag_size();
-        out[at..at + tag.len()].copy_from_slice(&tag);
-    }
+    encoder.lame_tag_encode_to_vec(&mut tag).ok_or_else(|| {
+        EncodeError::Lame("missing gapless timing tag after finalizing MP3".into())
+    })?;
+    let at = encoder.id3v2_tag_size();
+    let header = out.get_mut(at..at + tag.len()).ok_or_else(|| {
+        EncodeError::Lame("gapless timing tag does not fit the MP3 header".into())
+    })?;
+    header.copy_from_slice(&tag);
     Ok(())
 }
 
@@ -589,22 +598,61 @@ mod tests {
     }
 
     #[test]
-    fn archive_duration_is_within_one_second_of_the_spools() {
+    fn fresh_archives_and_mono_exports_preserve_exact_frame_counts() {
+        for frames in [
+            1, 159, 160, 575, 576, 577, 1152, 4095, 4096, 4097, 16_000, 32_137,
+        ] {
+            let dir = tempfile::tempdir().expect("tempdir");
+            let samples: Vec<_> = (0..frames)
+                .map(|i| (10_000.0 * (2.0 * PI * 400.0 * i as f64 / 16_000.0).sin()) as i16)
+                .collect();
+            let (me, them) = meeting_dir_with(dir.path(), &samples, &samples[..frames / 2]);
+            let mono = dir.path().join("mono.mp3");
+            export_mono_mp3(&MeetingAudio::Spools { me, them }, &mono).expect("mono export");
+            compress_meeting_dir(dir.path()).expect("compress");
+            for path in [mono, dir.path().join(ARCHIVE_FILE)] {
+                let (left, right) = ArchiveDecoder::open(&path)
+                    .expect("open")
+                    .decode_all()
+                    .expect("decode");
+                assert_eq!(left.len(), frames, "frame count {frames}");
+                assert_eq!(right.len(), frames, "right frame count {frames}");
+            }
+        }
+    }
+
+    #[test]
+    fn finalization_rejects_an_export_without_gapless_metadata() {
+        let mut encoder = lame_builder(1, Mode::Mono, Bitrate::Kbps32).unwrap();
+        let samples = tone(1.0, 440.0, 0.4);
+        let mut bytes =
+            Vec::with_capacity(mp3lame_encoder::max_required_buffer_size(samples.len()));
+        encoder
+            .encode_to_vec(MonoPcm(&samples), &mut bytes)
+            .unwrap();
+        assert!(matches!(
+            finish_lame(&mut encoder, &mut bytes),
+            Err(EncodeError::Lame(_))
+        ));
+    }
+
+    #[test]
+    fn archive_preserves_audio_in_the_final_fifty_milliseconds() {
         let dir = tempfile::tempdir().expect("tempdir");
-        let me_samples = tone(1.5, 220.0, 0.3);
-        let them_samples = tone(1.0, 330.0, 0.3);
-        let (me, them) = meeting_dir_with(dir.path(), &me_samples, &them_samples);
-        let expected = stereo::spool_pair_frames(&me, &them).expect("frames");
-
+        let mut samples = vec![0; 32_137 - 800];
+        samples.extend(tone(0.05, 440.0, 0.4));
+        meeting_dir_with(dir.path(), &samples, &vec![0; samples.len()]);
         compress_meeting_dir(dir.path()).expect("compress");
-
-        let archive = ArchiveDecoder::open(&dir.path().join(ARCHIVE_FILE)).expect("open archive");
-        let (l, _r) = archive.decode_all().expect("decode");
+        let (left, right) = ArchiveDecoder::open(&dir.path().join(ARCHIVE_FILE))
+            .expect("open archive")
+            .decode_all()
+            .expect("decode");
+        assert_eq!(left.len(), samples.len());
         assert!(
-            (l.len() as u64).abs_diff(expected) <= spool::SPOOL_RATE as u64,
-            "decoded {} frames, expected {expected}",
-            l.len()
+            rms(&left[left.len() - 400..]) > 1000.0,
+            "final audio must survive"
         );
+        assert!(rms(&right) < 1.0, "silent channel must remain independent");
     }
 
     #[test]
@@ -777,11 +825,7 @@ mod tests {
             .expect("open export")
             .decode_all()
             .expect("decode");
-        assert!(
-            (l.len() as u64).abs_diff(n as u64) <= spool::SPOOL_RATE as u64,
-            "decoded {} frames, expected about {n}",
-            l.len()
-        );
+        assert_eq!(l.len(), n);
     }
 
     #[test]

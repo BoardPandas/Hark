@@ -794,3 +794,10 @@ Not scheduled. The §4.1 notes are kept so it can be picked up later without re-
 - Reuse the existing [sender-owned shutdown lesson](https://github.com/BoardPandas/LL-G/blob/main/kb/rust/join-on-drop-sender-field-order.md).
   The three new and one amended HIGH Polish entries are published in verified
   commit `9ae35d63`; details and the separate CI limitation are recorded in Ship.
+
+
+**Learned while checking archived audio endings (2026-09-28, 0.56.1):**
+
+- LAME `FlushNoGap` drains a continuing stream's bit buffer without encoding its remaining PCM. Standalone files need `FlushGap` followed by the LAME timing tag; otherwise ending audio can disappear while a loose duration check passes. The 32,137-frame diagnostic lost 1,562 frames, but the loss varies by frame alignment.
+- At 16 kHz, a 32 kbps mono frame is 144 bytes and cannot hold the 169-byte header plus complete LAME tag. LAME silently disables the tag. A 40 kbps frame fits it; checking the requested tag flag is insufficient, so require the generated tag after finalization.
+- Verify exact decoded lengths and actual ending signal, including sub-frame clips and codec/chunk boundaries. Positive headphone listening checks do not establish speaker echo-removal performance or choose an AEC engine.

@@ -5,8 +5,8 @@ use std::io::Write;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 /// Export the mono excerpt `[start_ms, end_ms)` as WAV. Returns the frames
-/// actually written (the archive can end slightly before its recorded duration
-/// because of MP3 gapless trimming). Memory is bounded to one codec chunk.
+/// actually written (legacy archives can end before their recorded duration).
+/// Memory is bounded to one codec chunk.
 pub fn export_excerpt_wav(
     src: &MeetingAudio,
     out: &Path,
@@ -44,7 +44,7 @@ pub fn export_excerpt_mp3(
     end_ms: u64,
 ) -> Result<u64, EncodeError> {
     let mut selected = Selection::new(src, start_ms, end_ms)?;
-    let mut encoder = lame_builder(1, Mode::Mono, Bitrate::Kbps32)?;
+    let mut encoder = lame_builder(1, Mode::Mono, MONO_EXPORT_BITRATE)?;
     let mut buf = Vec::new();
     let mut frames = 0;
     while let Some(mono) = selected.next()? {
@@ -206,10 +206,16 @@ mod tests {
         let wav = dir.path().join("excerpt.wav");
         assert_eq!(export_excerpt_wav(&src, &wav, 300, 900).unwrap(), 9600);
         let frames = export_excerpt_wav(&src, &wav, 1500, 5000).unwrap();
-        assert!(frames > 0 && frames <= 8000);
+        assert_eq!(frames, 8000);
         let mp3 = dir.path().join("excerpt.mp3");
         assert_eq!(export_excerpt_mp3(&src, &mp3, 200, 1200).unwrap(), 16_000);
         verify_mp3(&mp3, 16_000).unwrap();
+        for (start, end) in [(0, 1), (257, 1103), (1500, 5000)] {
+            let expected = export_excerpt_mp3(&src, &mp3, start, end).unwrap() as usize;
+            let (left, right) = ArchiveDecoder::open(&mp3).unwrap().decode_all().unwrap();
+            assert_eq!(left.len(), expected);
+            assert_eq!(right.len(), expected);
+        }
     }
 
     #[test]

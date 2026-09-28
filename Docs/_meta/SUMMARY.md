@@ -446,3 +446,11 @@ The AI review workflows for 0.50.5 through 0.53.0 skipped their review because
 - **Documentation audit:** 61 balanced AUTOGEN pairs, 838 relative links resolved, and 332 current-file line citations within bounds across changed/new pages. Nineteen reversed/out-of-bounds inherited citations were replaced with file links. This verifies structure and targets, not Mermaid rendering or exhaustive semantic coverage.
 
 - **Delivery verified before the final snapshot:** features 1–5 are committed and pushed separately with passing Windows/Linux/macOS CI and release tags. Feature 3 ships as `v0.53.1` after its Windows layout fix; `v0.53.0` remains untagged. Feature 5's exact SHA `7cbdc234` passed all eight CI jobs in run `36467977562`, and annotated `v0.55.0` was pushed. Its release workflow was triggered, but completion is not yet verified. Part A `v0.50.5` and features 1–2 have completed full releases. Feature 6 remains the prepared snapshot described here until the parent performs its commit/push/tag.
+
+## MP3 finalization correction — 2026-09-28 (0.56.1)
+
+- Corrected end-of-file flushing preserves buffered PCM and writes gapless timing metadata. Mono exports use 40 kbps because the tag cannot fit a 32 kbps frame at 16 kHz. Stereo archives remain 64 kbps; legacy audio is not rewritten.
+- Reproduced the original failure before the fix. Independent synthetic comparison verified exact lengths for 12 input sizes with the corrected finalizer. Production regressions cover stereo/mono frame and chunk boundaries, the last 50 ms of audio, short excerpts, and missing metadata rejection.
+- WSL Debian: `cargo fmt --all -- --check` and `cargo clippy --all-targets -- -D warnings` passed; `cargo test --workspace` passed 1,004 tests, failed 0, ignored 1 optional model-fixture test. The audio crate contributes 104 passing tests.
+- `npm run check:claude` and `npm run check:docs` passed. Independent source review found no consequential issue. Native device/installer behavior was not exercised; AEC remains experimental.
+- Existing ±1-second recovery verification remains unchanged for compatibility; exact fresh-output timing is covered by regression tests. Previously discarded PCM cannot be recovered from old archives.

@@ -1,5 +1,12 @@
 # Generation Metadata
 
+## Scoped MP3 finalization correction — 2026-09-28
+
+- **Source reviewed:** `b0d45b5` plus the MP3 finalizer, mono bitrate, and exact-duration/ending-audio regressions.
+- **Scope:** Audio Capture and Meetings describe complete end-of-file flushing, required gapless metadata, 40 kbps mono exports, and limitations of existing archives.
+- **Baseline policy:** the existing global baseline and source mappings remain unchanged.
+- **Validation:** the completed gate results are recorded in `SUMMARY.md`.
+
 ## Final Meetings Polish / AEC update — 2026-09-28 (0.56.0)
 
 - **Source reviewed:** `7cbdc234` plus the standalone AEC experiment and final documentation reconciliation. Application source/tests are unchanged from the verified 0.55.0 snapshot.
