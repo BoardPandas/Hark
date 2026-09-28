@@ -325,7 +325,7 @@ enum HookState {
     /// unless the settings recorder has armed the tap, in which case the raw
     /// edge goes there instead and the tracker never sees it.
     Ptt {
-        tracker: ShortcutTracker,
+        tracker: Box<ShortcutTracker>,
         tx: EventSink,
         /// Published once, immediately after the hook installs. A `OnceLock`
         /// rather than a plain `Arc` only because the tap needs the hook
@@ -553,7 +553,8 @@ fn spawn_routed(
     let mut handle = spawn_hook(
         "hark-hotkey",
         HookState::Ptt {
-            tracker: ShortcutTracker::new(chord, swallow_locks, meeting),
+            // Allocate once before installing the hook; key callbacks only borrow it.
+            tracker: Box::new(ShortcutTracker::new(chord, swallow_locks, meeting)),
             tx,
             tap: shared.clone(),
         },

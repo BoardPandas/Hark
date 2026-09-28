@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.53.1] - 2026-09-28
+
+### Fixed
+
+- Fixed the Windows build of the shared meeting shortcut by allocating its larger tracker once during listener setup. Key handling keeps the same behavior and performs no new allocation in the hook callback.
+
 ## [0.53.0] - 2026-09-28
 
 ### Added

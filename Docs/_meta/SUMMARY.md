@@ -402,3 +402,15 @@ Feature-1 delivery update reported by the parent task on 2026-09-28: `c0ae95b` w
 - **Gates passed:** `npm run check:claude`; `npm run check:docs` (17 mapped pages, no silent mapped-source drift); WSL Debian `cargo fmt --all -- --check`; `cargo clippy --offline --all-targets -- -D warnings`; `cargo test --offline --workspace` (**978 passed, 0 failed, 1 ignored**, 41 suites including doc-tests).
 - **Native Windows tests passed:** `cargo test --offline -p hark-hotkey -p hark-config` (**173 passed, 0 failed, 0 ignored**). Fixtures cover conflict ordering/subsets, repeat and injected-event suppression, meeting-only engage edges, release healing/watchdog behavior, and schema-4 provider preservation, backup, persistence, and round trip. App routing fixtures in the workspace suite cover a missing or busy dictation worker and disabled/unsupported Meetings.
 - **Limits:** these fixtures do not establish a physical global shortcut or real meeting capture. The ignored local-STT test requires downloaded model weights. The offline lock sync changed 16 workspace versions to 0.53.0 and added the internal config → hotkey dependency; no external package version changed. Agent-guide paths are excluded. The parent owns commit, push, and tag operations.
+
+
+## Windows shortcut build correction — 2026-09-28 (0.53.1)
+
+Windows CI for `287df97` found `clippy::large_enum_variant` in `HookState`:
+the new dual-chord tracker enlarged one variant to 320 bytes. It now lives in
+a box allocated once before hook installation; callbacks borrow the same state.
+Native Windows `cargo test --offline -p hark-hotkey` passed **87 tests, zero
+failures**. This is a layout/ownership correction; shortcut routing is unchanged.
+The parent will verify Windows CI before creating the shortcut release tag.
+The AI review workflows for 0.50.5 through 0.53.0 skipped their review because
+`ANTHROPIC_API_KEY` was absent; their green workflow status is not a code review.

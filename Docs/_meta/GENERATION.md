@@ -1,5 +1,11 @@
 # Generation Metadata
 
+## Scoped Windows shortcut build fix — 2026-09-28 (0.53.1)
+
+- **Source reviewed:** `287df97` plus the tracker ownership fix discovered by Windows CI run `36464405873`.
+- **Scope:** Audio Capture documents allocation during listener setup, outside key callbacks. The global baseline remains unchanged.
+- **Validation:** native hotkey tests and local gates are recorded in `SUMMARY.md`; Windows CI must verify the lint fix.
+
 ## Scoped meeting shortcut update — 2026-09-28 (0.53.0)
 
 - **Source reviewed:** `713434de` plus only Polish item 3, shared shortcut routing and config schema 4.

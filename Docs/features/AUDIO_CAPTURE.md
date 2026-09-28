@@ -80,6 +80,8 @@ An `Xrun` is counted as a recovered discontinuity because cpal is already delive
 <!-- BEGIN:AUTOGEN hark_06_audio_capture_hotkey -->
 ## Push-to-Talk Key Hooks
 
+The Windows hook owns a boxed shared shortcut tracker, allocated once before hook installation. Key callbacks borrow it; the larger dual-chord state does not enlarge every hook-state variant or introduce callback allocations.
+
 Windows uses a low-level keyboard hook; Linux reads evdev input. Both feed the same `PttChord` and `ChordTracker`, and both can temporarily switch into shortcut-recording mode so Settings uses real key edges rather than asking users to type names ([hotkey/lib.rs](../../crates/hark-hotkey/src/lib.rs), [edges.rs](../../crates/hark-hotkey/src/edges.rs)). macOS capture remains unsupported until a CGEventTap implementation exists.
 
 Injected events are always ignored, so Hark's own synthesized paste cannot re-trigger push-to-talk. The tracker verifies other chord members against physical state before engagement, preventing a missed release from silently turning a multi-key chord into a one-key chord ([edges.rs](../../crates/hark-hotkey/src/edges.rs)).
