@@ -361,7 +361,7 @@ fn meta(detail: &MeetingDetail, tz: &TimeZone) -> String {
         parts.push(hark_pipeline::meeting::app_display_name(app));
     }
     parts.push(if s.refined {
-        "speaker labels by Deepgram".to_string()
+        "refined transcript".to_string()
     } else {
         format!("live transcript ({})", detail.stt_provider)
     });

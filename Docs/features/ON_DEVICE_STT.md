@@ -67,7 +67,7 @@ config change once `parakeet-tdt-0.6b-v2-int8` is added to the catalog in
 
 This is the detail that makes fallback worth having.
 
-`hark_stt::TOTAL_TIMEOUT_MS` is 15 s ([hark-stt/src/lib.rs:24](../../crates/hark-stt/src/lib.rs#L24)).
+`hark_stt::TOTAL_TIMEOUT_MS` is 15 s ([hark-stt/src/lib.rs](../../crates/hark-stt/src/lib.rs)).
 Waiting that out and *then* spending ~2 s decoding locally produces a 17-second
 dictation — worse than no fallback. So when `mode = "fallback"` **and the weights
 are actually on disk**, the pipeline builds its STT client with

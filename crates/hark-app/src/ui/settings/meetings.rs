@@ -16,6 +16,7 @@ use hark_meeting::{detect, plan_eviction, storage_fs, StoredAudio};
 
 pub struct MeetingsSettings {
     deepgram: KeySection,
+    gemini: KeySection,
     /// One app id per line, mirrored into `detect_apps`.
     apps: String,
     toggle_key: String,
@@ -31,6 +32,7 @@ impl MeetingsSettings {
                 "meetings-deepgram",
                 hark_pipeline::meeting::DEEPGRAM_ACCOUNT,
             ),
+            gemini: KeySection::new("meetings-gemini", "gemini"),
             apps: apps_text(settings),
             toggle_key: settings.meeting.toggle_key.clone().unwrap_or_default(),
             usage: None,
@@ -201,9 +203,22 @@ impl MeetingsSettings {
         );
         ui.radio_value(
             &mut m.final_pass,
+            FinalPass::Gemini,
+            "Use Gemini after the call (speaker labels per five-minute window)",
+        );
+        ui.radio_value(
+            &mut m.final_pass,
             FinalPass::None,
             "Keep the Me / Them transcript only",
         );
+        if m.final_pass == FinalPass::Gemini {
+            self.gemini.show(ui);
+            ui.horizontal(|ui| {
+                ui.label("Gemini model");
+                ui.text_edit_singleline(&mut m.gemini_model);
+            });
+            ui.label(RichText::new("Uploads each audio track in five-minute windows, then requests deletion. Speaker numbers restart in each window. Uses your Gemini key; provider charges apply. Live dictation settings stay separate.").small().weak());
+        }
         if m.final_pass == FinalPass::Deepgram {
             ui.add_space(theme::GAP);
             self.deepgram.show(ui);

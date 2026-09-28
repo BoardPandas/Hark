@@ -38,9 +38,10 @@ use thiserror::Error;
 /// Bumped to 3 in 0.50.3, when the meeting auto-stop default fell from 60 s to
 /// 15 s (see [`meeting::migrate`]).
 /// Schema 4 adds the optional meeting toggle (unbound for existing users).
-/// Uses an additive default, with the same versioned backup and immediate
-/// persistence as earlier migrations.
-pub const CONFIG_VERSION: u32 = 4;
+/// Schema 5 adds an explicit Gemini final-pass choice and its model; existing
+/// final-pass choices stay unchanged. Both use additive defaults, with the
+/// same versioned backup and immediate persistence as earlier migrations.
+pub const CONFIG_VERSION: u32 = 5;
 
 #[derive(Debug, Error)]
 pub enum ConfigError {
@@ -699,6 +700,11 @@ impl Settings {
         voice::validate(&self.voice)?;
         local::validate(&self.local_stt)?;
         self.validate_meeting_shortcut()?;
+        if self.meeting.gemini_model.trim().is_empty() {
+            return Err(ConfigError::Invalid(
+                "meeting.gemini_model must not be empty".into(),
+            ));
+        }
         Ok(())
     }
 }

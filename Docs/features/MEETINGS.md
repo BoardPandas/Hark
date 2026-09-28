@@ -24,6 +24,8 @@ The following files were used as evidence for this page:
 - [crates/hark-store/src/meetings.rs](../../crates/hark-store/src/meetings.rs)
 - [crates/hark-store/migrations/004_meetings.sql](../../crates/hark-store/migrations/004_meetings.sql)
 - [crates/hark-stt/src/meeting.rs](../../crates/hark-stt/src/meeting.rs)
+- [crates/hark-stt/src/meeting_gemini.rs](../../crates/hark-stt/src/meeting_gemini.rs)
+- [crates/hark-pipeline/src/meeting/gemini_final.rs](../../crates/hark-pipeline/src/meeting/gemini_final.rs)
 - [crates/hark-voice/src/summary.rs](../../crates/hark-voice/src/summary.rs)
 - [crates/hark-app/src/meeting.rs](../../crates/hark-app/src/meeting.rs)
 - [crates/hark-app/src/meeting_prompt.rs](../../crates/hark-app/src/meeting_prompt.rs)
@@ -62,7 +64,7 @@ graph TD
     Coordinator["Coordinator"] --> Mic
     Coordinator --> Loopback
     Stop["Stop (manual or auto)"] --> Finish["Finisher"]
-    Finish --> FinalPass["Deepgram final pass"]
+    Finish --> FinalPass["Selected Deepgram / Gemini final pass"]
     FinalPass --> Notes["Summarize notes"]
     Notes --> Store["hark-store"]
     Store --> Cap["Storage cap enforcement"]
@@ -132,9 +134,9 @@ One live-transcriber thread per meeting takes chunks from both channels in arriv
 
 After the call ends, if `[meeting] final_pass = "deepgram"` (the default) and a Deepgram key exists under the keychain account `deepgram` — independent of whatever provider dictation uses, so a Gemini dictation setup can still label meeting speakers — Hark sends one `multichannel=true&diarize=true&utterances=true` request over the whole recording: left channel = Me (microphone), right = Them (system audio) ([meeting.rs](../../crates/hark-stt/src/meeting.rs), [meeting.rs](../../crates/hark-stt/src/meeting.rs)). The result replaces the live Me/Them transcript with diarized "Speaker N" utterances within Them; Deepgram diarizes channel 0 too, so `speaker` is forced to `None` there rather than splitting "Me" in two ([meeting.rs](../../crates/hark-stt/src/meeting.rs)).
 
-Without a Deepgram key, or with `final_pass = "none"`, the final pass is skipped entirely and the live Me/Them transcript stands as final — never a hard failure, just a notice explaining why there are no Speaker 1/2/3 labels ([finish.rs:189-208](../../crates/hark-pipeline/src/meeting/finish.rs#L189-L208)).
+Without a Deepgram key, the selected Deepgram pass keeps the live transcript and reports the missing credential. `final_pass = "none"` skips automatic post-call transcription. Selecting Gemini is explicit; a missing key never silently changes the provider receiving a recording ([finish.rs](../../crates/hark-pipeline/src/meeting/finish.rs)).
 
-The request needs its own budget: `FINAL_PASS_TIMEOUT_MS` is 900,000 ms (15 minutes), because it both uploads roughly 230 MB per recorded hour of stereo 16 kHz PCM16 and waits on Deepgram's own processing — both far past a dictation's 15-second budget ([meeting.rs](../../crates/hark-stt/src/meeting.rs)). The body streams rather than buffers, which reopens the multipart-masks-transport-errors failure mode even without the `multipart` feature; `classify_final_pass_error` falls back to walking the transport error's `source()` chain for the underlying `io::Error` before reporting a generic transport error ([meeting.rs](../../crates/hark-stt/src/meeting.rs)). Parsing clamps every utterance's timestamps into `[0, audio_ms]` — Deepgram has invented an end time past the audio length before — and drops blank transcripts ([meeting.rs](../../crates/hark-stt/src/meeting.rs)). Refined lines are corrected through the same spellbook `Corrector` as live lines before they reach the store ([finish.rs:228-242](../../crates/hark-pipeline/src/meeting/finish.rs#L228-L242)).
+The request needs its own budget: `FINAL_PASS_TIMEOUT_MS` is 900,000 ms (15 minutes), because it both uploads roughly 230 MB per recorded hour of stereo 16 kHz PCM16 and waits on Deepgram's own processing — both far past a dictation's 15-second budget ([meeting.rs](../../crates/hark-stt/src/meeting.rs)). The body streams rather than buffers, which reopens the multipart-masks-transport-errors failure mode even without the `multipart` feature; `classify_final_pass_error` falls back to walking the transport error's `source()` chain for the underlying `io::Error` before reporting a generic transport error ([meeting.rs](../../crates/hark-stt/src/meeting.rs)). Parsing clamps every utterance's timestamps into `[0, audio_ms]` — Deepgram has invented an end time past the audio length before — and drops blank transcripts ([meeting.rs](../../crates/hark-stt/src/meeting.rs)). Refined lines are corrected through the same spellbook `Corrector` as live lines before they reach the store ([finish.rs](../../crates/hark-pipeline/src/meeting/finish.rs)).
 ### Re-run a Saved Meeting
 
 Open a completed meeting with retained audio and choose **Re-run final pass**. The confirmation names Deepgram, the upload, usage charges, transcript replacement, and speaker-name reset. This explicit request runs independently of the automatic `final_pass` setting and requires the Deepgram key (`HARK_DEEPGRAM_KEY` or keychain account `deepgram`). It does not regenerate notes or change the title ([detail.rs](../../crates/hark-app/src/ui/meetings/detail.rs), [rerun.rs](../../crates/hark-pipeline/src/meeting/rerun.rs)).
@@ -142,6 +144,39 @@ Open a completed meeting with retained audio and choose **Re-run final pass**. T
 The worker sends the retained stereo MP3 byte for byte with `audio/mpeg`, preserving Me-left/Them-right separation. If there is no archive, it streams a stereo WAV from the original channel spools. Missing, empty, unreadable, or unsafe recording paths fail without changing the transcript. Provider failures and empty output also keep the existing transcript; invalid channel numbers and non-finite timestamps are rejected ([rerun.rs](../../crates/hark-pipeline/src/meeting/rerun.rs), [meeting.rs](../../crates/hark-stt/src/meeting.rs), [upload fixture](../../crates/hark-stt/tests/meeting_upload.rs)).
 
 The coordinator protects the recording from audio eviction while uploading. The detail view disables repeat processing, deletion, audio exports, and speaker renaming while busy, and clears any pending speaker edit. A successful response replaces segments and clears speaker renames in one SQLite transaction; FTS follows the segment changes, while notes and title stay intact. The pump waits for the storage worker's commit acknowledgement before reporting success. After 15 seconds without an acknowledgement it reports that saving is unconfirmed; the write may still finish ([coordinator.rs](../../crates/hark-pipeline/src/meeting/coordinator.rs), [app meeting pump](../../crates/hark-app/src/meeting.rs), [store replacement and rollback tests](../../crates/hark-store/tests/meetings.rs)).
+### Gemini Files final pass
+
+Select **Use Gemini after the call** in Settings > Meetings for an alternative
+post-call pass. It uses keychain account `gemini` or `HARK_GEMINI_KEY`, with the
+independent `meeting.gemini_model` setting (default `gemini-3.8-flash`). The live
+dictation provider/model and existing Deepgram default do not change. This choice
+applies after Stop; the saved-recording **Re-run final pass** action above still
+explicitly uploads to Deepgram.
+
+The worker decodes the recording into aligned PCM chunks and visits each track
+separately in five-minute windows, including the final partial window. Microphone
+segments remain **Me**. Playback speakers are **Window N · Speaker M**: the same
+number in another window does not establish the same person. Speaker renames
+and all text/subtitle/Word exports preserve that scope
+([gemini_final.rs](../../crates/hark-pipeline/src/meeting/gemini_final.rs),
+[export.rs](../../crates/hark-meeting/src/export.rs)).
+
+Uploads use the resumable Files API, then a structured Interactions request with
+`store: false`. Hark allocates a content-free file name before sending audio,
+validates the finalized name, rejects redirected or off-origin upload locations,
+and attempts DELETE after success and failure—including malformed or lost
+finalization replies. A failed deletion is reported and receives one best-effort
+retry. A crash or failed cleanup can leave remote audio until provider expiry;
+requesting deletion does not prove provider-side erasure
+([meeting_gemini.rs](../../crates/hark-stt/src/meeting_gemini.rs)).
+
+Responses must declare completion and provide valid segments. Timestamps are
+clamped to the window. Conservative energy checks reject conspicuously omitted
+beginnings, endings, or internal gaps, but do not prove word-for-word coverage
+and can reject non-speech sounds. Any failed window discards the whole Gemini
+replacement; the previous live transcript remains. A completely empty result
+is also rejected. No automatic Deepgram fallback sends the audio elsewhere.
+
 <!-- END:AUTOGEN hark_15_meetings_final_pass -->
 
 ---
@@ -151,7 +186,7 @@ The coordinator protects the recording from audio eviction while uploading. The 
 
 If `[meeting] summary = true` (the default) and the settled transcript is non-empty, Hark makes one long-context BYOK chat-completions call — no map-reduce, since even an hour of talk fits comfortably in one request — and asks for structured notes: a short title, a plain-language summary, key points, decisions, and action items with an owner when one was named ([summary.rs:1-12](../../crates/hark-voice/src/summary.rs#L1-L12)). The response is required to be a single JSON object with an exact key shape; Hark validates it at the boundary rather than trusting the model's formatting instincts ([summary.rs:60-66](../../crates/hark-voice/src/summary.rs#L60-L66)).
 
-The provider is resolved through the same `resolve_cleanup_provider` dictation cleanup uses, asked for as if a non-Verbatim voice were selected — a `Verbatim` dictation setup still has a text provider that can write notes, since the summary call is independent of the dictation cleanup voice ([finish.rs:256-227](../../crates/hark-pipeline/src/meeting/finish.rs#L256-L227)). `SUMMARY_TIMEOUT_MS` is 120,000 ms, far longer than dictation cleanup's 10-second budget, because this runs once after the call ends rather than on the release-to-inject path, and a long transcript can take tens of seconds for the provider to read ([summary.rs:37](../../crates/hark-voice/src/summary.rs#L37)). A failed or unconfigured summary call is not a `Failure` either: the meeting keeps its transcript with no notes, and a notice says why ([finish.rs:99-108](../../crates/hark-pipeline/src/meeting/finish.rs#L99-L108)).
+The provider is resolved through the same `resolve_cleanup_provider` dictation cleanup uses, asked for as if a non-Verbatim voice were selected — a `Verbatim` dictation setup still has a text provider that can write notes, since the summary call is independent of the dictation cleanup voice ([finish.rs](../../crates/hark-pipeline/src/meeting/finish.rs)). `SUMMARY_TIMEOUT_MS` is 120,000 ms, far longer than dictation cleanup's 10-second budget, because this runs once after the call ends rather than on the release-to-inject path, and a long transcript can take tens of seconds for the provider to read ([summary.rs:37](../../crates/hark-voice/src/summary.rs#L37)). A failed or unconfigured summary call is not a `Failure` either: the meeting keeps its transcript with no notes, and a notice says why ([finish.rs](../../crates/hark-pipeline/src/meeting/finish.rs)).
 
 The suggested title only ever applies while the meeting has none — renaming a meeting by hand is never overwritten by a later notes call ([storage/meetings.rs](../../crates/hark-app/src/storage/meetings.rs)). Notes are stored as JSON in `meetings.notes_json` and rendered with checkable action items on the meeting detail view.
 <!-- END:AUTOGEN hark_15_meetings_notes -->
@@ -205,7 +240,7 @@ A first-run consent card on the Meetings page reminds the user that some places 
 
 Meeting capture starts after a manual Start or an accepted detection prompt under the default `ask` mode. Explicitly selecting **Start taking notes on its own** (`auto`) also allows recording to start on detection, which can include a Meet lobby before joining. Accepted prompts normally record the detected app's process tree; a manual Start records all playback except Hark, even when it adopts a detected call for auto-stop. The configured system source or failure to resolve the detected app's process can broaden playback capture. If process-loopback capture itself fails, the recorder reports it and continues with microphone audio if available; production does not switch to endpoint loopback ([coordinator.rs](../../crates/hark-pipeline/src/meeting/coordinator.rs), [recorder.rs](../../crates/hark-pipeline/src/meeting/recorder.rs), [meeting.rs](../../crates/hark-config/src/meeting.rs)).
 
-There are three distinct provider paths: live chunks use the configured STT provider, the optional final pass uploads both recorded channels to Deepgram, and optional notes send the transcript to the configured text provider. On-device Primary keeps **live chunks** local but does not disable either post-processing path. To keep meeting content entirely on-device, use local Primary, set the meeting final pass to `none`, and disable summaries. A Verbatim dictation voice does not disable meeting notes. Provider requests can also include spellbook vocabulary ([coordinator.rs](../../crates/hark-pipeline/src/meeting/coordinator.rs), [finish.rs](../../crates/hark-pipeline/src/meeting/finish.rs), [meeting.rs](../../crates/hark-stt/src/meeting.rs)).
+There are three distinct provider paths: live chunks use the configured STT provider, the selected final pass uploads both recorded channels to Deepgram or sends each track in five-minute windows to Gemini, and optional notes send the transcript to the configured text provider. On-device Primary keeps **live chunks** local but does not disable either post-processing path. To keep meeting content entirely on-device, use local Primary, set the meeting final pass to `none`, and disable summaries. A Verbatim dictation voice does not disable meeting notes. Provider requests can also include spellbook vocabulary ([coordinator.rs](../../crates/hark-pipeline/src/meeting/coordinator.rs), [finish.rs](../../crates/hark-pipeline/src/meeting/finish.rs), [meeting.rs](../../crates/hark-stt/src/meeting.rs)).
 
 On Windows, the database is `%APPDATA%\hark\hark.db` and audio is under `%APPDATA%\hark\meetings\<id>\`. Neither is encrypted by Hark. The default cap is 5 GiB (displayed as 5 GB); active/processing recordings are protected and can exceed it. A zero cap still permits temporary audio until processing finishes. Deleting a meeting removes its database data and attempts to remove its audio; filesystem errors can leave the audio behind. **Delete all meeting audio** and cap eviction retain transcripts and notes. Local deletion does not remove exports or provider-held data ([lib.rs](../../crates/hark-config/src/lib.rs), [storage/mod.rs](../../crates/hark-app/src/storage/mod.rs), [storage/meetings.rs](../../crates/hark-app/src/storage/meetings.rs)).
 
@@ -223,7 +258,7 @@ Content hygiene matches the dictation-history rule: nothing that carries meeting
 - **Hand checks, not `cargo test`.** Per-process loopback and the Windows ConsentStore probe need real hardware and a real call: verify them with `cargo run -p hark-audio --example loopback_smoke` and `cargo run -p hark-meeting --example detect_smoke`. `cargo test` never opens an audio device or reads the live microphone registry; pure state machine, chunker, merge, detector, eviction, and export checks use fixtures and synthetic PCM. Windows watcher tests separately create and remove isolated temporary registry keys.
 - **The Deepgram final-pass key is independent of the dictation provider.** It lives under keychain account `deepgram` regardless of what STT provider dictation uses, so a Gemini-for-dictation user can still get Deepgram speaker labels for meetings, and vice versa.
 - **`hark-meeting` is pure by construction**, with exactly two fenced exceptions: `storage_fs.rs` (measure and delete meeting audio) and `probe_win.rs` with its `probe_watch_win.rs` worker (read who holds the microphone and notify changes). Every decision — the session machine, the chunker's cut points, the merge order, the detector's verdicts, the eviction plan, the export rendering — is tested on fixtures with no I/O, no threads, and no wall-clock time; offsets are 16 kHz sample counts throughout.
-- **Finishing survives a quit or a crash.** A `.finishing` marker is written into a meeting's folder when it starts and removed only after its results (final pass, notes, archive) are sent. At startup the coordinator finishes any meeting whose folder still has it, so quitting mid-call or during a 15-minute final pass costs a re-run, never the results ([finish.rs:26-31](../../crates/hark-pipeline/src/meeting/finish.rs#L26-L31), [coordinator.rs](../../crates/hark-pipeline/src/meeting/coordinator.rs)). Without the live transcript at that point, notes are written only when the final pass produces a transcript.
+- **Finishing survives a quit or a crash.** A `.finishing` marker is written into a meeting's folder when it starts and removed only after its results (final pass, notes, archive) are sent. At startup the coordinator finishes any meeting whose folder still has it, so quitting mid-call or during a 15-minute final pass costs a re-run, never the results ([finish.rs](../../crates/hark-pipeline/src/meeting/finish.rs), [coordinator.rs](../../crates/hark-pipeline/src/meeting/coordinator.rs)). Without the live transcript at that point, notes are written only when the final pass produces a transcript.
 - **Meetings keeps separate capture and processing.** Dictation and meetings share one Windows keyboard listener and a lightweight dispatcher, while their recording buffers, state machines, and processing workers remain independent. A missing or busy dictation worker does not prevent a meeting toggle.
 <!-- END:AUTOGEN hark_15_meetings_operational -->
 

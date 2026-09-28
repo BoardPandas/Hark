@@ -1,5 +1,12 @@
 # Generation Metadata
 
+## Scoped Gemini meeting final-pass update — 2026-09-28 (0.55.0)
+
+- **Source reviewed:** `3dfac02` plus only Polish item 5: explicit Gemini Files processing, schema 5, independent key/model settings, and window-scoped speaker labels.
+- **Scope:** README/setup, Meetings, transcription, configuration, storage migration, desktop UI, overview, glossary, and shifted shared-source citations. Both new provider/worker modules are mapped. Deepgram saved-recording reruns remain explicit; no AEC benchmark/tool is added.
+- **Baseline policy:** the global baseline and `_toc.yaml` ref remain unchanged.
+- **Validation:** independent snapshot gates and HTTP cleanup fixtures are recorded in `SUMMARY.md`. Native policy restrictions and skipped AI review are distinguished from passing tests.
+
 ## Scoped meeting exports update — 2026-09-28 (0.54.0)
 
 - **Source reviewed:** `6ee98fbe` (including the Windows hook ownership fix) plus only Polish item 4: subtitle timing, excerpts, Word export, and Windows text sharing.

@@ -24,6 +24,7 @@
 
 mod coordinator;
 mod finish;
+mod gemini_final;
 mod live;
 mod recorder;
 mod rerun;

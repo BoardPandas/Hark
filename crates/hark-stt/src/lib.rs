@@ -15,6 +15,7 @@ pub mod fixture;
 pub mod gemini;
 pub mod gemini_live;
 pub mod meeting;
+pub mod meeting_gemini;
 pub mod metrics;
 pub mod openai_compatible;
 pub mod openai_transcribe;

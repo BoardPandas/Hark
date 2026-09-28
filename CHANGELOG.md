@@ -6,6 +6,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.55.0] - 2026-09-28
+
+### Added
+
+- **Gemini meeting final pass:** explicitly select Gemini in Settings > Meetings to refine the completed call using your Gemini key and a separate model setting (default `gemini-3.8-flash`). Each microphone/playback track is processed in five-minute windows; remote speakers are labeled by window because speaker identity cannot be assumed across requests.
+- Files uploads request deletion after success or failure, including lost or malformed finalization replies. Cleanup failures are reported. Invalid or conspicuously incomplete results preserve the live transcript; a missing key never silently switches providers.
+
+### Changed
+
+- Config schema 5 adds the Gemini model default while preserving existing final-pass choices, shortcuts, and auto-stop settings. The saved-recording **Re-run final pass** action remains an explicit Deepgram upload.
+
 ## [0.54.0] - 2026-09-28
 
 ### Added

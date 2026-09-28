@@ -323,7 +323,15 @@ pub fn speaker_label(channel: Channel, speaker: Option<u32>, renames: &[(u32, St
             .iter()
             .find(|(rid, _)| *rid == id)
             .map(|(_, name)| name.clone())
-            .unwrap_or_else(|| format!("Speaker {}", id + 1)),
+            .unwrap_or_else(|| {
+                if id & 0x8000_0000 != 0 {
+                    let window = (id & 0x7fff_ffff) >> 10;
+                    let speaker = id & 0x3ff;
+                    format!("Window {} · Speaker {}", window + 1, speaker + 1)
+                } else {
+                    format!("Speaker {}", id + 1)
+                }
+            }),
     }
 }
 
@@ -715,6 +723,20 @@ mod tests {
         assert_eq!(speaker_label(Channel::Them, Some(2), &renames), "Dana");
         // A rename for a different id never matches.
         assert_eq!(speaker_label(Channel::Them, Some(1), &renames), "Speaker 2");
+    }
+
+    #[test]
+    fn window_scoped_speakers_are_explicit_and_renames_still_win() {
+        let id = 0x8000_0000 | (2 << 10) | 1;
+        assert_eq!(
+            speaker_label(Channel::Them, Some(id), &[]),
+            "Window 3 · Speaker 2"
+        );
+        assert_eq!(
+            speaker_label(Channel::Them, Some(id), &[(id, "Dana".into())]),
+            "Dana"
+        );
+        assert_eq!(speaker_label(Channel::Me, Some(id), &[]), "Me");
     }
 
     #[test]

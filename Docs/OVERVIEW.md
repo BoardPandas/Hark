@@ -19,6 +19,11 @@ The following files were used as evidence for this page:
 
 # Hark, Overview
 
+Meetings can explicitly use a Gemini Files final pass after Stop, with one track
+per five-minute window and speaker labels scoped to each window. Deepgram remains
+the default and the saved-recording re-run provider
+([provider details](features/MEETINGS.md#gemini-files-final-pass)).
+
 > **Related Pages**: [Architecture](core/ARCHITECTURE.md), [Getting Started](GETTING_STARTED.md), [Glossary](GLOSSARY.md), [Meetings](features/MEETINGS.md)
 
 ---

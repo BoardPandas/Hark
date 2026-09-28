@@ -19,7 +19,7 @@ The following files were used as evidence for this page:
 - [crates/hark-stt/src/gemini_live.rs:224-254](../../crates/hark-stt/src/gemini_live.rs#L224-L254)
 - [crates/hark-app/src/ui/spellbook/mod.rs:1-132](../../crates/hark-app/src/ui/spellbook/mod.rs#L1-L132)
 - [crates/hark-pipeline/src/meeting/live.rs:52-97](../../crates/hark-pipeline/src/meeting/live.rs#L52-L97)
-- [crates/hark-pipeline/src/meeting/finish.rs:228-242](../../crates/hark-pipeline/src/meeting/finish.rs#L228-L242)
+- [crates/hark-pipeline/src/meeting/finish.rs](../../crates/hark-pipeline/src/meeting/finish.rs)
 
 </details>
 
@@ -52,9 +52,9 @@ graph TD
 
 Pipeline construction passes canonical terms into `ProviderConfig.bias_terms` and `(term, aliases)` pairs into `Corrector::new`; editing the spellbook persists the new entries and restarts the pipeline so both precomputed views update together ([lib.rs](../../crates/hark-pipeline/src/lib.rs), [lib.rs](../../crates/hark-pipeline/src/lib.rs), [mod.rs:1-17](../../crates/hark-app/src/ui/spellbook/mod.rs#L1-L17)).
 
-Correction is not limited to dictation. Meeting mode builds a `Corrector` from the same `settings.spellbook.corrector_entries()` and applies it to every meeting line — the live transcriber's chunks as they arrive, and the Deepgram final pass's diarized lines once it replaces them — so a spellbook term fixes a mishearing in a meeting exactly as it would in a dictation ([live.rs:52-56](../../crates/hark-pipeline/src/meeting/live.rs#L52-L56), [live.rs:96](../../crates/hark-pipeline/src/meeting/live.rs#L96), [finish.rs:228-242](../../crates/hark-pipeline/src/meeting/finish.rs#L228-L242)). Invocations are the deliberate exception: they never fire in meeting mode, because a trigger phrase is dictation control flow, not a correction ([Meetings](MEETINGS.md#live-transcript)).
+Correction is not limited to dictation. Meeting mode builds a `Corrector` from the same `settings.spellbook.corrector_entries()` and applies it to every meeting line — the live transcriber's chunks as they arrive, and the Deepgram final pass's diarized lines once it replaces them — so a spellbook term fixes a mishearing in a meeting exactly as it would in a dictation ([live.rs:52-56](../../crates/hark-pipeline/src/meeting/live.rs#L52-L56), [live.rs:96](../../crates/hark-pipeline/src/meeting/live.rs#L96), [finish.rs](../../crates/hark-pipeline/src/meeting/finish.rs)). Invocations are the deliberate exception: they never fire in meeting mode, because a trigger phrase is dictation control flow, not a correction ([Meetings](MEETINGS.md#live-transcript)).
 
-Sources: [crates/hark-config/src/lib.rs](../../crates/hark-config/src/lib.rs), [crates/hark-spellbook/src/lib.rs:1-167](../../crates/hark-spellbook/src/lib.rs#L1-L167), [crates/hark-pipeline/src/lib.rs](../../crates/hark-pipeline/src/lib.rs), [crates/hark-pipeline/src/lib.rs](../../crates/hark-pipeline/src/lib.rs), [crates/hark-pipeline/src/meeting/live.rs:52-97](../../crates/hark-pipeline/src/meeting/live.rs#L52-L97), [crates/hark-pipeline/src/meeting/finish.rs:228-242](../../crates/hark-pipeline/src/meeting/finish.rs#L228-L242)
+Sources: [crates/hark-config/src/lib.rs](../../crates/hark-config/src/lib.rs), [crates/hark-spellbook/src/lib.rs:1-167](../../crates/hark-spellbook/src/lib.rs#L1-L167), [crates/hark-pipeline/src/lib.rs](../../crates/hark-pipeline/src/lib.rs), [crates/hark-pipeline/src/lib.rs](../../crates/hark-pipeline/src/lib.rs), [crates/hark-pipeline/src/meeting/live.rs:52-97](../../crates/hark-pipeline/src/meeting/live.rs#L52-L97), [crates/hark-pipeline/src/meeting/finish.rs](../../crates/hark-pipeline/src/meeting/finish.rs)
 <!-- END:AUTOGEN hark_08_spellbook_overview -->
 
 ---

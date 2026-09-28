@@ -193,6 +193,15 @@ fn final_pass(
     settings: &Settings,
     notice: &dyn Fn(String),
 ) -> Option<Vec<LiveSegment>> {
+    if settings.meeting.final_pass == FinalPass::Gemini {
+        return match super::gemini_final::run(dir, settings) {
+            Ok(segments) => Some(segments),
+            Err(error) => {
+                notice(format!("Gemini final pass unavailable: {error}"));
+                None
+            }
+        };
+    }
     if settings.meeting.final_pass != FinalPass::Deepgram {
         return None;
     }

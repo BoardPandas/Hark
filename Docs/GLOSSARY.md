@@ -16,6 +16,10 @@ The following files were used as evidence for this page:
 
 # Glossary
 
+**Window-scoped speaker:** a Gemini final-pass speaker identifier valid only within
+one five-minute audio window. Matching numbers across windows do not identify the
+same person ([meeting labels](features/MEETINGS.md#gemini-files-final-pass)).
+
 > **Related Pages**: [Overview](OVERVIEW.md), [Architecture](core/ARCHITECTURE.md), [Meetings](features/MEETINGS.md)
 
 ---
@@ -28,11 +32,11 @@ The following files were used as evidence for this page:
 - **Final pass:** The after-call Deepgram `multichannel=true&diarize=true` request over a whole meeting recording that replaces the live Me/Them transcript with diarized "Speaker N" labels within Them. Runs only with a Deepgram key configured for meetings; otherwise the live transcript stands ([Meetings](features/MEETINGS.md#deepgram-final-pass), [meeting.rs](../crates/hark-stt/src/meeting.rs)).
 - **Fused cleanup:** Transcription and tidying performed by one provider turn. Gemini Smart returns one tidied string in both transcript fields and marks it so Hark does not clean it a second time ([Transcription](features/TRANSCRIPTION.md#deepgram-and-gemini-live)).
 - **Invocation:** A guarded spoken trigger that replaces matching transcript text with user-authored canned text. A fired invocation is injected without a cleanup model rewriting it ([Invocations](features/INVOCATIONS.md)).
-- **Live STT:** A session opened on key-down and fed while the user speaks. The finished ring-buffer window remains available for gates and fallback ([lib.rs:45-71](../crates/hark-stt/src/lib.rs#L45-L71)).
+- **Live STT:** A session opened on key-down and fed while the user speaks. The finished ring-buffer window remains available for gates and fallback ([lib.rs](../crates/hark-stt/src/lib.rs)).
 - **Local primary / local backup:** For dictation, on-device STT can be the primary engine or a fallback after a bounded cloud attempt. Meetings uses local Primary for live chunks but has separate final-pass and summary settings; disable both to keep meeting content entirely on-device. Model weights are downloaded explicitly and stored locally ([On-Device STT](features/ON_DEVICE_STT.md), [README: Privacy](../README.md#privacy)).
 - **OpenAI-compatible:** The Whisper-family multipart `/audio/transcriptions` contract, including compatible third-party endpoints. OpenAI's newer gpt-transcribe models use a separate adapter because their bias fields differ ([Transcription](features/TRANSCRIPTION.md#openai-compatible-and-gpt-transcribe-adapters)).
 - **Per-process loopback:** Windows WASAPI capture (`AUDIOCLIENT_ACTIVATION_TYPE_PROCESS_LOOPBACK`) of one process tree's audio, on whichever output device it renders to. Used for meeting mode's "Them" channel instead of endpoint loopback, because a meeting app can render to a device other than the system default ([Audio Capture](features/AUDIO_CAPTURE.md#meeting-capture)).
-- **Provider-cleaned transcript:** A `Transcript` with `cleaned: Some(...)`, signaling that the STT provider already formatted the text and Hark should suppress the separate cleanup call ([lib.rs:31-43](../crates/hark-stt/src/lib.rs#L31-L43)).
+- **Provider-cleaned transcript:** A `Transcript` with `cleaned: Some(...)`, signaling that the STT provider already formatted the text and Hark should suppress the separate cleanup call ([lib.rs](../crates/hark-stt/src/lib.rs)).
 - **Push-to-talk chord:** One or more configured keys that must all be held to record. The first release ends the hold; injected keys are ignored, and missed releases are reconciled against physical state ([edges.rs](../crates/hark-hotkey/src/edges.rs), [edges.rs](../crates/hark-hotkey/src/edges.rs)).
 - **Release-to-inject:** The product latency between releasing the chord and text appearing at the cursor. Gemini streaming can upload most audio before this interval begins ([README: Design principles](../README.md#design-principles), [Architecture](core/ARCHITECTURE.md#retry-and-latency-discipline)).
 - **Ring buffer:** A fixed-size, allocation-free audio buffer written at the input device's native rate. Absolute sample indexes support pre-roll, tail, a live reader, and finished-window assembly ([ring.rs:1-12](../crates/hark-audio/src/ring.rs#L1-L12)).

@@ -28,6 +28,8 @@ pub enum FinalPass {
     /// see the Speaker labels settings page). Requires its own Deepgram key.
     #[default]
     Deepgram,
+    /// Explicit alternative using Gemini Files, one track per five-minute window.
+    Gemini,
     /// Keep the live Me/Them transcript as final; no second pass, no cost.
     None,
 }
@@ -71,6 +73,8 @@ pub struct Meeting {
     /// Show a rolling transcript in the live pane while recording.
     pub live_transcript: bool,
     pub final_pass: FinalPass,
+    /// Model for the independent Gemini Files final pass, not the Live model.
+    pub gemini_model: String,
     /// Generate a summary (decisions, action items) after the final pass.
     pub summary: bool,
     /// Custom summary prompt; `None` uses the built-in template.
@@ -109,6 +113,7 @@ impl Default for Meeting {
             system_source: SystemSource::App,
             live_transcript: true,
             final_pass: FinalPass::Deepgram,
+            gemini_model: "gemini-3.8-flash".into(),
             summary: true,
             summary_template: None,
             consent_reminder: true,
@@ -152,7 +157,8 @@ const OLD_AUTO_STOP_S: u32 = 60;
 /// never touched again. Any other value was chosen and stays.
 pub(crate) fn migrate(meeting: &mut Meeting, file_version: u32) {
     // v3 -> v4: serde supplies toggle_key = None for an absent binding.
-    // Preserve explicit fields in older files and the final-pass provider.
+    // v4 -> v5: serde supplies gemini_model for an absent model. Preserve
+    // explicit fields in older files and never switch the final-pass provider.
     if file_version < 3 && meeting.auto_stop_after_s == OLD_AUTO_STOP_S {
         log::info!(
             "config schema v{file_version} -> v3: meeting.auto_stop_after_s {OLD_AUTO_STOP_S} -> {DEFAULT_AUTO_STOP_S} (the new default)"
@@ -181,30 +187,24 @@ mod tests {
     use crate::{ConfigError, Settings};
 
     #[test]
-    fn v3_migration_leaves_the_shortcut_unbound_and_preserves_provider_choices() {
-        for provider in ["none", "deepgram"] {
-            let settings = Settings::from_toml(&format!(
-                "version = 3\n[meeting]\nfinal_pass = '{provider}'\nauto_stop_after_s = 60\n"
-            ))
-            .unwrap();
-            assert_eq!(settings.version, 4);
-            assert_eq!(settings.meeting.toggle_key, None);
-            assert_eq!(
-                settings.meeting.final_pass,
-                if provider == "none" {
-                    FinalPass::None
-                } else {
-                    FinalPass::Deepgram
-                }
-            );
-            assert_eq!(settings.meeting.auto_stop_after_s, 60);
+    fn v3_and_v4_migrate_additively_without_selecting_a_new_provider() {
+        for version in [3, 4] {
+            for (name, provider) in [("none", FinalPass::None), ("deepgram", FinalPass::Deepgram)] {
+                let settings = Settings::from_toml(&format!(
+                    "version = {version}\n[meeting]\nfinal_pass = '{name}'\nauto_stop_after_s = 60\n"
+                ))
+                .unwrap();
+                assert_eq!(settings.version, 5);
+                assert_eq!(settings.meeting.toggle_key, None);
+                assert_eq!(settings.meeting.final_pass, provider);
+                assert_eq!(settings.meeting.gemini_model, "gemini-3.8-flash");
+                assert_eq!(settings.meeting.auto_stop_after_s, 60);
+            }
         }
-        let explicit = Settings::from_toml(
-            "version = 3\n[meeting]\ntoggle_key = 'LCtrl+F11'\nfinal_pass = 'none'\n",
-        )
-        .unwrap();
+        let explicit = Settings::from_toml("version = 4\n[meeting]\ntoggle_key = 'LCtrl+F11'\nfinal_pass = 'gemini'\ngemini_model = 'chosen-model'\n").unwrap();
         assert_eq!(explicit.meeting.toggle_key.as_deref(), Some("LCtrl+F11"));
-        assert_eq!(explicit.meeting.final_pass, FinalPass::None);
+        assert_eq!(explicit.meeting.final_pass, FinalPass::Gemini);
+        assert_eq!(explicit.meeting.gemini_model, "chosen-model");
     }
 
     #[test]
@@ -214,14 +214,14 @@ mod tests {
         let original = "version = 3\n[meeting]\nfinal_pass = 'none'\n";
         std::fs::write(&path, original).unwrap();
         let loaded = Settings::load(&path).unwrap();
-        assert_eq!(loaded.version, 4);
+        assert_eq!(loaded.version, 5);
         assert_eq!(
             std::fs::read_to_string(path.with_extension("toml.v3.bak")).unwrap(),
             original
         );
         assert!(std::fs::read_to_string(&path)
             .unwrap()
-            .contains("version = 4"));
+            .contains("version = 5"));
         assert_eq!(Settings::load(&path).unwrap().meeting, loaded.meeting);
     }
 
@@ -236,6 +236,11 @@ mod tests {
         let mut settings = Settings::from_toml("[meeting]\ntoggle_key = 'LCtrl+F11'\n").unwrap();
         settings.hotkey.ptt_key = "LCtrl+F11+F12".into();
         assert!(settings.validate_meeting_shortcut().is_err());
+    }
+
+    #[test]
+    fn a_blank_gemini_model_is_rejected_without_changing_the_provider() {
+        assert!(Settings::from_toml("[meeting]\ngemini_model = '  '\n").is_err());
     }
 
     #[test]
@@ -315,6 +320,7 @@ mod tests {
             system_source: SystemSource::All,
             live_transcript: false,
             final_pass: FinalPass::None,
+            gemini_model: "gemini-3.8-flash".into(),
             summary: false,
             summary_template: Some("Summarize as bullet points.".to_string()),
             consent_reminder: false,

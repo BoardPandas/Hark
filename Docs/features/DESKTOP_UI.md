@@ -17,6 +17,12 @@
 
 # Desktop UI
 
+Meeting settings include an explicit Gemini after-call choice, its key field, and
+an independent model setting. Completed refined meetings use the provider-neutral
+“refined transcript” label; the saved-recording re-run confirmation still names
+Deepgram ([meeting settings](../../crates/hark-app/src/ui/settings/meetings.rs),
+[detail](../../crates/hark-app/src/ui/meetings/detail.rs)).
+
 > **Related Pages**: [Architecture](../core/ARCHITECTURE.md), [Data Storage](../core/DATA_STORAGE.md), [Updates and Autostart](UPDATES_AND_AUTOSTART.md), [Meetings](MEETINGS.md)
 
 ---

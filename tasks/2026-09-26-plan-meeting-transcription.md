@@ -11,7 +11,13 @@ tested on Windows and Linux. **Real-call validation reported by the product owne
 a 20-minute Google Meet call in Chrome** (2026-09-28); the findings and fixes are in §8.
 The 0.50.4 Meet prompt/15-second auto-stop retest remains pending in the handoff.
 Zoom/Webex/GoTo/RingCentral executable names still need live-call validation.
-**Current step:** Polish items 1–3 are committed as `c0ae95b` (0.51.0), `713434de` (0.52.0), and `287df97e` (0.53.0), followed by Windows hook build fix `6ee98fbe` (0.53.1). Item 4 is implemented in the isolated 0.54.0 export snapshot; items 5–6 remain outside this snapshot. The product owner authorized commit, push, and tag actions for all six; the parent task owns those operations and records their verified outcomes. Item 4 scope: [intent](../intent/meeting-content-needs-portable-exports/intent.md) and [specification](../intent/meeting-content-needs-portable-exports/spec.md).
+**Current step:** Polish items 1–4 are committed as `c0ae95b` (0.51.0), `713434de` (0.52.0), `287df97e` (0.53.0) plus Windows build fix `6ee98fbe` (0.53.1), and `3dfac02` (0.54.0). Item 5 is implemented in the isolated 0.55.0 Gemini snapshot; item 6 remains outside it. The product owner authorized commit, push, and tag actions for all six; the parent owns those operations and records verified outcomes. Item 5 scope: [intent](../intent/meetings-need-a-gemini-final-pass/intent.md) and [specification](../intent/meetings-need-a-gemini-final-pass/spec.md).
+
+The `v0.50.5` release completed successfully with its signed Windows installer and
+all Linux/Arch assets (Release run `36462341560`). AI review workflows for 0.50.5
+through 0.53.0 skipped review because `ANTHROPIC_API_KEY` was absent; green workflow
+status is not evidence of an automated code review. Native manual call retests
+and the AEC engine decision remain separate work.
 
 CI on `9a61d11` passed on Windows, Linux, and macOS on 2026-09-28;
 that compile/test result does not establish native call behavior.
