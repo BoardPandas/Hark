@@ -111,7 +111,7 @@ impl Default for Meeting {
             audio_cap_mb: 5_120,
             compress_audio: true,
             auto_detect: AutoDetect::Ask,
-            auto_stop_after_s: 60,
+            auto_stop_after_s: DEFAULT_AUTO_STOP_S,
             detect_apps: None,
         }
     }
@@ -128,6 +128,29 @@ impl Meeting {
     /// mic-release timestamp.
     pub fn auto_stop_after_ms(&self) -> u64 {
         u64::from(self.auto_stop_after_s) * 1_000
+    }
+}
+
+/// Seconds a detected meeting's app must have released the mic before notes
+/// stop. Long enough to ride out a device switch mid-call (the app closes and
+/// reopens the mic), short enough that hanging up visibly ends the notes: at
+/// 60 s the first real test looked broken, because nobody waits a minute.
+pub const DEFAULT_AUTO_STOP_S: u32 = 15;
+
+/// The auto-stop default before [`DEFAULT_AUTO_STOP_S`] (0.50.0-0.50.2).
+const OLD_AUTO_STOP_S: u32 = 60;
+
+/// Schema v2 -> v3: 0.50.x wrote the old 60 s auto-stop default into every
+/// saved file, so a v2 file holding exactly 60 almost always means "never
+/// chose" and moves to the new default. Runs once: `Settings::load` stamps v3
+/// and rewrites the file (after backing it up), so a later deliberate 60 is
+/// never touched again. Any other value was chosen and stays.
+pub(crate) fn migrate(meeting: &mut Meeting, file_version: u32) {
+    if file_version < 3 && meeting.auto_stop_after_s == OLD_AUTO_STOP_S {
+        log::info!(
+            "config schema v{file_version} -> v3: meeting.auto_stop_after_s {OLD_AUTO_STOP_S} -> {DEFAULT_AUTO_STOP_S} (the new default)"
+        );
+        meeting.auto_stop_after_s = DEFAULT_AUTO_STOP_S;
     }
 }
 
@@ -151,6 +174,31 @@ mod tests {
     use crate::{ConfigError, Settings};
 
     #[test]
+    fn a_v2_file_with_the_old_auto_stop_default_moves_to_the_new_one() {
+        let s = Settings::from_toml("version = 2\n[meeting]\nauto_stop_after_s = 60\n")
+            .expect("parses");
+        assert_eq!(s.meeting.auto_stop_after_s, 15);
+        assert_eq!(s.version, crate::CONFIG_VERSION, "stamped, so it runs once");
+    }
+
+    #[test]
+    fn a_chosen_auto_stop_survives_the_migration() {
+        let s = Settings::from_toml("version = 2\n[meeting]\nauto_stop_after_s = 30\n")
+            .expect("parses");
+        assert_eq!(s.meeting.auto_stop_after_s, 30);
+        let never =
+            Settings::from_toml("version = 2\n[meeting]\nauto_stop_after_s = 0\n").expect("parses");
+        assert_eq!(never.meeting.auto_stop_after_s, 0, "0 = never stop, kept");
+    }
+
+    #[test]
+    fn a_deliberate_60_after_the_migration_is_left_alone() {
+        let s = Settings::from_toml("version = 3\n[meeting]\nauto_stop_after_s = 60\n")
+            .expect("parses");
+        assert_eq!(s.meeting.auto_stop_after_s, 60);
+    }
+
+    #[test]
     fn defaults_match_the_documented_shape() {
         let s = Settings::from_toml("").expect("empty TOML parses");
         assert!(s.meeting.enabled);
@@ -165,7 +213,7 @@ mod tests {
         assert_eq!(s.meeting.audio_cap_mb, 5_120);
         assert!(s.meeting.compress_audio);
         assert_eq!(s.meeting.auto_detect, AutoDetect::Ask);
-        assert_eq!(s.meeting.auto_stop_after_s, 60);
+        assert_eq!(s.meeting.auto_stop_after_s, 15);
         assert_eq!(s.meeting.detect_apps, None);
     }
 
@@ -185,7 +233,7 @@ mod tests {
     fn helper_methods_convert_units() {
         let mut m = Meeting::default();
         assert_eq!(m.audio_cap_bytes(), 5_120 * 1024 * 1024);
-        assert_eq!(m.auto_stop_after_ms(), 60_000);
+        assert_eq!(m.auto_stop_after_ms(), 15_000);
 
         m.audio_cap_mb = 0;
         assert_eq!(m.audio_cap_bytes(), 0);

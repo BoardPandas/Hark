@@ -62,6 +62,8 @@ pub struct MeetingController {
     finishing: Vec<String>,
     prompt: Option<Prompt>,
     notices: Vec<String>,
+    /// The detected app hung up: (unix ms the notes stop at, app name).
+    auto_stop: Option<(i64, String)>,
 }
 
 impl MeetingController {
@@ -77,6 +79,7 @@ impl MeetingController {
             finishing: Vec::new(),
             prompt: None,
             notices: Vec::new(),
+            auto_stop: None,
         }
     }
 
@@ -187,6 +190,12 @@ impl MeetingController {
         &self.finishing
     }
 
+    /// When a detected meeting will stop on its own because its app released
+    /// the mic, and which app: (unix ms, name).
+    pub fn auto_stop(&self) -> Option<(i64, &str)> {
+        self.auto_stop.as_ref().map(|(at, app)| (*at, app.as_str()))
+    }
+
     pub fn notices(&self) -> &[String] {
         &self.notices
     }
@@ -215,6 +224,7 @@ impl MeetingController {
             MeetingEvent::PromptRetracted => self.prompt = None,
             MeetingEvent::Started(s) => {
                 self.prompt = None;
+                self.auto_stop = None;
                 self.live_id = Some(s.id.clone());
                 self.live.clear();
                 self.status = MeetingStatus::Recording {
@@ -228,7 +238,12 @@ impl MeetingController {
                     insert_live(&mut self.live, segment);
                 }
             }
+            MeetingEvent::AutoStopPending { at_ms, app, .. } => {
+                self.auto_stop = Some((at_ms, app));
+            }
+            MeetingEvent::AutoStopCancelled { .. } => self.auto_stop = None,
             MeetingEvent::Stopped { id, .. } => {
+                self.auto_stop = None;
                 if matches!(&self.status, MeetingStatus::Recording { id: r, .. } if *r == id) {
                     self.status = MeetingStatus::Idle;
                 }
@@ -338,6 +353,8 @@ fn storage_cmd(event: &MeetingEvent, cap_bytes: &AtomicU64) -> Option<MeetingCmd
         },
         MeetingEvent::Prompt { .. }
         | MeetingEvent::PromptRetracted
+        | MeetingEvent::AutoStopPending { .. }
+        | MeetingEvent::AutoStopCancelled { .. }
         | MeetingEvent::Notice { .. }
         | MeetingEvent::Failed { .. } => return None,
     })
@@ -400,6 +417,29 @@ mod tests {
             ),
             Some(MeetingCmd::Segment { .. })
         ));
+    }
+
+    #[test]
+    fn a_pending_auto_stop_shows_until_cancelled_or_stopped() {
+        let mut c = MeetingController::new(None);
+        c.on_event(MeetingEvent::AutoStopPending {
+            id: "m".into(),
+            at_ms: 1_000,
+            app: "Teams".into(),
+        });
+        assert_eq!(c.auto_stop(), Some((1_000, "Teams")));
+        c.on_event(MeetingEvent::AutoStopCancelled { id: "m".into() });
+        assert_eq!(c.auto_stop(), None);
+        c.on_event(MeetingEvent::AutoStopPending {
+            id: "m".into(),
+            at_ms: 2_000,
+            app: "Teams".into(),
+        });
+        c.on_event(MeetingEvent::Stopped {
+            id: "m".into(),
+            ended_ms: 2_000,
+        });
+        assert_eq!(c.auto_stop(), None);
     }
 
     #[test]

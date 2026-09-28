@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.50.3] - 2026-09-27
+
+### Changed
+
+- **Meeting notes now stop 15 seconds after the call ends, and tell you so.** Hark used to wait a full minute after the meeting app hung up, with nothing on screen, which looked like it wasn't working. When the call ends, the Meetings page shows when the notes will stop, with a **Stop now** button, and the tray tooltip says the same. If the call picks the microphone back up (switching headsets mid-call), recording simply carries on. If you had never changed this setting, it moves to 15 seconds; a value you chose stays as it is.
+
 ## [0.50.2] - 2026-09-27
 
 ### Added

@@ -176,7 +176,7 @@ Stop ─► finalize spool ─► [Deepgram multichannel+diarize pass] ─► se
 | `audio_cap_mb` | `5120` (5 GB) | Circular storage cap for recordings. `0` = don't keep audio. Integer MB avoids float round-trips in TOML; the UI edits it in GB. Validated at load: clamp to 0–1,048,576 (1 TB) and log once if clamped. |
 | `compress_audio` | `true` | Compress kept recordings to stereo MP3 after processing (§4.11). |
 | `auto_detect` | `"ask"` | `"off"`, `"ask"` (non-modal prompt), or `"auto"` (start silently, with the indicator always visible). |
-| `auto_stop_after_s` | `60` | Stop once the detected app has released the mic for this long. `0` = never auto-stop. |
+| `auto_stop_after_s` | `15` (60 until 0.50.3) | Stop once the detected app has released the mic for this long. `0` = never auto-stop. Lowered after the first real call: 60 s of silent waiting looked broken. |
 | `detect_apps` | built-in list (§4.8) | User-editable list of app identifiers treated as meeting apps. |
 
 ### 4.7 UI: `hark-app`
@@ -616,3 +616,13 @@ Not scheduled. The §4.1 notes are kept so it can be picked up later without re-
 - Still unverified on hardware: a real Teams/Zoom/Meet call end to end (detection → per-process
   loopback of the app's tree → live lines → Deepgram labels → notes → archive), the prompt
   window's placement/focus behaviour, and rfd's dialog from a worker thread.
+
+**Learned from the first real call (2026-09-28, 0.50.2, new Teams on this box):**
+- Detection, the prompt, per-process loopback of Teams' tree, live Me lines, notes and the MP3 archive all
+  worked end to end. The ConsentStore flip at call end is fast: Teams' `LastUsedTimeStop` landed at the
+  moment of hang-up (00:42:52 UTC), so the plan's open CP0 question ("the Teams flip at call end") is
+  answered: new Teams releases the mic immediately.
+- Auto-stop "did not work" only because it waited 60 s in silence and the user stopped it by hand 17 s
+  after hanging up. A correct-but-invisible wait is indistinguishable from a bug: the default is now
+  15 s and the pending stop is shown (Meetings page + tray tooltip, with Stop now). Config schema v3
+  moves a saved 60 (0.50.x wrote the default into every file) to 15 exactly once.

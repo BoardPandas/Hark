@@ -290,9 +290,16 @@ impl HarkApp {
         match self.meetings.status() {
             MeetingStatus::Unavailable(_) => tray::MeetingTray::Unavailable,
             MeetingStatus::Idle => tray::MeetingTray::Idle,
-            MeetingStatus::Recording { started_ms, .. } => tray::MeetingTray::Recording {
-                since: crate::ui::meetings::local_clock(*started_ms, &jiff::tz::TimeZone::system()),
-            },
+            MeetingStatus::Recording { started_ms, .. } => {
+                let tz = jiff::tz::TimeZone::system();
+                tray::MeetingTray::Recording {
+                    since: crate::ui::meetings::local_clock(*started_ms, &tz),
+                    stops_at: self
+                        .meetings
+                        .auto_stop()
+                        .map(|(at, _)| crate::ui::meetings::local_clock_seconds(at, &tz)),
+                }
+            }
         }
     }
 

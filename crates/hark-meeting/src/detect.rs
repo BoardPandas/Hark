@@ -191,6 +191,22 @@ impl Detector {
         matches!(self.phase, Phase::Recording { .. })
     }
 
+    /// Milliseconds until a detected meeting auto-stops: `Some` once its app
+    /// has released the mic (as of the last observation), `None` while the
+    /// app holds it, for a manual meeting, or with auto-stop off. The UI
+    /// shows it, so hanging up visibly leads somewhere.
+    pub fn stop_pending_ms(&self, now_ms: u64) -> Option<u64> {
+        let Phase::Recording {
+            app: Some(_),
+            released_at: Some(since),
+        } = &self.phase
+        else {
+            return None;
+        };
+        let limit = self.config.auto_stop_after_ms;
+        (limit > 0).then(|| limit.saturating_sub(now_ms.saturating_sub(*since)))
+    }
+
     /// Feed one poll.
     pub fn observe(&mut self, snapshot: &Snapshot, now_ms: u64) -> Verdict {
         let holding = self.holding(snapshot);
@@ -597,6 +613,26 @@ mod tests {
             poll(&mut d, &quiet(), 112_000, 130_000),
             vec![(122_000, Verdict::Stop)]
         );
+    }
+
+    #[test]
+    fn a_pending_stop_counts_down_and_clears_if_the_app_comes_back() {
+        let mut d = Detector::new(config(DetectMode::Auto));
+        poll(&mut d, &teams_call(), 0, 6_000);
+        assert_eq!(d.stop_pending_ms(6_000), None, "the app holds the mic");
+        d.observe(&quiet(), 8_000);
+        assert_eq!(d.stop_pending_ms(8_000), Some(60_000));
+        assert_eq!(d.stop_pending_ms(38_000), Some(30_000));
+        d.observe(&teams_call(), 40_000);
+        assert_eq!(d.stop_pending_ms(40_000), None, "released only briefly");
+    }
+
+    #[test]
+    fn a_manual_meeting_never_has_a_pending_stop() {
+        let mut d = Detector::new(config(DetectMode::Auto));
+        d.started_manually();
+        d.observe(&quiet(), 0);
+        assert_eq!(d.stop_pending_ms(0), None);
     }
 
     #[test]

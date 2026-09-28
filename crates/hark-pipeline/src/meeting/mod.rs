@@ -89,6 +89,17 @@ pub enum MeetingEvent {
         id: String,
         segment: LiveSegment,
     },
+    /// The detected meeting's app released the mic: notes stop at `at_ms`
+    /// (unix ms) unless it takes the mic back. `app` is the display name.
+    AutoStopPending {
+        id: String,
+        at_ms: i64,
+        app: String,
+    },
+    /// The app took the mic back before the stop: recording goes on.
+    AutoStopCancelled {
+        id: String,
+    },
     /// Capture stopped; the meeting is finishing (final pass, notes, archive).
     Stopped {
         id: String,

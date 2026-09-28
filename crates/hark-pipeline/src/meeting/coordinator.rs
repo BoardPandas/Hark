@@ -128,6 +128,10 @@ struct Active {
     session: SessionState,
     live: Option<live::Live>,
     detected: bool,
+    /// The detected app's display name, for the pending-stop notice.
+    app_name: Option<String>,
+    /// An auto-stop has been announced to the UI (and not cancelled).
+    stop_announced: bool,
 }
 
 struct Coordinator {
@@ -245,6 +249,40 @@ impl Coordinator {
                 }
             }
         }
+        self.announce_pending_stop(now_ms);
+    }
+
+    /// Tell the UI once when the detected app lets go of the mic (and when it
+    /// takes it back), so hanging up visibly leads to the notes stopping.
+    fn announce_pending_stop(&mut self, now_ms: u64) {
+        let pending = self.detector.stop_pending_ms(now_ms);
+        let Some(active) = self.active.as_mut() else {
+            return;
+        };
+        if !active.detected {
+            return;
+        }
+        let id = active.recorder.id.clone();
+        match (pending, active.stop_announced) {
+            (Some(ms), false) => {
+                active.stop_announced = true;
+                let at_ms = jiff::Timestamp::now().as_millisecond() + ms as i64;
+                let app = active
+                    .app_name
+                    .clone()
+                    .unwrap_or_else(|| "The meeting app".to_string());
+                log::info!("meeting {id}: {app} released the mic; stopping in {ms} ms");
+                let _ = self
+                    .events
+                    .send(MeetingEvent::AutoStopPending { id, at_ms, app });
+            }
+            (None, true) => {
+                active.stop_announced = false;
+                log::info!("meeting {id}: the app took the mic back; not stopping");
+                let _ = self.events.send(MeetingEvent::AutoStopCancelled { id });
+            }
+            _ => {}
+        }
     }
 
     fn start(&mut self, trigger: Trigger, app: Option<String>) {
@@ -324,6 +362,8 @@ impl Coordinator {
                     session,
                     live,
                     detected: app.is_some(),
+                    app_name: app.as_deref().map(app_display_name),
+                    stop_announced: false,
                 });
             }
             Err(detail) => {
@@ -438,6 +478,7 @@ impl Coordinator {
             session,
             live,
             detected,
+            ..
         } = active;
         let (session, action) = advance(session, Event::Stop);
         debug_assert_eq!(action, Action::Finalize);

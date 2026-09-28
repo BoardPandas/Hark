@@ -180,6 +180,25 @@ impl MeetingsPage {
                         meetings.stop();
                     }
                 });
+                if let Some((at_ms, app)) = meetings.auto_stop() {
+                    let app = app.to_string();
+                    ui.horizontal_wrapped(|ui| {
+                        ui.label(
+                            theme::icon_text(theme::icons::CLOCK)
+                                .color(theme::warning(ui.visuals())),
+                        );
+                        ui.label(format!(
+                            "{app} ended the call. Notes stop at {}.",
+                            local_clock_seconds(at_ms, &self.tz)
+                        ));
+                        if ui
+                            .add(theme::primary_button(ui.visuals(), "Stop now"))
+                            .clicked()
+                        {
+                            meetings.stop();
+                        }
+                    });
+                }
                 if !system_audio {
                     ui.label(
                         RichText::new("Only your microphone is being recorded.")
@@ -380,6 +399,14 @@ fn meta_line(m: &MeetingSummary, tz: &TimeZone, recording: bool, finishing: bool
 pub(crate) fn local_clock(ts_ms: i64, tz: &TimeZone) -> String {
     jiff::Timestamp::from_millisecond(ts_ms)
         .map(|t| t.to_zoned(tz.clone()).strftime("%H:%M").to_string())
+        .unwrap_or_default()
+}
+
+/// "14:30:05" in the user's zone: the pending auto-stop time, where the
+/// seconds are the point.
+pub(crate) fn local_clock_seconds(ts_ms: i64, tz: &TimeZone) -> String {
+    jiff::Timestamp::from_millisecond(ts_ms)
+        .map(|t| t.to_zoned(tz.clone()).strftime("%H:%M:%S").to_string())
         .unwrap_or_default()
 }
 

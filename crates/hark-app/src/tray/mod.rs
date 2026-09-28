@@ -75,6 +75,8 @@ pub enum MeetingTray {
     /// ticking, so a hidden idle window never has to wake just to update it.
     Recording {
         since: String,
+        /// Set once the detected app hung up: when the notes stop ("14:31:05").
+        stops_at: Option<String>,
     },
 }
 
@@ -82,7 +84,7 @@ impl MeetingTray {
     fn label(&self) -> String {
         match self {
             MeetingTray::Unavailable | MeetingTray::Idle => "Start meeting notes".to_string(),
-            MeetingTray::Recording { since } => format!("Stop meeting notes (since {since})"),
+            MeetingTray::Recording { since, .. } => format!("Stop meeting notes (since {since})"),
         }
     }
 }
@@ -194,9 +196,12 @@ fn with_meeting(
 ) -> (icon::TrayState, String) {
     let state = icon::state(status);
     match meeting {
-        MeetingTray::Recording { since } if state == icon::TrayState::Idle => (
+        MeetingTray::Recording { since, stops_at } if state == icon::TrayState::Idle => (
             icon::TrayState::Recording,
-            format!("Hark: taking meeting notes since {since}"),
+            match stops_at {
+                Some(at) => format!("Hark: the call ended; meeting notes stop at {at}"),
+                None => format!("Hark: taking meeting notes since {since}"),
+            },
         ),
         _ => (state, icon::tooltip(status, chord)),
     }
@@ -343,6 +348,7 @@ mod tests {
     fn a_recording_meeting_shows_on_an_idle_tray_but_dictation_wins() {
         let recording = MeetingTray::Recording {
             since: "14:30".to_string(),
+            stops_at: None,
         };
         let (state, tooltip) = with_meeting(&PipelineStatus::Idle, "F9", &recording);
         assert_eq!(state, icon::TrayState::Recording);
@@ -354,10 +360,22 @@ mod tests {
     }
 
     #[test]
+    fn a_hung_up_call_says_when_the_notes_stop() {
+        let ending = MeetingTray::Recording {
+            since: "14:30".to_string(),
+            stops_at: Some("14:52:07".to_string()),
+        };
+        let (state, tooltip) = with_meeting(&PipelineStatus::Idle, "F9", &ending);
+        assert_eq!(state, icon::TrayState::Recording);
+        assert!(tooltip.contains("stop at 14:52:07"), "{tooltip}");
+    }
+
+    #[test]
     fn the_meeting_entry_names_its_start_time() {
         assert_eq!(MeetingTray::Idle.label(), "Start meeting notes");
         let recording = MeetingTray::Recording {
             since: "09:05".to_string(),
+            stops_at: None,
         };
         assert_eq!(recording.label(), "Stop meeting notes (since 09:05)");
     }

@@ -34,7 +34,10 @@ use thiserror::Error;
 /// any mutation, map fields explicitly, stamp the new version, persist
 /// immediately. Retired fields stay deserializable so old files still parse
 /// for the migration to read.
-pub const CONFIG_VERSION: u32 = 2;
+///
+/// Bumped to 3 in 0.50.3, when the meeting auto-stop default fell from 60 s to
+/// 15 s (see [`meeting::migrate`]).
+pub const CONFIG_VERSION: u32 = 3;
 
 #[derive(Debug, Error)]
 pub enum ConfigError {
@@ -534,6 +537,8 @@ impl Settings {
         // Also before validation: an absurd cap is a typo, not a reason to
         // refuse to start, so it is clamped in place rather than rejected.
         meeting::clamp(&mut settings.meeting);
+        // Reads the file's own stamp, so it must run before the bump below.
+        meeting::migrate(&mut settings.meeting, settings.version);
         // Only ever bump *up*. A stamp from the future belongs to a file some
         // newer Hark wrote; stamping it down here would make this build claim
         // authorship of a schema it does not understand, and the next save
