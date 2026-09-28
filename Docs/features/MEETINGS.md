@@ -196,7 +196,7 @@ The suggested title only ever applies while the meeting has none — renaming a 
 <!-- BEGIN:AUTOGEN hark_15_meetings_storage -->
 ## Storage and the Audio Cap
 
-Meeting rows, transcript segments, renamed speakers, and notes live in the same local SQLite database as dictation history (migration 004): `meetings`, `meeting_segments`, `meeting_speakers`, and an external-content FTS5 index over segment text, kept in sync by trigger rather than application code ([004_meetings.sql:1-63](../../crates/hark-store/migrations/004_meetings.sql#L1-L63)). Meeting audio itself is never a database column — it lives on disk at `<data_dir>/meetings/<id>/` — and `hark-app/src/storage/meetings.rs` is the single writer for both, called from the same storage worker thread that writes dictation history, so a size check against the filesystem and the database's idea of which meetings exist never disagree ([storage/meetings.rs](../../crates/hark-app/src/storage/meetings.rs)).
+Meeting rows, transcript segments, renamed speakers, and notes live in the same local SQLite database as dictation history (migration 004): `meetings`, `meeting_segments`, `meeting_speakers`, and an external-content FTS5 index over segment text, kept in sync by trigger rather than application code ([004_meetings.sql](../../crates/hark-store/migrations/004_meetings.sql)). Meeting audio itself is never a database column — it lives on disk at `<data_dir>/meetings/<id>/` — and `hark-app/src/storage/meetings.rs` is the single writer for both, called from the same storage worker thread that writes dictation history, so a size check against the filesystem and the database's idea of which meetings exist never disagree ([storage/meetings.rs](../../crates/hark-app/src/storage/meetings.rs)).
 
 The **audio cap** (`[meeting] audio_cap_mb`, default 5,120 = 5 GB, `0` = keep no audio) is a circular limit enforced against actual bytes on disk, never the database's cached byte count, because a crash or a manual delete would otherwise let the two drift ([storage.rs:1-9](../../crates/hark-meeting/src/storage.rs#L1-L9)). `plan_eviction` is the pure decision: given every recording's size and end time, a cap, and a protected-id list, it evicts whole recordings oldest-`ended_ms`-first until the total fits, and it never returns a protected id — even when that recording alone exceeds the cap, in which case eviction stops and a one-time "this meeting is larger than your storage cap" notice fires instead ([storage.rs:41-67](../../crates/hark-meeting/src/storage.rs#L41-L67)). The meeting currently recording, and any meeting still being refined or summarized, is always protected; the coordinator tracks that set and re-checks the cap every 60 seconds while a meeting records, plus at startup and whenever the cap changes in Settings ([coordinator.rs](../../crates/hark-pipeline/src/meeting/coordinator.rs)).
 
@@ -246,13 +246,22 @@ On Windows, the database is `%APPDATA%\hark\hark.db` and audio is under `%APPDAT
 
 Recording laws may require notifying other participants or obtaining consent. Hark offers a reminder and copyable announcement; the user delivers the announcement. No Hark-operated server receives meeting content.
 
-Content hygiene matches the dictation-history rule: nothing that carries meeting text derives `Debug`. `Segment`, `Chunk`, `MeetingNotes`, `MeetingSegment`, and the Deepgram `FinalSegment` all have hand-written `Debug` impls that print offsets, lengths, and counts only, never the words themselves, so a reflexive `{:?}` in a future log line cannot leak a transcript. Window titles used for browser meeting detection are matched in memory and never stored or logged. Deletions in the storage cap are logged by meeting id and byte count only, never by title or content.
+Content hygiene matches the dictation-history rule: nothing that carries meeting text derives `Debug`. `Segment`, `Chunk`, `MeetingNotes`, `MeetingSegment`, and the final-pass `FinalSegment` omit `Debug` or use hand-written implementations that print offsets, lengths, and counts only, never the words themselves, so a reflexive `{:?}` in a future log line cannot leak a transcript. Window titles used for browser meeting detection are matched in memory and never stored or logged. Deletions in the storage cap are logged by meeting id and byte count only, never by title or content.
 <!-- END:AUTOGEN hark_15_meetings_privacy -->
 
 ---
 
 <!-- BEGIN:AUTOGEN hark_15_meetings_operational -->
 ## Operational Notes
+
+Echo cancellation remains an experiment. The isolated
+[AEC comparison](../../tools/meeting-aec-bakeoff/README.md) includes two engines,
+a bypass control, and [63 recorded synthetic measurements](../../tools/meeting-aec-bakeoff/RESULTS.md).
+Both WSL candidates passed four streaming/metric tests; the Rust candidate also
+passed a native Windows GNU check. These results do not establish real-speaker
+quality, native C++ or MSVC support, or production capture alignment. The user's
+speaker/headphone comparison and engine choice remain pending; Hark's production
+audio path does not enable AEC.
 
 - **Windows only, for now.** `meetings_supported()` gates the tray entry, the Meetings/Settings pages, and the coordinator itself; macOS is planned once Windows is stable in daily use, Linux is deferred (see the plan's Phases section). The Win32-only pieces (prompt placement, frame stripping, opening Explorer, the save dialog's parent window) are compiled out elsewhere rather than merely hidden, so Linux and macOS builds carry no dead Windows code; lint the whole workspace on Linux before pushing anything that touches them, because a Windows build never sees those `cfg` paths.
 - **Hand checks, not `cargo test`.** Per-process loopback and the Windows ConsentStore probe need real hardware and a real call: verify them with `cargo run -p hark-audio --example loopback_smoke` and `cargo run -p hark-meeting --example detect_smoke`. `cargo test` never opens an audio device or reads the live microphone registry; pure state machine, chunker, merge, detector, eviction, and export checks use fixtures and synthetic PCM. Windows watcher tests separately create and remove isolated temporary registry keys.

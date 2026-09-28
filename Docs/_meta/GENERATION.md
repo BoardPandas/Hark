@@ -1,5 +1,12 @@
 # Generation Metadata
 
+## Final Meetings Polish / AEC update — 2026-09-28 (0.56.0)
+
+- **Source reviewed:** `7cbdc234` plus the standalone AEC experiment and final documentation reconciliation. Application source/tests are unchanged from the verified 0.55.0 snapshot.
+- **Scope:** reproducible comparison, numeric evidence, real-speaker procedure, privacy/provider and capture-alignment clarification, authorization, delivery status, and lesson publication. Earlier per-feature release sections and verification records are preserved.
+- **Baseline policy:** global baseline `784272c` remains; existing source mappings stay intact and the standalone tool is mapped to Meetings.
+- **Validation:** standalone WSL/native-GNU checks and evidence audits are recorded in `SUMMARY.md`; synthetic quality, skipped AI review, native limitations, and pending production decisions remain explicit.
+
 ## Scoped Gemini meeting final-pass update — 2026-09-28 (0.55.0)
 
 - **Source reviewed:** `3dfac02` plus only Polish item 5: explicit Gemini Files processing, schema 5, independent key/model settings, and window-scoped speaker labels.

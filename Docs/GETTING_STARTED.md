@@ -51,6 +51,12 @@ After installation, open **Meetings** to start manually or accept a detected-cal
 
 For automatic post-call refinement, Settings > Meetings also offers **Use Gemini after the call**. Add your Gemini key and choose its independent model; remote speaker numbers restart per five-minute window. This does not change the explicit Deepgram saved-recording re-run action ([Gemini processing and deletion](features/MEETINGS.md#gemini-files-final-pass)).
 
+Meeting echo cancellation is not enabled. Use headphones to reduce microphone
+bleed; developers evaluating AEC can follow the separate
+[speaker/headphone procedure](../tools/meeting-aec-bakeoff/README.md#replay-a-real-speaker-recording)
+after reviewing its recording-retention instructions. Synthetic benchmark results
+do not replace that listening test.
+
 The meeting detail view's **Share** menu can save Markdown/text, SRT/VTT subtitles, a Word document, or audio. **Save an excerpt with audio** lets you choose transcript lines or a time range and writes audio plus matching text; **Share with Windows** opens the native chooser for meeting text ([sharing details](features/MEETINGS.md#sharing-and-export)).
 
 Sources: [README: Install (Windows)](../README.md#install-windows), [README: Meetings privacy](../README.md#meetings-windows)

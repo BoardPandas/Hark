@@ -95,3 +95,10 @@ Release engineering and packaging.
 ---
 
 **Last Updated:** September 24, 2026 · Source baseline `784272c`
+
+### Meeting echo-cancellation research
+
+The standalone [AEC comparison](../tools/meeting-aec-bakeoff/README.md) contains
+reproduction and real-speaker test instructions. Its [recorded evidence](../tools/meeting-aec-bakeoff/RESULTS.md)
+keeps synthetic performance, native build evidence, and pending production choices
+separate; neither candidate is enabled in Hark.

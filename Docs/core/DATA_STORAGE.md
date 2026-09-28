@@ -8,7 +8,7 @@ The following files were used as evidence for this page:
 - [crates/hark-store/migrations/001_init.sql:1-31](../../crates/hark-store/migrations/001_init.sql#L1-L31)
 - [crates/hark-store/migrations/002_stats_total_ms.sql:1-8](../../crates/hark-store/migrations/002_stats_total_ms.sql#L1-L8)
 - [crates/hark-store/migrations/003_entries_invocation.sql:1-6](../../crates/hark-store/migrations/003_entries_invocation.sql#L1-L6)
-- [crates/hark-store/migrations/004_meetings.sql:1-63](../../crates/hark-store/migrations/004_meetings.sql#L1-L63)
+- [crates/hark-store/migrations/004_meetings.sql](../../crates/hark-store/migrations/004_meetings.sql)
 - [crates/hark-store/src/meetings.rs](../../crates/hark-store/src/meetings.rs)
 - [crates/hark-store/tests/store.rs:1-465](../../crates/hark-store/tests/store.rs#L1-L465)
 - [crates/hark-app/src/storage/mod.rs:1-249](../../crates/hark-app/src/storage/mod.rs#L1-L249)
@@ -64,9 +64,9 @@ The schema is an append-only sequence of four embedded migrations. `PRAGMA user_
 | `001_init.sql` | Creates `entries`, its timestamp index, and singleton `stats` | The app seeds stats row `id = 1` without replacing existing counters ([001_init.sql:1-31](../../crates/hark-store/migrations/001_init.sql#L1-L31), [lib.rs:147-154](../../crates/hark-store/src/lib.rs#L147-L154)) |
 | `002_stats_total_ms.sql` | Adds `stats.total_ms NOT NULL DEFAULT 0` | Existing counters survive; pre-migration dictations contribute zero to the new sum ([002_stats_total_ms.sql:1-8](../../crates/hark-store/migrations/002_stats_total_ms.sql#L1-L8), [store.rs:427-465](../../crates/hark-store/tests/store.rs#L427-L465)) |
 | `003_entries_invocation.sql` | Adds nullable `entries.invocation` | Existing rows read as non-invocations; new rows round-trip the trigger ([003_entries_invocation.sql:1-6](../../crates/hark-store/migrations/003_entries_invocation.sql#L1-L6), [store.rs:378-424](../../crates/hark-store/tests/store.rs#L378-L424)) |
-| `004_meetings.sql` | Adds `meetings`, `meeting_segments`, `meeting_speakers`, and an external-content FTS5 index over segment text | A fresh table set; nothing pre-existing to migrate. `meeting_segments`/`meeting_speakers` cascade-delete with their meeting, which only takes effect because `Store::init` now turns `PRAGMA foreign_keys` on for every connection ([004_meetings.sql:1-63](../../crates/hark-store/migrations/004_meetings.sql#L1-L63), [lib.rs:152-154](../../crates/hark-store/src/lib.rs#L152-L154)) |
+| `004_meetings.sql` | Adds `meetings`, `meeting_segments`, `meeting_speakers`, and an external-content FTS5 index over segment text | A fresh table set; nothing pre-existing to migrate. `meeting_segments`/`meeting_speakers` cascade-delete with their meeting, which only takes effect because `Store::init` now turns `PRAGMA foreign_keys` on for every connection ([004_meetings.sql](../../crates/hark-store/migrations/004_meetings.sql), [lib.rs:152-154](../../crates/hark-store/src/lib.rs#L152-L154)) |
 
-Meeting search does not need a `LIKE` fallback: the FTS5 module is compiled into the SQLite Hark bundles, which `hark-store/tests/meetings.rs` asserts directly rather than assuming ([meetings.rs](../../crates/hark-store/src/meetings.rs)). `meeting_segments_fts` is kept in sync by the standard insert/delete/update trigger trio rather than by application code, so a segment written through any path is searchable ([004_meetings.sql:45-63](../../crates/hark-store/migrations/004_meetings.sql#L45-L63)).
+Meeting search does not need a `LIKE` fallback: the FTS5 module is compiled into the SQLite Hark bundles, which `hark-store/tests/meetings.rs` asserts directly rather than assuming ([meetings.rs](../../crates/hark-store/src/meetings.rs)). `meeting_segments_fts` is kept in sync by the standard insert/delete/update trigger trio rather than by application code, so a segment written through any path is searchable ([004_meetings.sql](../../crates/hark-store/migrations/004_meetings.sql)).
 
 ```mermaid
 erDiagram
@@ -98,7 +98,7 @@ erDiagram
 
 `entries` and `stats` intentionally have no foreign-key relationship. Clearing history deletes only entries; resetting stats changes only the fixed stats row ([lib.rs:296-336](../../crates/hark-store/src/lib.rs#L296-L336)). `audio_ms` feeds lifetime stats but is not stored on each history entry ([lib.rs:50-68](../../crates/hark-store/src/lib.rs#L50-L68)).
 
-Sources: [crates/hark-store/src/lib.rs:22-28](../../crates/hark-store/src/lib.rs#L22-L28), [crates/hark-store/src/lib.rs:139-168](../../crates/hark-store/src/lib.rs#L139-L168), [crates/hark-store/migrations/001_init.sql:1-31](../../crates/hark-store/migrations/001_init.sql#L1-L31), [crates/hark-store/migrations/002_stats_total_ms.sql:1-8](../../crates/hark-store/migrations/002_stats_total_ms.sql#L1-L8), [crates/hark-store/migrations/003_entries_invocation.sql:1-6](../../crates/hark-store/migrations/003_entries_invocation.sql#L1-L6), [crates/hark-store/migrations/004_meetings.sql:1-63](../../crates/hark-store/migrations/004_meetings.sql#L1-L63), [crates/hark-store/src/meetings.rs](../../crates/hark-store/src/meetings.rs)
+Sources: [crates/hark-store/src/lib.rs:22-28](../../crates/hark-store/src/lib.rs#L22-L28), [crates/hark-store/src/lib.rs:139-168](../../crates/hark-store/src/lib.rs#L139-L168), [crates/hark-store/migrations/001_init.sql:1-31](../../crates/hark-store/migrations/001_init.sql#L1-L31), [crates/hark-store/migrations/002_stats_total_ms.sql:1-8](../../crates/hark-store/migrations/002_stats_total_ms.sql#L1-L8), [crates/hark-store/migrations/003_entries_invocation.sql:1-6](../../crates/hark-store/migrations/003_entries_invocation.sql#L1-L6), [crates/hark-store/migrations/004_meetings.sql](../../crates/hark-store/migrations/004_meetings.sql), [crates/hark-store/src/meetings.rs](../../crates/hark-store/src/meetings.rs)
 
 Explicit meeting reprocessing uses `reprocess_meeting_segments`: segment replacement and deletion of old speaker renames happen in the same transaction, with FTS updated by the segment triggers. Notes and title are untouched. A failed insert rolls the whole transaction back. The app's storage worker acknowledges this commit before the meeting UI reports rerun success ([store implementation](../../crates/hark-store/src/meetings.rs), [rollback and preservation tests](../../crates/hark-store/tests/meetings.rs), [storage acknowledgement](../../crates/hark-app/src/storage/meetings.rs)).
 <!-- END:AUTOGEN hark_05_data_storage_schema -->
@@ -175,3 +175,9 @@ Sources: [crates/hark-app/src/storage/mod.rs:1-249](../../crates/hark-app/src/st
 <!-- END:AUTOGEN hark_05_data_storage_integration -->
 
 ---
+
+Gemini playback-speaker IDs reserve the high bit and encode the five-minute window
+alongside its local speaker number. They remain separate identities in storage,
+rename controls, and exports; no cross-window match is implied
+([parse](../../crates/hark-stt/src/meeting_gemini.rs),
+[label](../../crates/hark-meeting/src/export.rs)).

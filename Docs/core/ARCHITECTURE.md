@@ -21,6 +21,13 @@ The following files were used as evidence for this page:
 
 # Architecture
 
+Meeting capture and provider processing use independent workers. A saved-recording
+worker can refine retained audio while a new call records; the storage worker
+atomically replaces the saved transcript and its search index. Registry events
+wake the detector, with independent debounce/auto-stop deadlines and a polling
+backstop. The optional Gemini worker processes bounded mono windows and requests
+remote cleanup; a failed pass preserves the prior live transcript.
+
 > **Related Pages**: [Overview](../OVERVIEW.md), [Audio Capture](../features/AUDIO_CAPTURE.md), [Transcription](../features/TRANSCRIPTION.md), [Text Injection](../features/TEXT_INJECTION.md), [Meetings](../features/MEETINGS.md)
 
 ---
@@ -36,7 +43,7 @@ Startup acquires the single-instance guard, starts the root viewport hidden, and
 
 Field order is part of shutdown correctness: the shared listener closes before the dictation worker; pipeline, meeting, and listener handles are declared before the channels and storage handles they feed, so their bounded drops run first — dropping `MeetingController` closes a meeting in progress and lets its final writes reach the storage worker before that worker is joined ([app.rs](../../crates/hark-app/src/app.rs)).
 
-Meeting mode (plan `tasks/2026-09-26-plan-meeting-transcription.md`) is deliberately a separate set of worker threads (the coordinator also announces a pending auto-stop, `AutoStopPending`/`AutoStopCancelled`, once per change rather than per observation; those events are UI-only and never reach the database), not a mode of the dictation pipeline above: `hark-pipeline::meeting::run` starts a **coordinator** thread that owns the detector and the active recording and drains capture every 100 ms, one **live transcriber** thread per meeting that runs chunks through the STT provider FIFO across both channels, and one **finisher** thread per meeting for the after-call work (the Deepgram final pass, the summary, the MP3 archive), so an older meeting can still be finishing while a new one starts recording ([meeting/mod.rs](../../crates/hark-pipeline/src/meeting/mod.rs)). On the UI side, `hark-app`'s `MeetingController` is the same shape as `PipelineController`: a pump thread receives `MeetingEvent`s, tees database writes to the storage worker, forwards the rest to the UI, and wakes it with `wake_ui` so a hidden window still records every line and shows the detection prompt ([meeting.rs](../../crates/hark-app/src/meeting.rs)). Push-to-talk dictation keeps its own one-shot state machine untouched; their capture and processing state stays separate. They share the app-owned keyboard listener, and meeting toggles do not wait for dictation input to drain.
+Meeting mode (plan `tasks/2026-09-26-plan-meeting-transcription.md`) is deliberately a separate set of worker threads (the coordinator also announces a pending auto-stop, `AutoStopPending`/`AutoStopCancelled`, once per change rather than per observation; those events are UI-only and never reach the database), not a mode of the dictation pipeline above: `hark-pipeline::meeting::run` starts a **coordinator** thread that owns the detector and the active recording and drains capture every 100 ms, one **live transcriber** thread per meeting that runs chunks through the STT provider FIFO across both channels, and one **finisher** thread per meeting for the after-call work (the selected Deepgram/Gemini final pass, the summary, the MP3 archive), so an older meeting can still be finishing while a new one starts recording ([meeting/mod.rs](../../crates/hark-pipeline/src/meeting/mod.rs)). On the UI side, `hark-app`'s `MeetingController` is the same shape as `PipelineController`: a pump thread receives `MeetingEvent`s, tees database writes to the storage worker, forwards the rest to the UI, and wakes it with `wake_ui` so a hidden window still records every line and shows the detection prompt ([meeting.rs](../../crates/hark-app/src/meeting.rs)). Push-to-talk dictation keeps its own one-shot state machine untouched; their capture and processing state stays separate. They share the app-owned keyboard listener, and meeting toggles do not wait for dictation input to drain.
 
 ```mermaid
 graph TD

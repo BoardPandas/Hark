@@ -994,7 +994,7 @@ pages:
     title: "Meetings"
     folder: "features"
     filename: "MEETINGS.md"
-    description: "Bot-free meeting transcription: OS loopback capture, live Me/Them transcript, the Deepgram final pass, notes, storage cap, and sharing."
+    description: "Bot-free meeting transcription: OS loopback capture, live Me/Them transcript, Deepgram or Gemini refinement, notes, storage cap, and sharing."
     category: feature
     source_files:
       - "crates/hark-meeting/src/lib.rs"
@@ -1032,6 +1032,16 @@ pages:
       - "crates/hark-app/src/ui/meetings/share/native.rs"
       - "crates/hark-app/src/ui/meetings/share/word.rs"
       - "crates/hark-app/src/ui/settings/meetings.rs"
+      - "tools/meeting-aec-bakeoff/README.md"
+      - "tools/meeting-aec-bakeoff/RESULTS.md"
+      - "tools/meeting-aec-bakeoff/Cargo.toml"
+      - "tools/meeting-aec-bakeoff/build-wsl.py"
+      - "tools/meeting-aec-bakeoff/src/backend.rs"
+      - "tools/meeting-aec-bakeoff/src/fixture.rs"
+      - "tools/meeting-aec-bakeoff/src/metrics.rs"
+      - "tools/meeting-aec-bakeoff/src/main.rs"
+      - "tools/meeting-aec-bakeoff/evidence/2026-09-28-wsl-results.json"
+      - "tools/meeting-aec-bakeoff/evidence/2026-09-28-wsl-results.csv"
     sections:
       - id: hark_15_meetings_overview
         title: "Overview"

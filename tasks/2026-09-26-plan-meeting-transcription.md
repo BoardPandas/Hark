@@ -11,7 +11,7 @@ tested on Windows and Linux. **Real-call validation reported by the product owne
 a 20-minute Google Meet call in Chrome** (2026-09-28); the findings and fixes are in §8.
 The 0.50.4 Meet prompt/15-second auto-stop retest remains pending in the handoff.
 Zoom/Webex/GoTo/RingCentral executable names still need live-call validation.
-**Current step:** Polish items 1–4 are committed as `c0ae95b` (0.51.0), `713434de` (0.52.0), `287df97e` (0.53.0) plus Windows build fix `6ee98fbe` (0.53.1), and `3dfac02` (0.54.0). Item 5 is implemented in the isolated 0.55.0 Gemini snapshot; item 6 remains outside it. The product owner authorized commit, push, and tag actions for all six; the parent owns those operations and records verified outcomes. Item 5 scope: [intent](../intent/meetings-need-a-gemini-final-pass/intent.md) and [specification](../intent/meetings-need-a-gemini-final-pass/spec.md).
+**Current step:** Polish items 1–5 are committed individually through `7cbdc234` (0.55.0). Item 6's reproducible AEC comparison and final documentation are prepared as the isolated 0.56.0 snapshot; production AEC remains disabled. The product owner's later "commit and push and tag all" instruction authorizes delivery without repeated approvals. Verified delivery states are recorded in §5; the real-speaker test and engine choice remain open. Overall [intent](../intent/meeting-polish/intent.md) and [specification](../intent/meeting-polish/spec.md) preserve that boundary.
 
 The `v0.50.5` release completed successfully with its signed Windows installer and
 all Linux/Arch assets (Release run `36462341560`). AI review workflows for 0.50.5
@@ -437,41 +437,68 @@ chose Deepgram (2026-09-26).**
 under 1 (it reuses the sharing encoder).*
 
 ### Polish
-- [x] **Speaker rename + FTS search already shipped in Core.** Verified in
-  `crates/hark-store/src/meetings.rs`, migration 004, and
-  `crates/hark-app/src/ui/meetings/{mod,detail}.rs`; do not rebuild them.
 
-Remaining work, one feature per commit with a minor version bump:
+Speaker rename and FTS search already shipped in Core and were verified before
+Polish; they were preserved rather than rebuilt. The six requested items have
+separate minor-version commits, with the Windows build correction between 3 and 4.
 
-1. Re-run the final pass on a kept recording: send the stereo MP3 archive to Deepgram
-   multichannel as-is; add the action on meeting detail (§4.11).
-2. Faster detection: `RegNotifyChangeKeyValue` plus a slow polling backstop. Preserve the
-   observation-timestamp debounce and `auto_stop_after_s` timing (default 15 seconds).
-3. Meeting start/stop chord through `hark-hotkey`'s tracker; prevent PTT conflicts, keep
-   Linux compiling, and migrate config if its shape changes.
-4. More sharing: `.srt`/`.vtt`, excerpt text plus matching audio, `.docx`, and the Windows
-   share sheet (`IDataTransferManagerInterop::ShowShareUIForWindow`, main thread). Ask the
-   user about excerpt decode versus frame-accurate cutting and before adding a DOCX crate.
-5. Gemini Files final pass without Deepgram: one track per request, 5-minute windows (CP0
-   row 4); reconcile speakers or label per window, clamp times, delete uploaded files.
-6. AEC bake-off: compare `aec3` and `webrtc-audio-processing` with loopback as the far-end
-   reference. D6 remains proposed; the user chooses after results and a real speakers test.
+| Item | Implemented outcome | Commit / verification / delivery |
+| --- | --- | --- |
+| 1 | Explicit Deepgram re-run of retained stereo audio; transactional transcript/FTS replacement and storage acknowledgement | `c0ae95b`, 0.51.0; Windows/Linux/macOS CI passed, tag pushed, full release completed |
+| 2 | Recursive registry notifications with independent debounce/auto-stop deadlines and polling fallback | `713434de`, 0.52.0; Windows/Linux/macOS CI passed, tag pushed, full release completed (run `36464401007`) |
+| 3 | One shared Windows hook and optional meeting toggle, with PTT conflict validation and schema 4 | `287df97e`, 0.53.0; Windows CI found a large enum. Corrected in `6ee98fbe`, 0.53.1: all CI jobs passed (run `36465172327`), tag pushed. 0.53.0 remains untagged |
+| 4 | SRT/VTT, DOCX, selected text/audio excerpts, native Windows text Share | `3dfac02`, 0.54.0; pushed, all CI jobs passed (run `36466653741`), tag pushed |
+| 5 | Explicit Gemini after-call final pass, schema 5, bounded track windows, scoped speakers and remote cleanup | `7cbdc234`, 0.55.0; pushed, all eight CI jobs passed (run `36467977562`), annotated tag pushed; release workflow triggered, completion not yet verified |
+| 6 | Standalone AEC comparison and final documentation | Prepared 0.56.0 snapshot; 63 numeric rows and four harness tests; delivery pending |
 
-*Estimate: 3–5 sessions.*
+The user approved decoding/re-encoding excerpts and `docx-rs` 0.4.22 with default
+features disabled. Gemini is explicitly selected after Stop; a missing key or
+failed request never silently switches providers. Saved-recording re-runs remain
+Deepgram, and independent Gemini speaker identities remain scoped to each window.
+
+The final application source passed WSL formatting, strict clippy, and workspace
+tests: **1,002 passed, 0 failed, 1 ignored**. Native provider/config/meeting library
+tests passed **254**, then Application Control blocked an STT integration test
+executable (`os error 4551`). That command was not a passing full native gate.
+Feature-specific evidence and limits remain in [the documentation summary](../Docs/_meta/SUMMARY.md).
+Windows/macOS/Linux CI and native manual tests have separate meanings; synthetic
+fixtures do not establish real shortcut, notification, share-sheet, or capture behavior.
+
+Item 6's experiment is complete: two candidates and a bypass control produced
+**63 measurements**, seven fixtures by three engines by three repetitions. See
+[results](../tools/meeting-aec-bakeoff/RESULTS.md) and the
+[speaker/headphone procedure](../tools/meeting-aec-bakeoff/README.md#replay-a-real-speaker-recording).
+Rust AEC3 attenuated the synthetic far-only signal more; the C++ wrapper processed
+it faster. These signal metrics do not establish intelligibility or lost-word rate.
+Both WSL engines passed the four harness tests. The isolated Rust candidate passed
+four native Windows GNU tests and replayed seven synthetic pairs, producing 39,000
+complete frames. Native C++, MSVC, actual speaker quality, and Hark integration
+remain unverified. **D6 remains proposed; production AEC stays disabled** pending
+the user's listening test, engine choice, and capture timestamp/drift/queue design.
 
 ### Ship: Windows
-- [x] `Docs/features/MEETINGS.md` exists; README feature/privacy documentation prepared
-  against capture, provider, storage, and deletion code for 0.50.5.
-- [x] Windows, Linux, and macOS CI passed for `9a61d11` (0.50.4); Meetings remains hidden
-  outside Windows. The `v0.50.4` Release workflow passed, including the Windows signed
-  installer. Real-call coverage is recorded in the status header and §8.
-- [x] LL-G lesson capture published in `1a743d3`: five new entries, one App Control
-  update, five shelf indexes, and the master index. All 12 files verified through
-  the API. LL-G CI retains two pre-existing blank-line failures in unrelated
-  PowerShell/TypeScript indexes (same failures on parent `dd8a331`).
-- [ ] Release patch 0.50.5 after separate commit, push, and release approvals.
 
-*Estimate: 1 session.*
+- [x] Part A documentation grounded in the actual capture/provider/storage/deletion paths.
+- [x] `691d3fd` (0.50.5) committed and pushed; Windows/Linux/macOS CI passed.
+- [x] `v0.50.5` tagged and released: Release run `36462341560` completed successfully
+  with all five assets, including the signed 15,452,008-byte Windows installer.
+  App and installer signing and signature-verification steps passed.
+- [x] Part A lessons published in LL-G commit `1a743d3`, with all 12 files verified
+  through API readback. The publication-time CI limitation was two pre-existing
+  blank-line issues in unrelated PowerShell/TypeScript indexes.
+- [x] Polish lessons published in [LL-G commit `9ae35d63`](https://github.com/BoardPandas/LL-G/commit/9ae35d63e61c1140a0794b1c3d915777f314d8c8):
+  three new HIGH entries and one amended HIGH entry, eight files (+258/−5).
+  All eight remote blobs and six referenced Hark source paths were verified.
+  The atomic update preserved concurrent changes on base `6f698c9`; no LL-G tag
+  was created. Index counts passed; structural checks retained the same three
+  pre-existing blank-line errors in the root, PowerShell, and TypeScript indexes.
+  LL-G CI run `36468052579` failed on those same three pre-existing blank-line
+  issues, with no new errors. Its later count step was skipped; the independent
+  full-snapshot index check passed (719 entries). Publication is complete.
+
+AI review for 0.50.5 through 0.53.0 was explicitly **skipped** because
+`ANTHROPIC_API_KEY` was absent. A green AI-review workflow is not a completed review;
+this does not negate separately passing build/test or release workflows.
 
 ### macOS (starts once Windows ships and is stable in daily use)
 1. Real-Mac spike: process tap + aggregate device, TCC prompt, 60-min dual capture.
@@ -689,7 +716,7 @@ Not scheduled. The §4.1 notes are kept so it can be picked up later without re-
   the day before. Windows builds/lints are blocked locally until the policy changes; Linux (WSL,
   full workspace) plus CI's Windows job are the verification for now.
 
-**Learned while preparing Ship: Windows (2026-09-28, Part A; not yet released):**
+**Learned while preparing Ship: Windows (2026-09-28, Part A; subsequently released as 0.50.5):**
 - Privacy claims must follow each provider path: local Primary controls live meeting chunks,
   not the independent Deepgram final pass or notes request. Verbatim dictation does not
   disable notes. The README now names all three paths and the settings needed to keep
@@ -750,3 +777,20 @@ Not scheduled. The §4.1 notes are kept so it can be picked up later without re-
 - Cutting compressed MP3 bytes is not a time-range export. Decode to PCM, select exact frames, re-encode only the chosen range, and use the actual saved audio length for matching text.
 - The audio save dialog does not authorize replacing a same-name transcript beside it. Reserve the companion with `create_new`, protect the internal audio directory, and report partial output honestly.
 - Windows Share owns a UI-thread WinRT callback; retain it for the chooser lifetime and unregister it before apartment teardown. Compilation does not prove native chooser behavior.
+
+
+**Learned while completing Gemini and AEC evaluation (2026-09-28):**
+
+- Independent Gemini requests cannot promise stable speaker identities. A window
+  label is explicit about that limit; energy-based omission rejection does not
+  prove that every word was transcribed. Allocate the remote filename before
+  sending audio so malformed/lost finalization replies can still trigger DELETE.
+  Cleanup errors must reach the user, and crashes remain a retention limitation.
+- Cargo release does not override a bundled Meson project's `debugoptimized`
+  default. Record C++ optimization settings and compare identical frames. High
+  attenuation or low CPU alone does not establish intelligible double talk;
+  raw-reference SNR also includes high-pass/phase effects. Current first-delivery
+  timing is not evidence of common hardware-timestamp alignment.
+- Reuse the existing [sender-owned shutdown lesson](https://github.com/BoardPandas/LL-G/blob/main/kb/rust/join-on-drop-sender-field-order.md).
+  The three new and one amended HIGH Polish entries are published in verified
+  commit `9ae35d63`; details and the separate CI limitation are recorded in Ship.

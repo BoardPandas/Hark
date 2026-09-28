@@ -69,3 +69,8 @@ same person ([meeting labels](features/MEETINGS.md#gemini-files-final-pass)).
 <!-- END:AUTOGEN hark_14_glossary_acronyms -->
 
 ---
+
+**AEC (acoustic echo cancellation):** processing that uses playback audio as a
+reference to reduce its echo in microphone input. Hark's
+[standalone comparison](../tools/meeting-aec-bakeoff/RESULTS.md) measures candidate
+engines; production AEC remains disabled pending listening/build/alignment work.

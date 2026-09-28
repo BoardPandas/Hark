@@ -6,6 +6,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.56.0] - 2026-09-28
+
+### Added
+
+- **Reproducible meeting echo-cancellation comparison:** a standalone, offline tool compares Rust AEC3 and the C++ WebRTC wrapper with identical synthetic inputs and a bypass control. Includes pinned dependencies/build tools, 63 numeric measurements, and a real-speaker/headphone listening procedure.
+
+### Changed
+
+- Reconciled Meetings setup, provider privacy, implementation lessons, verification, and release status across the six Polish items. Production echo cancellation remains disabled; the user still chooses an engine after real-speaker testing, native build qualification, and capture-alignment work.
+
 ## [0.55.0] - 2026-09-28
 
 ### Added

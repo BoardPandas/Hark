@@ -13,7 +13,7 @@ The following files were used as evidence for this page:
 - [Cargo.toml:1-31](../Cargo.toml#L1-L31)
 - [CLAUDE.md:1-24](../CLAUDE.md#L1-L24)
 - [CLAUDE.md:26-46](../CLAUDE.md#L26-L46)
-- [AGENTS.md:1-80](../AGENTS.md#L1-L80)
+- [AGENTS.md](../AGENTS.md)
 
 </details>
 
@@ -37,7 +37,7 @@ Windows and Linux currently implement the full push-to-talk path. macOS has nati
 
 Cloud transcription is bring-your-own-key, with Deepgram, OpenAI, Groq, OpenAI-compatible endpoints, and Gemini Live supported. An optional Parakeet engine can instead run locally as a cloud backup or the primary recognizer ([README: Tech stack](../README.md#tech-stack), [README: On-device transcription](../README.md#on-device-transcription)). History, stats, settings, the spellbook, and invocations are stored on the machine; provider requests can include transcript text and vocabulary. Hark operates no server, account system, hosted database, or browser frontend ([README: Privacy](../README.md#privacy)).
 
-Windows also supports **Meetings**: microphone and playback capture, live Me/Them transcripts, optional Deepgram speaker labels and LLM notes, transcript search, speaker renaming, explicit final-pass reruns from retained recordings, text/Word/subtitle/audio exports, selected excerpts, and Windows text sharing. On-device Primary keeps live meeting chunks local; the final pass and notes generation have independent settings. Audio is kept under a configurable cap, while eviction preserves transcripts and notes ([README: Features](../README.md#features), [Meetings: Privacy](features/MEETINGS.md#privacy)).
+Windows also supports **Meetings**: microphone and playback capture, live Me/Them transcripts, optional Deepgram or Gemini refinement and LLM notes, transcript search, speaker renaming, explicit final-pass reruns from retained recordings, text/Word/subtitle/audio exports, selected excerpts, and Windows text sharing. On-device Primary keeps live meeting chunks local; the final pass and notes generation have independent settings. Audio is kept under a configurable cap, while eviction preserves transcripts and notes ([README: Features](../README.md#features), [Meetings: Privacy](features/MEETINGS.md#privacy)).
 
 An optional Windows meeting toggle shares the existing keyboard hook with push-to-talk and remains available without dictation credentials ([meeting shortcut](features/MEETINGS.md#start--stop-shortcut)).
 
@@ -102,7 +102,7 @@ Hark is one Cargo workspace with 16 member crates and one application binary ([C
 |---|---|---|
 | Shell | `hark-app`, `hark-single-instance` | Native UI/tray orchestration and the one-process guard |
 | Input | `hark-hotkey`, `hark-audio` | Chord observation, continuous microphone capture, and (for meetings) per-process system-audio loopback, WAV spooling, and MP3 archiving |
-| Recognition | `hark-stt`, `hark-local-stt` | Cloud adapters, live streaming, optional Parakeet decoding, and the meeting-only Deepgram final pass |
+| Recognition | `hark-stt`, `hark-local-stt` | Cloud adapters, live streaming, optional Parakeet decoding, and the meeting-only Deepgram/Gemini final passes |
 | Text | `hark-spellbook`, `hark-voice` | Correction, invocations, cleanup, and meeting-notes summarization |
 | Output | `hark-inject` | Clipboard and synthesized-key text injection |
 | Orchestration | `hark-pipeline` | State machine, transport selection, retry/fallback, reporting, and (in `pipeline::meeting`) the meeting coordinator/live/finisher threads |

@@ -226,6 +226,11 @@ download manager, the fallback policy, and the model catalogue.
 - **Phase 4 — Settings/history UI + storage:** SQLite, retention pruning, lifetime stats, egui window.
 - **Phase 5 — Ship:** processing indicator, packaging + notarization/signing, first-run permissions, launch-at-login, single-instance guard.
 
+The [meeting AEC comparison](tools/meeting-aec-bakeoff/README.md) is an isolated
+development experiment with reproducible fixtures and numeric results. It does
+not enable production echo cancellation; real-speaker testing and the engine
+choice remain open.
+
 ## Privacy
 
 ### Dictation

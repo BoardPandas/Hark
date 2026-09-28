@@ -25,6 +25,14 @@ The following files were used as evidence for this page:
 
 # Spellbook
 
+Meetings apply the same phonetic corrector to live lines, Deepgram refinements,
+and Gemini Files window results. Explicit reprocessing of saved audio uses the
+current spellbook; vocabulary hints may accompany provider requests. Invocation
+expansions remain disabled for every meeting path
+([live](../../crates/hark-pipeline/src/meeting/live.rs),
+[rerun](../../crates/hark-pipeline/src/meeting/rerun.rs),
+[Gemini](../../crates/hark-pipeline/src/meeting/gemini_final.rs)).
+
 > **Related Pages**: [Transcription](TRANSCRIPTION.md), [Invocations](INVOCATIONS.md), [Voice Cleanup](VOICE_CLEANUP.md), [Configuration and Secrets](../core/CONFIGURATION.md), [Meetings](MEETINGS.md)
 
 ---
