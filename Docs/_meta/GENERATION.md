@@ -1,5 +1,18 @@
 # Generation Metadata
 
+## Scoped Meetings shipping update — 2026-09-28
+
+- **Source reviewed:** `9a61d11d06056d6b54b9ad6f4cd8c4fb1f2fe654` plus the
+  accompanying uncommitted README/privacy and plan edits for Part A.
+- **Scope:** README, overview introduction, Getting Started, Glossary,
+  documentation index, and Meetings privacy; no Rust behavior or config schema changes.
+- **Baseline policy:** the global generation baseline below and
+  `_toc.yaml`'s `ref_commit_hash` remain unchanged. This scoped review does not
+  certify or skip the other pages changed since that baseline.
+- **Validation:** recorded in `SUMMARY.md` after the shipping documentation checks.
+
+## Global generation baseline
+
 - **Commit:** `784272cbb488d15fa278f737963380e3121538c7`
 - **Branch:** `main`
 - **Generated:** 2026-09-24T20:15:37-04:00

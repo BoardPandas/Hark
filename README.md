@@ -4,10 +4,17 @@ A lean, system-wide, push-to-talk voice dictation tool for **Windows**, **macOS*
 
 > Wispr Flow-style dictation, scoped to one user, English-only, and local-first.
 
+## Features
+
+- **Push-to-talk dictation:** hold a shortcut, speak, and release to type polished English in the focused app.
+- **Your providers or an on-device model:** bring your own cloud keys, or use Parakeet for local dictation.
+- **Spellbook and invocations:** correct your vocabulary and expand spoken phrases into text you wrote.
+- **Meetings (Windows):** record your microphone and meeting audio without a bot, follow a live Me/Them transcript, and get speaker labels and notes with your own provider keys. Search transcripts, rename speakers, and share text or audio files. See [Meetings](Docs/features/MEETINGS.md) and the [privacy details](#privacy) below.
+
 ## Design principles
 
 - **Speed is the product.** All perceived latency lives in the release-to-inject window; everything is structured to keep it small.
-- **Local-first where it counts.** History, stats, and the spellbook are local-only and never leave your machine. Transcription goes to the speech-to-text provider *you* choose, under *your* key — or, if you turn on the on-device model, to no provider at all. The optional cleanup pass uses your LLM key. No Hark-operated servers, ever.
+- **Local-first where it counts.** History, stats, and settings are stored on your machine. Cloud transcription, optional cleanup, and meeting processing use your own provider keys. On-device Primary keeps dictation audio local; Meetings has separate final-pass and notes settings. No Hark-operated servers, ever.
 - **Lean.** No webview, no browser tab, no JS toolchain. A single Rust process: an always-on tray daemon plus a native window opened on demand.
 - **English done well.** Accuracy over language breadth.
 - **Data, not code, for anything you tune.** The spellbook and voice presets are config, so editing them never touches the pipeline.
@@ -163,6 +170,7 @@ crates/
   hark-voice/        # voice presets + BYOK cleanup adapter
   hark-inject/       # clipboard paste + enigo fallback
   hark-pipeline/     # release-to-inject orchestration across worker threads
+  hark-meeting/      # meeting lifecycle, detection, transcript, storage cap, exports
   hark-store/        # rusqlite (history + stats)
   hark-config/       # TOML settings + spellbook load/save
   hark-keychain/     # keyring wrapper (BYOK key in the OS keychain)
@@ -180,8 +188,9 @@ No web env vars. Settings and secrets live in OS-standard locations:
 
 | Item | Location |
 |---|---|
-| `config.toml` (hotkey, default voice, BYOK provider/model, spellbook, invocations, capture toggle, retention cap) | OS config dir (`~/Library/Application Support/Hark/`, `%APPDATA%\Hark\`) |
-| `hark.db` (history + stats) | OS data dir |
+| `config.toml` (hotkey, default voice, BYOK provider/model, spellbook, invocations, capture toggle, retention cap) | OS config dir (`~/Library/Application Support/hark/`, `%APPDATA%\hark\`) |
+| `hark.db` (history, stats, meeting transcripts, speaker names, and notes) | OS data dir (`%APPDATA%\hark\` on Windows) |
+| Meeting recordings (Windows) | `%APPDATA%\hark\meetings\<id>\`; WAV while processing, stereo MP3 by default afterward |
 | BYOK API key | OS keychain — never written to `config.toml` |
 | On-device model weights (~670 MB, only if you download them) | OS data dir, under `models/` |
 
@@ -194,8 +203,9 @@ one of two modes:
 - **Backup** — the cloud provider stays primary; Hark falls back to the local
   model when the network or the provider fails, so you do not lose the sentence
   you just spoke.
-- **Primary** — everything is transcribed on this machine. No provider, no API
-  key, no audio leaving the computer.
+- **Primary** — dictation and live meeting chunks are transcribed on this machine,
+  with no speech-to-text provider key. Meetings' optional Deepgram final pass and
+  notes generation have separate settings and can still contact cloud providers.
 
 The spellbook's phonetic correction applies to local transcripts exactly as it
 does to cloud ones, so your custom vocabulary works either way.
@@ -218,9 +228,19 @@ download manager, the fallback policy, and the model catalogue.
 
 ## Privacy
 
-- Audio is sent to **your chosen** speech-to-text provider under **your own key** to be transcribed; nothing goes to any Hark-operated server. With the on-device model set as your primary engine, audio never leaves your machine at all. History, stats, and the spellbook stay local and are never transmitted.
+### Dictation
+
+- Dictation audio is sent to **your chosen** speech-to-text provider under **your own key** to be transcribed; nothing goes to any Hark-operated server. With the on-device model set as your primary engine, dictation audio stays on your machine. History and stats are stored locally; configured vocabulary may accompany provider requests to improve recognition.
 - Any non-Verbatim voice additionally sends the transcript to **your chosen** LLM provider for cleanup, unless the selected transcription mode already returned provider-cleaned text. The UI identifies the selected model and tradeoff.
 - The SQLite file is plaintext on disk (normal for a local single-user tool); delete-one, clear-all, disable-capture, and a retention cap are provided. Lifetime stats survive history clears and have a separate reset control.
+
+### Meetings (Windows)
+
+- **What and when:** a meeting records your microphone and playback audio. With the default settings, accepting a detected-call prompt captures that meeting app's process tree; pressing **Start** manually captures all playback except Hark, including unrelated apps. The default detection mode only offers to record: recording starts after Start or an accepted prompt. If you explicitly choose **Start taking notes on its own** in Settings → Meetings (`auto_detect = "auto"`), detected calls start recording automatically. Detection can see a Meet lobby before you join. The system-audio source is configurable; failure to resolve a detected app's process falls back to all playback except Hark. If playback capture itself fails, Hark reports it and continues with the microphone if available.
+- **Local storage:** transcripts, speaker names, and notes are stored in `%APPDATA%\hark\hark.db`; recordings are in `%APPDATA%\hark\meetings\<id>\`. Hark writes microphone and playback WAVs during recording and processing, then normally replaces them with a stereo MP3. These files are not encrypted by Hark. The default audio cap is **5 GB in the UI** (`audio_cap_mb = 5120`, 5 GiB). The oldest completed recordings lose their audio first; transcripts and notes stay. Active or processing meetings are protected, so usage can temporarily exceed the cap. A cap of **0** deletes audio after processing, rather than preventing temporary recording files.
+- **Provider requests:** live chunks from both channels go to your configured STT provider, or are transcribed locally when on-device Primary is selected. If enabled and a Deepgram key is available, the final pass sends both recorded channels to **Deepgram** for speaker labels. If notes are enabled and a text provider is configured, the transcript goes to that **LLM provider** for summarization, even when dictation uses Verbatim. For meeting content to stay entirely on-device, select local Primary, choose **Keep the Me / Them transcript only**, and turn off **Write notes after the call (uses your text provider)** in Settings → Meetings. No Hark-operated server receives the content.
+- **Deletion:** deleting a meeting removes its database record, transcript, speaker names, and notes, and attempts to remove its audio folder. A filesystem error can leave audio behind. Settings → Meetings → **Delete all meeting audio** removes eligible recordings while keeping transcripts and notes; active or processing meetings are protected. Deleting local data does not delete exported copies or data already sent to a provider.
+- **Other participants:** recording laws may require you to tell other participants or obtain their consent. Hark provides a reminder and an announcement you can copy; it does not notify participants for you.
 
 ## License
 

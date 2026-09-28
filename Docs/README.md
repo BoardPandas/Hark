@@ -1,6 +1,7 @@
 # Hark Documentation
 
 > **Latest Updates (September 2026):**
+> - **v0.50.x:** Windows Meetings records mic and meeting audio, offers live transcripts, Deepgram speaker labels, notes, search, speaker renaming, and file sharing. See [Meetings](features/MEETINGS.md) for provider and storage privacy details.
 > - **v0.47.0:** Invocations can recognize exact alternate phrases for repeatable provider mishearings.
 > - **v0.46.0:** Push-to-talk survives intercepted/remapped keys and surfaces an advisory warning naming the key.
 > - **v0.45.x:** Bounded shutdown and live-session recovery prevent stuck dictations from freezing Hark; Gemini streaming now retains all finalized segments.
@@ -11,7 +12,7 @@
 > - **v0.20.0:** Invocations — say a trigger phrase, get a block of text you wrote, injected verbatim and never reworded by a cleanup voice.
 > - **v0.18.0:** Opt-in on-device transcription with a downloadable Parakeet model, usable as a cloud backup or as the primary engine.
 
-This is the canonical wiki for Hark, a push-to-talk voice dictation desktop app targeting Windows, macOS and Linux, written in Rust with BYOK cloud transcription and optional on-device STT. Windows and Linux have end-to-end push-to-talk today; the macOS CGEventTap hook remains an explicit implementation gap. Generated sections cite the source they describe; `_meta/SUMMARY.md` records known gaps rather than implying every page is current.
+This is the canonical wiki for Hark, a push-to-talk voice dictation desktop app targeting Windows, macOS and Linux, written in Rust with BYOK cloud transcription and optional on-device STT, plus Windows meeting transcription. Windows and Linux have end-to-end push-to-talk today; the macOS CGEventTap hook remains an explicit implementation gap. Generated sections cite the source they describe; `_meta/SUMMARY.md` records known gaps rather than implying every page is current.
 
 ## Quick Start
 

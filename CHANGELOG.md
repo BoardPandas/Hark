@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.50.5] - 2026-09-28
+
+### Changed
+
+- Documented Windows Meetings in the README, including recording scope and start modes, local audio storage and its cap, provider uploads, deletion, and participant consent. Clarified that on-device Primary keeps live meeting transcription local but does not disable the separate Deepgram final pass or notes generation.
+- Updated the Meetings plan with reported Teams and Google Meet validation and confirmed that speaker renaming and transcript search already shipped; other meeting-app executable names still need live-call validation.
+- Published the Meetings lessons in the shared knowledge base, including hidden prompts, wordless transcription chunks, visible auto-stop waits, pre-join microphone detection, Windows filename collisions, and App Control build restrictions.
+
 ## [0.50.4] - 2026-09-28
 
 ### Fixed

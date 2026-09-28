@@ -4,11 +4,18 @@
 **Status:** APPROVED by the product owner on 2026-09-26, including D1–D9. **CP0 ran on 2026-09-26**
 (results in §5 Foundation). **After CP0 the product owner approved the D1 revision
 (per-process loopback in Core) and chose Deepgram for the D2 final pass (2026-09-26).** CP0 exit:
-GO. Next: Core step 1. Handoff: `tasks/2026-09-26-handoff-meetings-core1.md` (CP0's was
+GO. Historical Core handoff: `tasks/2026-09-26-handoff-meetings-core1.md` (CP0's was
 `tasks/2026-09-26-handoff-meetings-cp0.md`).
 **Core steps 1–8 implemented 2026-09-27** (0.48.0 → 0.50.0, branch `feat/meetings-core`), unit-
-tested on Windows and Linux. Not yet validated end to end on a real call; see §8 "Learned in
-Core steps 3–8" for what still needs hardware. Next: that hands-on validation, then Polish.
+tested on Windows and Linux. **Real-call validation reported by the product owner: Teams and
+a 20-minute Google Meet call in Chrome** (2026-09-28); the findings and fixes are in §8.
+The 0.50.4 Meet prompt/15-second auto-stop retest remains pending in the handoff.
+Zoom/Webex/GoTo/RingCentral executable names still need live-call validation.
+**Current step:** Ship: Windows documentation and lessons for patch 0.50.5, then Polish in
+the order below. CI on `9a61d11` passed on Windows, Linux, and macOS on 2026-09-28;
+that compile/test result does not establish native call behavior.
+The `v0.50.4` Release workflow also completed successfully on 2026-09-28,
+including the Windows signed installer, Linux packages, and Arch package.
 **Model:** Krisp AI Meeting Assistant (<https://krisp.ai/meeting-transcription/>,
 <https://help.krisp.ai/hc/en-us/articles/8214720684956-AI-Meeting-Assistant-overview>)
 
@@ -53,7 +60,7 @@ Push-to-talk dictation keeps working, unchanged, while a meeting is being record
 | D4 | Platform order | **Windows first, macOS once Windows is good; Linux deferred** (parity is not a goal for now). macOS needs a signed build + TCC key and a real-Mac spike. Meeting mode does *not* need the unimplemented macOS hotkey seam, so macOS can get Meetings before PTT. Linux must still **compile** (release CI builds .deb/.rpm/PKGBUILD): meeting capture and detection return `UnsupportedPlatform` there, the same way `hark-hotkey` does on macOS, and the UI hides Meetings. | **locked 2026-09-26** |
 | D5 | Auto-detect in MVP? | **Yes, it ships in Core.** Mode `off / ask / auto`, default **ask**, with auto-stop. Full rules in §4.8. | **locked 2026-09-26** |
 | D6 | Mic bleed (user on speakers) | Core: recommend headphones and flag it in the UI. Polish: AEC with the loopback as far-end reference (`aec3` pure-Rust vs `webrtc-audio-processing` bake-off). | proposed |
-| D7 | Summary call shape | One long-context call (60 min ≈ 9–10k words ≈ 13k tokens fits every current model). No map-reduce. | proposed |
+| D7 | Summary call shape | One long-context call (60 min ≈ 9–10k words ≈ 13k tokens fits every current model). No map-reduce. | locked (confirmed by 2026-09-28 handoff) |
 | D8 | Shareable audio format | **MP3, 32 kbps mono** (~14 MB per hour: a 1-hour meeting fits under a 25 MB email limit) via `mp3lame-encoder`. Plus **WAV** as the "original quality" option, which needs no new dependency (`hound` is already locked). The product owner only requires "a file people can easily play" (2026-09-26); the format is Claude's pick. Rationale in §4.10. | approved 2026-09-26 |
 | D9 | Compress kept recordings | **In Core.** Once the final pass and summary are saved, re-encode the WAV spools to **one stereo MP3** (L = Me, R = Them, 64 kbps, ~29 MB/h), verify it, then delete the WAVs. A 5 GB cap then holds **~170 h instead of ~21 h**. The MP3 encoder is already coming in for D8. Rules in §4.11. | **locked 2026-09-26** |
 
@@ -423,18 +430,41 @@ chose Deepgram (2026-09-26).**
 under 1 (it reuses the sharing encoder).*
 
 ### Polish
-AEC bake-off, speaker rename + FTS search, Gemini Files final pass for users without a Deepgram key (per track, 5-min windows; see CP0 row 4),
-more share formats (`.srt`/`.vtt` captions to pair with the audio, `.docx`), export an excerpt
-(a selected range of transcript lines + the matching audio), the Windows share sheet
-(`IDataTransferManagerInterop::ShowShareUIForWindow`),
-meeting start/stop chord, re-run the final pass on a kept recording (send the stereo MP3
-archive to Deepgram multichannel as-is), and registry change notification
-(`RegNotifyChangeKeyValue`) instead of the 2 s poll.
+- [x] **Speaker rename + FTS search already shipped in Core.** Verified in
+  `crates/hark-store/src/meetings.rs`, migration 004, and
+  `crates/hark-app/src/ui/meetings/{mod,detail}.rs`; do not rebuild them.
+
+Remaining work, one feature per commit with a minor version bump:
+
+1. Re-run the final pass on a kept recording: send the stereo MP3 archive to Deepgram
+   multichannel as-is; add the action on meeting detail (§4.11).
+2. Faster detection: `RegNotifyChangeKeyValue` plus a slow polling backstop. Preserve the
+   observation-timestamp debounce and `auto_stop_after_s` timing (default 15 seconds).
+3. Meeting start/stop chord through `hark-hotkey`'s tracker; prevent PTT conflicts, keep
+   Linux compiling, and migrate config if its shape changes.
+4. More sharing: `.srt`/`.vtt`, excerpt text plus matching audio, `.docx`, and the Windows
+   share sheet (`IDataTransferManagerInterop::ShowShareUIForWindow`, main thread). Ask the
+   user about excerpt decode versus frame-accurate cutting and before adding a DOCX crate.
+5. Gemini Files final pass without Deepgram: one track per request, 5-minute windows (CP0
+   row 4); reconcile speakers or label per window, clamp times, delete uploaded files.
+6. AEC bake-off: compare `aec3` and `webrtc-audio-processing` with loopback as the far-end
+   reference. D6 remains proposed; the user chooses after results and a real speakers test.
+
 *Estimate: 3–5 sessions.*
 
 ### Ship: Windows
-`Docs/features/MEETINGS.md`, privacy section in the README, CHANGELOG, LL-G lessons from CP0 and Core.
-Confirm Linux still builds with Meetings hidden. *Estimate: 1 session.*
+- [x] `Docs/features/MEETINGS.md` exists; README feature/privacy documentation prepared
+  against capture, provider, storage, and deletion code for 0.50.5.
+- [x] Windows, Linux, and macOS CI passed for `9a61d11` (0.50.4); Meetings remains hidden
+  outside Windows. The `v0.50.4` Release workflow passed, including the Windows signed
+  installer. Real-call coverage is recorded in the status header and §8.
+- [x] LL-G lesson capture published in `1a743d3`: five new entries, one App Control
+  update, five shelf indexes, and the master index. All 12 files verified through
+  the API. LL-G CI retains two pre-existing blank-line failures in unrelated
+  PowerShell/TypeScript indexes (same failures on parent `dd8a331`).
+- [ ] Release patch 0.50.5 after separate commit, push, and release approvals.
+
+*Estimate: 1 session.*
 
 ### macOS (starts once Windows ships and is stable in daily use)
 1. Real-Mac spike: process tap + aggregate device, TCC prompt, 60-min dual capture.
@@ -651,3 +681,36 @@ Not scheduled. The §4.1 notes are kept so it can be picked up later without re-
   (`target\debug\deps\yoke_derive-*.dll`, os error 4551) and `cargo-clippy.exe`, where both worked
   the day before. Windows builds/lints are blocked locally until the policy changes; Linux (WSL,
   full workspace) plus CI's Windows job are the verification for now.
+
+**Learned while preparing Ship: Windows (2026-09-28, Part A; not yet released):**
+- Privacy claims must follow each provider path: local Primary controls live meeting chunks,
+  not the independent Deepgram final pass or notes request. Verbatim dictation does not
+  disable notes. The README now names all three paths and the settings needed to keep
+  meeting content local. Spellbook vocabulary may also accompany provider requests.
+- A manual start adopts a detected call only for auto-stop; its audio target is already
+  selected and still captures all playback except Hark. Default Ask requires acceptance,
+  but explicitly selected Auto starts on detection. The handoff reports Meet opening the
+  mic in its lobby before joining; this is microphone activity, not proof of call membership.
+- Storage wording must distinguish retention from capture: a zero cap still writes temporary
+  audio while recording/processing. The default is 5 GiB, displayed as 5 GB. Protected audio
+  can exceed the cap, and an audio-delete error can leave files behind after record deletion.
+- Speaker rename and FTS were already complete; WSL's
+  `cargo test -p hark-store --test meetings` passed all 13 tests, including rename/reset,
+  transcript/title search, FTS replacement, and cascading deletion. No new implementation
+  or mirrored tests were needed for those features.
+- LL-G audit reused
+  [worktree isolation](https://github.com/BoardPandas/LL-G/blob/main/kb/claude-code/worktree-agents-miss-uncommitted-work.md)
+  and extended the existing
+  [App Control lesson](https://github.com/BoardPandas/LL-G/blob/main/kb/rust/wdac-blocks-cargo-fmt.md).
+  With the product owner's approval, five new lessons were published:
+  [hidden viewport reveal](https://github.com/BoardPandas/LL-G/blob/main/kb/rust/egui-hidden-deferred-viewport-self-reveal.md),
+  [wordless meeting chunks](https://github.com/BoardPandas/LL-G/blob/main/kb/gemini/wordless-meeting-chunks-need-explicit-empty-policy.md),
+  [invisible waits](https://github.com/BoardPandas/LL-G/blob/main/kb/architecture/invisible-grace-period-looks-broken.md),
+  [Meet's lobby microphone use](https://github.com/BoardPandas/LL-G/blob/main/kb/windows/meet-prejoin-mic-is-not-call-membership.md),
+  and [case-colliding paths](https://github.com/BoardPandas/LL-G/blob/main/kb/git/case-colliding-tracked-paths.md).
+  [Commit `1a743d3`](https://github.com/BoardPandas/LL-G/commit/1a743d33bf4b95d6656326702b8163729691de74)
+  updates all 12 lesson/index files together; the API readback verified their exact contents.
+  The existing helper's fresh-SHA overwrite risk was avoided by preparing against one
+  commit and advancing the branch without force. LL-G CI still fails on the same two
+  unrelated blank-line issues as its parent commit; no new failure was reported.
+  No Claude eval was added: these are technology/product lessons, not configuration defects.

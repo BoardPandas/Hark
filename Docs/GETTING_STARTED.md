@@ -22,16 +22,16 @@ The following files were used as evidence for this page:
 <!-- BEGIN:AUTOGEN hark_03_getting_started_prerequisites -->
 ## Prerequisites
 
-Hark is a native Rust desktop app. Cloud transcription is BYOK by default; the optional on-device Parakeet model can be downloaded after install and used without a provider key ([README.md:1-10](../README.md#L1-L10)).
+Hark is a native Rust desktop app. Cloud transcription is BYOK by default; the optional on-device Parakeet model can be downloaded after install and used without a provider key for dictation and live meeting chunks ([README: On-device transcription](../README.md#on-device-transcription)). Meetings is available on Windows and has separate Deepgram final-pass and LLM notes settings; local Primary alone does not disable those provider requests ([README: Privacy](../README.md#privacy)).
 
 | Requirement | Details |
 |---|---|
-| Rust toolchain | Stable Rust via [rustup](https://rustup.rs), providing `cargo`, `rustfmt`, and `clippy` ([README.md:65-69](../README.md#L65-L69)) |
+| Rust toolchain | Stable Rust via [rustup](https://rustup.rs), providing `cargo`, `rustfmt`, and `clippy` ([README: Prerequisites](../README.md#prerequisites)) |
 | Minimum Rust version | `1.97`, required by the workspace and bundled SQLite dependency ([Cargo.toml:22-30](../Cargo.toml#L22-L30)) |
-| STT access | A key for Deepgram, OpenAI, Groq, Gemini, or another compatible endpoint; not required when local STT is primary ([README.md:67-69](../README.md#L67-L69)) |
-| Platform build tools | Xcode command-line tools on macOS; MSVC on Windows; ALSA, GTK, AppIndicator, X11/XKB, and build packages listed in the README on Linux ([README.md:69-77](../README.md#L69-L77)) |
+| STT access | A key for Deepgram, OpenAI, Groq, Gemini, or another compatible endpoint; not required for live STT when local Primary is selected ([README: Prerequisites](../README.md#prerequisites)) |
+| Platform build tools | Xcode command-line tools on macOS; MSVC on Windows; ALSA, GTK, AppIndicator, X11/XKB, and build packages listed in the README on Linux ([README: Prerequisites](../README.md#prerequisites)) |
 
-Sources: [README.md:1-10](../README.md#L1-L10), [README.md:65-77](../README.md#L65-L77), [Cargo.toml:22-30](../Cargo.toml#L22-L30)
+Sources: [README: Features](../README.md#features), [README: Prerequisites](../README.md#prerequisites), [Cargo.toml:22-30](../Cargo.toml#L22-L30)
 <!-- END:AUTOGEN hark_03_getting_started_prerequisites -->
 
 ---
@@ -41,13 +41,15 @@ Sources: [README.md:1-10](../README.md#L1-L10), [README.md:65-77](../README.md#L
 
 The simplest way to run Hark on Windows is the signed setup executable published with each release.
 
-- Download `Hark-<version>-windows-x64-setup.exe` from the [Releases page](https://github.com/BoardPandas/Hark/releases/latest) and run it ([README.md:82-83](../README.md#L82-L83)).
-- The installer runs per-user with no admin prompt, and installs to `%LOCALAPPDATA%\Programs\Hark` ([README.md:84-85](../README.md#L84-L85)).
+- Download `Hark-<version>-windows-x64-setup.exe` from the [Releases page](https://github.com/BoardPandas/Hark/releases/latest) and run it ([README: Install (Windows)](../README.md#install-windows)).
+- The installer runs per-user with no admin prompt, and installs to `%LOCALAPPDATA%\Programs\Hark` ([README: Install (Windows)](../README.md#install-windows)).
 - It adds a Start Menu shortcut, and by default Hark starts hidden in the system tray at Windows sign-in; this is controlled by **Settings → General → "Launch Hark at startup"** ([README.md](../README.md#install-windows)).
-- The installer is the **only** Windows download. A portable `Hark-<version>-windows-x64.exe` used to be attached to each release and no longer is: it produced an install Windows had no record of — no entry in Add or remove programs, no upgrade path — and it was also the file the in-app updater installed over itself ([README.md:89-94](../README.md#L89-L94)).
-- To remove Hark, use **Add or remove programs**; settings and history in `%APPDATA%\hark` are left in place ([README.md:96-97](../README.md#L96-L97)).
+- The installer is the **only** Windows download. A portable `Hark-<version>-windows-x64.exe` used to be attached to each release and no longer is: it produced an install Windows had no record of — no entry in Add or remove programs, no upgrade path — and it was also the file the in-app updater installed over itself ([README: Install (Windows)](../README.md#install-windows)).
+- To remove Hark, use **Add or remove programs**; settings and history in `%APPDATA%\hark` are left in place ([README: Install (Windows)](../README.md#install-windows)).
 
-Sources: [README.md:80-97](../README.md#L80-L97)
+After installation, open **Meetings** to start manually or accept a detected-call prompt. The default **Ask me** setting offers to record; **Start taking notes on its own** starts detected calls without another prompt. Manual Start records your mic and all playback except Hark, so check the [recording scope and privacy settings](../README.md#meetings-windows) before starting. The default audio cap keeps completed recordings under 5 GiB while preserving their transcripts and notes.
+
+Sources: [README: Install (Windows)](../README.md#install-windows), [README: Meetings privacy](../README.md#meetings-windows)
 <!-- END:AUTOGEN hark_03_getting_started_install -->
 
 ---
@@ -68,7 +70,7 @@ cargo run
 # select it as the primary engine.
 ```
 
-Sources: [README.md:134-147](../README.md#L134-L147), [README.md:188-190](../README.md#L188-L190)
+Sources: [README: Build from source](../README.md#build-from-source), [README: On-device transcription](../README.md#on-device-transcription)
 <!-- END:AUTOGEN hark_03_getting_started_build -->
 
 ---

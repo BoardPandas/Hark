@@ -327,3 +327,49 @@ snapshot. It is historical. The current TOC records 15 crates and 16 pages.
   existed and were in bounds.
 - Mermaid: 14 blocks passed static opener checks. `mmdc` was unavailable, so
   syntactic render validation was not performed.
+
+---
+
+## Scoped Update — 2026-09-28 (Meetings shipping preparation)
+
+- **Source reviewed:** `9a61d11d06056d6b54b9ad6f4cd8c4fb1f2fe654` and this
+  working tree's README/privacy and plan edits. Release 0.50.5 is not yet cut.
+- **Outcome:** README features/privacy and the mapped Overview, Getting Started,
+  and Glossary pages distinguish dictation from Meetings. The Meetings privacy
+  section and documentation index now describe actual start modes, audio scope,
+  local paths/cap/deletion, and separate live/final/summary provider requests.
+- **Verified distinction:** on-device Primary keeps live chunks local; it does
+  not disable Deepgram refinement or LLM summaries. Manual start retains broad
+  playback capture when it adopts a call for auto-stop.
+- **Baseline:** retained `784272cbb488d15fa278f737963380e3121538c7` in both
+  `GENERATION.md` and `_toc.yaml`; a scoped privacy review does not certify the
+  rest of the wiki or advance its global source baseline.
+
+### Verification
+
+- `npm run check:claude`: PASS; rule scoping and hook wiring functional,
+  approximately 4,216 always-on tokens, five rules.
+- `npm run check:docs`: PASS after updating all three pages mapped to README;
+  17 mapped pages checked against `784272c`, no silent mapped-source drift.
+  The first run correctly identified missing Getting Started/Glossary updates.
+- WSL Debian `cargo test -p hark-store --test meetings`: PASS; 13 passed,
+  zero failed. Covers existing speaker rename, FTS search/refinement, and deletion.
+- `git diff --check`: PASS.
+- Full Rust formatting, workspace clippy, and workspace tests were not run for
+  these documentation-only changes. Existing CI for `9a61d11` passed on
+  Windows, Linux, and macOS; this is evidence for that commit, not a new build.
+- No native call test, installer execution, or Mermaid render was performed.
+  User-reported Teams/Meet coverage is preserved in the plan; the handoff's
+  0.50.4 Meet prompt/auto-stop retest remains pending.
+- Approved LL-G publication completed in commit `1a743d3`: five new lessons, one
+  App Control update, five shelf indexes, and the master index. All 12 files were
+  verified through the GitHub API. LL-G CI reports the same existing blank-line
+  failures in its PowerShell and TypeScript indexes as parent `dd8a331`; neither
+  file changed in this publication. This does not invalidate Hark's passing guards.
+- Release preparation synchronized `package.json`, the Cargo workspace, and all
+  16 Hark lockfile package versions to 0.50.5 with `cargo update --workspace
+  --offline`; no third-party dependency versions changed. Both Hark npm guards
+  passed again, and the 13 meeting-store tests passed on the 0.50.5 working tree.
+- The existing `v0.50.4` Release workflow completed successfully, including the
+  Windows signed installer, Linux packages, and Arch package. No 0.50.5 commit,
+  push, tag, or release has occurred during this preparation.
