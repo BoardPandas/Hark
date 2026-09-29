@@ -240,6 +240,52 @@ pub fn over_expanded(input: &str, output: &str, max_ratio: f32) -> bool {
     output_words > allowed
 }
 
+/// Stems from the cleanup prompt's own vocabulary. An edit of "proceed however
+/// you recommend" has no reason to say "transcript" or "rewrite"; a model
+/// talking to its instructions nearly always does.
+const PROMPT_VOCABULARY: [&str; 2] = ["transcript", "rewrit"];
+
+/// Words at least this long carry the content of an utterance; shorter ones
+/// ("the", "you", "to") are shared by any two English sentences.
+const CONTENT_WORD_CHARS: usize = 4;
+
+/// Below this many distinct content words the input is too thin to judge an
+/// output by what it kept.
+const MIN_CONTENT_WORDS: usize = 3;
+
+fn words(text: &str) -> impl Iterator<Item = String> + '_ {
+    text.split(|c: char| !c.is_alphabetic())
+        .filter(|w| !w.is_empty())
+        .map(str::to_lowercase)
+}
+
+fn content_words(text: &str) -> std::collections::HashSet<String> {
+    words(text)
+        .filter(|w| w.chars().count() >= CONTENT_WORD_CHARS)
+        .collect()
+}
+
+/// True when `output` reads as the model replying to `input` rather than
+/// editing it, and should be discarded in favor of the uncleaned transcript.
+///
+/// Two signs, either sufficient: the output uses the prompt's vocabulary
+/// ("Please provide the transcript you would like me to rewrite.") that the
+/// speaker never said, or it keeps none of the speaker's content words. Every
+/// voice keeps some of what was said, even one that changes register, so an
+/// output that keeps nothing is an answer, not an edit. Fail-safe by design:
+/// a false positive injects what the user said, uncleaned.
+pub fn reads_as_reply(input: &str, output: &str) -> bool {
+    let mentions = |text: &str, stem: &str| words(text).any(|w| w.starts_with(stem));
+    if PROMPT_VOCABULARY
+        .iter()
+        .any(|stem| mentions(output, stem) && !mentions(input, stem))
+    {
+        return true;
+    }
+    let said = content_words(input);
+    said.len() >= MIN_CONTENT_WORDS && content_words(output).is_disjoint(&said)
+}
+
 /// Assemble the per-request system prompt (§2.2 shape: voice instruction,
 /// protected-terms clause for terms present in the outgoing text, return-only
 /// close). `None` for Verbatim, which never calls. `custom_prompt` is the

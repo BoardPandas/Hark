@@ -1,8 +1,8 @@
 //! Pure-logic tests for voices, prompt assembly, and the word gate.
 
 use hark_voice::{
-    over_expanded, present_terms, skips_cleanup, system_prompt, Voice, LENGTH_DISCIPLINE_CLAUSE,
-    PUNCTUATION_CLAUSE, RETURN_ONLY_CLAUSE,
+    over_expanded, present_terms, reads_as_reply, skips_cleanup, system_prompt, Voice,
+    LENGTH_DISCIPLINE_CLAUSE, PUNCTUATION_CLAUSE, RETURN_ONLY_CLAUSE,
 };
 use std::str::FromStr;
 
@@ -335,4 +335,81 @@ fn empty_input_does_not_panic_or_reject_a_short_output() {
     assert!(!over_expanded("", "", 1.4));
     assert!(!over_expanded("", "Hi.", 1.4));
     assert!(over_expanded("", &["w"; 10].join(" "), 1.4));
+}
+
+// --- reply guard ---
+
+const REQUEST: &str = "Proceed however you recommend to make this as best as possible.";
+
+#[test]
+fn the_reported_reply_is_caught() {
+    assert!(reads_as_reply(
+        REQUEST,
+        "Please provide the transcript you would like me to rewrite."
+    ));
+}
+
+#[test]
+fn prompt_vocabulary_the_speaker_never_said_marks_a_reply() {
+    // Keeps the speaker's words, so only the vocabulary sign can catch it.
+    assert!(reads_as_reply(
+        REQUEST,
+        "Here is the rewritten text: proceed however you recommend to make this the best."
+    ));
+    assert!(reads_as_reply(
+        "we should move the release to friday because the tests are flaky",
+        "Transcript: We should move the release to Friday because the tests are flaky."
+    ));
+}
+
+#[test]
+fn prompt_vocabulary_the_speaker_did_say_is_an_edit() {
+    assert!(!reads_as_reply(
+        "um the transcript was wrong so we need to rewrite the installer",
+        "The transcript was wrong, so we need to rewrite the installer."
+    ));
+}
+
+#[test]
+fn an_answer_that_keeps_none_of_the_words_is_a_reply() {
+    assert!(reads_as_reply(REQUEST, "Sure, I can help with that."));
+}
+
+#[test]
+fn ordinary_edits_in_every_register_are_kept() {
+    let cases = [
+        (
+            REQUEST,
+            "Proceed however you recommend to make this as good as possible.",
+        ),
+        (
+            "so um I think we should uh move the release to Friday",
+            "I think we should move the release to Friday.",
+        ),
+        (
+            "gonna grab some lunch back in twenty",
+            "I am going to get lunch and will return in twenty minutes.",
+        ),
+        (
+            "called the customer and the printer is working again now",
+            "Called customer. Printer working again.",
+        ),
+        (
+            "the installer tests are still flaky so hold the release",
+            "Arr, the installer tests be still flaky, matey, so hold the release.",
+        ),
+    ];
+    for (input, output) in cases {
+        assert!(
+            !reads_as_reply(input, output),
+            "{output:?} is an edit of {input:?}"
+        );
+    }
+}
+
+#[test]
+fn thin_input_is_not_judged_on_what_it_kept() {
+    // Two content words: too few to call a paraphrase a reply.
+    assert!(!reads_as_reply("yeah okay do it", "Yes, go ahead."));
+    assert!(!reads_as_reply("", ""));
 }

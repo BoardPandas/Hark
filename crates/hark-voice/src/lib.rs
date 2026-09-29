@@ -20,8 +20,8 @@ pub use summary::{
     SummaryError, DEFAULT_SUMMARY_TEMPLATE, SUMMARY_TIMEOUT_MS,
 };
 pub use voices::{
-    over_expanded, present_terms, skips_cleanup, system_prompt, UnknownVoice, Voice,
-    EXPANSION_GRACE_WORDS, LENGTH_DISCIPLINE_CLAUSE, PUNCTUATION_CLAUSE, RETURN_ONLY_CLAUSE,
+    over_expanded, present_terms, reads_as_reply, skips_cleanup, system_prompt, UnknownVoice,
+    Voice, EXPANSION_GRACE_WORDS, LENGTH_DISCIPLINE_CLAUSE, PUNCTUATION_CLAUSE, RETURN_ONLY_CLAUSE,
 };
 
 /// Connect timeout enforced by the shared HTTP client (built once per process

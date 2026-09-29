@@ -101,7 +101,7 @@ so closure cannot skip that flush ([echo handling](../../crates/hark-pipeline/sr
 
 With Gemini Live, key-down opens a live session and pumps resampled PCM from the ring while the user is speaking. The live path is only an accelerator: failure to open, send, keep up, or finish drops back to the ordinary batch path because streaming reads rather than consumes the ring ([stream.rs:1-25](../../crates/hark-pipeline/src/stream.rs#L1-L25), [stream.rs:44-130](../../crates/hark-pipeline/src/stream.rs#L44-L130)). Other providers begin at key-up.
 
-After release the worker assembles and gates the same audio window, finalizes live STT or encodes WAV and runs batch/local STT, corrects the transcript, expands invocations, conditionally applies voice cleanup, injects the final text, and emits a history record. A replay after live failure consumes the same single retry budget as any batch retry ([worker.rs:324-532](../../crates/hark-pipeline/src/worker.rs#L324-L532)).
+After release the worker assembles and gates the same audio window, finalizes live STT or encodes WAV and runs batch/local STT, corrects the transcript, expands invocations, conditionally applies voice cleanup (discarding a response that grew the text or answered it instead of editing it), injects the final text, and emits a history record. A replay after live failure consumes the same single retry budget as any batch retry ([worker.rs:324-532](../../crates/hark-pipeline/src/worker.rs#L324-L532)).
 
 ```mermaid
 sequenceDiagram

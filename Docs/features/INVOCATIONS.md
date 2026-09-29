@@ -108,7 +108,7 @@ That single `Option::filter` closes four failure modes at once ([worker.rs:359-3
 
 | Failure mode | What would happen without the filter |
 |---|---|
-| Expansion guard | `hark_voice::over_expanded` allows `max(words * ratio, words + 3)`, so a 3-word utterance expanding to 60 words gets an allowance of 6 — the expansion would be **silently discarded** in favour of the literal spoken words, at any ratio |
+| Expansion guard | `hark_voice::over_expanded` allows `max(words * ratio, words + 3)`, so a 3-word utterance expanding to 60 words gets an allowance of 6 — the expansion would be **silently discarded** in favour of the literal spoken words, at any ratio. `hark_voice::reads_as_reply` can discard it too, since canned text usually keeps none of the trigger phrase's words |
 | Cost | A short, free, instant dictation would become a billed LLM round trip on the release-to-inject path |
 | Latency and failure surface | An HTTP call that can time out or error would sit on the hot path for text that needed no model at all |
 | Spellbook pass 2 | Phonetic post-correction would run over the expansion and could mangle URLs or product names inside the user's own authored text |

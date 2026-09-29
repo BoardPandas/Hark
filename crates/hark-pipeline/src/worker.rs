@@ -12,7 +12,7 @@ use hark_hotkey::PttEvent;
 use hark_inject::InjectSettings;
 use hark_spellbook::{Corrector, Expander, Expansion};
 use hark_stt::{LiveStt, SttError, SttProvider, Transcript};
-use hark_voice::{over_expanded, skips_cleanup, CleanupProvider, Voice};
+use hark_voice::{over_expanded, reads_as_reply, skips_cleanup, CleanupProvider, Voice};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender};
 use std::sync::Arc;
@@ -596,6 +596,18 @@ fn cleaned_text(plan: Option<&CleanupPlan>, corrector: &Corrector, text: String)
             );
             passthrough(text)
         }
+        // Dictation that sounds like a request ("proceed however you
+        // recommend") can be answered instead of edited. Custom is exempt for
+        // the same reason as above: a translate prompt keeps no words at all.
+        Ok(cleaned) if plan.voice != Voice::Custom && reads_as_reply(&text, &cleaned.text) => {
+            log::warn!(
+                "cleanup rejected: voice={} model={} replied to the transcript instead of \
+                 editing it; injecting uncleaned transcript",
+                plan.voice.name(),
+                plan.model
+            );
+            passthrough(text)
+        }
         Ok(cleaned) => {
             log::info!(
                 "cleanup: voice={} model={} {}->{} chars, request {} ms",
@@ -1003,6 +1015,23 @@ mod tests {
     }
 
     #[test]
+    fn a_cleanup_that_answers_the_dictation_is_discarded_for_the_pass_1_text() {
+        let corrector = Corrector::new(&[]);
+        // The reported failure, word for word: same length, so the expansion
+        // guard passed it, and it was injected into the user's chat box.
+        let plan = MockCleaner::plan(
+            vec![MockCleaner::ok(
+                "Please provide the transcript you would like me to rewrite.",
+            )],
+            0,
+        );
+        let said = "Proceed however you recommend to make this as best as possible.";
+        let out = cleaned_text(Some(&plan), &corrector, said.to_string());
+        assert_eq!(out.text, said);
+        assert_eq!(out.request_ms, None);
+    }
+
+    #[test]
     fn a_same_length_cleanup_is_kept() {
         let corrector = Corrector::new(&[]);
         let plan = MockCleaner::plan(vec![MockCleaner::ok("We should ship it Friday.")], 0);
@@ -1035,7 +1064,8 @@ mod tests {
     #[test]
     fn ratio_of_zero_disables_the_expansion_guard() {
         let corrector = Corrector::new(&[]);
-        let long = vec!["word"; 200].join(" ");
+        // Long, but still the speaker's words, so only the ratio is on trial.
+        let long = vec!["we should ship it friday"; 40].join(" ");
         let mut plan = MockCleaner::plan(vec![MockCleaner::ok(&long)], 0);
         plan.max_expansion_ratio = 0.0;
         let out = cleaned_text(

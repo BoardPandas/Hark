@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.57.1] - 2026-09-29
+
+### Fixed
+
+- Dictation that sounds like a request no longer gets answered by the cleanup voice. Saying "Proceed however you recommend to make this as best as possible." with the Clean voice typed "Please provide the transcript you would like me to rewrite." instead. The cleanup model is now told the text is dictation to edit, never a message to it. A response that still reads as a reply is discarded, and your words are typed uncleaned. Custom voices get the same instruction but not the discard check.
+
 ## [0.57.0] - 2026-09-28
 
 ### Added

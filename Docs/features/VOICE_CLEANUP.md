@@ -109,7 +109,7 @@ The resolution rules and presets live in `hark-config`, while pipeline construct
 
 Meeting notes resolve the same way, through the same `resolve_cleanup_provider`, but ask for it as if a non-Verbatim voice were selected — a `Verbatim` dictation setup still has a text provider that can write notes, since the summary call is independent of the dictation cleanup voice ([finish.rs](../../crates/hark-pipeline/src/meeting/finish.rs)).
 
-Each request builds a system prompt from the effective voice and terms present in that transcript, derives `max_completion_tokens` from input length with a 512-to-4096 clamp, applies a 10-second request timeout, and never retries ([openai_compatible.rs:20-85](../../crates/hark-voice/src/openai_compatible.rs#L20-L85), [openai_compatible.rs:236-281](../../crates/hark-voice/src/openai_compatible.rs#L236-L281)). `CleanupConfig` has a manual `Debug` implementation that redacts the API key and custom prompt and reports only the spellbook-term count ([openai_compatible.rs:146-190](../../crates/hark-voice/src/openai_compatible.rs#L146-L190)).
+Each request builds a system prompt from the effective voice and terms present in that transcript, sends the transcript fenced in `<transcript>` tags, and opens the system prompt with `TRANSCRIPT_IS_DATA_CLAUSE`, which tells the model the fenced text is dictation to edit, never a request to answer. Without it, dictation that sounds like an instruction ("Proceed however you recommend...") was answered instead of edited. The adapter also strips an echoed fence from the response. It derives `max_completion_tokens` from input length with a 512-to-4096 clamp, applies a 10-second request timeout, and never retries ([openai_compatible.rs:20-85](../../crates/hark-voice/src/openai_compatible.rs#L20-L85), [openai_compatible.rs:236-281](../../crates/hark-voice/src/openai_compatible.rs#L236-L281)). `CleanupConfig` has a manual `Debug` implementation that redacts the API key and custom prompt and reports only the spellbook-term count ([openai_compatible.rs:146-190](../../crates/hark-voice/src/openai_compatible.rs#L146-L190)).
 
 Sources: [crates/hark-voice/src/openai_compatible.rs:1-286](../../crates/hark-voice/src/openai_compatible.rs#L1-L286), [crates/hark-config/src/voice.rs:87-189](../../crates/hark-config/src/voice.rs#L87-L189), [crates/hark-config/src/voice.rs:225-338](../../crates/hark-config/src/voice.rs#L225-L338), [crates/hark-pipeline/src/lib.rs](../../crates/hark-pipeline/src/lib.rs), [crates/hark-pipeline/src/meeting/finish.rs](../../crates/hark-pipeline/src/meeting/finish.rs)
 <!-- END:AUTOGEN hark_09_voice_cleanup_adapter -->
@@ -126,8 +126,9 @@ For an ordinary transcript with a cleanup plan:
 1. Text below `skip_below_words` passes through unchanged.
 2. The adapter performs one rewrite request.
 3. A built-in voice response beyond `max_expansion_ratio` plus the three-word grace is rejected; `custom` is exempt.
-4. An accepted response goes through spellbook pass 2 to repair any protected term the model still changed.
-5. Any error returns pass-1 text with no cleanup timing/model attribution.
+4. A built-in voice response that reads as a reply rather than an edit is rejected by `reads_as_reply`. It uses the prompt's own vocabulary ("transcript", "rewrite") that the speaker never said, or it keeps none of the speaker's words of four or more letters when the input has at least three. `custom` is exempt, because a translation prompt keeps no words.
+5. An accepted response goes through spellbook pass 2 to repair any protected term the model still changed.
+6. Any error returns pass-1 text with no cleanup timing/model attribution.
 
 This control flow is implemented in `cleaned_text` and keeps history honest: cleanup metadata appears only when its response actually shaped the injected text ([worker.rs:542-618](../../crates/hark-pipeline/src/worker.rs#L542-L618)).
 
@@ -157,7 +158,7 @@ The crate root keeps the reusable behavior small and provider-neutral ([lib.rs](
 | `Cleaned` | Accepted text plus full request wall time |
 | `Voice` / `UnknownVoice` | Runtime voice enum and parsing error with the valid names |
 | `system_prompt` / `present_terms` | Pure per-request prompt assembly and protected-term filtering |
-| `skips_cleanup` / `over_expanded` | Pure pre-request and post-response gates |
+| `skips_cleanup` / `over_expanded` / `reads_as_reply` | Pure pre-request and post-response gates |
 | `CleanupError` / mapping helpers | Log-safe error taxonomy and pure status/transport classification |
 | `CONNECT_TIMEOUT_MS` / `CLEANUP_TIMEOUT_MS` | 3-second connection bound and 10-second per-request bound |
 | `summarize` / `MeetingNotes` / `SummaryConfig` | Meeting-only: one long-context call over a full transcript, validated into structured notes; `SUMMARY_TIMEOUT_MS` is 120 s, not the dictation `CLEANUP_TIMEOUT_MS` ([summary.rs:37](../../crates/hark-voice/src/summary.rs#L37)) |
