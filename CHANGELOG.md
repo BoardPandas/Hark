@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.57.3] - 2026-09-29
+
+### Changed
+
+- The Meetings documentation now explains where the "Take meeting notes?" prompt appears: always on your primary monitor, kept on top while it waits.
+
 ## [0.57.2] - 2026-09-29
 
 ### Fixed

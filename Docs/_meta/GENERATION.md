@@ -1,5 +1,12 @@
 # Generation Metadata
 
+## Scoped meeting prompt placement — 2026-09-29 (0.57.3)
+
+- **Source reviewed:** `97d8686` (0.57.2), `crates/hark-app/src/meeting_prompt.rs` only: primary-monitor placement and the once-a-second always-on-top re-assert.
+- **Scope:** Meetings (detection prompt paragraph) and Desktop UI (already updated in 0.57.2). No config, schema, or detection-rule changes.
+- **Baseline policy:** global baseline `784272c` remains unchanged.
+- **Validation:** `npm run check:docs` and `npm run check:claude` pass. Rust gates were run for 0.57.2 and are not rerun for this documentation-only change.
+
 ## Scoped optional meeting AEC release — 2026-09-28 (0.57.0)
 
 - **Source reviewed:** `7b8bb126` plus the production Rust AEC3 wrapper, bounded recorder pairing, schema 6 settings/UI, tail and failure regressions, and notice packaging.
