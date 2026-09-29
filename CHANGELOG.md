@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.57.2] - 2026-09-29
+
+### Fixed
+
+- The "Take meeting notes?" prompt now always appears on your primary monitor, at the bottom-right above the taskbar. It used to follow the focused window's monitor. On a tall portrait screen, that put it far below a Teams window that filled the top half, and it timed out unseen. While it waits, it also keeps itself above other always-on-top windows, such as Teams' floating call window, without taking focus from your meeting.
+
 ## [0.57.1] - 2026-09-29
 
 ### Fixed

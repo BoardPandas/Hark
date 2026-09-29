@@ -1,7 +1,10 @@
 //! The detection prompt (plan §4.7): "Teams is using your mic. Take meeting
 //! notes?" with Start, Not this meeting, and Settings. It must work while the
 //! main window is hidden in the tray, never take focus from the meeting app,
-//! and dismiss itself after 30 s.
+//! and dismiss itself after 30 s. It always appears on the primary monitor and
+//! stays on top of everything else while it waits: placed by the monitor of
+//! the foreground window, it landed at the foot of a tall portrait screen,
+//! far below the Teams window the user was watching, and went unseen.
 //!
 //! It follows `overlay.rs` where that module learned the hard way: **one
 //! persistent deferred viewport, created hidden and only shown/hidden, never a
@@ -33,6 +36,12 @@ const SIZE: egui::Vec2 = egui::vec2(360.0, 124.0);
 const TIMEOUT: Duration = Duration::from_secs(30);
 /// A prompt shown this long without being painted is logged as a failure.
 const NOT_PAINTED_AFTER: Duration = Duration::from_secs(3);
+/// How often a showing prompt reclaims the top of the z-order. Other
+/// always-on-top windows (Teams' floating call window among them) join the
+/// topmost band above it after it appears; the prompt already wakes this
+/// often for its timeout, so this adds no repaints.
+#[cfg(windows)]
+const RAISE_EVERY: Duration = Duration::from_secs(1);
 
 /// What the prompt asked the app to do.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -49,6 +58,9 @@ struct Shared {
     reply: Option<Reply>,
     /// The `shown` instant of the last prompt the callback painted.
     painted: Option<Instant>,
+    /// When the callback last put the prompt back on top.
+    #[cfg(windows)]
+    raised: Option<Instant>,
 }
 
 /// The root's side of the prompt window.
@@ -197,52 +209,58 @@ fn paint(ui: &mut egui::Ui, shared: &Mutex<Shared>) {
         // Same thread (the event loop), so a direct root repaint is safe.
         ctx.request_repaint_of(egui::ViewportId::ROOT);
     }
+    #[cfg(windows)]
+    if reply.is_none() && state.raised.is_none_or(|at| at.elapsed() >= RAISE_EVERY) {
+        state.raised = Some(Instant::now());
+        // Unlocked first: SetWindowPos sends this window's own messages
+        // synchronously on this thread.
+        drop(state);
+        win::raise();
+    }
 }
 
 #[cfg(windows)]
 mod win {
     use super::SIZE;
     use windows::core::{w, PCWSTR};
+    use windows::Win32::Foundation::HWND;
     use windows::Win32::Foundation::POINT;
     use windows::Win32::Graphics::Gdi::{
-        GetMonitorInfoW, MonitorFromPoint, MonitorFromWindow, MONITORINFO, MONITOR_DEFAULTTOPRIMARY,
+        GetMonitorInfoW, MonitorFromPoint, MONITORINFO, MONITOR_DEFAULTTOPRIMARY,
     };
     use windows::Win32::UI::HiDpi::{GetDpiForMonitor, MDT_EFFECTIVE_DPI};
     use windows::Win32::UI::WindowsAndMessaging::{
-        FindWindowW, GetForegroundWindow, SetWindowPos, HWND_TOPMOST, SWP_NOACTIVATE,
-        SWP_NOOWNERZORDER,
+        FindWindowW, SetWindowPos, HWND_TOPMOST, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOOWNERZORDER,
+        SWP_NOSIZE,
     };
 
     /// Distance from the work area's bottom-right corner, in logical points.
     const MARGIN: f32 = 16.0;
 
-    /// Strip the frame, then move and size the window to the bottom-right of
-    /// the work area (taskbar excluded) of the monitor the user is on, in that
-    /// monitor's physical pixels. Straight Win32 rather than a viewport
-    /// command: `OuterPosition` is converted with the scale of the monitor the
-    /// window currently sits on, which is wrong the moment it moves to another.
-    pub(super) fn place(zoom: f32) {
+    fn find() -> Option<HWND> {
         // SAFETY: a plain lookup by our own unique window title.
-        let hwnd = match unsafe { FindWindowW(PCWSTR::null(), w!("Hark meeting prompt")) } {
-            Ok(hwnd) if !hwnd.is_invalid() => hwnd,
-            _ => {
-                log::warn!("meeting prompt: its window does not exist yet; not placed");
-                return;
-            }
+        match unsafe { FindWindowW(PCWSTR::null(), w!("Hark meeting prompt")) } {
+            Ok(hwnd) if !hwnd.is_invalid() => Some(hwnd),
+            _ => None,
+        }
+    }
+
+    /// Strip the frame, then move and size the window to the bottom-right of
+    /// the primary monitor's work area (taskbar excluded), in that monitor's
+    /// physical pixels. Straight Win32 rather than a viewport command:
+    /// `OuterPosition` is converted with the scale of the monitor the window
+    /// currently sits on, which is wrong the moment it moves to another.
+    pub(super) fn place(zoom: f32) {
+        let Some(hwnd) = find() else {
+            log::warn!("meeting prompt: its window does not exist yet; not placed");
+            return;
         };
         crate::overlay::strip_frame_styles(hwnd);
 
-        // SAFETY (this block and the two below): plain Win32 getters. Every
-        // handle comes from the call before it or a documented primary-monitor
-        // fallback, and every out-param is a fully initialized local.
-        let monitor = unsafe {
-            let foreground = GetForegroundWindow();
-            if foreground.is_invalid() {
-                MonitorFromPoint(POINT { x: 0, y: 0 }, MONITOR_DEFAULTTOPRIMARY)
-            } else {
-                MonitorFromWindow(foreground, MONITOR_DEFAULTTOPRIMARY)
-            }
-        };
+        // SAFETY (this block and the two below): plain Win32 getters. The
+        // primary monitor's top-left corner is (0, 0) by definition, and every
+        // out-param is a fully initialized local.
+        let monitor = unsafe { MonitorFromPoint(POINT { x: 0, y: 0 }, MONITOR_DEFAULTTOPRIMARY) };
         let mut info = MONITORINFO {
             cbSize: std::mem::size_of::<MONITORINFO>() as u32,
             ..Default::default()
@@ -280,13 +298,38 @@ mod win {
         };
         match moved {
             Ok(()) => log::info!(
-                "meeting prompt: placed at {x},{y} ({w}x{h} px, {dpi_x} dpi; work area {},{}-{},{})",
+                "meeting prompt: placed at {x},{y} on the primary monitor ({w}x{h} px, {dpi_x} dpi; work area {},{}-{},{})",
                 work.left,
                 work.top,
                 work.right,
                 work.bottom
             ),
             Err(e) => log::warn!("meeting prompt: could not be placed ({e})"),
+        }
+    }
+
+    /// Put the prompt back at the top of the always-on-top band, where a
+    /// topmost window opened after it would otherwise cover it. Z-order only:
+    /// it neither moves, resizes, nor activates the window.
+    pub(super) fn raise() {
+        let Some(hwnd) = find() else {
+            return;
+        };
+        // SAFETY: restacking our own window; NOACTIVATE keeps the focus on
+        // the meeting app.
+        let raised = unsafe {
+            SetWindowPos(
+                hwnd,
+                Some(HWND_TOPMOST),
+                0,
+                0,
+                0,
+                0,
+                SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_NOOWNERZORDER,
+            )
+        };
+        if let Err(e) = raised {
+            log::warn!("meeting prompt: could not be kept on top ({e})");
         }
     }
 }
