@@ -33,6 +33,9 @@ pub const DEFAULT_APPS: &[&str] = &[
     "discord.exe",
     "goto.exe",
     "ringcentral.exe",
+    // Serverdata's Elevate desktop app. Inferred, not documented: an
+    // Electron NSIS install names its exe after the product, "Elevate UC".
+    "elevate uc.exe",
     "chrome.exe",
     "msedge.exe",
     "firefox.exe",
@@ -43,8 +46,11 @@ pub const DEFAULT_APPS: &[&str] = &[
 /// they only count while a window title says a meeting is open.
 pub const BROWSERS: &[&str] = &["chrome.exe", "msedge.exe", "firefox.exe", "brave.exe"];
 
-/// Title fragments that mark a browser window as a meeting.
-const MEETING_MARKERS: &[&str] = &["Meet -", "Meet –", "Microsoft Teams", "Zoom"];
+/// Title fragments that mark a browser window as a meeting. Elevate's web
+/// phone keeps the same title idle and on a call, but holds the mic only
+/// during a call (seen on a live call, 2026-09-29), so the title plus the
+/// mic is a call.
+const MEETING_MARKERS: &[&str] = &["Meet -", "Meet –", "Microsoft Teams", "Zoom", "Elevate UC"];
 
 /// Does a window title say a meeting is open? Titles are matched in memory
 /// and never stored or logged.
@@ -649,6 +655,14 @@ mod tests {
             .id(),
             "discord.exe"
         );
+        let elevate = MicApp::from_nonpackaged_key(
+            r"C:#Users#me#AppData#Local#Programs#Elevate UC#Elevate UC.exe",
+        )
+        .id();
+        assert_eq!(elevate, "elevate uc.exe");
+        assert!(DEFAULT_APPS
+            .iter()
+            .any(|a| a.eq_ignore_ascii_case(&elevate)));
     }
 
     #[test]
@@ -677,13 +691,15 @@ mod tests {
     }
 
     #[test]
-    fn meeting_markers_match_meet_teams_and_zoom_titles() {
+    fn meeting_markers_match_meet_teams_zoom_and_elevate_titles() {
         assert!(title_has_meeting_marker(
             "Meet – abc-defg-hij - Google Chrome"
         ));
         assert!(title_has_meeting_marker("Meet - abc-defg-hij"));
         assert!(title_has_meeting_marker("Weekly sync | Microsoft Teams"));
         assert!(title_has_meeting_marker("Zoom Meeting"));
+        // The exact title of Elevate's web phone in Chrome on a live call.
+        assert!(title_has_meeting_marker("Elevate UC - Google Chrome"));
         assert!(!title_has_meeting_marker("Inbox - Gmail - Google Chrome"));
     }
 

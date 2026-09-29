@@ -160,6 +160,7 @@ pub fn app_display_name(app: &str) -> String {
         "discord.exe" => "Discord",
         "goto.exe" => "GoTo",
         "ringcentral.exe" => "RingCentral",
+        "elevate uc.exe" => "Elevate",
         "chrome.exe" => "Chrome",
         "msedge.exe" => "Edge",
         "firefox.exe" => "Firefox",
@@ -184,6 +185,7 @@ mod tests {
     fn known_apps_get_friendly_names_and_unknown_ones_lose_exe() {
         assert_eq!(app_display_name("msteams_8wekyb3d8bbwe"), "Teams");
         assert_eq!(app_display_name("zoom.exe"), "Zoom");
+        assert_eq!(app_display_name("elevate uc.exe"), "Elevate");
         assert_eq!(app_display_name("whereby.exe"), "whereby");
     }
 

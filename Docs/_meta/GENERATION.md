@@ -1,5 +1,13 @@
 # Generation Metadata
 
+## Scoped Elevate call detection — 2026-09-29 (0.58.0)
+
+- **Source reviewed:** `cc37f47` (0.57.5) plus `crates/hark-meeting/src/detect.rs` (the "Elevate UC" browser title marker and `elevate uc.exe` in `DEFAULT_APPS`) and `crates/hark-pipeline/src/meeting/mod.rs` (the "Elevate" display name).
+- **Evidence:** on a live Elevate web-phone call in Chrome the window title was `Elevate UC - Google Chrome` and Chrome held the mic (ConsentStore `LastUsedTimeStop == 0`); after hang-up, with the tab still open and the title unchanged, Chrome released it. The desktop exe name is inferred from the product name "Elevate UC" and unverified.
+- **Scope:** Meetings detection rules. No config or schema changes; `detect_apps` left at its default picks up the new entry.
+- **Baseline policy:** global baseline `784272c` remains unchanged.
+- **Validation:** `cargo fmt`, workspace `cargo clippy --all-targets -- -D warnings`, WSL Debian `cargo test --offline -p hark-meeting -p hark-pipeline` (98 + 114 passed; the native Windows test binary was blocked by App Control, os error 4551), `npm run check:docs`, and `npm run check:claude` pass.
+
 ## Scoped Gemini mock-server note — 2026-09-29 (0.57.5)
 
 - **Source reviewed:** `9d8d183` (0.57.4), `crates/hark-stt/src/meeting_gemini.rs` tests only: the mock Files API server now sets each accepted socket to blocking.

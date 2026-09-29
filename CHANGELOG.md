@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.58.0] - 2026-09-29
+
+### Added
+
+- **Elevate phone calls are detected for meeting notes.** A call in Serverdata's Elevate web phone in Chrome now brings up "Take meeting notes?" like a Teams or Meet call; the prompt says "Chrome is using your mic." Keep Elevate in its own Chrome window or install it as an app: Windows only shows Hark the front tab of each window, so a call in a background tab is missed. The Elevate desktop app is on the built-in list too, as "Elevate", but its program name is inferred and has not been seen on a live call yet.
+
 ## [0.57.5] - 2026-09-29
 
 ### Fixed
