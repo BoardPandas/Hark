@@ -218,7 +218,10 @@ and attempts DELETE after success and failure—including malformed or lost
 finalization replies. A failed deletion is reported and receives one best-effort
 retry. A crash or failed cleanup can leave remote audio until provider expiry;
 requesting deletion does not prove provider-side erasure
-([meeting_gemini.rs](../../crates/hark-stt/src/meeting_gemini.rs)).
+([meeting_gemini.rs](../../crates/hark-stt/src/meeting_gemini.rs)). The
+cleanup rules are pinned by tests against a local mock of the Files API,
+including a lost finalization reply, a failed DELETE, and an already-removed
+remote file; see [Transcription](TRANSCRIPTION.md#gemini-files-meeting-adapter).
 
 Responses must declare completion and provide valid segments. Timestamps are
 clamped to the window. Conservative energy checks reject conspicuously omitted

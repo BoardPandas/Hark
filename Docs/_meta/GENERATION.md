@@ -1,5 +1,12 @@
 # Generation Metadata
 
+## Scoped Gemini mock-server note — 2026-09-29 (0.57.5)
+
+- **Source reviewed:** `9d8d183` (0.57.4), `crates/hark-stt/src/meeting_gemini.rs` tests only: the mock Files API server now sets each accepted socket to blocking.
+- **Scope:** Transcription (Gemini Files adapter) and Meetings (cleanup paragraph) describe how the adapter is tested. No behavior, config, or schema changes.
+- **Baseline policy:** global baseline `784272c` remains unchanged.
+- **Validation:** `cargo fmt --check`, workspace `cargo clippy --all-targets -- -D warnings`, `cargo test -p hark-stt` (68 passed; the Gemini tests 20 times in a row with no failure), `npm run check:docs`, and `npm run check:claude` pass.
+
 ## Scoped meeting id note — 2026-09-29 (0.57.4)
 
 - **Source reviewed:** `0f73a69` (0.57.3), `crates/hark-pipeline/src/meeting/coordinator.rs` only: `new_meeting_id` split into a clock read and `unique_in`, so its test no longer depends on the wall clock.

@@ -445,6 +445,10 @@ mod tests {
                         Err(e) => panic!("expected Gemini mock request {step}: {e}"),
                     }
                 };
+                // On Windows an accepted socket inherits the listener's
+                // non-blocking mode, so a read that beat the request bytes
+                // failed with WouldBlock (WSAEWOULDBLOCK, 10035) at random.
+                socket.set_nonblocking(false).unwrap();
                 socket
                     .set_read_timeout(Some(Duration::from_secs(5)))
                     .unwrap();

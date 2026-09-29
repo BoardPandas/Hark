@@ -131,7 +131,11 @@ Window-local speaker identity and conservative omission checks are described in
 [Meetings](MEETINGS.md#gemini-files-final-pass). It does not implement `SttProvider`
 or replace Gemini Live dictation
 ([adapter](../../crates/hark-stt/src/meeting_gemini.rs),
-[window worker](../../crates/hark-pipeline/src/meeting/gemini_final.rs)).
+[window worker](../../crates/hark-pipeline/src/meeting/gemini_final.rs)). Its
+tests run the full upload, finalize, inference, and DELETE sequence against a
+local mock server. That server switches each accepted socket back to blocking:
+on Windows an accepted socket inherits the listener's non-blocking mode, and
+the tests failed at random with `WouldBlock` until it did.
 
 ## Provider Gotchas
 

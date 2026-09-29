@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.57.5] - 2026-09-29
+
+### Fixed
+
+- Two Gemini meeting-transcript tests no longer fail at random on Windows. Their local mock server could read before a request arrived. This failed the Windows CI run for 0.57.4; Hark's behavior is unchanged.
+
 ## [0.57.4] - 2026-09-29
 
 ### Fixed
