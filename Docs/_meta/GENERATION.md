@@ -1,5 +1,12 @@
 # Generation Metadata
 
+## Scoped meeting id note — 2026-09-29 (0.57.4)
+
+- **Source reviewed:** `0f73a69` (0.57.3), `crates/hark-pipeline/src/meeting/coordinator.rs` only: `new_meeting_id` split into a clock read and `unique_in`, so its test no longer depends on the wall clock.
+- **Scope:** Meetings storage paragraph now states how a meeting folder id is formed. No behavior, config, or schema changes.
+- **Baseline policy:** global baseline `784272c` remains unchanged.
+- **Validation:** `cargo fmt --check`, workspace `cargo clippy --all-targets -- -D warnings`, `cargo test -p hark-pipeline` (113 passed), `npm run check:docs`, and `npm run check:claude` pass.
+
 ## Scoped meeting prompt placement — 2026-09-29 (0.57.3)
 
 - **Source reviewed:** `97d8686` (0.57.2), `crates/hark-app/src/meeting_prompt.rs` only: primary-monitor placement and the once-a-second always-on-top re-assert.

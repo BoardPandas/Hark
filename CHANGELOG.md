@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.57.4] - 2026-09-29
+
+### Fixed
+
+- A meeting-folder naming test no longer fails at random when the clock ticks to the next second mid-test. It failed the macOS CI run for 0.57.3; Hark's behavior is unchanged. The Meetings documentation now says how meeting folders are named.
+
 ## [0.57.3] - 2026-09-29
 
 ### Changed

@@ -796,8 +796,15 @@ fn detect_config(settings: &Settings, self_exe: &str) -> DetectConfig {
 
 /// A folder-safe id from the local start time, unique within `dir`.
 fn new_meeting_id(dir: &std::path::Path) -> String {
-    let base = jiff::Zoned::now().strftime("%Y%m%d-%H%M%S").to_string();
-    let mut id = base.clone();
+    unique_in(
+        dir,
+        &jiff::Zoned::now().strftime("%Y%m%d-%H%M%S").to_string(),
+    )
+}
+
+/// `base`, or `base-2`, `base-3`, ...: the first name not already in `dir`.
+fn unique_in(dir: &std::path::Path, base: &str) -> String {
+    let mut id = base.to_string();
     let mut n = 2;
     while dir.join(&id).exists() {
         id = format!("{base}-{n}");
@@ -953,11 +960,14 @@ mod tests {
 
     #[test]
     fn meeting_ids_are_unique_within_the_folder() {
+        // A fixed start time: two clock reads straddled a second on a CI
+        // runner, so the second id got a new timestamp instead of a suffix.
         let dir = tempfile::tempdir().expect("tempdir");
-        let first = new_meeting_id(dir.path());
-        std::fs::create_dir(dir.path().join(&first)).expect("mkdir");
-        let second = new_meeting_id(dir.path());
-        assert_ne!(first, second);
-        assert!(second.starts_with(&first));
+        let base = "20260929-140127";
+        assert_eq!(unique_in(dir.path(), base), base);
+        std::fs::create_dir(dir.path().join(base)).expect("mkdir");
+        assert_eq!(unique_in(dir.path(), base), "20260929-140127-2");
+        std::fs::create_dir(dir.path().join("20260929-140127-2")).expect("mkdir");
+        assert_eq!(unique_in(dir.path(), base), "20260929-140127-3");
     }
 }
