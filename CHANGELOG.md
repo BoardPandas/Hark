@@ -6,6 +6,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.60.1] - 2026-09-30
+
+### Fixed
+
+- The 0.60.0 tree did not compile on Windows or macOS: the Core Audio
+  backend still imported the pre-split `loopback_win` module, and the
+  Windows probe's inner module name collided with its new `probe::win`
+  parent. Both are repaired and cross-checked for the Windows target; the
+  broken, asset-less v0.60.0 release and tag were removed in favor of this
+  one. No behavior changed on any platform.
+
 ## [0.60.0] - 2026-09-30
 
 ### Added

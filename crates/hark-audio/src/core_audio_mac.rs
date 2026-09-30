@@ -1,7 +1,7 @@
 //! Core Audio tap bridge. The Objective-C owner negotiates a mono f32 stream;
 //! its real-time callback only copies samples into the preallocated ring.
 //! Conversion to 16 kHz stays in the meeting drain, off the audio thread.
-use crate::loopback_win::{LoopbackError, LoopbackHandle, LoopbackTarget};
+use crate::loopback::{LoopbackError, LoopbackHandle, LoopbackTarget};
 use crate::ring::{ring, Consumer, Producer};
 use std::ffi::{c_char, c_void, CStr};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};

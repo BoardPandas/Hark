@@ -30,13 +30,9 @@ pub use watch::ChangeWatcher;
 pub fn snapshot() -> io::Result<Snapshot> {
     #[cfg(windows)]
     {
-        win::snapshot()
+        native::snapshot()
     }
-    #[cfg(target_os = "macos")]
-    {
-        super::probe_mac::snapshot()
-    }
-    #[cfg(not(any(windows, target_os = "macos")))]
+    #[cfg(not(windows))]
     {
         Err(unsupported())
     }
@@ -46,13 +42,9 @@ pub fn snapshot() -> io::Result<Snapshot> {
 pub fn processes() -> io::Result<Vec<Proc>> {
     #[cfg(windows)]
     {
-        win::processes()
+        native::processes()
     }
-    #[cfg(target_os = "macos")]
-    {
-        super::probe_mac::processes()
-    }
-    #[cfg(not(any(windows, target_os = "macos")))]
+    #[cfg(not(windows))]
     {
         Err(unsupported())
     }
@@ -67,7 +59,7 @@ fn unsupported() -> io::Error {
 }
 
 #[cfg(windows)]
-mod win {
+mod native {
     use crate::detect::{title_has_meeting_marker, MicApp, MicUse, Proc, Snapshot, BROWSERS};
     use std::io;
     use windows::core::{BOOL, PWSTR};
