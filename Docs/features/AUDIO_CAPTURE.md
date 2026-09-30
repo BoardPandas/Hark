@@ -9,7 +9,7 @@ The following files were used as evidence for this page:
 - [crates/hark-audio/src/window.rs](../../crates/hark-audio/src/window.rs)
 - [crates/hark-audio/src/resample.rs](../../crates/hark-audio/src/resample.rs)
 - [crates/hark-audio/src/capture_win.rs](../../crates/hark-audio/src/capture_win.rs)
-- [crates/hark-audio/src/loopback_win.rs](../../crates/hark-audio/src/loopback_win.rs)
+- [crates/hark-audio/src/loopback/mod.rs](../../crates/hark-audio/src/loopback/mod.rs)
 - [crates/hark-audio/src/spool.rs](../../crates/hark-audio/src/spool.rs)
 - [crates/hark-audio/src/stereo.rs](../../crates/hark-audio/src/stereo.rs)
 - [crates/hark-audio/src/mp3.rs](../../crates/hark-audio/src/mp3.rs)
@@ -180,4 +180,4 @@ audible apps, leaving that audio without a cancellation reference.
 
 CGEventTap provides keyboard and modifier transitions on a dedicated run loop, including shortcut recording and meeting toggles. Physical-state reconciliation recovers missing releases and disabled taps; synthetic injection is filtered. Mac labels use Command and Option while stored Win/Alt key tokens remain portable. Caps Lock is a toggle notification rather than a reliable held key and is rejected, along with keys absent from the native map.
 
-Core Audio process taps capture meeting/system audio on macOS 14.2+. Native stream rate is carried into the meeting resampler; the shared 16 kHz processing, spooling and AEC paths remain unchanged. Real capture, device switching, silence alignment and permission denial require hardware smoke testing.
+Core Audio process taps capture meeting/system audio on macOS 14.2+. The native bridge imports the shared `hark_audio::loopback` handle, target and error types; the facade dispatches to the platform backend. Its `sample_rate()` carries the native stream rate into the meeting resampler; the shared 16 kHz processing, spooling and AEC paths remain unchanged. Real capture, device switching, silence alignment and permission denial require hardware smoke testing.

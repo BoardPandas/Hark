@@ -195,7 +195,7 @@ Sources: [RELEASING.md:36-68](https://github.com/BoardPandas/Hark/blob/1c1738716
 # Kept in lockstep with package.json (the release source of truth): the built
 # binary reports this via env!("CARGO_PKG_VERSION"), and the update checker
 # compares it against GitHub release tags. release.yml fails if they drift.
-version = "0.49.0"
+version = "0.60.3"
 edition = "2021"
 rust-version = "1.97"
 license = "MIT"
@@ -224,4 +224,4 @@ Sources: [package.json:1-7](https://github.com/BoardPandas/Hark/blob/1c1738716fa
 
 The Mac package is a complete `Hark.app` inside an architecture-specific DMG. It targets macOS 14.2+, includes microphone/system-audio usage descriptions and the audio-input entitlement, and ships the third-party notices with the bundle. Local packaging can use an ad-hoc signature for development. Release packaging requires Developer ID signing, notarization and stapling; it must fail when signing credentials are missing rather than publish an unsigned release.
 
-Mac CI builds and tests both Apple Silicon and Intel. The packaging architecture check passes the executable before `lipo -verify_arch` so Xcode 16 does not interpret the file path as another architecture. Interactive validation still covers the TCC permission flow, held shortcuts, insertion into other apps, meeting app/system audio, screen placement, save/share sheets, login registration and a signed update. Refer to the Mac packaging instructions for commands and the exact secret names.
+Mac CI runs formatting, strict Clippy and workspace tests on native Apple Silicon and Intel runners, then builds the bundle and checks its packaged executable with `--version`. These native checks cover platform-gated probe and watcher code that Linux-only checks cannot compile. The packaging architecture check passes the executable before `lipo -verify_arch` so Xcode 16 does not interpret the file path as another architecture. Interactive validation still covers the TCC permission flow, held shortcuts, insertion into other apps, meeting app/system audio, screen placement, save/share sheets, login registration and a signed update. Refer to the Mac packaging instructions for commands and the exact secret names.

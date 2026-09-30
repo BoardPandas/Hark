@@ -6,6 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.60.3] - 2026-09-30
+
+### Fixed
+
+- Mac builds pass strict lint checks after the Linux meeting integration: Windows-only probe imports and Windows/Linux watcher cleanup no longer compile on macOS. Mac meeting detection retains its Core Audio probe and polling fallback.
+- Restored Mac meeting capabilities in the platform overview and updated the documentation map to track the renamed audio and detection backends.
+
 ## [0.60.2] - 2026-09-30
 
 ### Fixed

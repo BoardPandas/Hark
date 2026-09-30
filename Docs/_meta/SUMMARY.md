@@ -473,3 +473,9 @@ The AI review workflows for 0.50.5 through 0.53.0 skipped their review because
 
 - The 0.60.0 module split broke platforms the Linux gates never compile: the Core Audio backend imported the removed `loopback_win`, the Windows probe's inner module collided with its renamed parent, and its query functions became dead code on macOS once the facade routed macOS elsewhere. All repaired; the workspace cross-checks clean for `x86_64-pc-windows-gnu` alongside the native Linux gates (fmt, clippy `-D warnings`, workspace tests, both npm guards).
 - `package.json` regained its no-trailing-newline form after a rewritten serialization made version bumps fail the drift guard's version-only exemption. Both broken, asset-less releases (v0.60.0, v0.60.1) and their tags were deleted before any asset shipped.
+
+## Native macOS CI repair — 2026-09-30 (0.60.3)
+
+- Fixed strict Mac lint failures by excluding Windows-only probe imports/functions and real-worker cleanup from the Mac stub path. Preserved Core Audio snapshots and the polling fallback.
+- Reconciled all-platform meeting, shortcut, export and capture descriptions; source mappings now track the renamed audio/probe backends. Four affected pages preserve their AUTOGEN marker sequences, and all new mapped source paths resolve.
+- Native Apple Silicon: formatting and workspace Clippy pass; 1,036 workspace tests pass with one optional model test ignored. Both npm guards and six guard tests pass. Exact-revision cross-platform CI and signed release publication are still pending at this snapshot.

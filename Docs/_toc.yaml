@@ -329,7 +329,9 @@ pages:
       - "crates/hark-audio/src/level.rs"
       - "crates/hark-audio/src/resample.rs"
       - "crates/hark-audio/src/capture_win.rs"
-      - "crates/hark-audio/src/loopback_win.rs"
+      - "crates/hark-audio/src/loopback/mod.rs"
+      - "crates/hark-audio/src/loopback/win.rs"
+      - "crates/hark-audio/src/loopback/linux.rs"
       - "crates/hark-audio/src/core_audio_mac.rs"
       - "crates/hark-audio/src/core_audio_mac.m"
       - "crates/hark-audio/build.rs"
@@ -397,7 +399,9 @@ pages:
         title: "Meeting Capture"
         autogen: true
         source_files:
-          - "crates/hark-audio/src/loopback_win.rs"
+          - "crates/hark-audio/src/loopback/mod.rs"
+          - "crates/hark-audio/src/loopback/win.rs"
+          - "crates/hark-audio/src/loopback/linux.rs"
           - "crates/hark-audio/src/core_audio_mac.rs"
           - "crates/hark-audio/src/core_audio_mac.m"
           - "crates/hark-audio/build.rs"
@@ -1037,8 +1041,12 @@ pages:
       - "crates/hark-meeting/src/chunker.rs"
       - "crates/hark-meeting/src/merge.rs"
       - "crates/hark-meeting/src/detect.rs"
-      - "crates/hark-meeting/src/probe_win.rs"
-      - "crates/hark-meeting/src/probe_watch_win.rs"
+      - "crates/hark-meeting/src/probe/mod.rs"
+      - "crates/hark-meeting/src/probe/win.rs"
+      - "crates/hark-meeting/src/probe/mac.rs"
+      - "crates/hark-meeting/src/probe/linux.rs"
+      - "crates/hark-meeting/src/probe/watch_linux.rs"
+      - "crates/hark-meeting/src/probe/watch_win.rs"
       - "crates/hark-meeting/src/storage.rs"
       - "crates/hark-meeting/src/storage_fs.rs"
       - "crates/hark-meeting/src/export.rs"
@@ -1091,7 +1099,9 @@ pages:
         title: "Capture"
         autogen: true
         source_files:
-          - "crates/hark-audio/src/loopback_win.rs"
+          - "crates/hark-audio/src/loopback/mod.rs"
+          - "crates/hark-audio/src/loopback/win.rs"
+          - "crates/hark-audio/src/loopback/linux.rs"
           - "crates/hark-audio/src/core_audio_mac.rs"
           - "crates/hark-audio/src/core_audio_mac.m"
           - "crates/hark-audio/build.rs"
@@ -1108,8 +1118,12 @@ pages:
         autogen: true
         source_files:
           - "crates/hark-meeting/src/detect.rs"
-          - "crates/hark-meeting/src/probe_win.rs"
-          - "crates/hark-meeting/src/probe_watch_win.rs"
+          - "crates/hark-meeting/src/probe/mod.rs"
+          - "crates/hark-meeting/src/probe/win.rs"
+          - "crates/hark-meeting/src/probe/mac.rs"
+          - "crates/hark-meeting/src/probe/linux.rs"
+          - "crates/hark-meeting/src/probe/watch_linux.rs"
+          - "crates/hark-meeting/src/probe/watch_win.rs"
           - "crates/hark-pipeline/src/meeting/coordinator.rs"
         diagrams_needed: false
         diagram_types: []

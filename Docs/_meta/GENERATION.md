@@ -1,5 +1,12 @@
 # Generation Metadata
 
+## Native macOS CI repair — 2026-09-30 (0.60.3)
+
+- **Source reviewed:** `3d42023` plus the Windows-only probe imports/functions and Windows/Linux-only watcher cleanup. The Mac Core Audio probe and unsupported registry-watcher polling fallback remain in place.
+- **Scope:** corrected all-platform meeting coverage in Overview and Meetings; documented the shared audio contract and native Mac verification; followed the renamed loopback/probe files in the documentation source map. Existing AUTOGEN marker sequences are preserved.
+- **Baseline policy:** global baseline `784272c` remains unchanged; mapped page updates resolve the historical documentation drift without weakening the guard.
+- **Validation:** native Apple Silicon with stable Rust 1.98.1 and `MACOSX_DEPLOYMENT_TARGET=14.2`: formatting, full workspace Clippy with warnings denied, and workspace tests (1,036 passed, zero failed, one optional local-model fixture ignored). Both npm guards and all six documentation-guard tests pass. Intel/Windows/Linux CI on this exact revision remains pending before push; no interactive capture or call validation is claimed.
+
 ## Scoped Windows/macOS build repairs — 2026-09-30 (0.60.1–0.60.2)
 
 - **Source reviewed:** the 0.60.0 rebased tree: `crates/hark-audio/src/core_audio_mac.rs` (stale `loopback_win` import), `crates/hark-meeting/src/probe/win.rs` and `watch_win.rs` (inner module collision and macOS dead code after the facade split), and `package.json` (trailing newline defeating the version-only drift exemption).

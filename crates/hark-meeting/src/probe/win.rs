@@ -18,6 +18,7 @@
 //! The `probe` facade dispatches to this on Windows, `linux.rs` on Linux,
 //! and `mac.rs` on macOS; anything else returns `Unsupported`.
 
+#[cfg(windows)]
 use crate::detect::{Proc, Snapshot};
 use std::io;
 
@@ -32,28 +33,14 @@ pub use watch::ChangeWatcher;
 /// module for its `ChangeWatcher`).
 #[cfg(windows)]
 pub fn snapshot() -> io::Result<Snapshot> {
-    #[cfg(windows)]
-    {
-        native::snapshot()
-    }
-    #[cfg(not(windows))]
-    {
-        Err(unsupported())
-    }
+    native::snapshot()
 }
 
 /// Every running process, for [`crate::detect::root_pid`]. Windows only,
 /// like [`snapshot`].
 #[cfg(windows)]
 pub fn processes() -> io::Result<Vec<Proc>> {
-    #[cfg(windows)]
-    {
-        native::processes()
-    }
-    #[cfg(not(windows))]
-    {
-        Err(unsupported())
-    }
+    native::processes()
 }
 
 #[cfg(not(windows))]

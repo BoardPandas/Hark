@@ -261,6 +261,7 @@ impl Coordinator {
         }
         // Retire the sender-holding watcher before closing capture and letting
         // this coordinator's completion channel disconnect.
+        #[cfg(any(windows, target_os = "linux"))]
         drop(watcher);
         // Quitting: keep what was recorded; the after-call work would outlive
         // the process, so it is skipped (the meeting keeps its live lines).
