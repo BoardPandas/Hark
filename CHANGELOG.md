@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.60.7] - 2026-09-30
+
+### Fixed
+
+- Windows installs and in-app updates no longer get blocked by Smart App Control ("Part of this app has been blocked ... we can't confirm who published Hark-…-setup.tmp"). The installer was signed, but the setup engine it unpacks and runs was not. The engine and the uninstaller are now signed with the same certificate, and each release is checked by running the installer and verifying both.
+
 ## [0.60.6] - 2026-09-30
 
 ### Changed

@@ -13,10 +13,20 @@
 ;     left in place on uninstall.
 ;
 ; CI (release.yml) invokes:
-;   iscc /DAppVersion=<x.y.z> /DSourceExe=<path to SIGNED hark-app.exe> installer\hark.iss
+;   iscc /DAppVersion=<x.y.z> /DSourceExe=<path to SIGNED hark-app.exe> \
+;        /DSign "/Shark=<signtool command ending in $f>" installer\hark.iss
 ; producing installer\Output\Hark-<ver>-windows-x64-setup.exe, which CI then
-; signs and verifies. The bundled exe is already signed before this runs
-; (sign the app exe BEFORE iscc; sign the setup exe after).
+; verifies. The bundled exe is already signed before this runs.
+;
+; Signing MUST happen inside ISCC (SignTool below), not on the finished
+; setup.exe afterwards. Setup.exe is only a loader: at run time it extracts the
+; real setup engine to %TEMP%\is-XXXXX.tmp\<name>.tmp and executes that. A
+; post-compile signature covers the loader alone, so the extracted .tmp is
+; unsigned and Smart App Control blocks it ("Part of this app has been
+; blocked ... Hark-<ver>-windows-x64-setup.tmp"), which breaks every install
+; and every in-app update. That shipped in 0.60.5 and earlier. With SignTool
+; set, ISCC signs the engine before embedding it, plus the uninstaller and the
+; final setup.exe.
 
 #ifndef AppVersion
   #define AppVersion "0.0.0-dev"
@@ -63,6 +73,14 @@ UninstallDisplayName={#AppName}
 CloseApplications=yes
 RestartApplications=no
 SetupMutex=HarkSetupMutex
+#ifdef Sign
+; "hark" is defined on the ISCC command line (/Shark=...), so the signing
+; command and its paths live in release.yml and a local unsigned build needs
+; neither. SignedUninstaller is the default once SignTool is set; it is spelled
+; out because it is what signs the extracted .tmp and unins000.exe.
+SignTool=hark
+SignedUninstaller=yes
+#endif
 
 [Languages]
 Name: "english"; MessagesFile: "compiler:Default.isl"

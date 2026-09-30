@@ -332,40 +332,100 @@ jobs:
 
       # Package the signed exe into a per-user installer (installer/hark.iss).
       # ISCC is not preinstalled on windows-latest. The bundled exe is already
-      # signed above; the produced setup.exe is signed in the next step.
+      # signed above; ISCC signs everything else itself, below.
       - name: Install Inno Setup
         run: choco install innosetup --no-progress -y
 
-      - name: Build the installer
+      # The installer is signed by ISCC's SignTool, NOT by the signing action
+      # after compilation. setup.exe is only a loader: it extracts the real
+      # setup engine to %TEMP%\is-XXXXX.tmp\<name>.tmp and runs that, and a
+      # signature applied to the finished setup.exe never reaches the engine
+      # inside it. 0.60.5 and earlier shipped exactly that -- a valid,
+      # verified setup.exe whose engine Smart App Control blocked on every
+      # install and every in-app update. Only ISCC can sign the engine,
+      # because it does so before embedding it.
+      #
+      # ISCC needs a plain command line, so this lays down the documented
+      # signtool + Artifact Signing dlib pair. Both packages are pinned by
+      # version AND sha256: this job holds the signing identity, and a
+      # re-uploaded package would run inside it. The versions match what
+      # artifact-signing-action v2.0.0 itself installs for the exe step above.
+      # Refresh with:
+      #   curl -sL https://api.nuget.org/v3-flatcontainer/<id>/<ver>/<id>.<ver>.nupkg | sha256sum
+      - name: Set up signtool for Inno Setup
         shell: pwsh
+        env:
+          SIGN_ENDPOINT: ${{ secrets.AZURE_TRUSTED_SIGNING_ENDPOINT }}
+          SIGN_ACCOUNT: ${{ secrets.AZURE_TRUSTED_SIGNING_ACCOUNT_NAME }}
+          SIGN_PROFILE: ${{ secrets.AZURE_TRUSTED_SIGNING_CERT_PROFILE_NAME }}
+        run: |
+          $root = Join-Path $env:RUNNER_TEMP 'inno-sign'
+          New-Item -ItemType Directory -Force -Path $root | Out-Null
+          $packages = @(
+            @{ Id = 'microsoft.windows.sdk.buildtools'; Version = '10.0.26100.4188'; Sha256 = '180deb372659029864c10a0c04787833234d64aacd1d2c0661d2c00295d8e022' },
+            @{ Id = 'microsoft.artifactsigning.client'; Version = '1.0.128';         Sha256 = '74bd7d27e6ce1051409c38d9b46bc8df0400ecd643d51ffbf2ac00869061e40b' }
+          )
+          foreach ($pkg in $packages) {
+            # .zip, not .nupkg: Expand-Archive refuses any other extension.
+            $zip = Join-Path $root "$($pkg.Id).zip"
+            Invoke-WebRequest -Uri "https://api.nuget.org/v3-flatcontainer/$($pkg.Id)/$($pkg.Version)/$($pkg.Id).$($pkg.Version).nupkg" -OutFile $zip
+            $hash = (Get-FileHash -Algorithm SHA256 $zip).Hash.ToLowerInvariant()
+            if ($hash -ne $pkg.Sha256) { throw "$($pkg.Id) $($pkg.Version): sha256 $hash does not match the pinned $($pkg.Sha256)" }
+            Expand-Archive -Path $zip -DestinationPath (Join-Path $root $pkg.Id) -Force
+          }
+          $signtool = Join-Path $root 'microsoft.windows.sdk.buildtools\bin\10.0.26100.0\x64\signtool.exe'
+          $dlib = Join-Path $root 'microsoft.artifactsigning.client\bin\x64\Azure.CodeSigning.Dlib.dll'
+          foreach ($f in $signtool, $dlib) { if (-not (Test-Path $f)) { throw "Not found after extraction: $f" } }
+
+          # Only EnvironmentCredential is left enabled: the service principal
+          # arrives through AZURE_* env on the ISCC step, and every other
+          # DefaultAzureCredential probe is a slow, noisy dead end on a runner.
+          $metadata = Join-Path $root 'metadata.json'
+          @{
+            Endpoint               = $env:SIGN_ENDPOINT.Trim()
+            CodeSigningAccountName = $env:SIGN_ACCOUNT.Trim()
+            CertificateProfileName = $env:SIGN_PROFILE.Trim()
+            ExcludeCredentials     = @(
+              'ManagedIdentityCredential', 'WorkloadIdentityCredential',
+              'SharedTokenCacheCredential', 'VisualStudioCredential',
+              'VisualStudioCodeCredential', 'AzureCliCredential',
+              'AzurePowerShellCredential', 'AzureDeveloperCliCredential',
+              'InteractiveBrowserCredential'
+            )
+          } | ConvertTo-Json | Set-Content -Path $metadata -Encoding utf8NoBOM
+
+          Add-Content -Path $env:GITHUB_ENV -Value "INNO_SIGNTOOL=$signtool"
+          Add-Content -Path $env:GITHUB_ENV -Value "INNO_SIGN_DLIB=$dlib"
+          Add-Content -Path $env:GITHUB_ENV -Value "INNO_SIGN_METADATA=$metadata"
+
+      # /DSign turns on SignTool=hark in hark.iss; /Shark= defines that command.
+      # ISCC runs it for the embedded engine, the uninstaller and the final
+      # setup.exe, and fails the compile if any of them fails. The AZURE_* env
+      # here is read by the dlib's EnvironmentCredential in each signtool child;
+      # unlike the action's with: inputs, a plain process inherits step env.
+      # Built with single quotes so pwsh leaves Inno's $q and $f alone.
+      - name: Build and sign the installer
+        shell: pwsh
+        env:
+          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
         run: |
           $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
           if (-not (Test-Path $iscc)) { throw "ISCC not found at $iscc" }
+          $sign = '$q' + $env:INNO_SIGNTOOL + '$q sign /v /fd SHA256' +
+                  ' /tr http://timestamp.acs.microsoft.com /td SHA256' +
+                  ' /dlib $q' + $env:INNO_SIGN_DLIB + '$q' +
+                  ' /dmdf $q' + $env:INNO_SIGN_METADATA + '$q $f'
           & $iscc `
             "/DAppVersion=${{ needs.version.outputs.version }}" `
             "/DSourceExe=${{ github.workspace }}\target\release\hark-app.exe" `
+            "/DSign" `
+            "/Shark=$sign" `
             installer\hark.iss
           if ($LASTEXITCODE -ne 0) { throw "ISCC failed with exit code $LASTEXITCODE" }
           $out = "installer\Output\Hark-${{ needs.version.outputs.version }}-windows-x64-setup.exe"
           if (-not (Test-Path $out)) { throw "Installer not produced at $out" }
-
-      # v2 reads the service principal from its own inputs, same as the exe
-      # sign step; passing them via env: does not reach DefaultAzureCredential.
-      - name: Sign the installer with Azure Trusted Signing
-        uses: Azure/artifact-signing-action@c7ab2a863ab5f9a846ddb8265964877ef296ee82 # v2.0.0
-        with:
-          azure-tenant-id: ${{ secrets.AZURE_TENANT_ID }}
-          azure-client-id: ${{ secrets.AZURE_CLIENT_ID }}
-          azure-client-secret: ${{ secrets.AZURE_CLIENT_SECRET }}
-          endpoint: ${{ secrets.AZURE_TRUSTED_SIGNING_ENDPOINT }}
-          signing-account-name: ${{ secrets.AZURE_TRUSTED_SIGNING_ACCOUNT_NAME }}
-          certificate-profile-name: ${{ secrets.AZURE_TRUSTED_SIGNING_CERT_PROFILE_NAME }}
-          files-folder: ${{ github.workspace }}\installer\Output
-          files-folder-filter: exe
-          files-folder-recurse: false
-          file-digest: SHA256
-          timestamp-rfc3161: http://timestamp.acs.microsoft.com
-          timestamp-digest: SHA256
 
       # A silent no-op signing step must fail the build, not ship unsigned.
       - name: Verify the installer signature
@@ -377,6 +437,44 @@ jobs:
           Write-Host "Signer: $($sig.SignerCertificate.Subject)"
           if ($sig.Status -ne 'Valid') { throw "Installer signature not valid: $($sig.Status) - $($sig.StatusMessage)" }
           if (-not $sig.TimeStamperCertificate) { throw "Installer signature carries no trusted timestamp." }
+
+      # The check above passes for a setup.exe whose engine is unsigned -- it
+      # did for every release through 0.60.5 -- because it only sees the
+      # loader. So run the installer for real (per-user, no UAC) and inspect
+      # what it executes: the engine is copied out of %TEMP% while its process
+      # is running, which guarantees the loader has finished writing it, and
+      # unins000.exe is read after the install. Both must carry a valid,
+      # timestamped signature from the same publisher as setup.exe.
+      - name: Verify the setup engine and uninstaller signatures
+        shell: pwsh
+        run: |
+          $installer = (Resolve-Path "installer\Output\Hark-${{ needs.version.outputs.version }}-windows-x64-setup.exe").Path
+          $publisher = (Get-AuthenticodeSignature $installer).SignerCertificate.Subject
+          $dir = Join-Path $env:RUNNER_TEMP 'hark-install-check'
+          # .exe, not .tmp, so WinVerifyTrust picks the PE subject package.
+          $engine = Join-Path $env:RUNNER_TEMP 'hark-setup-engine.exe'
+
+          $proc = Start-Process -FilePath $installer -PassThru `
+            -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', "/DIR=$dir"
+          $null = $proc.Handle  # without this, ExitCode reads back empty
+          while (-not $proc.HasExited) {
+            if (-not (Test-Path $engine)) {
+              $running = Get-Process -ErrorAction SilentlyContinue |
+                Where-Object { $_.Path -like '*\is-*.tmp\*.tmp' } | Select-Object -First 1
+              if ($running) { Copy-Item -LiteralPath $running.Path -Destination $engine -ErrorAction SilentlyContinue }
+            }
+            Start-Sleep -Milliseconds 25
+          }
+          if ($proc.ExitCode -ne 0) { throw "Silent install exited with $($proc.ExitCode)" }
+          if (-not (Test-Path $engine)) { throw "Never saw the extracted setup engine running, so its signature is unverified." }
+
+          foreach ($file in $engine, (Join-Path $dir 'unins000.exe')) {
+            $sig = Get-AuthenticodeSignature $file
+            Write-Host "$(Split-Path $file -Leaf): $($sig.Status) / $($sig.SignerCertificate.Subject)"
+            if ($sig.Status -ne 'Valid') { throw "$file is not validly signed: $($sig.Status) - $($sig.StatusMessage)" }
+            if (-not $sig.TimeStamperCertificate) { throw "$file carries no trusted timestamp." }
+            if ($sig.SignerCertificate.Subject -ne $publisher) { throw "$file is signed by '$($sig.SignerCertificate.Subject)', not the installer's publisher." }
+          }
 
       # The installer is the only Windows download now. A portable copy of the
       # raw exe used to ship beside it, and it is deliberately gone: it was a

@@ -24,8 +24,13 @@ Updates now download this installer and run it (`hark-update`).
    fails before building.
 3. The workflow builds `hark-app` in release and signs the exe, then packages
    it into a per-user installer (Inno Setup, installed on the runner via
-   `choco install innosetup`) and signs the installer too. Both signatures are
-   verified (valid + timestamped). It publishes a GitHub release named
+   `choco install innosetup`). ISCC signs the installer itself while compiling
+   (its `SignTool`, via signtool + the Artifact Signing dlib), which is the only
+   way the setup engine that setup.exe extracts to `%TEMP%` gets signed; a
+   signature added afterwards covers the outer loader only, and Smart App
+   Control then blocks the engine. CI runs the installer silently and checks
+   that the extracted engine and `unins000.exe` are signed too. Every
+   signature must be valid and timestamped. It publishes a GitHub release named
    `Hark <version>` with `Hark-<version>-windows-x64-setup.exe` attached — the
    only Windows download — plus auto-generated notes.
 

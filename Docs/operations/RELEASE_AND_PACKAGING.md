@@ -37,9 +37,9 @@ graph TD
     C -->|"Yes"| E["cargo build release hark-app"]
     E --> F["Sign hark-app.exe"]
     F --> G["Verify exe signature"]
-    G --> H["Build installer with ISCC"]
-    H --> I["Sign installer.exe"]
-    I --> J["Verify installer signature"]
+    G --> H["ISCC builds and signs installer, engine, uninstaller"]
+    H --> I["Verify installer signature"]
+    I --> J["Silent install: verify engine and uninstaller signatures"]
     J --> K["Publish GitHub release"]
 ```
 
@@ -136,8 +136,9 @@ The Windows job's steps, in order:
 | Preflight signing secrets | Checks each Azure secret's trimmed length and throws if any is empty, so a misconfigured secret fails with a clear message instead of an opaque `SignerSign()` error deep in signtool ([release.yml:266-297](../../.github/workflows/release.yml#L266-L297)) |
 | Sign `hark-app.exe` | Azure Trusted Signing against `target\release`, SHA256 digest, RFC3161 timestamp ([release.yml:298-314](../../.github/workflows/release.yml#L298-L314)) |
 | Verify the signature | `Get-AuthenticodeSignature`; throws unless `Status -eq 'Valid'` and a timestamper certificate is present ([release.yml:315-327](../../.github/workflows/release.yml#L315-L327)) |
-| Install Inno Setup + build installer | `choco install innosetup`, then invokes `ISCC.exe` with `/DAppVersion` and `/DSourceExe` pointing at the already-signed exe ([release.yml:328-345](../../.github/workflows/release.yml#L328-L345)) |
-| Sign and verify the installer | Same Azure signing action and `Get-AuthenticodeSignature` check, now against `installer\Output` ([release.yml:346-379](../../.github/workflows/release.yml#L346-L379)) |
+| Install Inno Setup + set up signtool | `choco install innosetup`, then downloads signtool (`Microsoft.Windows.SDK.BuildTools`) and the Artifact Signing dlib (`Microsoft.ArtifactSigning.Client`), each pinned by version and sha256, and writes the dlib's `metadata.json` ([release.yml](../../.github/workflows/release.yml)) |
+| Build and sign the installer | Invokes `ISCC.exe` with `/DAppVersion`, `/DSourceExe` (the already-signed exe), `/DSign` and `/Shark=<signtool command>`. ISCC signs the embedded setup engine, the uninstaller and the final setup.exe during compilation ([release.yml](../../.github/workflows/release.yml), `installer/hark.iss`) |
+| Verify the installer | `Get-AuthenticodeSignature` on setup.exe, then a real silent per-user install that copies the extracted engine (`is-*.tmp\*.tmp`) while it runs and reads `unins000.exe` afterwards; both must be valid, timestamped and signed by the installer's publisher ([release.yml](../../.github/workflows/release.yml)) |
 | Stage the signed installer | Resolves the installer path and fails fast if it is missing; no portable copy is made any more ([release.yml:380-389](../../.github/workflows/release.yml#L380-L389)) |
 | Attach to the release | `softprops/action-gh-release`, uploading the installer alone. No `name` or `generate_release_notes`: the `version` job set both, and repeating them here would overwrite the body every time an asset lands ([release.yml:391-395](../../.github/workflows/release.yml#L391-L395)) |
 
@@ -153,7 +154,7 @@ if ($version -ne $pkg) {
 
 Sources: [release.yml:114-118](../../.github/workflows/release.yml#L114-L118)
 
-The exe is signed **before** `ISCC` packages it, and the installer is signed again **after** packaging, so both the bundled binary and the setup wrapper carry valid Authenticode signatures ([release.yml:298-379](../../.github/workflows/release.yml#L298-L379)).
+The exe is signed **before** `ISCC` packages it, and the installer is signed **by** `ISCC` while it compiles. Signing the finished setup.exe afterwards is not enough: setup.exe is a loader that extracts the real setup engine to `%TEMP%\is-XXXXX.tmp\<name>.tmp` and runs it, and a post-compile signature never reaches that engine. Through 0.60.5 the engine shipped unsigned, and Smart App Control blocked it on every install and in-app update, even though the setup.exe signature check passed ([release.yml:298-379](../../.github/workflows/release.yml#L298-L379)).
 
 Sources: [ci.yml:1-102](../../.github/workflows/ci.yml#L1-L102), [release.yml:54-704](../../.github/workflows/release.yml#L54-L704)
 <!-- END:AUTOGEN hark_13_release_packaging_workflow -->
