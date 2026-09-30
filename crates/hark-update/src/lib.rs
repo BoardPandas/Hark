@@ -147,7 +147,8 @@ impl ReleaseInfo {
 
     /// Whether this release includes the native installer for this machine.
     pub fn has_installable_asset(&self) -> bool {
-        !self.asset_url.is_empty() && self.asset_name.ends_with(platform_asset_suffix())
+        !self.asset_url.is_empty()
+            && platform_asset_suffix().is_some_and(|suffix| self.asset_name.ends_with(suffix))
     }
 }
 
@@ -199,7 +200,7 @@ pub fn check(
     let asset = release
         .assets
         .iter()
-        .find(|a| a.name.ends_with(platform_asset_suffix()));
+        .find(|a| platform_asset_suffix().is_some_and(|suffix| a.name.ends_with(suffix)));
     log::info!(
         "update check: {latest} available (running {current}); platform asset: {}",
         asset.is_some()
@@ -314,7 +315,7 @@ pub fn self_install_supported() -> bool {
     #[cfg(target_os = "macos")]
     {
         static SUPPORTED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-        *SUPPORTED.get_or_init(macos::self_install_supported)
+        cfg!(target_arch = "aarch64") && *SUPPORTED.get_or_init(macos::self_install_supported)
     }
     #[cfg(not(target_os = "macos"))]
     {
@@ -322,13 +323,11 @@ pub fn self_install_supported() -> bool {
     }
 }
 
-fn platform_asset_suffix() -> &'static str {
-    if cfg!(all(target_os = "macos", target_arch = "aarch64")) {
-        "-macos-arm64.dmg"
-    } else if cfg!(target_os = "macos") {
-        "-macos-x64.dmg"
+fn platform_asset_suffix() -> Option<&'static str> {
+    if cfg!(target_os = "macos") {
+        cfg!(target_arch = "aarch64").then_some("-macos-arm64.dmg")
     } else {
-        WINDOWS_ASSET_SUFFIX
+        Some(WINDOWS_ASSET_SUFFIX)
     }
 }
 
@@ -506,18 +505,20 @@ mod tests {
     #[test]
     fn platform_picker_rejects_other_architectures() {
         let mut release = info(true);
-        release.asset_name = format!("Hark-9.9.9{}", platform_asset_suffix());
-        assert!(release.has_installable_asset());
+        if let Some(suffix) = platform_asset_suffix() {
+            release.asset_name = format!("Hark-9.9.9{suffix}");
+            assert!(release.has_installable_asset());
+        } else {
+            release.asset_name = "Hark-9.9.9-macos-arm64.dmg".into();
+            assert!(!release.has_installable_asset());
+        }
         release.asset_name = "Hark-9.9.9-linux-x64.deb".into();
         assert!(!release.has_installable_asset());
         if cfg!(target_os = "macos") {
             release.asset_name = "Hark-9.9.9-windows-x64-setup.exe".into();
             assert!(!release.has_installable_asset());
-            release.asset_name = if cfg!(target_arch = "aarch64") {
-                "Hark-9.9.9-macos-x64.dmg".into()
-            } else {
-                "Hark-9.9.9-macos-arm64.dmg".into()
-            };
+            // Obsolete Intel assets must never be selected for a Mac update.
+            release.asset_name = "Hark-9.9.9-macos-x64.dmg".into();
             assert!(!release.has_installable_asset());
         }
     }

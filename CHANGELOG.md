@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.60.4] - 2026-09-30
+
+### Changed
+
+- Mac support now targets Apple Silicon (ARM64) only. Removed Intel Mac CI and release builds; Mac packaging and automatic updates accept only ARM64 assets. macOS 14.2 remains the minimum version.
+
 ## [0.60.3] - 2026-09-30
 
 ### Fixed

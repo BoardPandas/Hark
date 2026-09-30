@@ -1,5 +1,12 @@
 # Generation Metadata
 
+## Apple Silicon-only Mac distribution — 2026-09-30 (0.60.4)
+
+- **Scope:** per the owner's request, Mac support now targets ARM64 only. Removed the Intel CI runner and release matrix entry; packaging rejects other requested architectures and the updater no longer selects Intel Mac assets. Updated current installation, distribution and updater guidance; earlier Intel validation notes below describe historical scope.
+- **Source reviewed:** `981eb05` plus the workflows, Mac packager and updater selection changes. Windows and Linux platform jobs and asset behavior are preserved.
+- **Validation:** native Apple Silicon formatting and full workspace Clippy pass; 1,036 workspace tests pass, zero fail, one optional model-fixture test is ignored. Workflow YAML parses and asserts one ARM Mac runner; the packager rejects an Intel request and successfully builds an ARM app/DMG whose executable reports 0.60.4. Documentation and wiring guards pass. Signed publication is verified separately by the tagged release workflow.
+- **Baseline policy:** global baseline `784272c` remains unchanged.
+
 ## Native macOS CI repair — 2026-09-30 (0.60.3)
 
 - **Source reviewed:** `3d42023` plus the Windows-only probe imports/functions and Windows/Linux-only watcher cleanup. The Mac Core Audio probe and unsupported registry-watcher polling fallback remain in place.

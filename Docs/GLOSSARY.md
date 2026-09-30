@@ -79,6 +79,7 @@ engines; production AEC remains disabled pending listening/build/alignment work.
 ## Mac native integration
 
 - **CGEventTap:** Quartz’s keyboard event stream, used by Hark for held shortcuts, shortcut recording and meeting toggles. It runs on a dedicated Core Foundation run loop.
+- **Apple Silicon / ARM64:** the supported Mac processor architecture. Hark publishes `-macos-arm64.dmg` installers for Apple Silicon Macs running macOS 14.2 or later.
 - **Core Audio process tap:** macOS 14.2+ capture of selected processes or the system mix, used for the meeting’s Them track.
 - **TCC permissions:** macOS user approvals for microphone access, global input observation, text insertion and system audio/screen capture. These are separate from an app’s code signature.
 - **Developer ID and notarization:** the publisher signature and Apple assessment required by Hark’s production Mac package and self-update verification; ad-hoc development signatures are not an update trust anchor.

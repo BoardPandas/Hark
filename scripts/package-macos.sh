@@ -3,11 +3,11 @@
 # Ad-hoc signing is for local/CI inspection only; release mode requires notarization.
 set -euo pipefail
 root=$(cd "$(dirname "$0")/.." && pwd)
-binary=${1:?Usage: package-macos.sh BINARY OUTPUT_DIRECTORY VERSION arm64-or-x64}
+binary=${1:?Usage: package-macos.sh BINARY OUTPUT_DIRECTORY VERSION arm64}
 output=${2:?Missing output directory}
 version=${3:?Missing version}
 arch=${4:?Missing architecture}
-case "$arch" in arm64|x64) ;; *) echo 'Expected arm64 or x64' >&2; exit 1 ;; esac
+[[ "$arch" == arm64 ]] || { echo 'Only Apple Silicon (arm64) Mac packages are supported' >&2; exit 1; }
 [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo 'Expected a release SemVer' >&2; exit 1; }
 identity=${MACOS_SIGNING_IDENTITY:--}
 if [[ "${HARK_RELEASE:-0}" == 1 ]]; then
@@ -40,12 +40,10 @@ while IFS= read -r dependency; do
         echo "Unbundled native dependency: $dependency" >&2; exit 1 ;;
     esac
 done < <(printf '%s\n' "$linked" | tail -n +2 | awk '{print $1}')
-expected=arm64
-[[ "$arch" == x64 ]] && expected=x86_64
 # Keep the input before -verify_arch: Xcode 16 consumes every following
 # argument as an architecture, including a trailing executable path.
-/usr/bin/lipo "$app/Contents/MacOS/hark-app" -verify_arch "$expected" || {
-    echo "Executable does not contain the requested $expected architecture" >&2; exit 1;
+/usr/bin/lipo "$app/Contents/MacOS/hark-app" -verify_arch arm64 || {
+    echo "Executable does not contain the required arm64 architecture" >&2; exit 1;
 }
 /usr/bin/plutil -lint "$app/Contents/Info.plist" "$root/packaging/macos/entitlements.plist"
 sign_args=(--force --sign "$identity" --options runtime --entitlements "$root/packaging/macos/entitlements.plist")

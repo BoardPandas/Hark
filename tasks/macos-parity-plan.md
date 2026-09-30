@@ -34,3 +34,7 @@ Build the full default-feature Mac app and bundle/DMG; add Mac CI alongside Wind
 The native backends and application integration are implemented. Apple Silicon `cargo build --release -p hark-app`, 1,035 workspace tests (one pre-existing downloaded-model test ignored), strict workspace Clippy, formatting, wiring and documentation checks pass. `dist/Hark.app` and `dist/Hark-0.58.0-macos-arm64.dmg` are local ad-hoc signed artifacts. The packaged executable starts with `--version`; signature structure, framework closure and DMG checksums pass.
 
 Production signing/notarization requires Apple credentials. Interactive permission, microphone, real-call capture, focus/Spaces, login and signed-update acceptance remain unverified. Intel CI is configured but was not executed locally. Caps Lock and keys without Quartz held-key mappings are explicitly rejected on Mac; use Control + Command or another supported chord.
+
+## Supported Mac architecture — 2026-09-30
+
+The owner narrowed Mac support to Apple Silicon (ARM64). Intel Mac CI, release packaging and updater asset selection are removed in 0.60.4; earlier Intel acceptance notes above are historical. macOS 14.2 remains the minimum.

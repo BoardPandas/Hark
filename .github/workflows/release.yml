@@ -821,17 +821,9 @@ jobs:
 
 
   macos:
-    name: macOS (${{ matrix.arch }}, signed + notarized)
+    name: macOS (arm64, signed + notarized)
     needs: version
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - os: macos-15
-            arch: arm64
-          - os: macos-15-intel
-            arch: x64
+    runs-on: macos-15
     env:
       MACOSX_DEPLOYMENT_TARGET: "14.2"
     steps:
@@ -844,7 +836,7 @@ jobs:
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
-          key: macos-release-${{ matrix.arch }}
+          key: macos-release-arm64
       - name: Reset sherpa native cache
         run: |
           cargo clean --package sherpa-onnx-sys
@@ -886,7 +878,7 @@ jobs:
           MACOS_NOTARY_KEYCHAIN: ${{ runner.temp }}/hark-signing.keychain-db
           HARK_RELEASE: "1"
           VERSION: ${{ needs.version.outputs.version }}
-          ARCH: ${{ matrix.arch }}
+          ARCH: arm64
         run: bash scripts/package-macos.sh target/release/hark-app dist "$VERSION" "$ARCH"
       - name: Verify packaged executable starts
         env:
@@ -898,7 +890,7 @@ jobs:
           GH_REPO: ${{ github.repository }}
           TAG: ${{ needs.version.outputs.tag }}
           VERSION: ${{ needs.version.outputs.version }}
-          ARCH: ${{ matrix.arch }}
+          ARCH: arm64
         run: gh release upload "$TAG" "dist/Hark-$VERSION-macos-$ARCH.dmg" --clobber
       - name: Remove signing credentials
         if: always()

@@ -71,7 +71,7 @@ The tray daemon owns the hot path (hotkey, audio, STT, injection). The settings/
 
 ## macOS
 
-Use macOS 14.2 or later on Apple Silicon or Intel. Build and package with the [Mac instructions](packaging/macos/README.md). The default shortcut is Control + Command. Grant Microphone, Input Monitoring and Accessibility in Settings → General → Permissions, then retry dictation. Meetings requests separate system-audio permission; browser call detection may also need Screen Recording access to read window titles. Caps Lock and unmapped Windows keys cannot be used as held Mac shortcuts.
+Use macOS 14.2 or later on Apple Silicon (ARM64). Build and package with the [Mac instructions](packaging/macos/README.md). The default shortcut is Control + Command. Grant Microphone, Input Monitoring and Accessibility in Settings → General → Permissions, then retry dictation. Meetings requests separate system-audio permission; browser call detection may also need Screen Recording access to read window titles. Caps Lock and unmapped Windows keys cannot be used as held Mac shortcuts.
 
 Developer builds use an ad-hoc signature. Public distribution and self-updates require a Developer ID signed, notarized bundle.
 

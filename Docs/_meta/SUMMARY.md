@@ -479,3 +479,8 @@ The AI review workflows for 0.50.5 through 0.53.0 skipped their review because
 - Fixed strict Mac lint failures by excluding Windows-only probe imports/functions and real-worker cleanup from the Mac stub path. Preserved Core Audio snapshots and the polling fallback.
 - Reconciled all-platform meeting, shortcut, export and capture descriptions; source mappings now track the renamed audio/probe backends. Four affected pages preserve their AUTOGEN marker sequences, and all new mapped source paths resolve.
 - Native Apple Silicon: formatting and workspace Clippy pass; 1,036 workspace tests pass with one optional model test ignored. Both npm guards and six guard tests pass. Exact-revision cross-platform CI and signed release publication are still pending at this snapshot.
+
+## Apple Silicon-only Mac distribution — 2026-09-30 (0.60.4)
+
+- The owner removed Intel Mac support. CI and release packaging now use one Apple Silicon runner; the packager rejects Intel requests and the updater accepts only ARM64 Mac assets.
+- Native ARM checks pass: formatting, full workspace Clippy, 1,036 tests (one optional fixture ignored), workflow YAML validation, both npm guards, and app/DMG packaging with an executable version smoke check. Earlier Intel acceptance notes are historical; Windows/Linux release targets remain unchanged.
