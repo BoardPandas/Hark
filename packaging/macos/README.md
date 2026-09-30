@@ -12,7 +12,7 @@ Build and package locally on each architecture:
 
 ```sh
 MACOSX_DEPLOYMENT_TARGET=14.2 cargo build --release -p hark-app
-bash scripts/package-macos.sh target/release/hark-app dist 0.59.0 arm64
+bash scripts/package-macos.sh target/release/hark-app dist 0.59.1 arm64
 ```
 
 Use the workspace's current version and `x64` on Intel. This produces an ad-hoc

@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.59.1] - 2026-09-29
+
+### Fixed
+
+- Mac app packaging now passes architecture validation on the Xcode 16 CI runners for Apple Silicon and Intel.
+
 ## [0.59.0] - 2026-09-29
 
 ### Added

@@ -42,7 +42,9 @@ while IFS= read -r dependency; do
 done < <(printf '%s\n' "$linked" | tail -n +2 | awk '{print $1}')
 expected=arm64
 [[ "$arch" == x64 ]] && expected=x86_64
-/usr/bin/lipo -verify_arch "$expected" "$app/Contents/MacOS/hark-app" || {
+# Keep the input before -verify_arch: Xcode 16 consumes every following
+# argument as an architecture, including a trailing executable path.
+/usr/bin/lipo "$app/Contents/MacOS/hark-app" -verify_arch "$expected" || {
     echo "Executable does not contain the requested $expected architecture" >&2; exit 1;
 }
 /usr/bin/plutil -lint "$app/Contents/Info.plist" "$root/packaging/macos/entitlements.plist"
