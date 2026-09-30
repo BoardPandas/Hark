@@ -9,7 +9,7 @@
 //! `is_connect()`/`is_timeout()` both false, breaking the error taxonomy. A
 //! buffered body keeps transport errors classifiable (and the assembly testable).
 
-use crate::error::{error_for_status, error_for_transport, truncate_snippet, SttError};
+use crate::error::{error_for_status, error_for_transport, json_error_detail, SttError};
 use crate::{ProviderConfig, SttProvider, Transcript, TOTAL_TIMEOUT_MS};
 use reqwest::blocking::Client;
 use std::time::Instant;
@@ -142,7 +142,7 @@ pub fn parse_response(provider: &str, body: &str) -> Result<String, SttError> {
         .map(|r| r.text)
         .map_err(|e| SttError::Provider {
             provider: provider.to_string(),
-            detail: format!("unexpected response body ({e}): {}", truncate_snippet(body)),
+            detail: json_error_detail("unexpected response body", &e),
         })
 }
 

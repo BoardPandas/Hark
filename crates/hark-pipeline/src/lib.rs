@@ -10,6 +10,8 @@
 
 mod events;
 mod foreground;
+mod input;
+mod lifecycle;
 mod local;
 pub mod meeting;
 mod retry;
@@ -71,6 +73,7 @@ pub struct PipelineHandle {
     level: Arc<LevelMeter>,
     /// True exactly while a dictation is capturing audio.
     recording: Arc<AtomicBool>,
+    control: Arc<lifecycle::RunControl>,
     _capture: hark_audio::CaptureHandle,
 }
 
@@ -122,13 +125,14 @@ impl PipelineHandle {
 
 impl Drop for PipelineHandle {
     fn drop(&mut self) {
+        self.control.cancel();
         // Stop the hook thread; its exit drops the sender, which ends the
         // worker's receive loop.
         drop(self.listener.take());
         if let Some(w) = self.worker.take() {
             if !join_within(w, &self.worker_done, WORKER_SHUTDOWN_GRACE) {
-                // Abandoning it is safe: its key channel is already closed, so
-                // it exits as soon as the dictation it is in returns.
+                // A late provider result cannot start further work or inject.
+                // An already admitted paste may finish restoring its clipboard.
                 log::warn!(
                     "pipeline worker still inside a dictation after {} ms; not waiting for it",
                     WORKER_SHUTDOWN_GRACE.as_millis()
@@ -522,6 +526,9 @@ fn run_inner(
     };
 
     let recording = Arc::new(AtomicBool::new(false));
+    let control = Arc::new(lifecycle::RunControl::default());
+    let ptt_rx = input::route(ptt_rx, consumer.reader(), control.clone())
+        .map_err(|e| PipelineError::Config(format!("cannot start dictation input: {e}")))?;
     let w = worker::Worker {
         consumer,
         sample_rate,
@@ -549,6 +556,7 @@ fn run_inner(
         track_apps: settings.insights.track_apps,
         events,
         recording: recording.clone(),
+        control: control.clone(),
         discontinuities,
     };
     let (done_tx, worker_done) = mpsc::channel();
@@ -567,6 +575,7 @@ fn run_inner(
         worker_done,
         level,
         recording,
+        control,
         _capture: capture,
     })
 }

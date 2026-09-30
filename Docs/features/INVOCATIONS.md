@@ -120,6 +120,7 @@ The regression test gives its `MockCleaner` an **empty script**, so any call to 
 **Accepted cost:** an `Anywhere` trigger inside a longer sentence means that whole dictation loses its cleanup pass, so filler words around the inserted text survive as spoken. The editor states this next to the scope control rather than leaving it to be discovered ([editor.rs:176-186](https://github.com/BoardPandas/Hark/blob/bcfcc3fef6f02252870fc3f06440d99992818ade/crates/hark-app/src/ui/invocations/editor.rs#L176-L186)).
 
 Sources: [worker.rs:218-270](https://github.com/BoardPandas/Hark/blob/bcfcc3fef6f02252870fc3f06440d99992818ade/crates/hark-pipeline/src/worker.rs#L218-L270), [worker.rs:349-395](https://github.com/BoardPandas/Hark/blob/bcfcc3fef6f02252870fc3f06440d99992818ade/crates/hark-pipeline/src/worker.rs#L349-L395), [editor.rs:158-187](https://github.com/BoardPandas/Hark/blob/bcfcc3fef6f02252870fc3f06440d99992818ade/crates/hark-app/src/ui/invocations/editor.rs#L158-L187)
+A fired expansion also passes through cancellation admission immediately before injection. Stopping the pipeline while transcription or cleanup is outstanding prevents a late paste, including canned text. A live failure still consumes the single replay budget; none of these lifecycle checks rewrite an expansion or enable cleanup for it ([worker](../../crates/hark-pipeline/src/worker.rs), [injection admission](../../crates/hark-pipeline/src/lifecycle.rs), [live attempt accounting](../../crates/hark-pipeline/src/stream.rs)).
 <!-- END:AUTOGEN hark_08b_invocations_cleanup -->
 
 ---

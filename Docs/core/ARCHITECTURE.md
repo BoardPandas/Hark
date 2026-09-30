@@ -9,6 +9,8 @@ The following files were used as evidence for this page:
 - [crates/hark-app/src/pipeline.rs](../../crates/hark-app/src/pipeline.rs)
 - [crates/hark-pipeline/src/lib.rs](../../crates/hark-pipeline/src/lib.rs)
 - [crates/hark-pipeline/src/worker.rs](../../crates/hark-pipeline/src/worker.rs)
+- [crates/hark-pipeline/src/input.rs](../../crates/hark-pipeline/src/input.rs)
+- [crates/hark-pipeline/src/lifecycle.rs](../../crates/hark-pipeline/src/lifecycle.rs)
 - [crates/hark-pipeline/src/stream.rs](../../crates/hark-pipeline/src/stream.rs)
 - [crates/hark-pipeline/src/state.rs](../../crates/hark-pipeline/src/state.rs)
 - [crates/hark-pipeline/src/events.rs](../../crates/hark-pipeline/src/events.rs)
@@ -64,7 +66,8 @@ graph TD
     C -->|"start/stop"| F
     D -->|"ring buffer"| F
     E -->|"ShortcutEvent"| J["Shortcut dispatcher"]
-    J -->|"PttEvent"| F
+    J -->|"PttEvent"| K["Dictation input observer"]
+    K -->|"accepted edge + sample index"| F
     J -->|"MeetingToggle + wake_ui"| C
     F -->|"PipelineEvent"| G
     G -->|"request_repaint"| A
@@ -100,6 +103,8 @@ so closure cannot skip that flush ([echo handling](../../crates/hark-pipeline/sr
 ## The Release-to-Inject Pipeline
 
 `hark_pipeline::run` builds the shared blocking HTTP client, cleanup plan, batch STT adapter, optional live adapter, continuous capture, native hook, and long-lived worker. A local-primary configuration is keyless and does not construct a cloud adapter; cloud-backed modes resolve their secret before the hook starts ([lib.rs](../../crates/hark-pipeline/src/lib.rs)).
+
+A small input worker observes edges independently of blocking transcription. It stamps accepted edges with the ring's current absolute position and reserves the entire hold/completion cycle before forwarding key-down. A hold begun while occupied stays rejected through release, even if the previous dictation finishes during that hold. Aborted and completed cycles reopen admission ([input](../../crates/hark-pipeline/src/input.rs), [lifecycle](../../crates/hark-pipeline/src/lifecycle.rs), [worker](../../crates/hark-pipeline/src/worker.rs)).
 
 With Gemini Live, key-down opens a live session and pumps resampled PCM from the ring while the user is speaking. The live path is only an accelerator: failure to open, send, keep up, or finish drops back to the ordinary batch path because streaming reads rather than consumes the ring ([stream.rs:1-25](../../crates/hark-pipeline/src/stream.rs#L1-L25), [stream.rs:44-130](../../crates/hark-pipeline/src/stream.rs#L44-L130)). Other providers begin at key-up.
 
@@ -149,7 +154,7 @@ The dictation cycle is a pure, total state machine: every `(state, event)` pair 
 | `Transcribing` | Release observed; live finalization, local STT, or batch STT is running | [state.rs:11](../../crates/hark-pipeline/src/state.rs#L11) |
 | `Injecting` | Text is ready and injection is running | [state.rs:12](../../crates/hark-pipeline/src/state.rs#L12) |
 
-Every state aborts directly to `Idle`. A duplicate down edge preserves the original sample index, and presses arriving while transcription or injection is in flight are ignored rather than queued ([state.rs:65-86](../../crates/hark-pipeline/src/state.rs#L65-L86)).
+Every state aborts directly to `Idle`. A duplicate down edge preserves the original sample index. The input observer rejects busy holds before queueing, because the synchronous worker cannot drain hotkeys during transcription or injection ([state](../../crates/hark-pipeline/src/state.rs), [input admission](../../crates/hark-pipeline/src/input.rs)).
 
 ```mermaid
 stateDiagram-v2
@@ -210,6 +215,7 @@ Latency is the product, so a dictation has one retry budget. Only timeouts and c
 A failed live session may fall back to batch, but that replay consumes the one retry. The batch helper has no loop and can make at most one additional call ([worker.rs:417-448](../../crates/hark-pipeline/src/worker.rs#L417-L448), [worker.rs:730-746](../../crates/hark-pipeline/src/worker.rs#L730-L746)). The shared client preserves connections across dictations, and streaming uploads most audio before release when available ([lib.rs](../../crates/hark-pipeline/src/lib.rs), [stream.rs:138-148](../../crates/hark-pipeline/src/stream.rs#L138-L148)).
 
 Sources: [retry.rs:1-27](../../crates/hark-pipeline/src/retry.rs#L1-L27), [worker.rs:417-448](../../crates/hark-pipeline/src/worker.rs#L417-L448), [worker.rs:730-746](../../crates/hark-pipeline/src/worker.rs#L730-L746), [stream.rs:138-148](../../crates/hark-pipeline/src/stream.rs#L138-L148)
+`LiveTurn` retains whether a session was attempted independently of its pump. A failed open or mid-hold send therefore permits one batch replay and no further batch retry. Cancellation is rechecked before retries, local fallback, cleanup, and injection; a response already in flight may finish but cannot start the next stage after cancellation ([stream](../../crates/hark-pipeline/src/stream.rs), [worker](../../crates/hark-pipeline/src/worker.rs)).
 <!-- END:AUTOGEN hark_02_architecture_retry -->
 
 ---
@@ -233,6 +239,7 @@ Every non-injecting outcome has an explicit `FailStage`. Details are display-saf
 `dictate_guarded` catches per-dictation panics, emits `Internal`, and returns the state machine to `Idle` rather than killing the long-lived worker ([worker.rs:285-320](../../crates/hark-pipeline/src/worker.rs#L285-L320)). Startup errors are separate: `PipelineController::start` maps a bad key, bad provider configuration, or capture failure to `Stopped`, leaving the application usable ([pipeline.rs](../../crates/hark-app/src/pipeline.rs)). Pipeline drop uses bounded joins so a stuck request cannot hold application shutdown forever ([lib.rs](../../crates/hark-pipeline/src/lib.rs)).
 
 Sources: [events.rs:42-97](../../crates/hark-pipeline/src/events.rs#L42-L97), [state.rs:46-87](../../crates/hark-pipeline/src/state.rs#L46-L87), [pipeline.rs](../../crates/hark-app/src/pipeline.rs), [worker.rs:285-320](../../crates/hark-pipeline/src/worker.rs#L285-L320), [lib.rs](../../crates/hark-pipeline/src/lib.rs)
+Drop marks the run cancelled before its bounded join. Injection admission and cancellation share an atomic state: cancellation that wins prevents clipboard mutation; an already-admitted paste finishes restoration. A worker-only mutex serializes paste transactions across old and new pipeline runs without making stop acquire that lock. Externally supplied input must close its sender before dropping the handle ([lifecycle](../../crates/hark-pipeline/src/lifecycle.rs), [pipeline handle](../../crates/hark-pipeline/src/lib.rs), [regressions](../../crates/hark-pipeline/src/worker/recovery_tests.rs)).
 <!-- END:AUTOGEN hark_02_architecture_failure -->
 
 ---

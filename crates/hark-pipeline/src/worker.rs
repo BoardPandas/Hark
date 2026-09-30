@@ -6,6 +6,7 @@ use crate::events::{DictationRecord, FailStage, PipelineEvent};
 use crate::local::{LocalPlan, Source, Transcriber};
 use crate::retry::should_retry;
 use crate::state::{advance, Action, Event, PipelineState};
+use crate::stream::LiveTurn;
 use hark_audio::ring::Consumer;
 use hark_audio::WindowParams;
 use hark_hotkey::PttEvent;
@@ -17,6 +18,9 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
+
+#[cfg(test)]
+mod recovery_tests;
 
 /// The resolved cleanup step: adapter, effective voice, and gate threshold.
 /// `None` on the worker means Verbatim (or degraded-to-Verbatim): no cleanup
@@ -82,6 +86,7 @@ pub(crate) struct Worker {
     /// published as state so the recording overlay can read it without waiting
     /// on a UI pass (`PipelineHandle::recording_flag`).
     pub recording: Arc<AtomicBool>,
+    pub control: Arc<crate::lifecycle::RunControl>,
     /// Capture discontinuities since the stream opened, from
     /// `CaptureHandle::discontinuities`. Monotonic: the worker samples it at
     /// both ends of a hold and reports the difference.
@@ -90,15 +95,16 @@ pub(crate) struct Worker {
 
 /// The one long-lived worker loop. Exits when the hotkey listener drops its
 /// sender (pipeline shutdown).
-pub(crate) fn run(mut worker: Worker, rx: Receiver<PttEvent>) {
+pub(crate) fn run(mut worker: Worker, rx: Receiver<crate::input::Edge>) {
     // Primary-mode never issues a cloud request, so warming a connection to a
     // provider we will not call would just be a pointless network round trip.
-    if worker.provider.is_some() {
+    if worker.provider.is_some() && !worker.control.is_cancelled() {
         prewarm(&worker.client, &worker.prewarm_url);
     }
     if let Some(url) = worker
         .cleanup
         .as_ref()
+        .filter(|_| !worker.control.is_cancelled())
         .and_then(|p| p.prewarm_url.as_deref())
     {
         prewarm(&worker.client, url);
@@ -110,21 +116,21 @@ pub(crate) fn run(mut worker: Worker, rx: Receiver<PttEvent>) {
     let mut discontinuities_at_down = 0u64;
     // The open live session, if this dictation is streaming. Dropped on every
     // path out of Recording, so a session can never outlive its dictation.
-    let mut pump: Option<crate::stream::LivePump> = None;
+    let mut live = LiveTurn::default();
     let mut foreground = None;
     loop {
+        if worker.control.is_cancelled() {
+            break;
+        }
         // While recording, wake regularly to push whatever the ring has
         // gained; otherwise block, so an idle Hark costs nothing.
-        let event = if matches!(state, PipelineState::Recording { .. }) && pump.is_some() {
+        let edge = if matches!(state, PipelineState::Recording { .. }) && live.pump.is_some() {
             match rx.recv_timeout(PUMP_INTERVAL) {
                 Ok(event) => event,
                 Err(RecvTimeoutError::Timeout) => {
-                    if let Some(p) = pump.as_mut() {
-                        // u64::MAX: send everything captured so far. The real
-                        // window end is only known at release.
-                        if let Err(e) = p.pump(u64::MAX) {
+                    if !worker.control.is_cancelled() {
+                        if let Err(e) = live.push_available() {
                             log::warn!("live stream failed mid-hold, falling back to batch: {e}");
-                            pump = None;
                         }
                     }
                     continue;
@@ -137,12 +143,13 @@ pub(crate) fn run(mut worker: Worker, rx: Receiver<PttEvent>) {
                 Err(_) => break,
             }
         };
-        // Correlate the edge with the audio clock at processing time. The
-        // pre-roll absorbs hook->worker latency; a Down processed late while
-        // a previous dictation was still in flight is ignored by the state
-        // machine (spec §3.19).
-        let at_abs = worker.consumer.total_written();
-        let ev = match event {
+        if worker.control.is_cancelled() {
+            break;
+        }
+        // The input observer timestamps and admits cycles even while this
+        // worker is blocked in a provider. Queue latency cannot crop speech.
+        let at_abs = edge.at_abs;
+        let ev = match edge.event {
             PttEvent::Down => Event::PttDown { at_abs },
             PttEvent::Up => Event::PttUp { at_abs },
             // A release the hook never saw (hark-hotkey's watchdog found the
@@ -197,15 +204,13 @@ pub(crate) fn run(mut worker: Worker, rx: Receiver<PttEvent>) {
                 // Open the session now so the handshake overlaps the hold
                 // rather than the release. `None` simply means no streaming
                 // for this dictation.
-                pump = worker.live.as_deref().and_then(|live| {
-                    crate::stream::LivePump::start(
-                        live,
-                        &worker.consumer,
-                        down_abs,
-                        worker.sample_rate,
-                        &worker.window,
-                    )
-                });
+                live = LiveTurn::start(
+                    worker.live.as_deref(),
+                    &worker.consumer,
+                    down_abs,
+                    worker.sample_rate,
+                    &worker.window,
+                );
             }
         }
         state = next;
@@ -217,15 +222,16 @@ pub(crate) fn run(mut worker: Worker, rx: Receiver<PttEvent>) {
                 down_abs,
                 up_abs,
                 state,
-                pump.take(),
+                std::mem::take(&mut live),
                 foreground.take(),
             );
         }
         // Any other way out of Recording (abort, abandoned hold) ends the
         // session too: an orphaned socket would keep billing and never inject.
         if !matches!(state, PipelineState::Recording { .. }) {
-            pump = None;
+            live = LiveTurn::default();
             foreground = None;
+            worker.control.finish_cycle();
         }
     }
     // The hook is gone; nothing is being captured. Belt and braces for an
@@ -262,8 +268,10 @@ fn prewarm(client: &reqwest::blocking::Client, url: &str) {
             started.elapsed().as_millis()
         ),
         Err(e) => log::warn!(
-            "http pre-warm failed after {} ms (first dictation will pay the cold cost): {e}",
-            started.elapsed().as_millis()
+            "http pre-warm failed after {} ms (timeout={}, connect={}); first dictation will pay the cold cost",
+            started.elapsed().as_millis(),
+            e.is_timeout(),
+            e.is_connect()
         ),
     }
 }
@@ -312,12 +320,20 @@ fn dictate_guarded(
     down_abs: u64,
     up_abs: u64,
     state: PipelineState,
-    pump: Option<crate::stream::LivePump>,
+    live: LiveTurn,
     foreground: Option<Receiver<Option<String>>>,
 ) -> PipelineState {
     let events = worker.events.clone();
     let attempt = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        dictate(worker, down_abs, up_abs, state, pump, foreground)
+        dictate(
+            worker,
+            down_abs,
+            up_abs,
+            state,
+            live,
+            foreground,
+            hark_inject::inject,
+        )
     }));
     match attempt {
         Ok(next) => next,
@@ -341,9 +357,13 @@ fn dictate(
     down_abs: u64,
     up_abs: u64,
     state: PipelineState,
-    pump: Option<crate::stream::LivePump>,
+    live: LiveTurn,
     foreground: Option<Receiver<Option<String>>>,
+    inject: impl FnOnce(&str, &InjectSettings) -> Result<(), hark_inject::InjectError>,
 ) -> PipelineState {
+    if worker.control.is_cancelled() {
+        return PipelineState::Idle;
+    }
     let released = Instant::now();
     // Cloned up front so reporting a failure does not hold a borrow of
     // `worker` across the transcription step, which needs `&mut` for the
@@ -390,8 +410,11 @@ fn dictate(
     // Finish the live session first, when there is one: most of this window is
     // already uploaded, so all that remains is the tail plus the provider's
     // finalise. Only if that fails does the clip need a WAV at all.
-    let streamed_attempt = pump.is_some();
-    let streamed = pump.and_then(|p| {
+    if worker.control.is_cancelled() {
+        return PipelineState::Idle;
+    }
+    let streamed_attempt = live.attempted;
+    let streamed = live.pump.and_then(|p| {
         let (_, end_abs) =
             hark_audio::window::window_bounds(down_abs, up_abs, worker.sample_rate, &worker.window);
         let window_len = end_abs.saturating_sub(
@@ -413,6 +436,10 @@ fn dictate(
             }
         }
     });
+
+    if worker.control.is_cancelled() {
+        return PipelineState::Idle;
+    }
 
     let encode_started = Instant::now();
     let wav = match (&streamed, &worker.provider) {
@@ -445,6 +472,7 @@ fn dictate(
         // too made three attempts, and against a stranded Gemini turn that
         // was 26 s with every keypress queued behind it.
         may_retry: !streamed_attempt,
+        control: &worker.control,
     };
     let (source, transcript) = match streamed {
         Some(transcript) => (Source::Cloud, transcript),
@@ -460,6 +488,9 @@ fn dictate(
             (outcome.source, outcome.transcript)
         }
     };
+    if worker.control.is_cancelled() {
+        return PipelineState::Idle;
+    }
     let state = advance(state, Event::TranscriptReady).0;
 
     if transcript.text.trim().is_empty() {
@@ -487,6 +518,9 @@ fn dictate(
         .cleanup
         .as_ref()
         .filter(|_| should_run_cleanup(expanded.fired.is_some(), provider_cleaned));
+    if worker.control.is_cancelled() {
+        return PipelineState::Idle;
+    }
     let mut cleaned = cleaned_text(plan, &worker.corrector, expanded.text);
     // A single spoken word is almost never a sentence, so the trailing period
     // the provider or a cleanup voice adds is noise. Gated on the setting, and
@@ -495,7 +529,13 @@ fn dictate(
     if worker.strip_single_word_period && expanded.fired.is_none() {
         cleaned.text = strip_single_word_period(&cleaned.text);
     }
-    match hark_inject::inject(&cleaned.text, &worker.inject) {
+    let Some(result) = worker
+        .control
+        .inject(|| inject(&cleaned.text, &worker.inject))
+    else {
+        return PipelineState::Idle;
+    };
+    match result {
         Ok(()) => {
             let total_ms = released.elapsed().as_millis() as u64;
             log::info!(
@@ -734,15 +774,24 @@ struct Engines<'a> {
     events: &'a Sender<PipelineEvent>,
     /// False when a live stream already spent this dictation's first attempt.
     may_retry: bool,
+    control: &'a crate::lifecycle::RunControl,
 }
 
 impl Transcriber for Engines<'_> {
     fn cloud(&mut self) -> Option<Result<Transcript, SttError>> {
         let provider = self.provider?;
-        Some(transcribe_with_retry(provider, self.wav, self.may_retry))
+        Some(transcribe_with_retry(
+            provider,
+            self.wav,
+            self.may_retry,
+            self.control,
+        ))
     }
 
     fn local(&mut self) -> Result<Transcript, hark_local_stt::LocalSttError> {
+        if self.control.is_cancelled() {
+            return Err(hark_local_stt::LocalSttError::EngineUnavailable);
+        }
         let plan = self
             .local
             .as_mut()
@@ -752,7 +801,11 @@ impl Transcriber for Engines<'_> {
         if !plan.is_loaded() {
             let _ = self.events.send(PipelineEvent::LoadingLocalModel);
         }
-        let decoded = plan.engine()?.transcribe(self.samples)?;
+        let engine = plan.engine()?;
+        if self.control.is_cancelled() {
+            return Err(hark_local_stt::LocalSttError::EngineUnavailable);
+        }
+        let decoded = engine.transcribe(self.samples)?;
         Ok(Transcript {
             text: decoded.text,
             // The local engine transcribes only; cleanup stays a separate step.
@@ -769,10 +822,17 @@ fn transcribe_with_retry(
     provider: &dyn SttProvider,
     wav: &[u8],
     may_retry: bool,
+    control: &crate::lifecycle::RunControl,
 ) -> Result<Transcript, SttError> {
+    if control.is_cancelled() {
+        return Err(SttError::Provider {
+            provider: "pipeline".into(),
+            detail: "dictation cancelled".into(),
+        });
+    }
     match provider.transcribe(wav) {
         Ok(t) => Ok(t),
-        Err(e) if may_retry && should_retry(&e) => {
+        Err(e) if may_retry && should_retry(&e) && !control.is_cancelled() => {
             log::warn!("transcription failed ({e}); retrying once");
             provider.transcribe(wav)
         }
@@ -833,7 +893,7 @@ mod tests {
     #[test]
     fn success_needs_one_call() {
         let p = MockProvider::new(vec![MockProvider::ok("hello")]);
-        let t = transcribe_with_retry(&p, b"wav", true).unwrap();
+        let t = transcribe_with_retry(&p, b"wav", true, &Default::default()).unwrap();
         assert_eq!(t.text, "hello");
         assert_eq!(p.calls.get(), 1);
     }
@@ -844,7 +904,7 @@ mod tests {
             MockProvider::timeout(),
             MockProvider::ok("second try"),
         ]);
-        let t = transcribe_with_retry(&p, b"wav", true).unwrap();
+        let t = transcribe_with_retry(&p, b"wav", true, &Default::default()).unwrap();
         assert_eq!(t.text, "second try");
         assert_eq!(p.calls.get(), 2);
     }
@@ -864,7 +924,7 @@ mod tests {
     #[test]
     fn double_timeout_fails_after_two_calls_total() {
         let p = MockProvider::new(vec![MockProvider::timeout(), MockProvider::timeout()]);
-        let err = expect_err(transcribe_with_retry(&p, b"wav", true));
+        let err = expect_err(transcribe_with_retry(&p, b"wav", true, &Default::default()));
         assert!(matches!(err, SttError::Timeout { .. }));
         assert_eq!(p.calls.get(), 2, "never a second retry");
     }
@@ -874,7 +934,12 @@ mod tests {
         // The stream already made the first attempt. Retrying its replay as
         // well was three attempts; against a stranded Gemini turn, 26 s.
         let p = MockProvider::new(vec![MockProvider::timeout()]);
-        let err = expect_err(transcribe_with_retry(&p, b"wav", false));
+        let err = expect_err(transcribe_with_retry(
+            &p,
+            b"wav",
+            false,
+            &Default::default(),
+        ));
         assert!(matches!(err, SttError::Timeout { .. }));
         assert_eq!(p.calls.get(), 1);
     }
@@ -882,7 +947,7 @@ mod tests {
     #[test]
     fn auth_fails_without_any_retry() {
         let p = MockProvider::new(vec![MockProvider::auth()]);
-        let err = expect_err(transcribe_with_retry(&p, b"wav", true));
+        let err = expect_err(transcribe_with_retry(&p, b"wav", true, &Default::default()));
         assert!(matches!(err, SttError::Auth { .. }));
         assert_eq!(p.calls.get(), 1, "4xx must never retry");
     }
@@ -898,7 +963,7 @@ mod tests {
         )]);
         let corrector = Corrector::from_terms(&["Vossburg".to_string(), "Modero".to_string()]);
 
-        let transcript = transcribe_with_retry(&p, b"wav", true).unwrap();
+        let transcript = transcribe_with_retry(&p, b"wav", true, &Default::default()).unwrap();
         let (text, replacements) = corrected_text(&corrector, &transcript.text);
         assert_eq!(text, "tell Vossburg the Modero build is green");
         assert_eq!(replacements, 2);

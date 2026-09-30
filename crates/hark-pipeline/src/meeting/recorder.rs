@@ -37,9 +37,38 @@ enum Source {
     },
     #[cfg(test)]
     FailingDuringDrain(std::cell::Cell<u32>),
+    #[cfg(test)]
+    FlushOnStop {
+        flush: Option<Box<dyn FnOnce()>>,
+        captured_frames: Option<u64>,
+    },
 }
 
 impl Source {
+    fn captured_frames(&self) -> Option<u64> {
+        match self {
+            Source::Loopback(handle) => handle.captured_frames(),
+            #[cfg(test)]
+            Source::FlushOnStop {
+                captured_frames, ..
+            } => *captured_frames,
+            _ => None,
+        }
+    }
+
+    fn stop_loopback(&mut self) {
+        match self {
+            Source::Loopback(handle) => handle.stop(),
+            #[cfg(test)]
+            Source::FlushOnStop { flush, .. } => {
+                if let Some(flush) = flush.take() {
+                    flush();
+                }
+            }
+            _ => {}
+        }
+    }
+
     fn errored(&self) -> bool {
         match self {
             Source::Mic(h) => h.stream_errored(),
@@ -52,6 +81,8 @@ impl Source {
                 checks.set(previous + 1);
                 previous > 0
             }
+            #[cfg(test)]
+            Source::FlushOnStop { .. } => false,
         }
     }
 
@@ -63,6 +94,8 @@ impl Source {
             Source::Test { .. } => 0,
             #[cfg(test)]
             Source::FailingDuringDrain(_) => 0,
+            #[cfg(test)]
+            Source::FlushOnStop { .. } => 0,
         }
     }
 }
@@ -213,6 +246,13 @@ impl Recorder {
     }
 
     fn drain(&mut self, finishing: bool) -> io::Result<Vec<TrackLost>> {
+        if finishing {
+            if let Some(track) = &mut self.them {
+                // Linux's mixer may still hold the other streams' final
+                // quantum. Join/flush capture before taking the last ring read.
+                track.source.stop_loopback();
+            }
+        }
         let elapsed = self.started.elapsed().as_millis() as u64;
         let mut batches = [Vec::new(), Vec::new()];
         let mut discontinuity = false;
@@ -374,11 +414,12 @@ impl Track {
             None => out.extend_from_slice(&device),
         }
         if !self.aligned {
-            // Align from captured input, not the output currently available:
-            // the streaming FFT holds a tail, which is latency rather than
-            // silence before the stream opened. It will arrive on later reads.
+            // Align from captured input, not currently available output: both
+            // the Linux mixer and the streaming FFT can retain a tail. That is
+            // latency, not silence before the stream opened.
             let due = elapsed_ms * RATE / 1000;
-            let captured = total * RATE / u64::from(self.rate);
+            let captured = self.source.captured_frames().unwrap_or(total).max(total) * RATE
+                / u64::from(self.rate);
             let lead = due.saturating_sub(captured) as usize;
             if lead > 0 {
                 let mut padded = vec![0.0; lead];

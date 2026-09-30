@@ -1,5 +1,12 @@
 # Generation Metadata
 
+## Nine review repairs — 2026-09-30 (0.61.1)
+
+- **Source reviewed:** `9a7cfdb` (0.61.0) plus the working-tree repairs to pipeline cancellation/input admission/live retries, clipboard restoration, provider diagnostics, meeting deletion, Linux mixing/fallback, and resampler finalization. The source map now includes input admission, cancellation, recovery tests, and the Linux mixer.
+- **Scope:** Architecture, Audio Capture, Text Injection, Transcription, Voice Cleanup, Spellbook, Invocations, Meetings, Data Storage, Desktop UI, and Glossary. Existing AUTOGEN markers and manually maintained sections are preserved.
+- **Validation:** stable Rust 1.98.1; formatting, workspace Clippy with warnings denied, both npm guards, and Windows GNU workspace cross-check pass. Workspace tests: **1,126 passed, 0 failed, 1 ignored** (optional local-model fixture). Eleven changed pages preserve 66 AUTOGEN pairs and all relative file links resolve. Regression evidence and implementation decisions are recorded in `tasks/review-failures-can-lose-or-expose-dictation-plan.md`.
+- **Limits:** native microphone, clipboard, PipeWire timestamp negotiation, Windows file locking, and macOS runtime behavior remain unverified. No live cloud-provider calls were used. Global baseline `784272c` remains unchanged.
+
 ## Arch release dependency repair — 2026-09-30 (0.60.5)
 
 - **Scope:** the 0.60.4 Arch job failed at `pacman -Syu` with `target not found: libclang`. Arch has no such package (`clang` ships `libclang.so`); the install line now names `libpipewire` for PipeWire headers and drops the virtual `cargo` that triggered a provider prompt. The PKGBUILD's `libpipewire-0.3` makedepend (a soname, not a package) became `libpipewire`.

@@ -166,8 +166,5 @@ pub fn client_with_timeout(total_ms: u64) -> Result<reqwest::blocking::Client, S
         ))
         .timeout(std::time::Duration::from_millis(total_ms))
         .build()
-        .map_err(|e| SttError::Http {
-            provider: "client".to_string(),
-            detail: e.to_string(),
-        })
+        .map_err(|e| error_for_transport("client", total_ms, &e))
 }

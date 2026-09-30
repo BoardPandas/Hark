@@ -111,9 +111,11 @@ Live sessions bypass the WAV container and accept already-resampled `f32` sample
 <!-- BEGIN:AUTOGEN hark_07_transcription_errors -->
 ## Errors and Metrics
 
-`SttError` distinguishes transport, authentication, rate limiting, timeout, bad-audio, and provider failures. Every variant is designed to be safe to display and log: it carries no key, authorization header, or audio bytes ([error.rs:1-49](../../crates/hark-stt/src/error.rs#L1-L49)).
+`SttError` distinguishes transport, authentication, rate limiting, timeout, bad-audio, and provider failures. Adapter diagnostics use trusted labels, status codes, and structural information without keys, authorization headers, audio, transcript text, vocabulary, or response snippets ([error.rs](../../crates/hark-stt/src/error.rs)).
 
-HTTP 401/403 errors retain only a bounded machine-readable reason, 429 retains `Retry-After`, other provider bodies are truncated, and connect-class failures receive a stable `connect failed` prefix used by the pipeline retry predicate ([error.rs:51-155](../../crates/hark-stt/src/error.rs#L51-L155)). Gemini additionally scrubs `key=...` from WebSocket errors because its key appears in the socket URL ([gemini_live.rs](../../crates/hark-stt/src/gemini_live.rs)).
+HTTP 401/403 errors retain only an allowlisted machine-readable reason, 429 retains seconds-form `Retry-After`, and other unsuccessful responses retain the HTTP status. Transport errors use fixed categories, never the underlying error string or URL; connect-class failures retain the stable `connect failed` prefix used by the retry predicate. Malformed JSON reports only its error category and numeric line/column, because a parser's full message can quote user text. These rules also apply to fused Gemini responses and Deepgram meeting final-pass parsing ([error mapping](../../crates/hark-stt/src/error.rs), [Gemini parsing](../../crates/hark-stt/src/gemini.rs), [meeting adapter](../../crates/hark-stt/src/meeting.rs), [privacy regressions](../../crates/hark-stt/tests/error_privacy.rs)).
+
+Gemini Live reports WebSocket error categories, HTTP status, I/O kinds, and numeric close codes without copying request URLs or server close reasons. Unexpected message diagnostics retain known protocol field names but replace unknown keys with `<unknown>`, preventing arbitrary JSON keys from becoming logged content ([gemini_live.rs](../../crates/hark-stt/src/gemini_live.rs)).
 
 `request_ms` covers the adapter's observed request/session time. Pipeline history separately records full release-to-inject time, so provider latency and product latency remain distinguishable.
 <!-- END:AUTOGEN hark_07_transcription_errors -->

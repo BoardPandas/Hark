@@ -185,7 +185,7 @@ fn parse_notes_rejects_unterminated_json() {
 }
 
 #[test]
-fn parse_notes_rejects_junk_json_with_snippet() {
+fn parse_notes_rejects_junk_json_with_safe_diagnostics() {
     let err = parse_notes("{not valid json}").unwrap_err();
     match err {
         SummaryError::Provider { detail, .. } => assert!(detail.contains("unexpected notes body")),

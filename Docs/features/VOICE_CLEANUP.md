@@ -174,21 +174,21 @@ Sources: [crates/hark-voice/src/lib.rs](../../crates/hark-voice/src/lib.rs), [cr
 <!-- BEGIN:AUTOGEN hark_09_voice_cleanup_errors -->
 ## Error Handling
 
-`CleanupError` intentionally mirrors the STT error categories while remaining a separate small enum. Every variant is designed to be safe to log and carries no API key, Authorization header, prompt, spellbook term, or transcript text ([error.rs:1-48](../../crates/hark-voice/src/error.rs#L1-L48)).
+`CleanupError` intentionally mirrors the STT error categories while remaining a separate small enum. Adapter diagnostics contain only trusted labels, status codes, and structural information: no API key, Authorization header, prompt, spellbook term, transcript text, or provider response body ([error.rs](../../crates/hark-voice/src/error.rs)).
 
 | Variant | Trigger and sanitization |
 |---|---|
-| `Http` | DNS, connect, TLS, or other transport failure; request headers/body are never included |
-| `Auth` | HTTP 401/403, including the status and at most a short machine-readable `error.code`/`error.type`; raw auth bodies are not echoed because providers may repeat key fragments |
+| `Http` | Fixed transport category; the underlying error string and request URL are never included |
+| `Auth` | HTTP 401/403 plus an allowlisted `error.code`/`error.type`, if recognized; unknown values and prose are omitted |
 | `RateLimited` | HTTP 429, with optional seconds-form `Retry-After` |
 | `Timeout` | Connect or request timeout, reporting the bound actually hit |
-| `Provider` | Other HTTP status, malformed response, or empty completion; detail is capped at 300 characters |
+| `Provider` | HTTP status, a fixed failure category, or JSON error category with numeric line/column; no response snippets |
 
-The auth-specific scrub is the important current distinction: a 401 adds “check your API key” only when no safe reason slug exists, while a 403 does not misdiagnose quota/project access as a bad key. The mapping extracts only a whitespace-free slug of at most 64 bytes and never carries the provider's prose body into `Auth` ([error.rs:16-27](../../crates/hark-voice/src/error.rs#L16-L27), [error.rs:63-125](../../crates/hark-voice/src/error.rs#L63-L125)). Transport mapping distinguishes the shared 3-second connect timeout from the 10-second request timeout ([error.rs:127-160](../../crates/hark-voice/src/error.rs#L127-L160)).
+Even a short machine-readable field can contain user text, so authentication reasons must match a fixed allowlist such as `invalid_api_key` or `insufficient_quota`. A 401 adds “check your API key” only when no recognized reason exists; a 403 does not add that hint. Transport mapping distinguishes the shared 3-second connect timeout from the 10-second request timeout without formatting the underlying error ([error.rs](../../crates/hark-voice/src/error.rs)).
 
-Successful HTTP status is not sufficient: parsing requires a non-empty `choices[0].message.content`. Missing/empty content becomes `Provider`, with `finish_reason` retained so token-budget exhaustion is distinguishable from a malformed provider response. The pipeline treats all variants identically after logging the safe summary: inject the uncleaned transcript and record no cleanup attribution ([openai_compatible.rs:88-131](../../crates/hark-voice/src/openai_compatible.rs#L88-L131), [worker.rs:613-617](../../crates/hark-pipeline/src/worker.rs#L613-L617)).
+Successful HTTP status is not sufficient: parsing requires a non-empty `choices[0].message.content`. Missing/empty content becomes `Provider`, retaining only an allowlisted `finish_reason` such as `length`; arbitrary values become `unknown`. JSON parser errors expose the category and numeric line/column because the parser's full error string can quote an offending transcript value. This rule also covers meeting-summary responses and stored notes JSON. Ordinary cleanup failures keep the uncleaned transcript and record no cleanup attribution ([response parser](../../crates/hark-voice/src/openai_compatible.rs), [summary parser](../../crates/hark-voice/src/summary.rs), [pipeline](../../crates/hark-pipeline/src/worker.rs)).
 
-Sources: [crates/hark-voice/src/error.rs:1-160](../../crates/hark-voice/src/error.rs#L1-L160), [crates/hark-voice/src/openai_compatible.rs:88-131](../../crates/hark-voice/src/openai_compatible.rs#L88-L131), [crates/hark-pipeline/src/worker.rs:613-617](../../crates/hark-pipeline/src/worker.rs#L613-L617)
+Sources: [error mapping](../../crates/hark-voice/src/error.rs), [response parsing](../../crates/hark-voice/src/openai_compatible.rs), [summary parsing](../../crates/hark-voice/src/summary.rs), [privacy regression tests](../../crates/hark-voice/tests/error_privacy.rs)
 <!-- END:AUTOGEN hark_09_voice_cleanup_errors -->
 
 ---

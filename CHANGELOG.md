@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.61.1] - 2026-09-30
+
+### Fixed
+
+- Stopping or restarting dictation now cancels pending work before it can retry, clean up, or paste a late result. Holds begun while dictation is busy are discarded through their release, and accepted edges retain their observed audio positions. A failed live session keeps its spent retry budget even if it disconnects before release.
+- Clipboard reads now retry contention without treating an unreadable stash as empty. Verification and paste failures restore saved text, including the delay needed when a paste partially succeeded.
+- Linux meeting playback streams are mixed on one timestamped timeline instead of concatenated; a missing app stream now starts the default-sink fallback. Streaming resamplers and meeting capture flush their final buffered audio at stop.
+- Meeting deletion keeps the history entry when recording removal fails and reports a retryable error. Transcription, cleanup, and summary diagnostics omit provider response content, URL parameters, and arbitrary remote error values.
+
 ## [0.61.0] - 2026-09-30
 
 ### Added

@@ -12,6 +12,7 @@ use hark_meeting::Channel;
 use hark_store::MeetingDetail;
 use hark_voice::MeetingNotes;
 use jiff::tz::TimeZone;
+use std::sync::mpsc::{self, Receiver, TryRecvError};
 
 pub(super) struct DetailView {
     /// (generation, id) the cache reflects.
@@ -25,6 +26,9 @@ pub(super) struct DetailView {
     confirm: Option<widgets::Confirm>,
     confirm_rerun: Option<widgets::Confirm>,
     sharing: Sharing,
+    deleting: Option<(String, Receiver<Result<(), String>>)>,
+    delete_error: Option<(String, String)>,
+    deleted: Option<String>,
 }
 
 impl DetailView {
@@ -39,11 +43,26 @@ impl DetailView {
             confirm: None,
             confirm_rerun: None,
             sharing: Sharing::new(),
+            deleting: None,
+            delete_error: None,
+            deleted: None,
         }
     }
 
     pub fn poll(&mut self) {
         self.sharing.poll();
+        if let Some((id, reply)) = &self.deleting {
+            let result = match reply.try_recv() {
+                Ok(result) => result,
+                Err(TryRecvError::Empty) => return,
+                Err(TryRecvError::Disconnected) => Err("Deletion could not be confirmed because the storage worker is unavailable. Reopen Hark and check the meeting before trying again.".to_string()),
+            };
+            match result {
+                Ok(()) => self.deleted = Some(id.clone()),
+                Err(error) => self.delete_error = Some((id.clone(), error)),
+            }
+            self.deleting = None;
+        }
     }
 
     /// Returns true when the user went back to the list (or deleted it).
@@ -55,9 +74,27 @@ impl DetailView {
         tz: &TimeZone,
         meetings: &mut crate::meeting::MeetingController,
     ) -> bool {
+        if self.deleted.as_deref() == Some(id) {
+            self.deleted = None;
+            return true;
+        }
         self.refresh(storage, id);
-        let mut back = ui.button("‹ All meetings").clicked();
+        let back = ui.button("‹ All meetings").clicked();
         ui.add_space(theme::GAP);
+        if let Some((_, error)) = self
+            .delete_error
+            .as_ref()
+            .filter(|(failed_id, _)| failed_id == id)
+        {
+            ui.label(RichText::new(error).color(theme::warning(ui.visuals())));
+        }
+        if self
+            .deleting
+            .as_ref()
+            .is_some_and(|(pending_id, _)| pending_id == id)
+        {
+            ui.label("Deleting meeting…");
+        }
         if let Some(error) = &self.error {
             widgets::empty_state(
                 ui,
@@ -107,8 +144,9 @@ impl DetailView {
         ui.add_space(theme::GAP);
 
         let mut action = None;
-        let mut busy =
-            meetings.finishing().iter().any(|i| i == id) || detail.summary.ended_ms.is_none();
+        let mut busy = meetings.finishing().iter().any(|i| i == id)
+            || detail.summary.ended_ms.is_none()
+            || self.deleting.is_some();
         ui.horizontal(|ui| {
             action = share::menu(ui, !busy && detail.summary.audio_evicted_ms.is_none());
             if ui.add_enabled(!busy && meetings.is_available() && detail.summary.audio_evicted_ms.is_none() && detail.summary.audio_bytes > 0,
@@ -177,11 +215,15 @@ impl DetailView {
         if let Some(confirm) = &mut self.confirm {
             match confirm.show(ui, "meeting-delete") {
                 Some(true) => {
+                    let (reply, receiver) = mpsc::channel();
+                    self.deleting = Some((id.to_string(), receiver));
+                    self.delete_error = None;
+                    self.deleted = None;
                     storage.send(StorageCmd::Meeting(MeetingCmd::Delete {
                         id: id.to_string(),
+                        reply,
                     }));
                     self.confirm = None;
-                    back = true;
                 }
                 Some(false) => self.confirm = None,
                 None => {}
@@ -366,4 +408,53 @@ fn meta(detail: &MeetingDetail, tz: &TimeZone) -> String {
         format!("live transcript ({})", detail.stt_provider)
     });
     parts.join(" · ")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn deletion_reply_preserves_failure_and_only_marks_confirmed_success() {
+        let mut view = DetailView::new();
+        let (reply, receiver) = mpsc::channel();
+        view.deleting = Some(("m1".to_string(), receiver));
+        view.poll();
+        assert!(view.deleting.is_some());
+        assert!(view.deleted.is_none());
+        reply
+            .send(Err("The recording is in use. Try Delete again.".to_string()))
+            .unwrap();
+        view.poll();
+        assert!(view.deleting.is_none());
+        assert!(view.deleted.is_none());
+        assert_eq!(view.delete_error.as_ref().unwrap().0, "m1");
+        assert!(view
+            .delete_error
+            .as_ref()
+            .unwrap()
+            .1
+            .contains("Try Delete again"));
+        let (reply, receiver) = mpsc::channel();
+        view.deleting = Some(("m1".to_string(), receiver));
+        reply.send(Ok(())).unwrap();
+        view.poll();
+        assert_eq!(view.deleted.as_deref(), Some("m1"));
+    }
+
+    #[test]
+    fn disconnected_deletion_reply_never_claims_success() {
+        let mut view = DetailView::new();
+        let (reply, receiver) = mpsc::channel();
+        view.deleting = Some(("m1".to_string(), receiver));
+        drop(reply);
+        view.poll();
+        assert!(view.deleted.is_none());
+        assert!(view
+            .delete_error
+            .as_ref()
+            .unwrap()
+            .1
+            .contains("could not be confirmed"));
+    }
 }

@@ -212,12 +212,13 @@ fn parse_response_rejects_whitespace_only_content() {
 }
 
 #[test]
-fn parse_response_rejects_junk_with_snippet() {
+fn parse_response_rejects_junk_without_echoing_it() {
     let err = parse_response("groq", "<html>gateway timeout</html>").unwrap_err();
     match err {
         CleanupError::Provider { detail, .. } => {
             assert!(detail.contains("unexpected response body"));
-            assert!(detail.contains("gateway timeout"));
+            assert!(detail.contains("JSON Syntax at line 1, column 1"));
+            assert!(!detail.contains("gateway timeout"));
         }
         other => panic!("expected Provider, got {other}"),
     }
@@ -265,15 +266,12 @@ fn status_429_maps_to_rate_limited_with_retry_after() {
 }
 
 #[test]
-fn other_statuses_map_to_provider_with_truncated_snippet() {
+fn other_statuses_map_to_provider_without_response_content() {
     let long_body = "x".repeat(1000);
     let err = error_for_status("openai", 500, None, &long_body);
     match err {
         CleanupError::Provider { detail, .. } => {
-            assert!(detail.starts_with("HTTP 500:"));
-            assert!(detail.ends_with('…'));
-            // 300-char snippet cap plus the prefix; nowhere near 1000.
-            assert!(detail.chars().count() < 320);
+            assert_eq!(detail, "HTTP 500");
         }
         other => panic!("expected Provider, got {other}"),
     }

@@ -68,6 +68,63 @@ fn disabled_aec_preserves_both_tracks_byte_for_byte() {
 }
 
 #[test]
+fn stopping_flushes_loopback_before_the_final_ring_read() {
+    let dir = tempfile::tempdir().unwrap();
+    let (_mic, me) = track(dir.path(), Channel::Me, 16_000);
+    let (render, mut them) = track(dir.path(), Channel::Them, 16_000);
+    render.push(&[0.25; 160]);
+    them.source = Source::FlushOnStop {
+        flush: Some(Box::new(move || {
+            render.push(&[0.75; 137]);
+        })),
+        captured_frames: None,
+    };
+    let mut recording = recorder(dir.path(), me, them, false);
+    recording.pump().unwrap();
+    let result = recording.stop().unwrap();
+    assert_eq!(result.them_samples, 297);
+    assert_eq!(
+        samples(&dir.path().join(THEM_FILE)),
+        [&[8_192; 160][..], &[24_576; 137]].concat()
+    );
+}
+
+#[test]
+fn mixer_retention_does_not_become_leading_silence_on_a_delayed_first_read() {
+    let dir = tempfile::tempdir().unwrap();
+    let (render, mut them) = track(dir.path(), Channel::Them, 16_000);
+    them.aligned = false;
+    render.push(&[0.25; 12_000]);
+    them.source = Source::FlushOnStop {
+        flush: Some(Box::new(move || render.push(&[0.5; 4_000]))),
+        captured_frames: Some(16_000),
+    };
+    let first = them.read(1_000).unwrap();
+    them.place(&first, None).unwrap();
+    them.source.stop_loopback();
+    let tail = them.read(1_000).unwrap();
+    them.place(&tail, None).unwrap();
+    assert_eq!(them.close(None).unwrap(), 16_000);
+    let audio = samples(&dir.path().join(THEM_FILE));
+    assert_eq!(audio, [&[8_192; 12_000][..], &[16_384; 4_000]].concat());
+}
+
+#[test]
+fn microphone_spool_keeps_exact_resampled_count_and_the_ending_signal() {
+    let dir = tempfile::tempdir().unwrap();
+    let (mic, me) = track(dir.path(), Channel::Me, 48_000);
+    let (_render, them) = track(dir.path(), Channel::Them, 16_000);
+    let mut input = vec![0.0; 24_000];
+    input[23_880..].fill(0.5);
+    mic.push(&input);
+    let result = recorder(dir.path(), me, them, false).stop().unwrap();
+    assert_eq!(result.me_samples, 8_000);
+    let audio = samples(&dir.path().join(ME_FILE));
+    assert_eq!(audio.len(), 8_000);
+    assert!(audio[7_960..].iter().any(|sample| *sample > 8_000));
+}
+
+#[test]
 fn enabled_aec_changes_only_mic_and_live_audio_matches_saved_audio() {
     let dir = tempfile::tempdir().unwrap();
     let (mic, me) = track(dir.path(), Channel::Me, 16_000);

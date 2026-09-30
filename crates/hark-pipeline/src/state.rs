@@ -13,7 +13,7 @@ pub enum PipelineState {
 }
 
 /// Everything that can advance the state machine. Ptt events carry the
-/// absolute sample index observed at processing time.
+/// absolute sample index observed by the input thread, before queueing.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Event {
     PttDown {

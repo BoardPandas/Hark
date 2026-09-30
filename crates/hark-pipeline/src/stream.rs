@@ -29,6 +29,39 @@ use hark_audio::ring::Consumer;
 use hark_audio::{window, WindowParams};
 use hark_stt::{LiveSession, LiveStt, SttError, Transcript};
 
+/// Attempt accounting outlives the socket. Losing a pump cannot restore
+/// the retry spent opening and sending the live turn.
+#[derive(Default)]
+pub(crate) struct LiveTurn {
+    pub pump: Option<LivePump>,
+    pub attempted: bool,
+}
+
+impl LiveTurn {
+    pub fn start(
+        live: Option<&dyn LiveStt>,
+        consumer: &Consumer,
+        down: u64,
+        rate: u32,
+        params: &WindowParams,
+    ) -> Self {
+        Self {
+            attempted: live.is_some(),
+            pump: live.and_then(|live| LivePump::start(live, consumer, down, rate, params)),
+        }
+    }
+
+    pub fn push_available(&mut self) -> Result<(), SttError> {
+        if let Some(pump) = self.pump.as_mut() {
+            if let Err(error) = pump.pump(u64::MAX) {
+                self.pump = None;
+                return Err(error);
+            }
+        }
+        Ok(())
+    }
+}
+
 /// One dictation's live session plus its position in the ring.
 pub(crate) struct LivePump {
     session: Box<dyn LiveSession>,

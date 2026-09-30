@@ -83,9 +83,9 @@ pub fn resample_to_16k(samples: &[f32], src_rate: u32) -> Result<Vec<f32>, Resam
 /// size it asks for, and trims the startup delay once rather than per chunk.
 ///
 /// `push` returns only the samples that are ready; the remainder stays buffered
-/// until enough input arrives to fill another block. `drain` flushes the tail
-/// by zero-padding to one final block, and must be called exactly once, at the
-/// end of the utterance.
+/// until enough input arrives to fill another block. `drain` flushes pending
+/// input and the filter's delayed output, keeping exactly the real input's
+/// frame count. It ends the stream; a second drain is empty.
 pub struct StreamResampler {
     /// `None` when the device already runs at 16 kHz: passthrough, no work.
     inner: Option<Fft<f32>>,
@@ -94,6 +94,10 @@ pub struct StreamResampler {
     /// Output frames of leading silence still to discard (the resampler's
     /// delay). Counted down once, across the first calls, never per chunk.
     delay_remaining: usize,
+    source_rate: u32,
+    input_frames: usize,
+    output_frames: usize,
+    finished: bool,
 }
 
 impl StreamResampler {
@@ -103,6 +107,10 @@ impl StreamResampler {
                 inner: None,
                 pending: Vec::new(),
                 delay_remaining: 0,
+                source_rate: src_rate,
+                input_frames: 0,
+                output_frames: 0,
+                finished: false,
             });
         }
         let resampler = Fft::<f32>::new(
@@ -121,15 +129,35 @@ impl StreamResampler {
             inner: Some(resampler),
             pending: Vec::new(),
             delay_remaining,
+            source_rate: src_rate,
+            input_frames: 0,
+            output_frames: 0,
+            finished: false,
         })
     }
 
     /// Feed device-rate samples; get back whatever 16 kHz output is ready.
     pub fn push(&mut self, samples: &[f32]) -> Result<Vec<f32>, ResampleError> {
-        let Some(resampler) = self.inner.as_mut() else {
+        if self.finished {
+            return Err(ResampleError::Process(
+                "the stream has already ended".into(),
+            ));
+        }
+        self.input_frames += samples.len();
+        if self.inner.is_none() {
+            self.output_frames += samples.len();
             return Ok(samples.to_vec());
-        };
+        }
         self.pending.extend_from_slice(samples);
+        let out = self.process_pending()?;
+        self.output_frames += out.len();
+        Ok(out)
+    }
+
+    fn process_pending(&mut self) -> Result<Vec<f32>, ResampleError> {
+        let Some(resampler) = self.inner.as_mut() else {
+            return Ok(Vec::new());
+        };
         let mut out = Vec::new();
         loop {
             let need = resampler.input_frames_next();
@@ -158,35 +186,28 @@ impl StreamResampler {
         Ok(out)
     }
 
-    /// Flush the tail: zero-pad to one last block so trailing audio is not
-    /// silently dropped. Call once, after the final [`push`](Self::push).
+    /// Flush both the partial input block and the filter delay, including when
+    /// the final push ended on a complete block. Padding earns no extra output.
     pub fn drain(&mut self) -> Result<Vec<f32>, ResampleError> {
-        if self.inner.is_none() || self.pending.is_empty() {
+        if self.finished {
             return Ok(Vec::new());
         }
-        let need = self
-            .inner
-            .as_ref()
-            .expect("checked above")
-            .input_frames_next();
-        let mut tail = std::mem::take(&mut self.pending);
-        let real = tail.len();
-        tail.resize(need.max(real), 0.0);
-        let mut out = self.push(&tail[..])?;
-        // Keep only the output the real samples earned; the padding's share is
-        // silence we invented.
-        let keep = resampled_len(real, self.src_rate_hint());
-        out.truncate(keep.min(out.len()));
-        Ok(out)
-    }
-
-    /// The configured input rate, recovered from the resampler ratio (only
-    /// used by `drain` for its trim length).
-    fn src_rate_hint(&self) -> u32 {
-        match self.inner.as_ref() {
-            None => TARGET_RATE,
-            Some(r) => (TARGET_RATE as f64 / r.resample_ratio()).round() as u32,
+        self.finished = true;
+        let remaining =
+            resampled_len(self.input_frames, self.source_rate).saturating_sub(self.output_frames);
+        let mut out = Vec::new();
+        while out.len() < remaining {
+            let need = self
+                .inner
+                .as_ref()
+                .expect("resampling required")
+                .input_frames_next();
+            self.pending.resize(need, 0.0);
+            out.extend(self.process_pending()?);
         }
+        out.truncate(remaining);
+        self.output_frames += out.len();
+        Ok(out)
     }
 }
 
@@ -201,6 +222,54 @@ pub fn resampled_len(input_len: usize, src_rate: u32) -> usize {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn streaming_finalization_preserves_exact_lengths_and_ending_signal() {
+        for rate in [16_000, 44_100, 48_000] {
+            let block = if rate == TARGET_RATE {
+                1024
+            } else {
+                Fft::<f32>::new(
+                    rate as usize,
+                    TARGET_RATE as usize,
+                    1024,
+                    1,
+                    FixedSync::Both,
+                )
+                .unwrap()
+                .input_frames_next()
+            };
+            for len in [0, 1, 240, block, block * 2, rate as usize] {
+                let mut input = vec![0.0; len];
+                let tail = len.saturating_sub(120);
+                input[tail..].fill(0.5);
+                for chunk_size in [137, 1024] {
+                    let mut stream = StreamResampler::new(rate).unwrap();
+                    let mut output = Vec::new();
+                    for chunk in input.chunks(chunk_size) {
+                        output.extend(stream.push(chunk).unwrap());
+                    }
+                    output.extend(stream.drain().unwrap());
+                    assert_eq!(
+                        output.len(),
+                        resampled_len(len, rate),
+                        "rate={rate}, input={len}"
+                    );
+                    if len >= 240 {
+                        let ending = &output[output.len().saturating_sub(40)..];
+                        assert!(
+                            ending.iter().any(|s| s.abs() > 0.25),
+                            "ending lost: rate={rate}, input={len}"
+                        );
+                    }
+                    assert!(
+                        stream.drain().unwrap().is_empty(),
+                        "a second drain replayed audio"
+                    );
+                }
+            }
+        }
+    }
 
     /// 440 Hz sine at a given rate: real signal content so resampler output
     /// is non-degenerate.

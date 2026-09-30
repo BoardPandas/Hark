@@ -259,17 +259,13 @@ fn status_429_maps_to_rate_limited_with_retry_after() {
 }
 
 #[test]
-fn status_500_maps_to_provider_with_truncated_snippet() {
+fn status_500_maps_to_provider_without_response_content() {
     let long_body = "x".repeat(2_000);
     let err = error_for_status("openai", 500, None, &long_body);
     let msg = err.to_string();
     assert!(matches!(err, SttError::Provider { .. }));
     assert!(msg.contains("HTTP 500"));
-    assert!(
-        msg.len() < 500,
-        "snippet not truncated: {} chars",
-        msg.len()
-    );
+    assert_eq!(msg, "provider error (openai): HTTP 500");
 }
 
 // --- percentile math ---

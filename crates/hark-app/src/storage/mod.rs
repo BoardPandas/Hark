@@ -198,7 +198,9 @@ fn worker_loop(
     while let Ok(cmd) = rx.recv() {
         let query_completed = matches!(
             &cmd,
-            StorageCmd::GetInsights { .. } | StorageCmd::GetRecentEntries { .. }
+            StorageCmd::GetInsights { .. }
+                | StorageCmd::GetRecentEntries { .. }
+                | StorageCmd::Meeting(meetings::MeetingCmd::Delete { .. })
         );
         match apply(&mut store, meetings_dir, cmd) {
             Ok(changed) => {

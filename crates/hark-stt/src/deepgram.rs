@@ -2,7 +2,7 @@
 //! raw `audio/wav` body. Earns its own adapter because `keyterm` biasing
 //! (nova-3+) maps directly onto Hark's spellbook feature.
 
-use crate::error::{error_for_status, error_for_transport, truncate_snippet, SttError};
+use crate::error::{error_for_status, error_for_transport, json_error_detail, SttError};
 use crate::openai_compatible::retry_after_secs;
 use crate::{ProviderConfig, SttProvider, Transcript, TOTAL_TIMEOUT_MS};
 use reqwest::blocking::Client;
@@ -33,7 +33,7 @@ pub fn listen_url(base_url: &str, model: &str, bias_terms: &[String]) -> Result<
     let base = format!("{}/v1/listen", base_url.trim_end_matches('/'));
     let mut url = reqwest::Url::parse(&base).map_err(|e| SttError::Provider {
         provider: "deepgram".to_string(),
-        detail: format!("invalid base_url {base_url:?}: {e}"),
+        detail: format!("invalid base_url: {e}"),
     })?;
     {
         let mut q = url.query_pairs_mut();
@@ -48,8 +48,11 @@ pub fn listen_url(base_url: &str, model: &str, bias_terms: &[String]) -> Result<
 
 /// Extract `results.channels[0].alternatives[0].transcript`. Pure for unit tests.
 pub fn parse_response(provider: &str, body: &str) -> Result<String, SttError> {
-    let parse = |body: &str| -> Option<String> {
-        let v: serde_json::Value = serde_json::from_str(body).ok()?;
+    let v: serde_json::Value = serde_json::from_str(body).map_err(|e| SttError::Provider {
+        provider: provider.to_string(),
+        detail: json_error_detail("unexpected response body", &e),
+    })?;
+    let parse = || -> Option<String> {
         Some(
             v.get("results")?
                 .get("channels")?
@@ -61,9 +64,9 @@ pub fn parse_response(provider: &str, body: &str) -> Result<String, SttError> {
                 .to_string(),
         )
     };
-    parse(body).ok_or_else(|| SttError::Provider {
+    parse().ok_or_else(|| SttError::Provider {
         provider: provider.to_string(),
-        detail: format!("unexpected response shape: {}", truncate_snippet(body)),
+        detail: "unexpected response shape: missing transcript string".to_string(),
     })
 }
 

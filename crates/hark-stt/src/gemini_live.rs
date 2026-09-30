@@ -326,8 +326,12 @@ pub enum ServerEvent {
 /// socket — which matters because the wire path itself cannot be exercised
 /// offline.
 pub fn parse_server_message(body: &str) -> Result<ServerEvent, SttError> {
-    let v: Value = serde_json::from_str(body)
-        .map_err(|e| fail(format!("server frame was not JSON ({e}): {body:.200}")))?;
+    let v: Value = serde_json::from_str(body).map_err(|e| {
+        fail(crate::error::json_error_detail(
+            "server frame was not JSON",
+            &e,
+        ))
+    })?;
     if v.get("setupComplete").is_some() {
         return Ok(ServerEvent::SetupComplete);
     }
@@ -379,10 +383,29 @@ pub fn absorb(body: &str, segments: &mut Vec<String>) -> Result<ServerEvent, Stt
     Ok(event)
 }
 
-/// The top-level keys of a frame, for diagnostics that never print content.
+/// Known protocol keys only: an unknown JSON key can itself be user content.
 pub fn top_keys(v: &Value) -> Vec<String> {
     v.as_object()
-        .map(|o| o.keys().cloned().collect())
+        .map(|o| {
+            o.keys()
+                .map(|key| match key.as_str() {
+                    "setupComplete"
+                    | "serverContent"
+                    | "usageMetadata"
+                    | "goAway"
+                    | "sessionResumptionUpdate"
+                    | "error"
+                    | "inputTranscription"
+                    | "interimInputTranscription"
+                    | "generationComplete"
+                    | "turnComplete"
+                    | "modelTurn"
+                    | "parts"
+                    | "text" => key.clone(),
+                    _ => "<unknown>".to_string(),
+                })
+                .collect()
+        })
         .unwrap_or_default()
 }
 
@@ -438,6 +461,38 @@ pub(crate) mod session {
 
     pub type Socket = WebSocketStream<MaybeTlsStream<tokio::net::TcpStream>>;
 
+    // WebSocket errors can contain frame contents, URLs, or header values.
+    // Preserve the failure category and status, never their Display/Debug.
+    fn socket_error(operation: &str, error: &tokio_tungstenite::tungstenite::Error) -> SttError {
+        use tokio_tungstenite::tungstenite::Error;
+        let category = match error {
+            Error::ConnectionClosed | Error::AlreadyClosed => "connection closed",
+            Error::Io(error) => return fail(format!("{operation}: I/O {:?}", error.kind())),
+            Error::Tls(_) => "TLS failure",
+            Error::Capacity(_) | Error::WriteBufferFull(_) => "capacity exceeded",
+            Error::Protocol(_) | Error::AttackAttempt => "protocol error",
+            Error::Utf8(_) => "invalid UTF-8",
+            Error::Url(_) => "invalid URL",
+            Error::Http(response) => {
+                return fail(format!("{operation}: HTTP {}", response.status().as_u16()))
+            }
+            Error::HttpFormat(_) => "invalid HTTP format",
+        };
+        fail(format!("{operation}: {category}"))
+    }
+
+    fn setup_closed(
+        frame: Option<tokio_tungstenite::tungstenite::protocol::CloseFrame>,
+    ) -> SttError {
+        fail(match frame {
+            Some(frame) => format!(
+                "setup rejected (WebSocket close code {})",
+                u16::from(frame.code)
+            ),
+            None => "the session closed during setup".to_string(),
+        })
+    }
+
     /// The JSON body of a server frame, whichever frame type carried it.
     ///
     /// The Live API sends its JSON in **binary** frames, not text ones, so
@@ -467,7 +522,7 @@ pub(crate) mod session {
             provider: "gemini-live".to_string(),
             configured_ms: SEND_TIMEOUT_MS,
         })?
-        .map_err(|e| fail(format!("{what} send failed: {e}")))
+        .map_err(|e| socket_error(&format!("{what} send failed"), &e))
     }
 
     /// Open the socket and send the opening `setup`. Everything after this is
@@ -481,8 +536,7 @@ pub(crate) mod session {
                     provider: "gemini-live".to_string(),
                     configured_ms: CONNECT_TIMEOUT_MS,
                 })?
-                // tungstenite's Display echoes the URL, which carries the key.
-                .map_err(|e| fail(format!("websocket connect failed: {e}")))?;
+                .map_err(|e| socket_error("websocket connect failed", &e))?;
         send_json(&mut socket, setup, "setup").await?;
 
         // The Live API requires the client to wait for setupComplete before
@@ -502,7 +556,7 @@ pub(crate) mod session {
                     "the session closed before acknowledging setup".to_string(),
                 ));
             };
-            let frame = frame.map_err(|e| fail(format!("socket read failed: {e}")))?;
+            let frame = frame.map_err(|e| socket_error("socket read failed", &e))?;
             if let Some(body) = frame_json(&frame) {
                 match parse_server_message(&body)? {
                     ServerEvent::SetupComplete => break,
@@ -522,10 +576,7 @@ pub(crate) mod session {
                     // The close frame is where an invalid setup actually
                     // reports itself; without this the failure is a timeout
                     // with no reason attached.
-                    return Err(fail(match frame {
-                        Some(f) => format!("setup rejected: {} {}", f.code, f.reason),
-                        None => "the session closed during setup".to_string(),
-                    }));
+                    return Err(setup_closed(frame));
                 }
                 _ => continue,
             }
@@ -654,7 +705,7 @@ pub(crate) mod session {
                 }
             })?;
             let Some(frame) = frame else { break };
-            let frame = frame.map_err(|e| fail(format!("socket read failed: {e}")))?;
+            let frame = frame.map_err(|e| socket_error("socket read failed", &e))?;
             frames += 1;
             if let Some(body) = frame_json(&frame) {
                 if let Ok(v) = serde_json::from_str::<Value>(&body) {
@@ -723,6 +774,35 @@ pub(crate) mod session {
         }
         finish(&mut socket, mode, segments, budget).await
     }
+
+    #[cfg(test)]
+    mod privacy_tests {
+        use super::*;
+        use tokio_tungstenite::tungstenite::{
+            protocol::{frame::coding::CloseCode, CloseFrame},
+            Error,
+        };
+
+        #[test]
+        fn socket_errors_and_close_reasons_never_expose_remote_content() {
+            const PRIVATE: &str = "private_transcript_and_key";
+            let errors = [
+                Error::Io(std::io::Error::other(PRIVATE)),
+                Error::Utf8(PRIVATE.to_string()),
+                Error::WriteBufferFull(Box::new(Message::Text(PRIVATE.into()))),
+            ];
+            for error in errors {
+                let safe = socket_error("socket read failed", &error);
+                assert!(!format!("{safe} {safe:?}").contains(PRIVATE));
+            }
+            let safe = setup_closed(Some(CloseFrame {
+                code: CloseCode::Policy,
+                reason: PRIVATE.into(),
+            }));
+            assert!(safe.to_string().contains("1008"));
+            assert!(!format!("{safe} {safe:?}").contains(PRIVATE));
+        }
+    }
 }
 
 /// The Gemini Live adapter.
@@ -760,7 +840,12 @@ impl GeminiLive {
                 tokio::runtime::Builder::new_current_thread()
                     .enable_all()
                     .build()
-                    .map_err(|e| fail(format!("could not start the Live API runtime: {e}")))?,
+                    .map_err(|e| {
+                        fail(format!(
+                            "could not start the Live API runtime ({:?})",
+                            e.kind()
+                        ))
+                    })?,
             ),
         })
     }

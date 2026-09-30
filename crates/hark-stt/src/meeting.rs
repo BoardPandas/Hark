@@ -14,7 +14,7 @@
 //! `source()` chain for the underlying `io::Error`, which keeps its real
 //! `ErrorKind`, before giving up and reporting a generic transport error.
 
-use crate::error::{error_for_status, error_for_transport, truncate_snippet, SttError};
+use crate::error::{error_for_status, error_for_transport, json_error_detail, SttError};
 use crate::openai_compatible::retry_after_secs;
 use reqwest::blocking::{Body, Client};
 use std::io::Read;
@@ -73,7 +73,7 @@ pub fn final_pass_url(base_url: &str, keyterms: &[String]) -> Result<String, Stt
     let base = format!("{}/v1/listen", base_url.trim_end_matches('/'));
     let mut url = reqwest::Url::parse(&base).map_err(|e| SttError::Provider {
         provider: "deepgram".to_string(),
-        detail: format!("invalid base_url {base_url:?}: {e}"),
+        detail: format!("invalid base_url: {e}"),
     })?;
     {
         let mut q = url.query_pairs_mut();
@@ -138,14 +138,11 @@ fn secs_to_ms_clamped(secs: f64, audio_ms: u64) -> u64 {
 pub fn parse_final_pass(json: &str, audio_ms: u64) -> Result<Vec<FinalSegment>, SttError> {
     let parsed: RawResponse = serde_json::from_str(json).map_err(|e| SttError::Provider {
         provider: "deepgram".to_string(),
-        detail: format!(
-            "unexpected response shape ({e}): {}",
-            truncate_snippet(json)
-        ),
+        detail: json_error_detail("unexpected response shape", &e),
     })?;
     let results = parsed.results.ok_or_else(|| SttError::Provider {
         provider: "deepgram".to_string(),
-        detail: format!("missing results: {}", truncate_snippet(json)),
+        detail: "missing results".to_string(),
     })?;
 
     if results
@@ -209,11 +206,11 @@ fn classify_io_error_in_source_chain(
                 | ErrorKind::NotConnected
                 | ErrorKind::BrokenPipe => SttError::Http {
                     provider: label.to_string(),
-                    detail: format!("connect failed (no network, DNS, or provider down): {io_err}"),
+                    detail: format!("connect failed ({:?})", io_err.kind()),
                 },
                 _ => SttError::Http {
                     provider: label.to_string(),
-                    detail: io_err.to_string(),
+                    detail: format!("I/O failed ({:?})", io_err.kind()),
                 },
             });
         }
@@ -234,10 +231,8 @@ fn classify_final_pass_error(label: &str, timeout_ms: u64, err: &reqwest::Error)
     if err.is_timeout() || err.is_connect() {
         return error_for_transport(label, timeout_ms, err);
     }
-    classify_io_error_in_source_chain(label, timeout_ms, err).unwrap_or_else(|| SttError::Http {
-        provider: label.to_string(),
-        detail: err.to_string(),
-    })
+    classify_io_error_in_source_chain(label, timeout_ms, err)
+        .unwrap_or_else(|| error_for_transport(label, timeout_ms, err))
 }
 
 /// Run the Deepgram final pass over one complete meeting recording.
@@ -532,6 +527,23 @@ mod tests {
         match mapped {
             SttError::Http { detail, .. } => assert!(detail.contains("connect failed")),
             other => panic!("expected Http, got {other}"),
+        }
+    }
+
+    #[test]
+    fn source_chain_diagnostics_keep_kind_without_echoing_io_detail() {
+        for kind in [
+            std::io::ErrorKind::ConnectionReset,
+            std::io::ErrorKind::Other,
+        ] {
+            let wrapped =
+                FakeStreamedBodyError(std::io::Error::new(kind, "private_meeting_transcript"));
+            let mapped =
+                classify_io_error_in_source_chain("deepgram", FINAL_PASS_TIMEOUT_MS, &wrapped)
+                    .unwrap();
+            let detail = format!("{mapped} {mapped:?}");
+            assert!(!detail.contains("private_meeting_transcript"));
+            assert!(detail.contains(&format!("{kind:?}")));
         }
     }
 

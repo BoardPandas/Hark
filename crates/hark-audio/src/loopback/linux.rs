@@ -5,8 +5,8 @@
 //!
 //! One dedicated thread owns the entire `pipewire-rs` stack (loop, context,
 //! core, registry, streams); every callback runs on it, mirroring the Windows
-//! thread that owns its MTA apartment. The only per-packet work is a stack
-//! copy and `Producer::push`. `pw::init` is refcounted process-wide and never
+//! thread that owns its MTA apartment. Timestamped packets are mixed on this
+//! thread into one bounded 16 kHz timeline. `pw::init` is process-wide and never
 //! balanced with `deinit`: the detection probe and watcher in `hark-meeting`
 //! keep the library initialized for the process lifetime anyway.
 //!
@@ -46,6 +46,10 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{mpsc, Arc};
 use std::time::Duration;
 
+#[path = "linux_mix.rs"]
+mod mix;
+use mix::{Mixer, PacketClock};
+
 /// The loop timer's period: bounds shutdown latency and paces substream
 /// bookkeeping. Same shape as the Windows thread's 100 ms wait timeout.
 const TICK: Duration = Duration::from_millis(100);
@@ -60,6 +64,7 @@ struct Shared {
     stream_error: Arc<AtomicBool>,
     discontinuities: Arc<AtomicU64>,
     start_ns: Arc<AtomicU64>,
+    captured_frames: Arc<AtomicU64>,
 }
 
 /// One `target.object` a substream captures.
@@ -71,12 +76,43 @@ enum Source {
     SinkMonitor(String),
 }
 
+struct Routing {
+    monitor_wanted: bool,
+    include_root: Option<u32>,
+    fell_back: bool,
+}
+
+impl Routing {
+    fn fallback(
+        &mut self,
+        enumerated: bool,
+        ever_streamed: bool,
+        no_sources: bool,
+        sink: Option<&str>,
+    ) -> Option<Source> {
+        if self.include_root.is_some()
+            && enumerated
+            && !self.fell_back
+            && !ever_streamed
+            && no_sources
+        {
+            let sink = sink?;
+            log::info!("loopback: no audio stream for the meeting app's process tree; capturing the default sink instead");
+            self.fell_back = true;
+            self.monitor_wanted = true;
+            self.include_root = None;
+            return Some(Source::SinkMonitor(sink.to_owned()));
+        }
+        None
+    }
+}
+
 /// Everything the capture thread owns. Every pw callback receives the whole
 /// thing behind `Rc<RefCell<..>>`; they all run on this thread, so the
 /// borrows never overlap.
 struct Thread {
     core: pw::core::CoreRc,
-    producer: Rc<Producer>,
+    mixer: Rc<RefCell<Mixer>>,
     shared: Shared,
     /// Live substreams by key (`stream:<serial>` / `monitor:default`), with
     /// their registered listeners: a dropped listener unregisters its
@@ -91,16 +127,11 @@ struct Thread {
     sinks: Vec<(u32, String)>,
     /// The default sink's node name, from metadata.
     default_sink: Option<String>,
-    /// Exclude mode: a monitor substream is wanted.
-    monitor_wanted: bool,
-    /// Include mode: the root PID whose tree's audio is "Them".
-    include_root: Option<u32>,
+    route: Routing,
     /// The initial registry enumeration has completed.
     enumerated: bool,
     /// Any substream reached Streaming at least once.
     ever_streamed: bool,
-    /// The Include fallback to the whole sink has been applied.
-    fell_back: bool,
     /// True once start() has been satisfied: the quit conditions then shift
     /// from "live or failed" to "shutdown or failed".
     running: bool,
@@ -127,21 +158,23 @@ pub(super) fn start(
         stream_error: Arc::new(AtomicBool::new(false)),
         discontinuities: Arc::new(AtomicU64::new(0)),
         start_ns: Arc::new(AtomicU64::new(0)),
+        captured_frames: Arc::new(AtomicU64::new(0)),
     };
     let handle_parts = (
         shared.shutdown.clone(),
         shared.stream_error.clone(),
         shared.discontinuities.clone(),
         shared.start_ns.clone(),
+        shared.captured_frames.clone(),
     );
     let (producer, consumer) = ring(ring_seconds as usize * LOOPBACK_RATE as usize);
     let (result_tx, result_rx) = mpsc::sync_channel::<Result<(), LoopbackError>>(1);
     let thread = std::thread::Builder::new()
         .name("hark-audio-loopback".to_string())
-        .spawn(move || capture_thread(target, Rc::new(producer), shared, result_tx))
+        .spawn(move || capture_thread(target, producer, shared, result_tx))
         .map_err(|e| LoopbackError::Start(format!("spawning the capture thread: {e}")))?;
 
-    let (shutdown, stream_error, discontinuities, start_ns) = handle_parts;
+    let (shutdown, stream_error, discontinuities, start_ns, captured_frames) = handle_parts;
     match result_rx.recv() {
         Ok(Ok(())) => Ok((
             LoopbackHandle {
@@ -149,6 +182,7 @@ pub(super) fn start(
                 stream_error,
                 discontinuities,
                 start_qpc_ns: start_ns,
+                captured_frames,
                 thread: Some(thread),
             },
             consumer,
@@ -179,7 +213,7 @@ fn context_props() -> pw::properties::PropertiesBox {
 
 fn capture_thread(
     target: LoopbackTarget,
-    producer: Rc<Producer>,
+    producer: Producer,
     shared: Shared,
     result_tx: mpsc::SyncSender<Result<(), LoopbackError>>,
 ) {
@@ -210,23 +244,31 @@ fn capture_thread(
         }
     };
 
+    let origin_ns = monotonic_ns();
+    shared.start_ns.store(origin_ns, Ordering::Release);
     let state = Rc::new(RefCell::new(Thread {
         core: core.clone(),
-        producer,
+        mixer: Rc::new(RefCell::new(Mixer::new(
+            origin_ns,
+            producer,
+            shared.captured_frames.clone(),
+        ))),
         shared,
         substreams: HashMap::new(),
         add: Vec::new(),
         dead: Vec::new(),
         sinks: Vec::new(),
         default_sink: None,
-        monitor_wanted: matches!(target, LoopbackTarget::ExcludeTree(_)),
-        include_root: match target {
-            LoopbackTarget::IncludeTree(pid) => Some(pid),
-            LoopbackTarget::ExcludeTree(_) => None,
+        route: Routing {
+            monitor_wanted: matches!(target, LoopbackTarget::ExcludeTree(_)),
+            include_root: match target {
+                LoopbackTarget::IncludeTree(pid) => Some(pid),
+                LoopbackTarget::ExcludeTree(_) => None,
+            },
+            fell_back: false,
         },
         enumerated: false,
         ever_streamed: false,
-        fell_back: false,
         running: false,
         fatal: None,
         started: std::time::Instant::now(),
@@ -272,7 +314,7 @@ fn capture_thread(
                     if class == "Stream/Output/Audio" && !serial.is_empty() {
                         let (root, wanted) = {
                             let s = reg_state.borrow();
-                            (s.include_root, s.include_root.is_some())
+                            (s.route.include_root, s.route.include_root.is_some())
                         };
                         // Registry globals filter `application.*`, so the
                         // owning pid only shows up in the bound node's info
@@ -300,6 +342,11 @@ fn capture_thread(
                                             return;
                                         }
                                         let mut s = node_state.borrow_mut();
+                                        // Once the sink is the fallback, adding
+                                        // an app tap too would record it twice.
+                                        if s.route.fell_back {
+                                            return;
+                                        }
                                         let key = format!("stream:{node_serial}");
                                         let queued = s.add.iter().any(|(k, _)| *k == key)
                                             || s.substreams.contains_key(&key);
@@ -333,7 +380,7 @@ fn capture_thread(
                             let mut s = meta_state.borrow_mut();
                             let changed = s.default_sink.as_deref() != Some(name);
                             s.default_sink = Some(name.to_string());
-                            if changed && s.monitor_wanted {
+                            if changed && s.route.monitor_wanted {
                                 // Rebuild a LIVE monitor on the next tick; the
                                 // swap's gap is one discontinuity, like a
                                 // device change. On the first arrival there is
@@ -414,6 +461,7 @@ fn capture_thread(
     // Phase 2: run until shutdown or a fatal stream error.
     mainloop.run();
     let mut s = state.borrow_mut();
+    s.mixer.borrow_mut().finish();
     if let Some(detail) = s.fatal.take() {
         s.shared.stream_error.store(true, Ordering::Relaxed);
         log::error!("loopback stream error: {detail}");
@@ -445,6 +493,16 @@ fn tick(state: &Rc<RefCell<Thread>>) -> bool {
     if state.borrow().shared.shutdown.load(Ordering::Relaxed) {
         return true;
     }
+    state.borrow().mixer.borrow_mut().flush_due(monotonic_ns());
+    let dead = std::mem::take(&mut state.borrow_mut().dead);
+    for key in dead {
+        let removed = state.borrow_mut().substreams.remove(&key);
+        state.borrow().mixer.borrow_mut().remove_source(&key);
+        if let Some((stream, listener)) = removed {
+            drop(listener);
+            drop(stream);
+        }
+    }
     // Hoisted out of the loop head: a `borrow_mut()` temporary in a `for`
     // scrutinee lives for the whole loop and every borrow inside would panic.
     let adds = std::mem::take(&mut state.borrow_mut().add);
@@ -456,21 +514,16 @@ fn tick(state: &Rc<RefCell<Thread>>) -> bool {
             Ok(opened) => {
                 state.borrow_mut().substreams.insert(key, opened);
             }
-            Err(e) => log::warn!("loopback: cannot open {key}: {e}"),
+            Err(e) => {
+                state.borrow().mixer.borrow_mut().remove_source(&key);
+                log::warn!("loopback: cannot open {key}: {e}");
+            }
         }
     }
-    let dead = std::mem::take(&mut state.borrow_mut().dead);
-    {
-        let mut s = state.borrow_mut();
-        for key in dead {
-            s.substreams.remove(&key);
-        }
-    }
-
     // No metadata (very old session managers): monitor any sink we saw.
     {
         let mut s = state.borrow_mut();
-        if s.monitor_wanted
+        if s.route.monitor_wanted
             && s.default_sink.is_none()
             && s.enumerated
             && !s.substreams.contains_key("monitor:default")
@@ -487,23 +540,24 @@ fn tick(state: &Rc<RefCell<Thread>>) -> bool {
                 .push(("monitor:default".into(), Source::SinkMonitor(name)));
         }
         // The Include fallback: the app's tree had no audio, capture the sink.
-        if s.include_root.is_some()
-            && s.enumerated
-            && !s.fell_back
-            && !s.ever_streamed
-            && s.substreams.is_empty()
-            && s.add.is_empty()
+        let enumerated = s.enumerated;
+        let ever_streamed = s.ever_streamed;
+        let no_sources = s.substreams.is_empty() && s.add.is_empty();
+        let sink = s.default_sink.clone().or_else(|| {
+            s.sinks
+                .iter()
+                .min_by_key(|(id, _)| *id)
+                .map(|(_, name)| name.clone())
+        });
+        if let Some(source) =
+            s.route
+                .fallback(enumerated, ever_streamed, no_sources, sink.as_deref())
         {
-            log::info!(
-                "loopback: no audio stream for the meeting app's process tree; \
-                 capturing the default sink instead"
-            );
-            s.fell_back = true;
-            s.monitor_wanted = true;
+            s.add.push(("monitor:default".into(), source));
         }
         // The monitor died mid-meeting (sink unplugged): metadata has not
         // changed, so rebuild it ourselves, counting the gap.
-        if s.monitor_wanted
+        if s.route.monitor_wanted
             && s.running
             && s.ever_streamed
             && !s.substreams.contains_key("monitor:default")
@@ -544,11 +598,11 @@ fn tick(state: &Rc<RefCell<Thread>>) -> bool {
                 && s.substreams.is_empty()
                 && s.add.is_empty()
                 && !s.ever_streamed,
-            s.running && s.include_root.is_some() && s.substreams.is_empty(),
+            s.running && s.route.include_root.is_some() && s.substreams.is_empty(),
         )
     };
     if starting_dead || tree_dead {
-        state.borrow_mut().fatal = Some(if state.borrow().include_root.is_some() {
+        state.borrow_mut().fatal = Some(if state.borrow().route.include_root.is_some() {
             "the meeting app's audio streams are gone".into()
         } else {
             "no audio output to capture".into()
@@ -566,12 +620,12 @@ fn open_substream(
     key: &str,
     source: Source,
 ) -> Result<(pw::stream::StreamRc, pw::stream::StreamListener<()>), pw::Error> {
-    let (core, producer, start_ns) = {
+    let (core, mixer, discontinuities) = {
         let s = state.borrow();
         (
             s.core.clone(),
-            s.producer.clone(),
-            s.shared.start_ns.clone(),
+            s.mixer.clone(),
+            s.shared.discontinuities.clone(),
         )
     };
     let mut props = properties! {
@@ -592,53 +646,96 @@ fn open_substream(
     }
     let stream = pw::stream::StreamRc::new(core, "hark-loopback", props)?;
 
-    let on_state = state.clone();
-    let on_error = state.clone();
+    // Thread owns each listener. Weak callbacks avoid retaining the entire
+    // capture graph after the loop has stopped.
+    let on_state = Rc::downgrade(state);
     let error_key = key.to_string();
-    let producer = producer.clone();
-    let start_ns = start_ns.clone();
+    let source_key = key.to_owned();
+    mixer.borrow_mut().add_source(key);
+    let mut clock = PacketClock::default();
     let bytes = format_pod();
-    let mut params = [Pod::from_bytes(&bytes).expect("fixed POD serializes")];
+    let header = header_pod();
+    let mut params = [
+        Pod::from_bytes(&bytes).expect("fixed POD serializes"),
+        Pod::from_bytes(&header).expect("fixed POD serializes"),
+    ];
     let listener = stream
         .add_local_listener_with_user_data(())
         .state_changed(move |_, _, old, new| {
+            let Some(state) = on_state.upgrade() else {
+                return;
+            };
             if old != new {
                 log::info!("loopback substream {error_key}: {old:?} -> {new:?}");
             }
             match new {
                 pw::stream::StreamState::Streaming => {
-                    on_state.borrow_mut().ever_streamed = true;
+                    state.borrow_mut().ever_streamed = true;
                 }
                 pw::stream::StreamState::Error(ref e) => {
                     log::warn!("loopback substream {error_key} failed: {e}");
-                    on_error.borrow_mut().dead.push(error_key.clone());
+                    state.borrow_mut().dead.push(error_key.clone());
                 }
                 _ => {}
             }
         })
         .process(move |stream, _| {
-            let Some(mut buffer) = stream.dequeue_buffer() else {
-                return;
-            };
-            let datas = buffer.datas_mut();
-            let Some(data) = datas.first_mut() else {
-                return;
-            };
-            let size = data.chunk().size() as usize;
-            let Some(bytes) = data.data() else {
-                return;
-            };
-            // F32LE mono at LOOPBACK_RATE is the negotiated format, so the
-            // byte slice is the sample slice.
-            let samples =
-                unsafe { std::slice::from_raw_parts(bytes.as_ptr() as *const f32, size / 4) };
-            if start_ns.load(Ordering::Relaxed) == 0 {
-                start_ns.store(monotonic_ns().max(1), Ordering::Release);
-            }
-            let mut batch = [0f32; PUSH_BATCH];
-            for part in samples.chunks(PUSH_BATCH) {
-                batch[..part.len()].copy_from_slice(part);
-                producer.push(&batch[..part.len()]);
+            use pw::spa::buffer::meta::{MetaHeader, MetaHeaderFlags};
+            while let Some(mut buffer) = stream.dequeue_buffer() {
+                let meta = buffer.find_meta::<MetaHeader>();
+                let pts = meta
+                    .and_then(|m| u64::try_from(m.pts()).ok())
+                    .filter(|ns| *ns > 0);
+                let flags = meta.map_or(MetaHeaderFlags::empty(), MetaHeader::flags);
+                if flags.intersects(MetaHeaderFlags::DISCONT | MetaHeaderFlags::CORRUPTED) {
+                    discontinuities.fetch_add(1, Ordering::Relaxed);
+                }
+                let datas = buffer.datas_mut();
+                let Some(data) = datas.first_mut() else {
+                    continue;
+                };
+                let offset = data.chunk().offset() as usize;
+                let size = data.chunk().size() as usize;
+                let Some(bytes) = data.data() else { continue };
+                let Some(bytes) = offset
+                    .checked_add(size)
+                    .and_then(|end| bytes.get(offset..end))
+                else {
+                    discontinuities.fetch_add(1, Ordering::Relaxed);
+                    continue;
+                };
+                if bytes.len() % 4 != 0 {
+                    discontinuities.fetch_add(1, Ordering::Relaxed);
+                    continue;
+                }
+                let cycle_ns = stream
+                    .time()
+                    .ok()
+                    .and_then(|time| u64::try_from(time.now()).ok())
+                    .filter(|ns| *ns > 0)
+                    .unwrap_or_else(monotonic_ns);
+                let packet_ns = clock.start(pts, cycle_ns, bytes.len() / 4);
+                let silent = flags.intersects(MetaHeaderFlags::GAP | MetaHeaderFlags::CORRUPTED);
+                let mut batch = [0f32; PUSH_BATCH];
+                for (i, part) in bytes.chunks(PUSH_BATCH * 4).enumerate() {
+                    let count = part.len() / 4;
+                    for (output, sample) in batch.iter_mut().zip(part.as_chunks::<4>().0) {
+                        *output = if silent {
+                            0.0
+                        } else {
+                            f32::from_le_bytes(*sample)
+                        };
+                    }
+                    let offset_ns =
+                        (i * PUSH_BATCH) as u64 * 1_000_000_000 / u64::from(LOOPBACK_RATE);
+                    if mixer
+                        .borrow_mut()
+                        .push(&source_key, packet_ns + offset_ns, &batch[..count])
+                        > 0
+                    {
+                        discontinuities.fetch_add(1, Ordering::Relaxed);
+                    }
+                }
             }
         })
         .register()?;
@@ -649,6 +746,33 @@ fn open_substream(
         &mut params,
     )?;
     Ok((stream, listener))
+}
+
+/// Ask for per-buffer PTS; stream timing remains the compatibility fallback.
+fn header_pod() -> Vec<u8> {
+    use pw::spa::pod::{Object, Property, Value};
+    use pw::spa::utils::Id;
+    let object = Object {
+        type_: pw::spa::utils::SpaTypes::ObjectParamMeta.as_raw(),
+        id: pw::spa::param::ParamType::Meta.as_raw(),
+        properties: vec![
+            Property::new(
+                pw::spa::sys::SPA_PARAM_META_type,
+                Value::Id(Id(pw::spa::sys::SPA_META_Header)),
+            ),
+            Property::new(
+                pw::spa::sys::SPA_PARAM_META_size,
+                Value::Int(std::mem::size_of::<pw::spa::sys::spa_meta_header>() as i32),
+            ),
+        ],
+    };
+    pw::spa::pod::serialize::PodSerializer::serialize(
+        std::io::Cursor::new(Vec::new()),
+        &Value::Object(object),
+    )
+    .expect("fixed metadata POD serializes")
+    .0
+    .into_inner()
 }
 
 /// Nanoseconds on `CLOCK_MONOTONIC`, the clock `Instant` is built from.
@@ -738,6 +862,22 @@ pub(super) fn default_sink_name(value: &str) -> Option<&str> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn missing_app_stream_queues_the_existing_default_sink_before_startup_failure() {
+        let mut route = Routing {
+            monitor_wanted: false,
+            include_root: Some(123),
+            fell_back: false,
+        };
+        let queued = route.fallback(true, false, true, Some("default-sink"));
+        assert!(matches!(queued, Some(Source::SinkMonitor(name)) if name == "default-sink"));
+        assert!(route.monitor_wanted);
+        assert!(route.fell_back);
+        assert!(route
+            .fallback(true, false, false, Some("default-sink"))
+            .is_none());
+    }
 
     #[test]
     fn the_default_sink_name_survives_both_metadata_shapes() {

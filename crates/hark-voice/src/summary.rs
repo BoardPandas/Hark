@@ -11,7 +11,7 @@
 //! than duplicating them; only the notes-specific prompt, JSON schema, and
 //! validation live here.
 
-use crate::error::truncate_snippet;
+use crate::error::json_error_detail;
 use crate::openai_compatible::{
     chat_completions_url, max_completion_tokens, parse_response, retry_after_secs,
 };
@@ -106,7 +106,7 @@ impl MeetingNotes {
     pub fn from_json(s: &str) -> Result<MeetingNotes, SummaryError> {
         serde_json::from_str(s).map_err(|e| SummaryError::Provider {
             provider: PARSE_ERROR_TAG.to_string(),
-            detail: format!("stored notes JSON is invalid ({e})"),
+            detail: json_error_detail("stored notes JSON is invalid", &e),
         })
     }
 }
@@ -299,10 +299,7 @@ struct RawActionItem {
 fn extract_json_object(content: &str) -> Result<&str, SummaryError> {
     let start = content.find('{').ok_or_else(|| SummaryError::Provider {
         provider: PARSE_ERROR_TAG.to_string(),
-        detail: format!(
-            "no JSON object found in response: {}",
-            truncate_snippet(content)
-        ),
+        detail: "no JSON object found in response".to_string(),
     })?;
 
     let mut depth: usize = 0;
@@ -334,10 +331,7 @@ fn extract_json_object(content: &str) -> Result<&str, SummaryError> {
     }
     Err(SummaryError::Provider {
         provider: PARSE_ERROR_TAG.to_string(),
-        detail: format!(
-            "unterminated JSON object in response: {}",
-            truncate_snippet(content)
-        ),
+        detail: "unterminated JSON object in response".to_string(),
     })
 }
 
@@ -352,10 +346,7 @@ pub fn parse_notes(content: &str) -> Result<MeetingNotes, SummaryError> {
     let json_str = extract_json_object(content)?;
     let raw: RawNotes = serde_json::from_str(json_str).map_err(|e| SummaryError::Provider {
         provider: PARSE_ERROR_TAG.to_string(),
-        detail: format!(
-            "unexpected notes body ({e}): {}",
-            truncate_snippet(json_str)
-        ),
+        detail: json_error_detail("unexpected notes body", &e),
     })?;
 
     let summary = truncate_chars(raw.summary.trim(), SUMMARY_MAX_CHARS);

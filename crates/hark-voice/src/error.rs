@@ -42,22 +42,20 @@ pub enum CleanupError {
     },
 
     /// Provider returned a non-success status, an unparseable body, or empty
-    /// content. `detail` is truncated so logs stay clean.
+    /// content. `detail` contains only status/category and structural diagnostics.
     #[error("provider error ({provider}): {detail}")]
     Provider { provider: String, detail: String },
 }
 
-/// Cap provider body snippets so an error never drags a huge (or binary)
-/// response body into logs.
-pub(crate) const BODY_SNIPPET_MAX: usize = 300;
-
-pub(crate) fn truncate_snippet(body: &str) -> String {
-    let trimmed = body.trim();
-    if trimmed.chars().count() <= BODY_SNIPPET_MAX {
-        return trimmed.to_string();
-    }
-    let cut: String = trimmed.chars().take(BODY_SNIPPET_MAX).collect();
-    format!("{cut}…")
+/// Serde's Display can quote an invalid string value. Only its structural
+/// category and numeric location are safe to include in diagnostics.
+pub(crate) fn json_error_detail(context: &str, error: &serde_json::Error) -> String {
+    format!(
+        "{context} (JSON {:?} at line {}, column {})",
+        error.classify(),
+        error.line(),
+        error.column()
+    )
 }
 
 /// The tail of an auth error message: the provider's own reason code when it
@@ -78,9 +76,8 @@ fn detail_suffix(status: &u16, detail: &str) -> String {
 /// quotes the key back ("Incorrect API key provided: sk-..."), so echoing the
 /// body would put the secret in a log line via the one error guaranteed to be
 /// shown to the user. OpenAI-shaped errors carry `error.code` and `error.type`
-/// -- enumerated slugs like `invalid_api_key`, `insufficient_quota`,
-/// `model_not_found` -- which is the entire diagnostic value with none of the
-/// risk, since a key cannot appear in an enumerated field.
+/// -- only known slugs like `invalid_api_key`, `insufficient_quota`, and
+/// `model_not_found` are accepted. Unknown values can also carry secrets.
 fn auth_reason(body: &str) -> String {
     let Ok(v) = serde_json::from_str::<serde_json::Value>(body) else {
         return String::new();
@@ -89,9 +86,23 @@ fn auth_reason(body: &str) -> String {
     for field in ["code", "type"] {
         if let Some(slug) = err.get(field).and_then(|s| s.as_str()) {
             let slug = slug.trim();
-            // Bound it: an enumerated slug is short, and anything long enough
-            // to be prose is not one and may not be safe to print.
-            if !slug.is_empty() && slug.len() <= 64 && !slug.contains(char::is_whitespace) {
+            // A provider can put arbitrary content in these fields too.
+            // Preserve only known diagnostic labels, never an unknown value.
+            if matches!(
+                slug,
+                "invalid_api_key"
+                    | "insufficient_quota"
+                    | "model_not_found"
+                    | "authentication_error"
+                    | "permission_denied"
+                    | "permission_error"
+                    | "invalid_request_error"
+                    | "account_deactivated"
+                    | "organization_deactivated"
+                    | "access_denied"
+                    | "UNAUTHENTICATED"
+                    | "PERMISSION_DENIED"
+            ) {
                 return slug.to_string();
             }
         }
@@ -119,14 +130,13 @@ pub fn error_for_status(
         },
         _ => CleanupError::Provider {
             provider: provider.to_string(),
-            detail: format!("HTTP {status}: {}", truncate_snippet(body)),
+            detail: format!("HTTP {status}"),
         },
     }
 }
 
-/// Map a `reqwest` transport error to the taxonomy. `reqwest` error Display
-/// strings contain the URL but never request headers or bodies, so they are
-/// safe to keep as detail. The CP0 spike verifies that buffered JSON bodies
+/// Map a `reqwest` transport error to safe categories; its Display can expose
+/// credentials or user content in the URL. The CP0 spike verifies that buffered JSON bodies
 /// keep `is_timeout()`/`is_connect()` classifiable (the multipart masking bug,
 /// LL-G HIGH, must not reproduce here).
 pub fn error_for_transport(
@@ -148,13 +158,21 @@ pub fn error_for_transport(
         }
     } else {
         let kind = if err.is_connect() {
-            "connect failed (no network, DNS, or provider down): "
+            "connect failed (no network, DNS, or provider down)"
+        } else if err.is_builder() {
+            "request configuration is invalid"
+        } else if err.is_body() {
+            "request or response body transfer failed"
+        } else if err.is_decode() {
+            "response decoding failed"
+        } else if err.is_redirect() {
+            "redirect failed"
         } else {
-            ""
+            "request transport failed"
         };
         CleanupError::Http {
             provider: provider.to_string(),
-            detail: format!("{kind}{err}"),
+            detail: kind.to_string(),
         }
     }
 }

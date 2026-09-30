@@ -57,6 +57,7 @@ pub enum MeetingCmd {
     /// The meeting's row and its audio.
     Delete {
         id: String,
+        reply: std::sync::mpsc::Sender<Result<(), String>>,
     },
     /// Settings > Meetings "Delete all meeting audio": transcripts stay.
     DeleteAllAudio {
@@ -117,7 +118,17 @@ pub fn apply(store: &mut Store, dir: &Path, cmd: MeetingCmd) -> Result<bool, Sto
         MeetingCmd::Finished { id, audio_bytes } => store
             .set_meeting_audio_bytes(&id, audio_bytes as i64)
             .map(|_| true),
-        MeetingCmd::Delete { id } => delete(store, dir, &id),
+        MeetingCmd::Delete { id, reply } => {
+            let result = delete(store, dir, &id);
+            let _ = reply.send(result.as_ref().map(|_| ()).map_err(Clone::clone));
+            match result {
+                Ok(changed) => Ok(changed),
+                Err(error) => {
+                    log::warn!("meeting {id}: {error}");
+                    Ok(false)
+                }
+            }
+        }
         MeetingCmd::DeleteAllAudio { protected } => evict(store, dir, 0, &protected, true),
         MeetingCmd::EnforceCap {
             cap_bytes,
@@ -127,18 +138,27 @@ pub fn apply(store: &mut Store, dir: &Path, cmd: MeetingCmd) -> Result<bool, Sto
     }
 }
 
-fn delete(store: &mut Store, dir: &Path, id: &str) -> Result<bool, StoreError> {
+fn delete(store: &mut Store, dir: &Path, id: &str) -> Result<bool, String> {
     // The guard deletes only folders named by a meeting the database knows.
-    if store.meeting(id)?.is_none() {
+    if store
+        .meeting(id)
+        .map_err(|_| "The meeting could not be read. Try Delete again.")?
+        .is_none()
+    {
         return Ok(false);
     }
     match storage_fs::delete_audio(dir, id, &[id]) {
         Ok(bytes) => log::info!("meeting {id}: deleted with {bytes} bytes of audio"),
-        // Already evicted, or never recorded anything.
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
-        Err(e) => log::warn!("meeting {id}: audio not deleted ({e}); removing the record anyway"),
+        // Only an absent recording is benign. NotFound can also come from
+        // a disappearing nested file while the recording folder remains.
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound
+            && matches!(std::fs::symlink_metadata(dir.join(id)), Err(missing) if missing.kind() == std::io::ErrorKind::NotFound) => {}
+        Err(e) => return Err(format!(
+            "Audio could not be removed ({:?}). The meeting record was kept. Close any player using the recording, check file access, and try Delete again.",
+            e.kind()
+        )),
     }
-    store.delete_meeting(id)
+    store.delete_meeting(id).map_err(|_| "Audio removal completed, but the meeting record could not be removed. Try Delete again.".to_string())
 }
 
 /// The storage cap (plan §4.9). `everything` evicts every unprotected
@@ -230,4 +250,80 @@ fn recover(store: &mut Store, dir: &Path) -> Result<bool, StoreError> {
         changed = true;
     }
     Ok(changed)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn failed_audio_delete_preserves_the_record_for_retry() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut store = Store::open_in_memory().unwrap();
+        store
+            .create_meeting(&NewMeeting {
+                id: "m1".into(),
+                started_ms: 1,
+                trigger: "manual".into(),
+                app_hint: None,
+                stt_provider: "test".into(),
+            })
+            .unwrap();
+        // A non-directory is refused on every platform, without permission
+        // or symlink privileges and without touching real user recordings.
+        std::fs::write(dir.path().join("m1"), b"synthetic retained bytes").unwrap();
+        assert!(delete(&mut store, dir.path(), "m1").is_err());
+        assert!(store.meeting("m1").unwrap().is_some());
+        std::fs::remove_file(dir.path().join("m1")).unwrap();
+        std::fs::create_dir(dir.path().join("m1")).unwrap();
+        std::fs::write(dir.path().join("m1/archive.mp3"), b"synthetic audio").unwrap();
+        assert!(delete(&mut store, dir.path(), "m1").unwrap());
+        assert!(store.meeting("m1").unwrap().is_none());
+        assert!(!dir.path().join("m1").exists());
+    }
+
+    #[test]
+    fn deletion_command_replies_with_error_then_missing_audio_can_be_deleted() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut store = Store::open_in_memory().unwrap();
+        store
+            .create_meeting(&NewMeeting {
+                id: "m1".into(),
+                started_ms: 1,
+                trigger: "manual".into(),
+                app_hint: None,
+                stt_provider: "test".into(),
+            })
+            .unwrap();
+        std::fs::write(dir.path().join("m1"), b"synthetic retained bytes").unwrap();
+        let (reply, receiver) = std::sync::mpsc::channel();
+        assert!(!apply(
+            &mut store,
+            dir.path(),
+            MeetingCmd::Delete {
+                id: "m1".into(),
+                reply
+            }
+        )
+        .unwrap());
+        assert!(receiver
+            .try_recv()
+            .unwrap()
+            .unwrap_err()
+            .contains("meeting record was kept"));
+        assert!(store.meeting("m1").unwrap().is_some());
+        std::fs::remove_file(dir.path().join("m1")).unwrap();
+        let (reply, receiver) = std::sync::mpsc::channel();
+        assert!(apply(
+            &mut store,
+            dir.path(),
+            MeetingCmd::Delete {
+                id: "m1".into(),
+                reply
+            }
+        )
+        .unwrap());
+        assert_eq!(receiver.try_recv().unwrap(), Ok(()));
+        assert!(store.meeting("m1").unwrap().is_none());
+    }
 }

@@ -26,7 +26,7 @@
 //!
 //! Never logs the API key, the audio, or the transcript text.
 
-use crate::error::{error_for_status, error_for_transport, truncate_snippet, SttError};
+use crate::error::{error_for_status, error_for_transport, json_error_detail, SttError};
 use crate::openai_compatible::{prompt_from_bias_terms, retry_after_secs};
 use crate::{ProviderConfig, SttProvider, Transcript, TOTAL_TIMEOUT_MS};
 use base64::Engine as _;
@@ -254,18 +254,10 @@ pub fn parse_response(
         detail,
     };
 
-    let envelope: serde_json::Value = serde_json::from_str(body).map_err(|e| {
-        fail(format!(
-            "unexpected response body ({e}): {}",
-            truncate_snippet(body)
-        ))
-    })?;
-    let output = extract_output_text(&envelope).ok_or_else(|| {
-        fail(format!(
-            "response carried no model text: {}",
-            truncate_snippet(body)
-        ))
-    })?;
+    let envelope: serde_json::Value = serde_json::from_str(body)
+        .map_err(|e| fail(json_error_detail("unexpected response body", &e)))?;
+    let output = extract_output_text(&envelope)
+        .ok_or_else(|| fail("response carried no model text".to_string()))?;
 
     #[derive(serde::Deserialize)]
     struct Fused {
@@ -275,9 +267,9 @@ pub fn parse_response(
     // The schema is enforced provider-side, but a refusal or a truncated
     // generation still lands here as prose or half a JSON object.
     let fused: Fused = serde_json::from_str(output.trim()).map_err(|e| {
-        fail(format!(
-            "model output was not the {{raw, cleaned}} schema ({e}): {}",
-            truncate_snippet(&output)
+        fail(json_error_detail(
+            "model output was not the {raw, cleaned} schema",
+            &e,
         ))
     })?;
 

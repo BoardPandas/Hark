@@ -44,46 +44,20 @@ Sources: [lib.rs:1-25](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd75
 <!-- BEGIN:AUTOGEN hark_10_text_injection_clipboard -->
 ## Clipboard Strategy
 
-The clipboard path (`paste_via_clipboard`) runs a seven-step sequence: open the clipboard, stash whatever text is currently on it, set the transcript with retries, read back and verify the set took, sleep, synthesize the paste chord, sleep again, then restore the stash ([clipboard.rs:76-133](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/crates/hark-inject/src/clipboard.rs#L76-L133)).
+The transaction opens the clipboard, reads and stashes its text, replaces it, verifies the replacement, waits, sends the paste chord, waits for the target to read, and restores the stash. All clipboard reads and writes retry only `ClipboardOccupied`, with the configured bound. Only `ContentNotAvailable` means there is no text to preserve; another stash-read failure stops before replacement ([transaction and regressions](../../crates/hark-inject/src/clipboard.rs)).
 
-The set-then-paste-then-restore sequence is a race with no OS-guaranteed timing: pasting immediately after a clipboard set can paste the OLD content, so the crate treats the read-back verify as load-bearing and never removes it ([clipboard.rs:1-12](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/crates/hark-inject/src/clipboard.rs#L1-L12)). If the verify mismatches, the call fails with `VerifyMismatch` rather than pasting stale content ([clipboard.rs:103-108](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/crates/hark-inject/src/clipboard.rs#L103-L108)).
+Read-back verification prevents pasting stale clipboard content. A restoration guard is installed immediately after replacement succeeds, so verification failures, paste errors, and unwinding also attempt restoration. Paste errors retain the post-paste delay because the V key may already have reached the target before modifier release failed. Restoration errors are warnings and do not replace the primary result or cause duplicate fallback typing ([clipboard](../../crates/hark-inject/src/clipboard.rs), [fallback policy](../../crates/hark-inject/src/lib.rs)).
 
-The clipboard is a global object shared with every other process on the machine, so `set_text` calls run inside a bounded retry loop (`with_retries`) that only retries while the error is `ClipboardOccupied`; any other backend error fails immediately ([clipboard.rs:42-64](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/crates/hark-inject/src/clipboard.rs#L42-L64), [clipboard.rs:70-72](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/crates/hark-inject/src/clipboard.rs#L70-L72)). Restore uses the same retry loop, but a restore failure is only logged as a warning: by that point the dictation text is already pasted, so a failed restore is not treated as a failed dictation ([clipboard.rs:119-131](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/crates/hark-inject/src/clipboard.rs#L119-L131)).
+| Setting | Default | Purpose |
+|---|---|---|
+| `set_paste_delay_ms` | `50` | Wait after verification, before paste |
+| `paste_restore_delay_ms` | `50` | Wait after every attempted paste, including an error, before restoration |
+| `clipboard_retries` | `8` | Bound retries of stash, replacement, verification, and restoration on contention |
+| `RETRY_SPACING` (internal) | `15ms` | Wait between retry attempts |
 
-| Setting | Default | Purpose | Source |
-|---|---|---|---|
-| `set_paste_delay_ms` | `50` | Delay after clipboard set, before the paste chord, to let the set settle | ([lib.rs:41](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/crates/hark-inject/src/lib.rs#L41), [clipboard.rs:110-111](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/crates/hark-inject/src/clipboard.rs#L110-L111)) |
-| `paste_restore_delay_ms` | `50` | Delay after the paste chord, before restoring the stash, so the foreground app has time to read the clipboard | ([lib.rs:42](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/crates/hark-inject/src/lib.rs#L42), [clipboard.rs:116-117](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/crates/hark-inject/src/clipboard.rs#L116-L117)) |
-| `clipboard_retries` | `8` | Max retry attempts for both the set and the restore, on `ClipboardOccupied` only | ([lib.rs:43](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/crates/hark-inject/src/lib.rs#L43), [clipboard.rs:89-101](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/crates/hark-inject/src/clipboard.rs#L89-L101)) |
-| `RETRY_SPACING` (internal) | `15ms` | Sleep between retry attempts | ([clipboard.rs:66-68](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/crates/hark-inject/src/clipboard.rs#L66-L68)) |
+Accepted v1 limitation: only text is preserved. Setting text clears other clipboard formats, so image-only content and additional rich formats are not restored. A successful text paste is still successful if the OS refuses the later restoration; that failure is logged without another injection attempt.
 
-```rust
-// crates/hark-inject/src/clipboard.rs:83-107
-let stashed: Option<String> = clipboard.get_text().ok();
-
-with_retries(
-    settings.clipboard_retries,
-    RETRY_SPACING,
-    || clipboard.set_text(text.to_string()),
-    is_occupied,
-)
-.map_err(|(e, attempts)| {
-    if is_occupied(&e) {
-        ClipboardError::Busy { attempts }
-    } else {
-        ClipboardError::Backend(e.to_string())
-    }
-})?;
-
-let now = clipboard.get_text().ok();
-if now.as_deref() != Some(text) {
-    return Err(ClipboardError::VerifyMismatch);
-}
-```
-
-Accepted v1 limitation: `arboard`'s `set_text` round-trips TEXT only and clears every other clipboard format on set, so an image/RTF/HTML clipboard present before dictation is not preserved by stash/restore; full fidelity would need per-format `EnumClipboardFormats` handling and is out of scope until it hurts ([clipboard.rs:9-12](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/crates/hark-inject/src/clipboard.rs#L9-L12)).
-
-Sources: [clipboard.rs:1-133](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/crates/hark-inject/src/clipboard.rs#L1-L133)
+Sources: [clipboard implementation](../../crates/hark-inject/src/clipboard.rs), [settings and fallback](../../crates/hark-inject/src/lib.rs)
 <!-- END:AUTOGEN hark_10_text_injection_clipboard -->
 
 ---
@@ -167,16 +141,16 @@ Sources: [lib.rs:1-116](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd7
 <!-- BEGIN:AUTOGEN hark_10_text_injection_edge -->
 ## Edge Cases
 
-| Case | Detection | Handling | Source |
-|---|---|---|---|
-| Empty transcript | `text.is_empty()` checked before any I/O | Returns `Ok(())` immediately; never opens the clipboard or synthesizes keys | ([lib.rs:73-76](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/crates/hark-inject/src/lib.rs#L73-L76)) |
-| Clipboard busy (another process holds it) | `arboard::Error::ClipboardOccupied` from `set_text` | Retried up to `clipboard_retries` times with `RETRY_SPACING` (15ms) between attempts; exhaustion yields `ClipboardError::Busy` and falls back to typing | ([clipboard.rs:70-72](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/crates/hark-inject/src/clipboard.rs#L70-L72), [clipboard.rs:89-101](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/crates/hark-inject/src/clipboard.rs#L89-L101)) |
-| Clipboard set did not take (clipboard manager/sync tool interference) | Read-back after set does not match the text just set | Returns `ClipboardError::VerifyMismatch` before pasting, so stale content is never injected; falls back to typing | ([clipboard.rs:103-108](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/crates/hark-inject/src/clipboard.rs#L103-L108)) |
-| Non-text clipboard content before dictation (image, RTF, HTML) | `clipboard.get_text()` on stash returns `Err`, stashed as `None` | That content is lost on restore; documented accepted v1 limitation, not a bug | ([clipboard.rs:83-85](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/crates/hark-inject/src/clipboard.rs#L83-L85), [clipboard.rs:9-12](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/crates/hark-inject/src/clipboard.rs#L9-L12)) |
-| Restore fails after paste already happened | `with_retries` on the restore call returns `Err` | Logged as a warning only; the dictation itself is not treated as failed since the text is already injected | ([clipboard.rs:119-131](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/crates/hark-inject/src/clipboard.rs#L119-L131)) |
-| Key synthesis itself fails (`Paste` error) | `ClipboardError::Paste(_)` from `send_paste` | `should_fallback_to_typing` returns `false` for this case only, since typing rides the same `enigo` machinery and would fail identically | ([clipboard.rs:32-39](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/crates/hark-inject/src/clipboard.rs#L32-L39)) |
+| Case | Handling |
+|---|---|
+| Empty transcript | Return before opening the clipboard or synthesizing keys |
+| Busy or failed stash read | Retry contention; abort before replacement on exhaustion or another backend error |
+| Verification fails after replacement | Attempt restoration before returning; the configured strategy may fall back to typing |
+| Empty or non-text clipboard | `ContentNotAvailable` permits an empty stash; non-text formats remain an accepted limitation |
+| Paste synthesis fails | Wait for a possibly delivered paste, attempt restoration, and return the paste error without duplicate typing |
+| Restore fails | Log a warning; preserve the original success or failure |
 
-Sources: [lib.rs:73-88](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/crates/hark-inject/src/lib.rs#L73-L88), [clipboard.rs:32-133](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/crates/hark-inject/src/clipboard.rs#L32-L133)
+Sources: [clipboard transaction and tests](../../crates/hark-inject/src/clipboard.rs), [fallback policy](../../crates/hark-inject/src/lib.rs)
 <!-- END:AUTOGEN hark_10_text_injection_edge -->
 
 ---

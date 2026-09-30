@@ -7,7 +7,7 @@
 //! `OpenAiCompatibleChat` is a thin I/O shell over the pure functions here;
 //! the cleanup spike drives the same functions against real endpoints.
 
-use crate::error::{error_for_status, error_for_transport, truncate_snippet, CleanupError};
+use crate::error::{error_for_status, error_for_transport, json_error_detail, CleanupError};
 use crate::{present_terms, system_prompt, Cleaned, CleanupProvider, Voice, CLEANUP_TIMEOUT_MS};
 use reqwest::blocking::Client;
 use std::time::{Duration, Instant};
@@ -136,7 +136,7 @@ pub fn parse_response(provider: &str, body: &str) -> Result<String, CleanupError
 
     let response: Response = serde_json::from_str(body).map_err(|e| CleanupError::Provider {
         provider: provider.to_string(),
-        detail: format!("unexpected response body ({e}): {}", truncate_snippet(body)),
+        detail: json_error_detail("unexpected response body", &e),
     })?;
     let Some(choice) = response.choices.into_iter().next() else {
         return Err(CleanupError::Provider {
@@ -158,7 +158,14 @@ pub fn parse_response(provider: &str, body: &str) -> Result<String, CleanupError
             provider: provider.to_string(),
             detail: format!(
                 "empty content (finish_reason: {})",
-                choice.finish_reason.as_deref().unwrap_or("unknown")
+                choice
+                    .finish_reason
+                    .as_deref()
+                    .filter(|reason| matches!(
+                        *reason,
+                        "stop" | "length" | "content_filter" | "tool_calls" | "function_call"
+                    ))
+                    .unwrap_or("unknown")
             ),
         });
     }
