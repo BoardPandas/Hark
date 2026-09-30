@@ -126,6 +126,16 @@ Four jobs run under `contents: write` permission, which the release object and i
 
 The Linux builds link `libpipewire-0.3` (meeting mode's system-audio capture and detection, [Audio Capture](../features/AUDIO_CAPTURE.md#meeting-capture)); the build jobs install `libpipewire-0.3-dev`, whose bindgen step also uses the already-present clang. The `.deb` and `.rpm` infer that soname from the binary the same way they infer ALSA and GTK, and the packaging gates assert it alongside them; the PKGBUILD names `pipewire` in `depends` and `libpipewire` (Arch's package for the headers and `.pc`) in `makedepends` for the same reason ([release.yml:529-543](../../.github/workflows/release.yml#L529-L543), [PKGBUILD](../../packaging/PKGBUILD)). The PipeWire Rust bindings and x11rb are MIT-licensed; the notices page records them with LAME and the AEC port ([THIRD_PARTY_NOTICES.md](../../THIRD_PARTY_NOTICES.md)).
 
+Both Ubuntu CI and release runners also install `libpipewire-0.3-modules`
+explicitly. The isolated discovery timeout/disconnect test loads
+`libpipewire-module-protocol-native` before connecting its private Unix socket;
+headers and the linked library alone do not supply it with
+`--no-install-recommends`. Missing it fails context creation before the test can
+exercise the timeout. This does not require starting a desktop PipeWire service
+or using audio hardware ([release dependencies](../../.github/workflows/release.yml),
+[CI dependencies](../../.github/workflows/ci.yml),
+[test fixture](../../crates/hark-audio/src/loopback/linux.rs)).
+
 The Windows job's steps, in order:
 
 | Step | Action |

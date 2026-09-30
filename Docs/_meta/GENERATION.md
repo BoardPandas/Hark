@@ -1,5 +1,11 @@
 # Generation Metadata
 
+## Linux release runtime dependency repair — 2026-09-30 (0.61.3)
+
+- **Source reviewed:** `b85740f` and failed release run `36771797308`, plus the release dependency correction.
+- **Scope:** Release and Packaging documents the runtime PipeWire module used by the unchanged isolated socket test. Global baseline and source mappings remain unchanged.
+- **Validation:** the exact failure was reproduced by hiding runtime modules from one test process; normal module lookup passed. Final repository checks are recorded in `SUMMARY.md`.
+
 ## Seven review repairs — 2026-09-30 (0.61.2)
 
 - **Source reviewed:** `6222187` plus working-tree fixes for Live completion,

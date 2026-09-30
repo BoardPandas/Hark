@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.61.3] - 2026-09-30
+
+### Fixed
+
+- Linux release builds install the PipeWire runtime module needed by the existing timeout/disconnect test, matching regular CI. The missing dependency stopped 0.61.2 before Linux packaging and skipped the dependent Arch build; test coverage remains unchanged.
+
 ## [0.61.2] - 2026-09-30
 
 ### Fixed

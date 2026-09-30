@@ -540,12 +540,14 @@ jobs:
           ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
 
       # Same list as ci.yml's Linux leg; keep the two in step.
+      # The isolated PipeWire socket tests load protocol-native at runtime;
+      # its modules package is not pulled in by -dev with no recommends.
       - name: Install build dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             libasound2-dev libgtk-3-dev libayatana-appindicator3-dev \
-            libpipewire-0.3-dev \
+            libpipewire-0.3-dev libpipewire-0.3-modules \
             libxdo-dev libxkbcommon-dev libx11-dev pkg-config cmake clang
 
       # SHA-pinned for the same reason every `uses:` in the Windows job is: this
