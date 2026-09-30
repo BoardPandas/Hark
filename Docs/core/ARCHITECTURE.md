@@ -188,6 +188,9 @@ The pipeline sends best-effort events through a non-blocking channel. `Dictation
 The event-pump thread forwards events, stores successful records, and requests an egui repaint. `PipelineController::drain_events` maps them to the statuses above. `ShortcutIntercepted` is advisory: it records a warning without stopping dictation or replacing the current status ([pipeline.rs](../../crates/hark-app/src/pipeline.rs), [pipeline.rs](../../crates/hark-app/src/pipeline.rs)).
 
 Sources: [events.rs:1-97](../../crates/hark-pipeline/src/events.rs#L1-L97), [pipeline.rs](../../crates/hark-app/src/pipeline.rs), [pipeline.rs](../../crates/hark-app/src/pipeline.rs)
+`DictationRecord` now also carries measured Spellbook replacement counts and an optional foreground app label. With `[insights] track_apps` enabled, the pipeline requests one app-identity snapshot at engagement from a bounded helper worker, polls its result only after insertion, and drops unfinished/late metadata. This probe never reads window titles, runs continuously, or blocks audio/hooks/injection. Disabled tracking makes no OS request. Wayland and remote X11 identities remain unknown ([probe](../../crates/hark-pipeline/src/foreground.rs), [worker](../../crates/hark-pipeline/src/worker.rs)).
+
+The event pump forwards completed records to the storage worker for transcript capture, numeric event storage, and lifetime counters. Home/Insights query that worker through reply channels; aggregation and opted-in word analysis stay off the egui thread, and results explicitly wake the root viewport. Cached UI queries change with generation, selected range, local date, or text-analysis choice ([storage](../../crates/hark-app/src/storage/mod.rs), [cache](../../crates/hark-app/src/ui/insights_cache.rs)).
 <!-- END:AUTOGEN hark_02_architecture_events -->
 
 ---

@@ -6,6 +6,7 @@ use crate::meeting::MeetingController;
 use crate::pipeline::PipelineController;
 use crate::storage::StorageHandle;
 use crate::ui::history::HistoryPage;
+use crate::ui::home::HomePage;
 use crate::ui::invocations::InvocationsPage;
 use crate::ui::meetings::{MeetingsPage, PageIntent};
 use crate::ui::settings::{self, SettingsPage};
@@ -19,6 +20,7 @@ use egui::{RichText, Ui};
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum Page {
+    Home,
     History,
     Meetings,
     Spellbook,
@@ -28,19 +30,43 @@ pub enum Page {
 }
 
 impl Page {
+    pub const ALL: [Self; 7] = [
+        Self::Home,
+        Self::Stats,
+        Self::History,
+        Self::Meetings,
+        Self::Spellbook,
+        Self::Invocations,
+        Self::Settings,
+    ];
+
+    pub fn icon(self) -> &'static str {
+        match self {
+            Self::Home => theme::icons::HOME,
+            Self::Stats => theme::icons::CHART_BAR,
+            Self::History => theme::icons::CLOCK_COUNTER_CLOCKWISE,
+            Self::Meetings => theme::icons::MICROPHONE,
+            Self::Spellbook => theme::icons::BOOK_OPEN,
+            Self::Invocations => theme::icons::LIGHTNING,
+            Self::Settings => theme::icons::GEAR,
+        }
+    }
+
     pub fn label(self) -> &'static str {
         match self {
+            Page::Home => "Home",
             Page::History => "History",
             Page::Meetings => "Meetings",
             Page::Spellbook => "Spellbook",
             Page::Invocations => "Invocations",
-            Page::Stats => "Stats",
+            Page::Stats => "Insights",
             Page::Settings => "Settings",
         }
     }
 
     fn description(self) -> &'static str {
         match self {
+            Page::Home => "Make room for your next idea.",
             Page::History => "Your words, ready when you need them. History stays on this device.",
             Page::Meetings => "Every call, written down. Notes and recordings stay on this device.",
             Page::Spellbook => "A little context. A lot more accuracy.",
@@ -54,6 +80,7 @@ impl Page {
 /// Per-page UI state, owned by `HarkApp`, grouped so the shell signature
 /// stays readable as pages accumulate.
 pub struct Views {
+    pub home: HomePage,
     pub settings: SettingsPage,
     pub spellbook: SpellbookPage,
     pub invocations: InvocationsPage,
@@ -80,10 +107,28 @@ pub fn show(
         ui.add_space(pad);
         ui.vertical(|ui| {
             ui.set_max_width(column);
-            ui.heading(page.label());
-            ui.label(RichText::new(page.description()).weak());
-            ui.add_space(theme::SECTION_GAP);
+            if *page != Page::Home {
+                ui.heading(if *page == Page::Stats {
+                    "Small habits. Big impact."
+                } else {
+                    page.label()
+                });
+                ui.label(RichText::new(page.description()).weak());
+                ui.add_space(theme::SECTION_GAP);
+            }
             match *page {
+                Page::Home => {
+                    if let Some(target) =
+                        views
+                            .home
+                            .show(ui, settings, pipeline.status(), storage, storage_error)
+                    {
+                        *page = target;
+                        if target == Page::Settings {
+                            views.settings.open(settings::Section::Audio);
+                        }
+                    }
+                }
                 Page::History => {
                     // Adding from a history selection is a two-page gesture:
                     // the term is captured here and finished in the Spellbook,
@@ -130,7 +175,12 @@ pub fn show(
                         .show(ui, |ui| {
                             egui::Frame::new()
                                 .inner_margin(theme::SHADOW_MARGIN)
-                                .show(ui, |ui| views.stats.show(ui, storage, storage_error));
+                                .show(ui, |ui| {
+                                    if views.stats.show(ui, storage, storage_error, settings) {
+                                        *page = Page::Settings;
+                                        views.settings.open(settings::Section::Privacy);
+                                    }
+                                });
                         });
                 }
                 Page::Settings => {

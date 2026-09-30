@@ -23,6 +23,11 @@ use thiserror::Error;
 
 mod meetings;
 pub use meetings::{MeetingDetail, MeetingSegment, MeetingSummary, NewMeeting};
+mod insights;
+pub use insights::{
+    DailyActivity, InsightCoverage, InsightSummary, Insights, InsightsRequest, PhraseCount,
+    UsageBreakdown, VoicePatterns, INSIGHTS_RETENTION_DAYS,
+};
 
 /// Embedded migrations, applied in order; index + 1 == resulting
 /// `user_version`. Append only; never edit or renumber an applied file.
@@ -31,6 +36,7 @@ const MIGRATIONS: &[&str] = &[
     include_str!("../migrations/002_stats_total_ms.sql"),
     include_str!("../migrations/003_entries_invocation.sql"),
     include_str!("../migrations/004_meetings.sql"),
+    include_str!("../migrations/005_insight_events.sql"),
 ];
 
 const BUSY_TIMEOUT: Duration = Duration::from_secs(5);
@@ -51,11 +57,15 @@ pub enum StoreError {
     },
     #[error("database error: {0}")]
     Db(#[from] rusqlite::Error),
+    #[error("invalid insights request: {0}")]
+    InsightsRequest(&'static str),
+    #[error("insights calendar error: {0}")]
+    Calendar(#[from] jiff::Error),
 }
 
 /// One completed dictation, ready to persist. Timing fields are wall-clock
-/// milliseconds; `audio_ms` (speaking time) feeds stats only and is not
-/// stored per entry. No `Debug` derive: carries transcript content.
+/// milliseconds; `audio_ms` feeds numeric insight events, not transcript
+/// entries. No `Debug` derive: carries transcript content.
 pub struct NewDictation {
     pub ts_ms: i64,
     pub raw_text: String,
@@ -72,6 +82,9 @@ pub struct NewDictation {
     pub stt_ms: i64,
     pub cleanup_ms: Option<i64>,
     pub total_ms: i64,
+    pub spellbook_replacements: Option<i64>,
+    /// Opt-in application identity only; never a window or document title.
+    pub foreground_app: Option<String>,
 }
 
 /// One stored history row. No `Debug` derive: carries transcript content.
@@ -161,6 +174,9 @@ impl Store {
             "INSERT OR IGNORE INTO stats (id, since_ts_ms) VALUES (1, ?1)",
             params![unix_now_ms()],
         )?;
+        // Enforce numeric retention even when no provider is configured and
+        // the dictation pipeline never starts to send its usual Prune command.
+        insights::prune(&store.conn, unix_now_ms())?;
         Ok(store)
     }
 
@@ -171,6 +187,9 @@ impl Store {
         for (idx, sql) in MIGRATIONS.iter().enumerate().skip(applied) {
             let tx = self.conn.transaction()?;
             tx.execute_batch(sql)?;
+            if idx + 1 == 5 {
+                insights::backfill(&tx, unix_now_ms())?;
+            }
             tx.pragma_update(None, "user_version", (idx + 1) as i64)?;
             tx.commit()?;
         }
@@ -215,12 +234,14 @@ impl Store {
                 d.total_ms,
             ],
         )?;
+        insights::record(&tx, d)?;
         tx.commit()?;
         Ok(())
     }
 
     /// Apply retention: delete entries strictly older than `max_age_days`
-    /// and entries beyond the newest `max_entries`. Returns rows deleted.
+    /// and entries beyond the newest `max_entries`. Also expires numeric
+    /// insights older than 366 days; returns the total number of rows deleted.
     pub fn prune(&mut self, retention: Retention, now_ms: i64) -> Result<usize, StoreError> {
         let cutoff = now_ms - i64::from(retention.max_age_days) * 86_400_000;
         let tx = self.conn.transaction()?;
@@ -231,8 +252,9 @@ impl Store {
              SELECT id FROM entries ORDER BY ts_ms DESC, id DESC LIMIT -1 OFFSET ?1)",
             params![retention.max_entries],
         )?;
+        let numeric = insights::prune(&tx, now_ms)?;
         tx.commit()?;
-        Ok(by_age + by_count)
+        Ok(by_age + by_count + numeric)
     }
 
     /// One page of history, newest first. `search` filters (case-insensitive
@@ -337,11 +359,18 @@ impl Store {
     /// "Reset stats": zeroes the counters and restarts the since-date,
     /// never touches entries.
     pub fn reset_stats(&mut self, now_ms: i64) -> Result<(), StoreError> {
-        self.conn.execute(
+        let tx = self.conn.transaction()?;
+        tx.execute(
             "UPDATE stats SET dictations = 0, words = 0, audio_ms = 0, \
              stt_ms = 0, cleanup_ms = 0, total_ms = 0, since_ts_ms = ?1 WHERE id = 1",
             params![now_ms],
         )?;
+        tx.execute("DELETE FROM insight_events", [])?;
+        tx.execute(
+            "UPDATE insight_tracking SET since_ts_ms = ?1 WHERE id = 1",
+            [now_ms],
+        )?;
+        tx.commit()?;
         Ok(())
     }
 }

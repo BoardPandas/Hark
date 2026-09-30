@@ -26,6 +26,7 @@ pub(super) fn font_definitions() -> FontDefinitions {
             &include_bytes!("../../assets/JetBrainsMono-Regular.ttf")[..],
         ),
         ("Phosphor", &include_bytes!("../../assets/Phosphor.ttf")[..]),
+        ("Lora", &include_bytes!("../../assets/Lora-Regular.ttf")[..]),
     ] {
         fonts
             .font_data
@@ -64,6 +65,7 @@ pub(super) fn font_definitions() -> FontDefinitions {
     fonts
         .families
         .insert(semibold(), with_fallback("InterSemiBold"));
+    fonts.families.insert(serif(), with_fallback("Lora"));
     let mut mono = with_fallback("JetBrainsMono");
     // Keep egui's default monospace fonts reachable after ours.
     if let Some(default_mono) = fonts.families.get(&FontFamily::Monospace) {

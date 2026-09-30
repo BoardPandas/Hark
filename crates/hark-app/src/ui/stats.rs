@@ -1,100 +1,161 @@
-//! The Stats panel (spec §3.7/§3.11): gated until 10 dictations (a progress
-//! placeholder, never a zeroed dashboard), then 2x2 lifetime stat cards, a
-//! time-saved line, the since-date, and Reset stats behind its own confirm.
+//! Personal Insights backed by asynchronous local aggregates.
+mod charts;
+mod panels;
 
 use crate::storage::{StorageCmd, StorageHandle};
 use crate::theme;
-use crate::ui::{format, widgets};
-use egui::{ProgressBar, RichText, Ui};
-use hark_store::Stats;
-use jiff::tz::TimeZone;
+use crate::ui::{format, insights_cache::InsightsCache, widgets};
+use egui::{RichText, Ui};
+use hark_config::Settings;
 
-/// Dictations required before numbers mean anything.
-const UNLOCK_AT: i64 = 10;
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Tab {
+    Overview,
+    Voice,
+    Performance,
+}
 
 pub struct StatsPage {
-    stats: Option<Stats>,
-    /// Write generation the cached row reflects.
-    loaded: Option<u64>,
-    fetch_error: Option<String>,
+    cache: InsightsCache,
+    days: u16,
+    tab: Tab,
     confirm: Option<widgets::Confirm>,
-    tz: TimeZone,
 }
 
 impl StatsPage {
     pub fn new() -> Self {
-        StatsPage {
-            stats: None,
-            loaded: None,
-            fetch_error: None,
+        Self {
+            cache: InsightsCache::new(),
+            days: 30,
+            tab: Tab::Overview,
             confirm: None,
-            tz: TimeZone::system(),
         }
     }
 
+    /// True opens privacy settings; opt-ins keep save/discard semantics.
     pub fn show(
         &mut self,
         ui: &mut Ui,
         storage: Option<&StorageHandle>,
         unavailable: Option<&str>,
-    ) {
+        settings: &Settings,
+    ) -> bool {
         let Some(storage) = storage else {
             widgets::empty_state(
                 ui,
                 theme::icons::WARNING,
-                "Stats are unavailable.",
+                "Insights are unavailable.",
                 unavailable.unwrap_or("The local database could not be opened."),
             );
-            return;
+            return false;
         };
-        self.refresh(storage);
-
-        let Some(stats) = self.stats else {
-            let detail = self.fetch_error.clone();
-            widgets::empty_state(
-                ui,
-                theme::icons::WARNING,
-                "Stats cannot be read.",
-                detail
-                    .as_deref()
-                    .unwrap_or("The local database did not answer."),
-            );
-            return;
-        };
-
-        if stats.dictations < UNLOCK_AT {
-            gate(ui, stats.dictations);
-            return;
-        }
-
-        cards(ui, &stats);
-        ui.add_space(theme::SECTION_GAP);
-        ui.label(format!(
-            "About {} saved compared with typing at 40 WPM.",
-            format::duration(format::time_saved_ms(stats.words, stats.audio_ms))
-        ));
-        ui.label(
-            RichText::new(format!(
-                "Lifetime totals since {}. Clearing history does not reset these numbers.",
-                format::date(stats.since_ts_ms, &self.tz)
-            ))
-            .small()
-            .weak(),
+        let mut open_privacy = false;
+        ui.horizontal_wrapped(|ui| {
+            for (tab, label) in [
+                (Tab::Overview, "Overview"),
+                (Tab::Voice, "Your voice"),
+                (Tab::Performance, "Performance"),
+            ] {
+                if theme::nav_button(ui, label, self.tab == tab).clicked() {
+                    self.tab = tab;
+                }
+            }
+            egui::ComboBox::from_id_salt("insights-period")
+                .selected_text(format!("Last {} days", self.days))
+                .show_ui(ui, |ui| {
+                    for days in [7, 30, 90] {
+                        ui.selectable_value(&mut self.days, days, format!("Last {days} days"));
+                    }
+                });
+        });
+        ui.separator();
+        ui.add_space(theme::ROW_GAP);
+        self.cache.refresh(
+            ui.ctx(),
+            storage,
+            self.days,
+            settings.insights.analyze_text && self.tab == Tab::Voice,
         );
-
-        ui.add_space(16.0);
-        // Danger-outlined button; the confirm names what survives (§3.3
-        // independence rule: reset never touches history entries).
+        if let Some(error) = &self.cache.error {
+            ui.label(RichText::new(error).color(theme::danger(ui.visuals())));
+            if ui.button("Retry insights").clicked() {
+                self.cache.retry();
+            }
+            return false;
+        }
+        let Some(data) = &self.cache.data else {
+            ui.horizontal(|ui| {
+                ui.spinner();
+                ui.label("Reading your local insights…");
+            });
+            return false;
+        };
+        if data.lifetime.dictations < 10 {
+            theme::card(ui, |ui| {
+                ui.label(RichText::new("Your voice has a story.").font(theme::hero_font()));
+                ui.label(format!(
+                    "{} of 10 dictations. A few more will make these insights useful.",
+                    data.lifetime.dictations
+                ));
+                ui.add(egui::ProgressBar::new(
+                    data.lifetime.dictations.max(0) as f32 / 10.0,
+                ));
+            });
+        }
+        if !data.coverage.period_complete {
+            ui.label(RichText::new("Partial history: earlier days may be missing. New numeric tracking builds a complete picture from now on.").small().weak());
+            ui.add_space(theme::GAP);
+        }
+        match self.tab {
+            Tab::Overview => {
+                panels::overview_metrics(ui, &data.period);
+                ui.add_space(theme::ROW_GAP);
+                theme::card(ui, |ui| {
+                    ui.label(
+                        RichText::new("Your words, over time").text_style(theme::subheading()),
+                    );
+                    charts::daily(ui, &data.daily);
+                });
+                ui.add_space(theme::ROW_GAP);
+                if ui.available_width() >= theme::MIN_CARD_WIDTH * 2.0 + theme::ROW_GAP {
+                    ui.columns(2, |columns| {
+                        theme::card(&mut columns[0], |ui| charts::activity(ui, data));
+                        theme::card(&mut columns[1], |ui| {
+                            open_privacy |= panels::apps(ui, data, settings)
+                        });
+                    });
+                } else {
+                    theme::card(ui, |ui| charts::activity(ui, data));
+                    ui.add_space(theme::ROW_GAP);
+                    theme::card(ui, |ui| open_privacy |= panels::apps(ui, data, settings));
+                }
+            }
+            Tab::Voice => open_privacy |= panels::voice(ui, data, settings),
+            Tab::Performance => panels::performance(ui, data),
+        }
+        ui.add_space(theme::SECTION_GAP);
+        egui::CollapsingHeader::new("Lifetime totals")
+            .id_salt("insights-lifetime")
+            .show(ui, |ui| {
+                panels::lifetime(ui, &data.lifetime);
+                ui.label(
+                    RichText::new(format!(
+                        "Since {}. Clearing history preserves these totals.",
+                        format::date(data.lifetime.since_ts_ms, &self.cache.tz)
+                    ))
+                    .small()
+                    .weak(),
+                );
+            });
+        ui.add_space(theme::ROW_GAP);
+        ui.label(RichText::new("Numeric details stay on this device for 366 days, independently of transcript history. Lifetime totals remain until reset.").small().weak());
+        ui.label(RichText::new("Dictated words exclude invocation expansion length. Pace uses clip duration, including capture padding.").small().weak());
+        ui.add_space(theme::GAP);
         if ui
             .add(theme::danger_button(ui.visuals(), "Reset stats"))
             .clicked()
         {
-            self.confirm = Some(widgets::Confirm::new(
-                "Reset stats?",
-                "Sets every counter to zero and restarts the since-date. \
-                 Your history entries are untouched.",
-                "Reset stats",
-            ));
+            self.confirm = Some(widgets::Confirm::new("Reset stats?", "Clear lifetime counters and all detailed numeric insights, including saved app labels. Your transcripts, Spellbook and invocations are untouched. Word insights can still be calculated from retained history when enabled.", "Reset stats"));
         }
         if let Some(confirm) = &mut self.confirm {
             match confirm.show(ui, "stats-reset") {
@@ -106,144 +167,6 @@ impl StatsPage {
                 None => {}
             }
         }
-    }
-
-    fn refresh(&mut self, storage: &StorageHandle) {
-        let generation = storage.generation();
-        if self.loaded == Some(generation) {
-            return;
-        }
-        match storage.reader().stats() {
-            Ok(stats) => {
-                self.stats = Some(stats);
-                self.fetch_error = None;
-            }
-            Err(e) => {
-                log::error!("stats query failed: {e}");
-                self.stats = None;
-                self.fetch_error = Some(e.to_string());
-            }
-        }
-        self.loaded = Some(generation);
-    }
-}
-
-/// Unlock gate: progress toward the threshold, never a zeroed dashboard.
-fn gate(ui: &mut Ui, dictations: i64) {
-    widgets::empty_state(
-        ui,
-        theme::icons::CHART_BAR,
-        &format!("{dictations} of {UNLOCK_AT} dictations to unlock stats"),
-        "Numbers appear once there is enough signal to mean something.",
-    );
-    ui.add_space(10.0);
-    ui.vertical_centered(|ui| {
-        ui.add(
-            ProgressBar::new(dictations as f32 / UNLOCK_AT as f32)
-                .desired_width(220.0)
-                .desired_height(6.0)
-                .fill(theme::accent_fill(ui.visuals())),
-        );
-    });
-}
-
-/// 2x2 lifetime cards: dictations, words, speaking time, average
-/// release-to-inject (derived from the migration-002 sum).
-fn cards(ui: &mut Ui, stats: &Stats) {
-    let values = [
-        (
-            format::count(stats.dictations),
-            "Dictations",
-            theme::icons::MICROPHONE,
-        ),
-        (format::count(stats.words), "Words", theme::icons::BOOK_OPEN),
-        (
-            format::duration(stats.audio_ms),
-            "Speaking time",
-            theme::icons::CLOCK,
-        ),
-        (
-            average_total_ms(stats).map_or_else(|| "n/a".to_string(), |ms| format!("{ms} ms")),
-            "Avg. release to insert",
-            theme::icons::LIGHTNING,
-        ),
-    ];
-    let columns = if ui.available_width() >= theme::MIN_CARD_WIDTH * 2.0 {
-        2
-    } else {
-        1
-    };
-    for row in values.chunks(columns) {
-        let width = (ui.available_width() - theme::ROW_GAP * (columns - 1) as f32) / columns as f32;
-        ui.horizontal_top(|ui| {
-            ui.spacing_mut().item_spacing.x = theme::ROW_GAP;
-            for (value, label, icon) in row {
-                ui.allocate_ui_with_layout(
-                    egui::vec2(width, 0.0),
-                    egui::Layout::top_down(egui::Align::Min),
-                    |ui| {
-                        theme::card(ui, |ui| {
-                            ui.horizontal(|ui| {
-                                ui.label(RichText::new(*label).small().weak());
-                                ui.with_layout(
-                                    egui::Layout::right_to_left(egui::Align::Center),
-                                    |ui| {
-                                        ui.label(
-                                            theme::icon_text(icon)
-                                                .color(ui.visuals().weak_text_color()),
-                                        );
-                                    },
-                                );
-                            });
-                            ui.add_space(theme::ROW_GAP);
-                            ui.label(
-                                RichText::new(value)
-                                    .text_style(theme::subheading())
-                                    .size(theme::STAT_SIZE),
-                            );
-                        });
-                    },
-                );
-            }
-        });
-        ui.add_space(theme::GAP);
-    }
-}
-
-/// Average release-to-inject; `None` until the total sum carries data
-/// (pre-migration-002 rows contribute 0).
-fn average_total_ms(stats: &Stats) -> Option<i64> {
-    (stats.total_ms > 0 && stats.dictations > 0).then(|| stats.total_ms / stats.dictations)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn stats(dictations: i64, total_ms: i64) -> Stats {
-        Stats {
-            dictations,
-            words: 100,
-            audio_ms: 60_000,
-            stt_ms: 4_000,
-            cleanup_ms: 1_000,
-            total_ms,
-            since_ts_ms: 1_000,
-        }
-    }
-
-    #[test]
-    fn average_derives_from_sums_and_admits_missing_data() {
-        assert_eq!(average_total_ms(&stats(10, 8_000)), Some(800));
-        assert_eq!(
-            average_total_ms(&stats(10, 0)),
-            None,
-            "a pre-002 database must not claim a 0 ms average"
-        );
-        assert_eq!(
-            average_total_ms(&stats(0, 0)),
-            None,
-            "never divides by zero"
-        );
+        open_privacy
     }
 }

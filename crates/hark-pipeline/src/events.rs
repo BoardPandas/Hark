@@ -37,6 +37,13 @@ pub struct DictationRecord {
     pub cleanup_ms: Option<u64>,
     /// Release-to-inject wall time (the product metric).
     pub total_ms: u64,
+    /// Actual spellbook replacements across both passes. Unknown for imported
+    /// historical records; zero is a measured absence of replacements.
+    pub spellbook_replacements: Option<u64>,
+    /// App name observed at dictation start when explicitly enabled. Never a
+    /// window title, document title, executable path, or continuously sampled
+    /// activity. None also covers unavailable platform metadata.
+    pub foreground_app: Option<String>,
 }
 
 /// Where a dictation ended when it did not inject. Labels only; the
@@ -86,7 +93,7 @@ pub enum PipelineEvent {
     /// looking hung.
     LoadingLocalModel,
     /// The dictation injected successfully; the record goes to history.
-    Injected(DictationRecord),
+    Injected(Box<DictationRecord>),
     /// The dictation ended without injecting.
     Failed { stage: FailStage, detail: String },
     /// Not about any one dictation: a push-to-talk key (its config name, e.g.

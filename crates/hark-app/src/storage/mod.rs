@@ -9,11 +9,13 @@
 //! Meeting writes (`meetings.rs`) run here too, including the audio storage
 //! cap, so database rows and meeting folders change on one thread.
 
+#[cfg(test)]
+mod insights_tests;
 pub mod meetings;
 
 use hark_config::Settings;
 use hark_pipeline::DictationRecord;
-use hark_store::{NewDictation, Retention, Store, StoreError};
+use hark_store::{Entry, Insights, InsightsRequest, NewDictation, Retention, Store, StoreError};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::{self, Receiver, Sender};
@@ -47,8 +49,17 @@ pub enum StorageCmd {
     DeleteEntry(i64),
     /// History panel "Clear all": entries only, stats untouched.
     ClearEntries,
-    /// Stats panel "Reset stats": counters only, entries untouched.
+    /// Stats panel "Reset stats": counters and numeric events; entries untouched.
     ResetStats,
+    /// Bounded numeric aggregation and optional local text analysis.
+    GetInsights {
+        request: InsightsRequest,
+        reply: Sender<Result<Insights, String>>,
+    },
+    /// Home's fixed-size history preview, read on the storage worker.
+    GetRecentEntries {
+        reply: Sender<Result<Vec<Entry>, String>>,
+    },
     /// Meeting rows, segments, notes, and meeting audio on disk.
     Meeting(meetings::MeetingCmd),
 }
@@ -185,10 +196,16 @@ fn worker_loop(
     ctx: egui::Context,
 ) {
     while let Ok(cmd) = rx.recv() {
+        let query_completed = matches!(
+            &cmd,
+            StorageCmd::GetInsights { .. } | StorageCmd::GetRecentEntries { .. }
+        );
         match apply(&mut store, meetings_dir, cmd) {
             Ok(changed) => {
                 if changed {
                     generation.fetch_add(1, Ordering::Release);
+                }
+                if changed || query_completed {
                     crate::app::wake_ui(&ctx);
                 }
             }
@@ -220,6 +237,16 @@ fn apply(store: &mut Store, meetings_dir: &Path, cmd: StorageCmd) -> Result<bool
             store.reset_stats(unix_now_ms())?;
             Ok(true)
         }
+        StorageCmd::GetInsights { request, reply } => {
+            let result = store.insights(&request).map_err(|error| error.to_string());
+            let _ = reply.send(result);
+            Ok(false)
+        }
+        StorageCmd::GetRecentEntries { reply } => {
+            let result = store.entries(None, 3, 0).map_err(|error| error.to_string());
+            let _ = reply.send(result);
+            Ok(false)
+        }
         StorageCmd::Meeting(cmd) => meetings::apply(store, meetings_dir, cmd),
     }
 }
@@ -240,6 +267,10 @@ fn new_dictation(r: DictationRecord, ts_ms: i64) -> NewDictation {
         stt_ms: r.stt_ms as i64,
         cleanup_ms: r.cleanup_ms.map(|v| v as i64),
         total_ms: r.total_ms as i64,
+        spellbook_replacements: r
+            .spellbook_replacements
+            .map(|count| count.min(i64::MAX as u64) as i64),
+        foreground_app: r.foreground_app,
     }
 }
 
@@ -269,6 +300,8 @@ mod tests {
             stt_ms: 400,
             cleanup_ms: Some(300),
             total_ms: 800,
+            spellbook_replacements: Some(0),
+            foreground_app: None,
         })
     }
 

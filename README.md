@@ -9,7 +9,8 @@ A lean, system-wide, push-to-talk voice dictation tool for **Windows**, **macOS*
 - **Push-to-talk dictation:** hold a shortcut, speak, and release to type polished English in the focused app.
 - **Your providers or an on-device model:** bring your own cloud keys, or use Parakeet for local dictation.
 - **Spellbook and invocations:** correct your vocabulary and expand spoken phrases into text you wrote.
-- **Meetings (Windows and macOS):** record your microphone and meeting audio without a bot, follow a live Me/Them transcript, and get speaker labels and notes with your own provider keys. Start and stop with an optional global shortcut, search transcripts, rename speakers, re-run the final pass on retained recordings, and share text, Word, subtitle, or audio files, including selected excerpts. See [Meetings](Docs/features/MEETINGS.md) and the [privacy details](#privacy) below.
+- **Home and Insights:** a native dashboard with local usage trends, streaks, pace estimates, and completion latency; choose Light, Dark, Solarized Light, Solarized Dark, or System. App tracking and retained-history word analysis are separate opt-ins. See [Desktop UI](Docs/features/DESKTOP_UI.md).
+- **Meetings (Windows, macOS, and Linux):** record your microphone and meeting audio without a bot, follow a live Me/Them transcript, and get speaker labels and notes with your own provider keys. Start and stop with an optional global shortcut, search transcripts, rename speakers, re-run the final pass on retained recordings, and share text, Word, subtitle, or audio files, including selected excerpts. See [Meetings](Docs/features/MEETINGS.md) and the [privacy details](#privacy) below.
 
 ## Design principles
 
@@ -250,7 +251,7 @@ initial track alignment and automatic echo-delay estimation.
 
 - Dictation audio is sent to **your chosen** speech-to-text provider under **your own key** to be transcribed; nothing goes to any Hark-operated server. With the on-device model set as your primary engine, dictation audio stays on your machine. History and stats are stored locally; configured vocabulary may accompany provider requests to improve recognition.
 - Any non-Verbatim voice additionally sends the transcript to **your chosen** LLM provider for cleanup, unless the selected transcription mode already returned provider-cleaned text. The UI identifies the selected model and tradeoff.
-- The SQLite file is plaintext on disk (normal for a local single-user tool); delete-one, clear-all, disable-capture, and a retention cap are provided. Lifetime stats survive history clears and have a separate reset control.
+- The SQLite file is plaintext on disk (normal for a local single-user tool); delete-one, clear-all, disable-capture, and a retention cap are provided. Numeric Insights retain up to 366 days independently of history capture or clears; lifetime counters also continue. **Reset stats** removes both numeric details and lifetime counters without deleting transcripts. Optional app-name tracking and local word/phrase analysis each default off in Settings → Privacy; no window/document titles are collected for Insights.
 
 ### Meetings (Windows)
 

@@ -18,73 +18,63 @@ fn contrast(a: Color32, b: Color32) -> f64 {
     (la.max(lb) + 0.05) / (la.min(lb) + 0.05)
 }
 
-#[test]
-fn body_and_weak_text_meet_wcag_aa_in_both_themes() {
-    for (label, text, weak, window, panel) in [
-        ("dark", DARK_TEXT, DARK_TEXT_WEAK, DARK_WINDOW, DARK_PANEL),
+fn palettes() -> [(&'static str, Visuals); 4] {
+    [
+        ("light", palette::visuals(&LIGHT)),
+        ("dark", palette::visuals(&DARK)),
         (
-            "light",
-            LIGHT_TEXT,
-            LIGHT_TEXT_WEAK,
-            LIGHT_WINDOW,
-            LIGHT_PANEL,
+            "solarized-light",
+            palette::visuals(&palette::SOLARIZED_LIGHT),
         ),
-    ] {
-        for (surface_label, surface) in [("window", window), ("panel", panel)] {
-            let body = contrast(text, surface);
-            let weak_ratio = contrast(weak, surface);
-            assert!(body >= 4.5, "{label} body on {surface_label}: {body:.2}");
-            assert!(
-                weak_ratio >= 4.5,
-                "{label} weak text on {surface_label}: {weak_ratio:.2}"
-            );
-        }
-    }
+        ("solarized-dark", palette::visuals(&palette::SOLARIZED_DARK)),
+    ]
 }
 
 #[test]
-fn accent_surfaces_meet_contrast_requirements() {
-    // The accent is a non-text indicator (focus ring, outlined-button
-    // border, active-tab underline; links carry an underline affordance):
-    // it must clear 3:1 against the ground so the line is always visible.
-    // White on the solid accent_fill (used behind progress fills) keeps a
-    // body-text margin in case a label ever lands there.
-    for (label, fill, accent, window) in [
-        ("dark", DARK_ACCENT_FILL, DARK_ACCENT, DARK_WINDOW),
-        ("light", LIGHT_ACCENT_FILL, LIGHT_ACCENT, LIGHT_WINDOW),
-    ] {
-        let on_fill = contrast(
-            if label == "dark" {
-                ON_DARK_ACCENT
-            } else {
-                Color32::WHITE
-            },
-            fill,
-        );
-        let ring = contrast(accent, window);
-        assert!(on_fill >= 4.5, "{label} text on accent fill: {on_fill:.2}");
-        assert!(ring >= 3.0, "{label} accent on window: {ring:.2}");
-    }
-}
-
-#[test]
-fn semantic_and_secondary_text_read_on_every_surface_in_both_themes() {
-    for v in [dark_visuals(), light_visuals()] {
-        for background in [v.window_fill, v.panel_fill, surface(&v)] {
+fn text_meets_wcag_aa_across_all_four_palettes_and_surfaces() {
+    for (name, v) in palettes() {
+        for background in [
+            v.window_fill,
+            v.panel_fill,
+            surface(&v),
+            sidebar(&v),
+            tint(&v),
+        ] {
             for foreground in [
+                v.text_color(),
+                v.weak_text_color(),
                 danger(&v),
                 success(&v),
                 warning(&v),
-                v.weak_text_color(),
                 accent(&v),
             ] {
                 let ratio = contrast(foreground, background);
-                assert!(ratio >= 4.5, "{foreground:?} on {background:?}: {ratio:.2}");
+                assert!(
+                    ratio >= 4.5,
+                    "{name}: {foreground:?} on {background:?}: {ratio:.2}"
+                );
             }
         }
     }
+}
+
+#[test]
+fn primary_button_labels_and_focus_rings_have_readable_contrast() {
+    for (name, v) in palettes() {
+        assert!(
+            contrast(on_accent(&v), accent_fill(&v)) >= 4.5,
+            "{name} primary button"
+        );
+        for background in [v.panel_fill, surface(&v), sidebar(&v), tint(&v)] {
+            assert!(
+                contrast(v.selection.stroke.color, background) >= 3.0,
+                "{name} focus ring"
+            );
+        }
+        assert_eq!(v.selection.stroke.width, 2.0);
+    }
     assert!(contrast(OVERLAY_TEXT, OVERLAY_PILL_FILL) >= 4.5);
-    for fill in [DANGER, WARNING, TRAY_STOPPED] {
+    for fill in [DANGER, WARNING, TRAY_STOPPED, TRAY_ACCENT] {
         assert!(contrast(TRAY_MARK, fill) >= 4.5);
     }
 }
@@ -188,6 +178,7 @@ fn every_family_resolves_and_leads_with_the_intended_font() {
         "InterSemiBold",
         "JetBrainsMono",
         "Phosphor",
+        "Lora",
     ] {
         assert!(fonts.font_data.contains_key(name), "missing font {name}");
     }
@@ -199,22 +190,20 @@ fn every_family_resolves_and_leads_with_the_intended_font() {
     leads(&FontFamily::Proportional, "Inter");
     leads(&medium(), "InterMedium");
     leads(&semibold(), "InterSemiBold");
+    leads(&serif(), "Lora");
     leads(&FontFamily::Monospace, "JetBrainsMono");
 }
 
 #[test]
-fn both_visuals_pin_the_spec_hexes() {
-    let dark = dark_visuals();
-    assert!(dark.dark_mode);
-    assert_eq!(dark.window_fill, DARK_WINDOW);
-    assert_eq!(dark.panel_fill, DARK_PANEL);
-    assert_eq!(dark.window_stroke.color, DARK_HAIRLINE_STRONG);
-    assert_eq!(dark.extreme_bg_color, DARK_PANEL);
-    assert_eq!(dark.hyperlink_color, DARK_ACCENT);
-
-    let light = light_visuals();
-    assert!(!light.dark_mode);
-    assert_eq!(light.window_fill, LIGHT_WINDOW);
-    assert_eq!(light.panel_fill, LIGHT_PANEL);
-    assert_eq!(light.selection.stroke.width, 2.0);
+fn solarized_uses_official_base_fills_and_cyan_charts() {
+    let dark = palette::visuals(&palette::SOLARIZED_DARK);
+    let light = palette::visuals(&palette::SOLARIZED_LIGHT);
+    assert_eq!(dark.panel_fill, Color32::from_rgb(0x00, 0x2b, 0x36));
+    assert_eq!(surface(&dark), Color32::from_rgb(0x07, 0x36, 0x42));
+    assert_eq!(light.panel_fill, Color32::from_rgb(0xfd, 0xf6, 0xe3));
+    assert_eq!(sidebar(&light), Color32::from_rgb(0xee, 0xe8, 0xd5));
+    for v in [dark, light] {
+        assert_eq!(chart(&v), Color32::from_rgb(0x2a, 0xa1, 0x98));
+        assert_ne!(chart(&v), chart_soft(&v));
+    }
 }

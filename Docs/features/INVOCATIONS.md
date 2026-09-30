@@ -168,7 +168,7 @@ Sources: [invocations.rs:1-60](https://github.com/BoardPandas/Hark/blob/bcfcc3fe
 <!-- BEGIN:AUTOGEN hark_08b_invocations_ui -->
 ## The Invocations Page
 
-Invocations is the third entry in the sidebar nav, between Spellbook and Stats, carrying the `LIGHTNING` glyph ([pages.rs:22-52](https://github.com/BoardPandas/Hark/blob/bcfcc3fef6f02252870fc3f06440d99992818ade/crates/hark-app/src/ui/pages.rs#L22-L52), [shell.rs:179-184](https://github.com/BoardPandas/Hark/blob/bcfcc3fef6f02252870fc3f06440d99992818ade/crates/hark-app/src/ui/shell.rs#L179-L184)). The page splits the list, main editor, and alternate-phrase widget across sibling modules so no UI file crosses the hard size cap ([aliases.rs](../../crates/hark-app/src/ui/invocations/aliases.rs)).
+Invocations sits with Spellbook in the sidebar’s personal tools group and uses the `LIGHTNING` glyph ([navigation](../../crates/hark-app/src/ui/navigation.rs)). The page splits the list, main editor, and alternate-phrase widget across sibling modules so no UI file crosses the hard size cap ([aliases.rs](../../crates/hark-app/src/ui/invocations/aliases.rs)).
 
 The list uses a plain `ScrollArea::vertical().show()`, never `show_rows()`. Rows are non-uniform because a warning line appears only on entries that cannot fire, and `show_rows`'s `row_height * count` arithmetic desynchronizes the scrollbar and shifts rows under the cursor for heterogeneous lists ([mod.rs:83-95](https://github.com/BoardPandas/Hark/blob/bcfcc3fef6f02252870fc3f06440d99992818ade/crates/hark-app/src/ui/invocations/mod.rs#L83-L95)).
 
@@ -236,6 +236,7 @@ Other behaviours worth knowing:
 **Deferred on purpose.** Placeholders or variables in expansions (`{date}`, `{cursor}`) are not supported: they would break the byte-for-byte invariant this design's safety argument rests on. Sending trigger phrases to the STT provider as bias or keyterm hints is also deferred — biasing raises recall but also raises the odds the provider hallucinates a trigger out of similar-sounding audio, the wrong direction when a false fire pastes a paragraph.
 
 Sources: [expander.rs:188-273](../../crates/hark-spellbook/src/expander.rs#L188-L273), [worker.rs:460-483](../../crates/hark-pipeline/src/worker.rs#L460-L483), [gemini_live.rs:409-380](../../crates/hark-stt/src/gemini_live.rs#L409-L380), [store/lib.rs](../../crates/hark-store/src/lib.rs), [003_entries_invocation.sql](../../crates/hark-store/migrations/003_entries_invocation.sql)
+Detailed Insights retain invocation flags and counts independently of transcript capture for up to 366 days. Dictated-word totals still use spoken `raw_text` for invocation dictations. The separate **Words in invocation output** metric counts the full final text inserted on those rows; an anywhere-scope invocation includes surrounding speech, so the metric does not claim to isolate only the canned expansion. Optional local word/phrase analysis also uses spoken raw text for invocation rows. None of these metrics rewrites an expansion or adds cleanup ([numeric persistence](../../crates/hark-store/src/insights/persistence.rs), [local analysis](../../crates/hark-store/src/insights/patterns.rs)).
 <!-- END:AUTOGEN hark_08b_invocations_edge -->
 
 ---

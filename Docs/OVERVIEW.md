@@ -52,6 +52,7 @@ the choice; real-speaker quality and long-call clock alignment remain unverified
 The application is one native Rust process: an always-on tray daemon plus an egui window opened on demand. Optional cleanup uses the user's own provider key, and Gemini Live Smart mode may perform that formatting in the transcription turn itself ([CLAUDE.md:3-22](../CLAUDE.md#L3-L22)).
 
 Sources: [README: Features](../README.md#features), [README: On-device transcription](../README.md#on-device-transcription), [CLAUDE.md:1-22](../CLAUDE.md#L1-L22)
+The native workspace opens on Home with the configured shortcut and recent history; Insights adds local usage charts, streaks, measured pace estimates, and completion latency. System, Light, Dark, Solarized Light, and Solarized Dark share one design system. Optional app-name tracking and retained-history word analysis each default off; numeric details retain up to 366 days independently of transcripts ([Desktop UI](features/DESKTOP_UI.md), [Data Storage](core/DATA_STORAGE.md#lifetime-stats-and-detailed-insights)).
 <!-- END:AUTOGEN hark_01_overview_introduction -->
 
 ---

@@ -6,6 +6,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.61.0] - 2026-09-30
+
+### Added
+
+- A native Home page with the configured dictation shortcut, today's activity, and recent local history, plus a responsive labeled sidebar for Home, Insights, History, Meetings, Spellbook, Invocations, and Settings.
+- Expanded local Insights with 7/30/90-day views, daily output charts, activity streaks, measured pace/time-saved estimates, median/p95 completion latency, provider usage, Spellbook corrections, and invocation statistics. Optional app-name tracking and retained-history word/phrase analysis each default off in Privacy settings.
+- Light, Dark, Solarized Light, and Solarized Dark appearances alongside System, with persistent selection, accessible text pairs, and locally embedded Lora headings.
+
+### Changed
+
+- Numeric dictation details now retain up to 366 days independently of transcript capture and history deletion; Reset stats clears those details and lifetime counters. Migration backfills only recoverable history fields, leaving unknown clip durations and correction counts unmeasured. Insights show coverage instead of inventing older measurements.
+
 ## [0.60.7] - 2026-09-30
 
 ### Fixed

@@ -58,7 +58,7 @@ The `Settings` struct is the single source of truth for the config schema; every
 
 | Section | Key | Type | Default | Meaning |
 |---|---|---|---|---|
-| top-level | `version` | `u32` | `5` (`CONFIG_VERSION`) | Schema stamp written on save; older versions migrate with a backup on load ([config](../../crates/hark-config/src/lib.rs)) |
+| top-level | `version` | `u32` | `6` (`CONFIG_VERSION`) | Schema stamp written on save; older versions migrate with a backup on load ([config](../../crates/hark-config/src/lib.rs)) |
 | `[provider]` | `kind` | enum | `"deepgram"` | STT provider: `deepgram` \| `openai` \| `groq` \| `openai-compatible` ([lib.rs](../../crates/hark-config/src/lib.rs)) |
 | `[provider]` | `base_url` | `Option<String>` | per-kind (e.g. `https://api.deepgram.com`) | Required explicit for `openai-compatible` ([lib.rs](../../crates/hark-config/src/lib.rs)) |
 | `[provider]` | `model` | `Option<String>` | per-kind (e.g. `nova-3`) | Resolved model name sent in the request ([lib.rs](../../crates/hark-config/src/lib.rs)) |
@@ -75,9 +75,11 @@ The `Settings` struct is the single source of truth for the config schema; every
 | `[inject]` | `clipboard_retries` | `u32` | `8` | Bounded retries while another process holds the clipboard ([lib.rs](../../crates/hark-config/src/lib.rs)) |
 | `[spellbook]` | `terms` | `Vec<String>` | `[]` | Canonical terms for phonetic correction and provider biasing; aliases the legacy `bias_terms` key ([lib.rs](../../crates/hark-config/src/lib.rs)) |
 | `[voice]` | see [Voice Presets Config](#voice-presets-config) | | | |
-| `[history]` | `capture` | `bool` | `true` | `false` stores no dictation content; counters still tick ([lib.rs](../../crates/hark-config/src/lib.rs)) |
+| `[history]` | `capture` | `bool` | `true` | `false` stores no dictation content; lifetime counters and up to 366 days of numeric Insights still update ([lib.rs](../../crates/hark-config/src/lib.rs)) |
 | `[history]` | `max_entries` | `u32` | `1000` | Keep at most this many newest entries (>= 1) ([lib.rs](../../crates/hark-config/src/lib.rs)) |
 | `[history]` | `max_age_days` | `u32` | `90` | Delete entries older than this many days (>= 1) ([lib.rs](../../crates/hark-config/src/lib.rs)) |
+| `[insights]` | `track_apps` | `bool` | `false` | Opt into one app-identity snapshot per dictation; no titles or continuous tracking. Best effort on Windows/macOS/local X11; unavailable on Wayland |
+| `[insights]` | `analyze_text` | `bool` | `false` | Opt into local word/phrase analysis of retained transcripts; no provider requests or extra persisted text |
 | `[updates]` | `check_on_startup` | `bool` | `true` | Check GitHub Releases once at startup and surface a banner ([lib.rs](../../crates/hark-config/src/lib.rs)) |
 | `[startup]` | `launch_at_login` | `bool` | `true` | Source of truth for the OS startup entry; `hark-autostart` reconciles to it ([lib.rs](../../crates/hark-config/src/lib.rs)) |
 | `[general]` | `always_on_top` | `bool` | `false` | Keep the main Hark window above other windows; applied at startup and after Save |
@@ -98,6 +100,10 @@ The `Settings` struct is the single source of truth for the config schema; every
 | `[[invocations.entries]]` | `aliases` | `Vec<String>` | `[]` | Exact alternate transcriptions that fire the same invocation |
 | `[[invocations.entries]]` | `expansion` | `String` | `""` | Text injected byte for byte when the trigger fires ([invocations.rs:50-51](https://github.com/BoardPandas/Hark/blob/bcfcc3fef6f02252870fc3f06440d99992818ade/crates/hark-config/src/invocations.rs#L50-L51)) |
 | `[[invocations.entries]]` | `scope` | enum | `"utterance"` | `utterance` (whole dictation) \| `anywhere` (spliced inline) ([invocations.rs:20-27](https://github.com/BoardPandas/Hark/blob/bcfcc3fef6f02252870fc3f06440d99992818ade/crates/hark-config/src/invocations.rs#L20-L27)) |
+
+`[insights]` is additive within schema 6: older configurations omit it and receive both opt-ins as `false`; explicit values round-trip independently of history capture. Changes follow Settings' Save/Discard behavior. Turning app tracking off leaves previous numeric app labels until expiry or Reset stats. Text analysis needs retained history; disabling capture does not erase existing transcripts.
+
+Appearance is intentionally outside `config.toml`: System, Light, Dark, Solarized Light, and Solarized Dark persist in egui memory, apply immediately, and are independent of the settings draft ([appearance persistence](../../crates/hark-app/src/theme/appearance.rs), [privacy controls](../../crates/hark-app/src/ui/settings/preferences.rs)).
 
 `[meeting]` is additive: it was added after `[local_stt]` and before `[[invocations.entries]]`, and a config file written before it existed loads unchanged, filling every key from `Meeting::default()` via `#[serde(default)]` ([meeting.rs](../../crates/hark-config/src/meeting.rs), [lib.rs](../../crates/hark-config/src/lib.rs)). An out-of-range `audio_cap_mb` is clamped in place with a logged warning rather than rejected outright, on the same "typo, not a reason to refuse to start" reasoning `Settings::from_toml` already applies to the spellbook migration ([meeting.rs](../../crates/hark-config/src/meeting.rs), [lib.rs](../../crates/hark-config/src/lib.rs)).
 

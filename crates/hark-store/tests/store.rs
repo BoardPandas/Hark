@@ -18,6 +18,8 @@ fn dictation(ts_ms: i64, raw: &str, fin: &str) -> NewDictation {
         stt_ms: 400,
         cleanup_ms: Some(300),
         total_ms: 800,
+        spellbook_replacements: Some(0),
+        foreground_app: None,
     }
 }
 

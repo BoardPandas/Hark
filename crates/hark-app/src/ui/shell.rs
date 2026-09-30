@@ -1,12 +1,11 @@
-//! The window shell (Nocturne): a slim top navigation bar (wordmark + page
-//! tabs left, Settings + version right), the update banner below it, the
-//! status footer across the bottom, and content in a centered column.
+//! Native window shell: responsive sidebar, appearance picker, update banner,
+//! persistent pipeline status, and the existing page editors.
 
 use crate::meeting::MeetingController;
 use crate::pipeline::PipelineController;
 use crate::storage::StorageHandle;
 use crate::theme;
-use crate::ui::{footer, pages};
+use crate::ui::{footer, navigation, pages};
 use crate::update::{Phase, Updater};
 use hark_config::Settings;
 
@@ -39,10 +38,9 @@ pub fn show(
         views.settings.unsaved_bar(ui, settings, pipeline);
     }
 
-    // The top navigation bar owns the outermost top strip; the update banner
-    // (when visible) stacks directly beneath it.
+    // Page navigation keeps the Settings draft and cancels shortcut capture on leave.
     let before = *page;
-    topbar(ui, page);
+    navigation::show(ui, page);
     if before == pages::Page::Settings && *page != before {
         views.settings.leave(pipeline);
     }
@@ -69,62 +67,6 @@ pub fn show(
                 storage,
                 storage_error,
             )
-        });
-}
-
-fn topbar(ui: &mut Ui, page: &mut pages::Page) {
-    let fill = ui.visuals().panel_fill;
-    Panel::top("topbar")
-        .exact_size(theme::TOPBAR_HEIGHT)
-        .resizable(false)
-        .frame(
-            Frame::new()
-                .fill(fill)
-                .inner_margin(Margin::symmetric(20, 12)),
-        )
-        .show(ui, |ui| {
-            ui.horizontal(|ui| {
-                ui.label(
-                    theme::icon_text(theme::icons::WAVEFORM)
-                        .size(theme::BRAND_SIZE)
-                        .color(theme::accent(ui.visuals())),
-                );
-                ui.label(
-                    RichText::new("Hark")
-                        .text_style(theme::subheading())
-                        .size(theme::BRAND_SIZE),
-                );
-                ui.add_space(theme::GAP);
-                for target in [
-                    pages::Page::History,
-                    pages::Page::Meetings,
-                    pages::Page::Spellbook,
-                    pages::Page::Invocations,
-                    pages::Page::Stats,
-                ] {
-                    if target == pages::Page::Meetings
-                        && !hark_pipeline::meeting::meetings_supported()
-                    {
-                        continue;
-                    }
-                    if theme::nav_button(ui, target.label(), *page == target).clicked() {
-                        *page = target;
-                    }
-                }
-                ui.with_layout(Layout::right_to_left(egui::Align::Center), |ui| {
-                    let label = theme::icon_label_job(ui.style(), theme::icons::GEAR, "Settings");
-                    if theme::nav_button(ui, label, *page == pages::Page::Settings).clicked() {
-                        *page = pages::Page::Settings;
-                    }
-                    if ui.available_width() > theme::CONTROL_HEIGHT * 2.0 {
-                        ui.label(
-                            RichText::new(concat!("v", env!("CARGO_PKG_VERSION")))
-                                .small()
-                                .weak(),
-                        );
-                    }
-                });
-            });
         });
 }
 
@@ -247,41 +189,86 @@ fn banner_action(
 mod tests {
     use super::*;
 
+    fn text_shapes(shape: &egui::Shape, visit: &mut impl FnMut(&egui::epaint::TextShape)) {
+        match shape {
+            egui::Shape::Text(text) => visit(text),
+            egui::Shape::Vec(shapes) => {
+                for shape in shapes {
+                    text_shapes(shape, visit);
+                }
+            }
+            _ => {}
+        }
+    }
+
     #[test]
-    fn navigation_labels_fit_the_minimum_window_in_both_themes() {
-        for preference in [egui::ThemePreference::Dark, egui::ThemePreference::Light] {
-            let ctx = egui::Context::default();
-            theme::apply(&ctx);
-            ctx.set_theme(preference);
-            let mut page = pages::Page::Settings;
-            for _ in 0..2 {
-                let mut output = ctx.run_ui(
-                    egui::RawInput {
-                        screen_rect: Some(egui::Rect::from_min_size(
-                            egui::Pos2::ZERO,
-                            egui::vec2(720.0, 480.0),
-                        )),
-                        ..Default::default()
-                    },
-                    |ui| topbar(ui, &mut page),
-                );
-                output.textures_delta.clear();
-                let mut labels = Vec::new();
-                for shape in output.shapes {
-                    if let egui::Shape::Text(text) = shape.shape {
-                        let rect = egui::Rect::from_min_size(text.pos, text.galley.size());
+    fn navigation_labels_fit_small_windows_in_all_themes() {
+        for preference in theme::Appearance::ALL {
+            for (width, height) in [
+                (720.0, 480.0),
+                (760.0, 480.0),
+                (900.0, 480.0),
+                (960.0, 640.0),
+            ] {
+                let ctx = egui::Context::default();
+                theme::apply(&ctx);
+                theme::set_appearance(&ctx, preference);
+                let mut page = pages::Page::Settings;
+                for frame in 0..3 {
+                    let mut output = ctx.run_ui(
+                        egui::RawInput {
+                            screen_rect: Some(egui::Rect::from_min_size(
+                                egui::Pos2::ZERO,
+                                egui::vec2(width, height),
+                            )),
+                            ..Default::default()
+                        },
+                        |ui| {
+                            // Reserve both the persistent status and dirty Settings bars.
+                            Panel::bottom("test-footers")
+                                .exact_size(90.0)
+                                .show(ui, |_| {});
+                            navigation::show(ui, &mut page);
+                        },
+                    );
+                    output.textures_delta.clear();
+                    // egui's first sizing pass may not paint all new widgets.
+                    if frame == 0 {
+                        continue;
+                    }
+                    let mut labels = Vec::new();
+                    for clipped in &output.shapes {
+                        text_shapes(&clipped.shape, &mut |text| {
+                            let rect = egui::Rect::from_min_size(text.pos, text.galley.size());
+                            assert!(
+                                rect.left() >= 0.0 && rect.right() <= width,
+                                "{preference:?} {width}x{height}: {:?} overflows: {rect:?}",
+                                text.galley.text()
+                            );
+                            let is_page = pages::Page::ALL
+                                .iter()
+                                .any(|page| text.galley.text().contains(page.label()));
+                            if is_page {
+                                assert!(clipped.clip_rect.expand(1.0).contains_rect(rect),
+                                    "{preference:?} {width}x{height}: {:?} clipped: {rect:?} by {:?}", text.galley.text(), clipped.clip_rect);
+                            }
+                            labels.push(text.galley.text().to_owned());
+                        });
+                    }
+                    for page in [
+                        "Home",
+                        "History",
+                        "Spellbook",
+                        "Invocations",
+                        "Insights",
+                        "Settings",
+                    ] {
                         assert!(
-                            rect.left() >= 0.0 && rect.right() <= 720.0,
-                            "label {:?} overflows: {rect:?}",
-                            text.galley.text()
+                            labels.iter().any(|label| label.contains(page)),
+                            "{preference:?} {width}x{height}: missing {page}: {labels:?}"
                         );
-                        labels.push(text.galley.text().to_owned());
                     }
                 }
-                for page in ["History", "Spellbook", "Invocations", "Stats"] {
-                    assert!(labels.iter().any(|label| label == page), "missing {page}");
-                }
-                assert!(labels.iter().any(|label| label.contains("Settings")));
             }
         }
     }

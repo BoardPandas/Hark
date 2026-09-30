@@ -1,18 +1,20 @@
-//! Hark's visual identity. Every design token lives here (Phase 4 spec
-//! §3.10): embedded fonts, the type scale, both `Visuals`, spacing, and the
-//! icon glyphs. `apply` runs once at startup; no panel sets ad-hoc colors,
-//! sizes, or spacing inline.
+//! Hark's visual identity: the four palettes, embedded fonts, type scale,
+//! spacing, and icon glyphs. Panels consume these tokens so the native UI
+//! changes appearance consistently without per-panel color overrides.
 
 use egui::epaint::Shadow;
-use egui::style::{Selection, WidgetVisuals, Widgets};
 use egui::{
-    Color32, Context, CornerRadius, FontFamily, FontId, Margin, Rect, RichText, Sense, Stroke,
-    TextStyle, Theme, Ui, Vec2, Visuals,
+    Color32, Context, FontFamily, FontId, Margin, Rect, RichText, Sense, Stroke, TextStyle, Ui,
+    Vec2, Visuals,
 };
 use std::collections::BTreeMap;
+mod appearance;
 mod fonts;
+mod palette;
+pub use appearance::{appearance, appearance_picker, set_appearance, Appearance};
 use fonts::font_definitions;
 pub use fonts::{icon, icon_label_job, icon_text};
+use palette::{palette, DARK, LIGHT};
 
 /// Phosphor glyphs, vendored from the egui-phosphor 0.12.0 crate package
 /// (regular variant) because that crate still pins egui 0.34. Codepoints
@@ -34,10 +36,12 @@ pub mod icons {
     pub const CLOCK_COUNTER_CLOCKWISE: &str = "\u{E1A0}";
     pub const COPY: &str = "\u{E1CA}";
     pub const GEAR: &str = "\u{E270}";
+    pub const HOME: &str = "\u{E2C2}";
     pub const KEY: &str = "\u{E2D6}";
     pub const LIGHTNING: &str = "\u{E2DE}";
     pub const MAGNIFYING_GLASS: &str = "\u{E30C}";
     pub const MICROPHONE: &str = "\u{E326}";
+    pub const MEETINGS: &str = "\u{E4D6}";
     pub const PLAY: &str = "\u{E3D0}";
     pub const SPINNER: &str = "\u{E66A}";
     pub const TRASH: &str = "\u{E4A6}";
@@ -46,65 +50,49 @@ pub mod icons {
     pub const X: &str = "\u{E4F6}";
 }
 
-// Refined Nocturne: neutral canvas, raised charcoal surfaces, restrained violet.
-const DARK_WINDOW: Color32 = Color32::from_rgb(0x1A, 0x1C, 0x20);
-const DARK_PANEL: Color32 = Color32::from_rgb(0x15, 0x17, 0x1B);
-const DARK_SURFACE: Color32 = Color32::from_rgb(0x23, 0x26, 0x2C);
-const DARK_HAIRLINE: Color32 = Color32::from_rgb(0x38, 0x3C, 0x45);
-const DARK_HAIRLINE_STRONG: Color32 = Color32::from_rgb(0x58, 0x5D, 0x69);
-const DARK_TEXT: Color32 = Color32::from_rgb(0xED, 0xEE, 0xF3);
-const DARK_TEXT_STRONG: Color32 = Color32::from_rgb(0xF5, 0xF6, 0xFA);
-const DARK_TEXT_WEAK: Color32 = Color32::from_rgb(0xA8, 0xAD, 0xBB);
-const DARK_ACCENT: Color32 = Color32::from_rgb(0xB7, 0xA3, 0xF7);
-const DARK_ACCENT_FILL: Color32 = DARK_ACCENT;
-const DARK_FILL_HOVER: Color32 = Color32::from_rgb(0x2D, 0x30, 0x38);
-const DARK_FILL_PRESS: Color32 = Color32::from_rgb(0x34, 0x2D, 0x48);
-const LIGHT_WINDOW: Color32 = Color32::from_rgb(0xF3, 0xF3, 0xF6);
-const LIGHT_PANEL: Color32 = Color32::from_rgb(0xFA, 0xFA, 0xFB);
-const LIGHT_SURFACE: Color32 = Color32::WHITE;
-const LIGHT_HAIRLINE: Color32 = Color32::from_rgb(0xDE, 0xDF, 0xE6);
-const LIGHT_HAIRLINE_STRONG: Color32 = Color32::from_rgb(0xAF, 0xB1, 0xBE);
-const LIGHT_TEXT: Color32 = Color32::from_rgb(0x23, 0x24, 0x2D);
-const LIGHT_TEXT_STRONG: Color32 = Color32::from_rgb(0x18, 0x19, 0x21);
-const LIGHT_TEXT_WEAK: Color32 = Color32::from_rgb(0x62, 0x65, 0x74);
-const LIGHT_ACCENT: Color32 = Color32::from_rgb(0x68, 0x47, 0xC4);
-const LIGHT_ACCENT_FILL: Color32 = LIGHT_ACCENT;
-const LIGHT_FILL_HOVER: Color32 = Color32::from_rgb(0xEE, 0xEE, 0xF3);
-const LIGHT_FILL_PRESS: Color32 = Color32::from_rgb(0xEC, 0xE6, 0xFD);
-
 pub const DANGER: Color32 = Color32::from_rgb(0xF1, 0x9C, 0xAB);
 pub const SUCCESS: Color32 = Color32::from_rgb(0x8B, 0xD5, 0xAF);
 pub const WARNING: Color32 = Color32::from_rgb(0xE5, 0xBC, 0x75);
 const LIGHT_DANGER: Color32 = Color32::from_rgb(0xB6, 0x3B, 0x50);
 const LIGHT_SUCCESS: Color32 = Color32::from_rgb(0x23, 0x75, 0x4F);
 const LIGHT_WARNING: Color32 = Color32::from_rgb(0x91, 0x5C, 0x10);
-const ON_DARK_ACCENT: Color32 = Color32::from_rgb(0x23, 0x1A, 0x38);
+const ON_DARK_ACCENT: Color32 = Color32::from_rgb(0x18, 0x25, 0x18);
 
 pub const TRAY_MARK: Color32 = ON_DARK_ACCENT;
-pub const TRAY_ACCENT: Color32 = Color32::from_rgb(0x91, 0x84, 0xD9);
+pub const TRAY_ACCENT: Color32 = DARK.accent;
 pub const TRAY_STOPPED: Color32 = Color32::from_rgb(0x8A, 0x8F, 0x98);
-pub const OVERLAY_ACCENT: Color32 = DARK_ACCENT;
-pub const OVERLAY_PILL_FILL: Color32 = DARK_SURFACE;
-pub const OVERLAY_PILL_STROKE: Color32 = DARK_HAIRLINE;
-pub const OVERLAY_TEXT: Color32 = DARK_TEXT;
+pub const OVERLAY_ACCENT: Color32 = DARK.accent;
+pub const OVERLAY_PILL_FILL: Color32 = DARK.surface;
+pub const OVERLAY_PILL_STROKE: Color32 = DARK.hairline;
+pub const OVERLAY_TEXT: Color32 = DARK.text;
 pub const OVERLAY_SIZE: Vec2 = Vec2::new(192.0, 46.0);
 pub const OVERLAY_SPINNER_STROKE: f32 = 2.0;
 pub const OVERLAY_ICON_SIZE: f32 = 20.0;
-pub const OVERLAY_HIGHLIGHT: Color32 = Color32::from_rgb(0x46, 0x48, 0x52);
+pub const OVERLAY_HIGHLIGHT: Color32 = Color32::from_rgb(0x46, 0x52, 0x48);
 pub const OVERLAY_FONT: f32 = 13.0;
 pub const OVERLAY_WAVE_WIDTH: f32 = 3.0;
 pub const OVERLAY_WAVE_GAP: f32 = 3.0;
 pub const OVERLAY_WAVE_HEIGHT: f32 = 22.0;
 pub const OVERLAY_INSET: f32 = 24.0;
 pub const OVERLAY_LABEL_OFFSET: f32 = 36.0;
-pub const TOPBAR_HEIGHT: f32 = 60.0;
 pub const FOOTER_HEIGHT: f32 = 38.0;
-pub const CONTENT_WIDTH: f32 = 860.0;
+pub const CONTENT_WIDTH: f32 = 1020.0;
+pub const SIDEBAR_WIDTH: f32 = 184.0;
+pub const SIDEBAR_BREAKPOINT: f32 = 760.0;
+pub const SIDEBAR_MIN_HEIGHT: f32 = 500.0;
+pub const NAV_HEIGHT: f32 = 40.0;
+pub const HERO_PADDING: i8 = 28;
+pub const HERO_SIZE: f32 = 37.0;
+pub const METRIC_MIN_WIDTH: f32 = 155.0;
+pub const CHART_HEIGHT: f32 = 134.0;
+pub const CHART_AXIS_WIDTH: f32 = 36.0;
+pub const HEAT_CELL_GAP: f32 = 4.0;
+pub const CHART_BAR_GAP: f32 = 4.0;
 pub const SETTINGS_NAV_WIDTH: f32 = 156.0;
 pub const SETTINGS_BREAKPOINT: f32 = 670.0;
 pub const CONTROL_HEIGHT: f32 = 34.0;
 pub const CONTROL_RADIUS: u8 = 7;
-pub const SURFACE_RADIUS: u8 = 9;
+pub const SURFACE_RADIUS: u8 = 14;
 pub const DIALOG_RADIUS: u8 = 12;
 pub const GAP: f32 = 8.0;
 pub const SECTION_GAP: f32 = 24.0;
@@ -117,9 +105,9 @@ pub const CONTENT_MARGIN: Margin = Margin {
     top: 30,
     bottom: 20,
 };
-pub const TITLE_SIZE: f32 = 26.0;
-pub const STAT_SIZE: f32 = 34.0;
-pub const BRAND_SIZE: f32 = 18.0;
+pub const TITLE_SIZE: f32 = 29.0;
+pub const STAT_SIZE: f32 = 31.0;
+pub const BRAND_SIZE: f32 = 31.0;
 pub const META_SIZE: f32 = 12.0;
 pub const EMPTY_ICON_SIZE: f32 = 30.0;
 pub const EMPTY_GAP: f32 = 48.0;
@@ -151,18 +139,27 @@ pub fn warning(v: &Visuals) -> Color32 {
     }
 }
 pub fn on_accent(v: &Visuals) -> Color32 {
-    if v.dark_mode {
-        ON_DARK_ACCENT
-    } else {
-        Color32::WHITE
-    }
+    palette(v).on_accent
 }
 pub fn tint(v: &Visuals) -> Color32 {
-    if v.dark_mode {
-        DARK_FILL_PRESS
-    } else {
-        LIGHT_FILL_PRESS
-    }
+    palette(v).tint
+}
+pub fn sidebar(v: &Visuals) -> Color32 {
+    palette(v).sidebar
+}
+pub fn chart(v: &Visuals) -> Color32 {
+    palette(v).chart
+}
+pub fn chart_soft(v: &Visuals) -> Color32 {
+    palette(v).chart_soft
+}
+
+/// Editorial serif for the Home introduction and brand, embedded for all OSes.
+pub fn serif() -> FontFamily {
+    FontFamily::Name("Lora".into())
+}
+pub fn hero_font() -> FontId {
+    FontId::new(HERO_SIZE, serif())
 }
 pub fn edge(v: &Visuals) -> Color32 {
     Color32::from_white_alpha(if v.dark_mode { 18 } else { 220 })
@@ -226,8 +223,7 @@ pub fn nav_button(
     response
 }
 
-/// The section-head text style (15 px Inter Medium — Nocturne heads are
-/// medium, never bolder; hierarchy is size and space).
+/// Section heads use Inter Medium; hierarchy comes from size and spacing.
 pub fn subheading() -> TextStyle {
     TextStyle::Name("Subheading".into())
 }
@@ -241,30 +237,17 @@ fn semibold() -> FontFamily {
 }
 
 pub fn accent(visuals: &Visuals) -> Color32 {
-    if visuals.dark_mode {
-        DARK_ACCENT
-    } else {
-        LIGHT_ACCENT
-    }
+    visuals.hyperlink_color
 }
 
-/// Accent fill for primary actions, progress bars, and the microphone meter.
+/// Accent fill for primary actions; `on_accent` is its tested text pair.
 pub fn accent_fill(visuals: &Visuals) -> Color32 {
-    if visuals.dark_mode {
-        DARK_ACCENT_FILL
-    } else {
-        LIGHT_ACCENT_FILL
-    }
+    palette(visuals).accent
 }
 
-/// Cards, expanded detail panels, and dialogs — one
-/// step lighter than the ground.
+/// Cards, expanded detail panels, and dialogs.
 pub fn surface(visuals: &Visuals) -> Color32 {
-    if visuals.dark_mode {
-        DARK_SURFACE
-    } else {
-        LIGHT_SURFACE
-    }
+    visuals.faint_bg_color
 }
 
 /// The translucent divider used by the fading rules (text at 16% alpha).
@@ -315,7 +298,7 @@ impl egui::Widget for ActionButton {
         response
     }
 }
-fn focus_ring(ui: &Ui, response: &egui::Response) {
+pub(crate) fn focus_ring(ui: &Ui, response: &egui::Response) {
     if response.has_focus() {
         ui.painter().rect_stroke(
             response.rect.expand(3.0),
@@ -326,22 +309,16 @@ fn focus_ring(ui: &Ui, response: &egui::Response) {
     }
 }
 
-/// Install fonts, type scale, spacing, and both theme palettes. Called once
-/// at startup; egui follows the OS theme afterwards (`ThemePreference::
-/// System`; a Light/Dark/System radio arrives with the settings form).
+/// Install fonts and tokens once, restoring the explicit palette or the
+/// legacy Light/Dark/System preference already loaded by eframe.
 pub fn apply(ctx: &Context) {
     ctx.set_fonts(font_definitions());
     ctx.all_styles_mut(|style| {
         style.text_styles = text_styles();
         spacing(&mut style.spacing);
     });
-    ctx.set_visuals_of(Theme::Dark, dark_visuals());
-    ctx.set_visuals_of(Theme::Light, light_visuals());
-    // Follow the OS by default, but never clobber a preference the Settings
-    // radio persisted into egui memory (restored before app construction):
-    // re-apply whatever is current instead of forcing System.
-    let preference = ctx.options(|o| o.theme_preference);
-    ctx.set_theme(preference);
+    let selected: Appearance = appearance(ctx);
+    appearance::install(ctx, selected);
 }
 
 /// Inter hierarchy for readable text; JetBrains Mono for technical values.
@@ -370,116 +347,6 @@ fn spacing(spacing: &mut egui::style::Spacing) {
     spacing.menu_margin = Margin::same(8);
     spacing.indent = 18.0;
     spacing.interact_size.y = CONTROL_HEIGHT;
-}
-
-struct Palette {
-    text: Color32,
-    text_strong: Color32,
-    text_weak: Color32,
-    window: Color32,
-    panel: Color32,
-    surface: Color32,
-    hairline: Color32,
-    hairline_strong: Color32,
-    /// Hovered and pressed fills.
-    fill_hover: Color32,
-    fill_press: Color32,
-    accent: Color32,
-    shadow_alpha: u8,
-}
-
-fn build_visuals(base: Visuals, p: &Palette) -> Visuals {
-    let hairline = Stroke::new(1.0, p.hairline);
-    let hairline_strong = Stroke::new(1.0, p.hairline_strong);
-    let widget = |bg: Color32, fg: Color32, bg_stroke: Stroke| WidgetVisuals {
-        bg_fill: bg,
-        weak_bg_fill: bg,
-        bg_stroke,
-        fg_stroke: Stroke::new(1.0, fg),
-        corner_radius: CornerRadius::same(CONTROL_RADIUS),
-        expansion: 0.0,
-    };
-    Visuals {
-        weak_text_color: Some(p.text_weak),
-        widgets: Widgets {
-            noninteractive: widget(p.panel, p.text, hairline),
-            // Neutral controls sit above the recessed inputs.
-            inactive: widget(p.surface, p.text, hairline),
-            hovered: widget(p.fill_hover, p.text_strong, hairline_strong),
-            active: widget(p.fill_press, p.text_strong, Stroke::new(2.0, p.accent)),
-            open: widget(p.fill_hover, p.text, hairline),
-        },
-        selection: Selection {
-            bg_fill: p.accent.gamma_multiply(0.30),
-            // Doubles as the visible focus ring (2 px accent, guardrails §3).
-            stroke: Stroke::new(2.0, p.accent),
-        },
-        hyperlink_color: p.accent,
-        // Cards / group panels / table stripes pick up the surface step.
-        faint_bg_color: p.surface,
-        // Text inputs sit below the raised surface.
-        extreme_bg_color: p.panel,
-        warn_fg_color: warning(&base),
-        error_fg_color: danger(&base),
-        window_corner_radius: CornerRadius::same(DIALOG_RADIUS),
-        window_shadow: Shadow {
-            offset: [0, 16],
-            blur: 40,
-            spread: 0,
-            color: Color32::from_black_alpha(p.shadow_alpha),
-        },
-        window_fill: p.window,
-        window_stroke: hairline_strong,
-        menu_corner_radius: CornerRadius::same(CONTROL_RADIUS),
-        panel_fill: p.panel,
-        popup_shadow: Shadow {
-            offset: [0, 6],
-            blur: 18,
-            spread: 0,
-            color: Color32::from_black_alpha(p.shadow_alpha),
-        },
-        ..base
-    }
-}
-
-fn dark_visuals() -> Visuals {
-    build_visuals(
-        Visuals::dark(),
-        &Palette {
-            text: DARK_TEXT,
-            text_strong: DARK_TEXT_STRONG,
-            text_weak: DARK_TEXT_WEAK,
-            window: DARK_WINDOW,
-            panel: DARK_PANEL,
-            surface: DARK_SURFACE,
-            hairline: DARK_HAIRLINE,
-            hairline_strong: DARK_HAIRLINE_STRONG,
-            fill_hover: DARK_FILL_HOVER,
-            fill_press: DARK_FILL_PRESS,
-            accent: DARK_ACCENT,
-            shadow_alpha: 166,
-        },
-    )
-}
-
-fn light_visuals() -> Visuals {
-    build_visuals(
-        Visuals::light(),
-        &Palette {
-            text: LIGHT_TEXT,
-            text_strong: LIGHT_TEXT_STRONG,
-            text_weak: LIGHT_TEXT_WEAK,
-            window: LIGHT_WINDOW,
-            panel: LIGHT_PANEL,
-            surface: LIGHT_SURFACE,
-            hairline: LIGHT_HAIRLINE,
-            hairline_strong: LIGHT_HAIRLINE_STRONG,
-            fill_hover: LIGHT_FILL_HOVER,
-            fill_press: LIGHT_FILL_PRESS,
-            accent: LIGHT_ACCENT,
-            shadow_alpha: 40,
-        },
-    )
 }
 
 #[cfg(test)]

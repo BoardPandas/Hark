@@ -143,6 +143,7 @@ summary setting and text-provider request after transcription
 [configuration](../../crates/hark-config/src/meeting.rs)).
 
 Sources: [crates/hark-pipeline/src/worker.rs:451-530](../../crates/hark-pipeline/src/worker.rs#L451-L530), [crates/hark-pipeline/src/worker.rs:542-618](../../crates/hark-pipeline/src/worker.rs#L542-L618), [crates/hark-stt/src/gemini_live.rs](../../crates/hark-stt/src/gemini_live.rs), [crates/hark-config/src/lib.rs](../../crates/hark-config/src/lib.rs), [crates/hark-pipeline/src/meeting/live.rs:60-77](../../crates/hark-pipeline/src/meeting/live.rs#L60-L77)
+Insights reports usage by the configured voice and completion latency, alongside measured local Spellbook replacement counts. It does not infer how many edits the cleanup provider made or assign an accuracy score. Replacement counts include the second Spellbook pass only when that pass runs; the fired-invocation branch still bypasses cleanup and later rewriting. All numeric persistence follows insertion ([worker](../../crates/hark-pipeline/src/worker.rs), [Insights aggregation](../../crates/hark-store/src/insights/query.rs)).
 <!-- END:AUTOGEN hark_09_voice_cleanup_pipeline -->
 
 ---

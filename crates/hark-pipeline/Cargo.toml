@@ -31,6 +31,22 @@ log = "0.4"
 reqwest = { version = "0.13", default-features = false, features = ["blocking"] }
 thiserror = "2"
 
+# Optional foreground-app Insights use the same native bindings already
+# locked elsewhere in Hark. No document/window title or permission prompt.
+[target.'cfg(target_os = "linux")'.dependencies]
+x11rb = "0.13"
+
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.62.2", features = [
+    "Win32_Foundation",
+    "Win32_System_Threading",
+    "Win32_UI_WindowsAndMessaging",
+] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6.4"
+objc2-app-kit = { version = "0.3.2", default-features = false, features = ["std", "NSWorkspace", "NSRunningApplication"] }
+
 [features]
 default = []
 # Forwarded by hark-app; pulls the ~28 MB native sherpa-onnx engine in.

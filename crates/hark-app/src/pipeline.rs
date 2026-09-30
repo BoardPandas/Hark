@@ -423,7 +423,7 @@ fn spawn_repaint_pump(
                     (&event, &storage)
                 {
                     let _ = storage_tx.send(StorageCmd::Record {
-                        record: Box::new(record.clone()),
+                        record: record.clone(),
                         capture: policy.capture,
                         retention: policy.retention,
                     });
@@ -489,8 +489,8 @@ mod tests {
         }
     }
 
-    fn record() -> DictationRecord {
-        DictationRecord {
+    fn record() -> Box<DictationRecord> {
+        Box::new(DictationRecord {
             raw_text: "raw".to_string(),
             final_text: "final".to_string(),
             voice: "clean".to_string(),
@@ -502,7 +502,9 @@ mod tests {
             stt_ms: 300,
             cleanup_ms: None,
             total_ms: 450,
-        }
+            spellbook_replacements: Some(0),
+            foreground_app: None,
+        })
     }
 
     #[test]

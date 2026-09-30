@@ -59,20 +59,13 @@ fn appearance_section(ui: &mut Ui) {
     subhead(ui, "Appearance");
     ui.horizontal(|ui| {
         ui.label("Theme");
-        let mut preference = ui.ctx().options(|o| o.theme_preference);
-        let mut changed = false;
-        for (value, label) in [
-            (egui::ThemePreference::System, "System"),
-            (egui::ThemePreference::Light, "Light"),
-            (egui::ThemePreference::Dark, "Dark"),
-        ] {
-            changed |= ui.radio_value(&mut preference, value, label).changed();
-        }
-        if changed {
-            // Persists via egui memory, independently of the settings draft.
-            ui.ctx().set_theme(preference);
-        }
+        crate::theme::appearance_picker(ui);
     });
+    ui.label(
+        RichText::new("Applies immediately and is remembered on this device. System follows your desktop's light or dark appearance.")
+            .small()
+            .weak(),
+    );
 }
 
 pub fn behavior_section(ui: &mut Ui, draft: &mut Settings) {
@@ -137,7 +130,8 @@ pub fn privacy_section(ui: &mut Ui, draft: &mut Settings) {
         );
         ui.label(
             RichText::new(
-                "Off: no transcript content is stored; the lifetime counters still tick.",
+                "Off: no transcript content is stored. Numeric Insights keep up to 366 days; \
+                 lifetime totals continue. Clear history keeps these stats; Reset stats removes them.",
             )
             .small()
             .weak(),
@@ -149,6 +143,24 @@ pub fn privacy_section(ui: &mut Ui, draft: &mut Settings) {
             ui.add(DragValue::new(&mut draft.history.max_age_days).range(1..=3_650));
             ui.label("days");
         });
+        ui.add_space(crate::theme::ROW_GAP);
+        ui.checkbox(
+            &mut draft.insights.track_apps,
+            "Include app names in local Insights",
+        );
+        ui.label(RichText::new(
+            "Only the app name when a dictation starts. No window or document titles, \
+             no continuous tracking. Best effort on Windows, macOS and X11; unavailable on Wayland. \
+             Turning this off stops future collection; Reset stats removes stored app counts."
+        ).small().weak());
+        ui.checkbox(
+            &mut draft.insights.analyze_text,
+            "Analyze retained history for words and phrases",
+        );
+        ui.label(RichText::new(
+            "Opt-in analysis runs only on this device and uses retained transcripts. \
+             Nothing is sent to a provider and no extra copy of the text is stored."
+        ).small().weak());
         ui.add_space(6.0);
         ui.label(
             RichText::new(

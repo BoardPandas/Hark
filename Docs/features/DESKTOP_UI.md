@@ -2,7 +2,9 @@
 <details>
 <summary>Relevant source files</summary>
 
-- [Theme and elevation](../../crates/hark-app/src/theme.rs)
+- [Theme and elevation](../../crates/hark-app/src/theme.rs), [palettes](../../crates/hark-app/src/theme/palette.rs), and [appearance persistence](../../crates/hark-app/src/theme/appearance.rs)
+- [Navigation](../../crates/hark-app/src/ui/navigation.rs), [Home](../../crates/hark-app/src/ui/home.rs), and [Insights](../../crates/hark-app/src/ui/stats.rs)
+- [Insights worker cache](../../crates/hark-app/src/ui/insights_cache.rs) and [local aggregates](../../crates/hark-store/src/insights/mod.rs)
 - [Window shell](../../crates/hark-app/src/ui/shell.rs)
 - [Page routing](../../crates/hark-app/src/ui/pages.rs)
 - [Grouped Settings](../../crates/hark-app/src/ui/settings/sections.rs)
@@ -34,7 +36,7 @@ Hark uses native `eframe`/`egui` for its window and floating dictation feedback,
 
 The main thread owns egui and the Windows/macOS tray. On Linux, libappindicator owns GTK widgets on a dedicated thread with its own loop. Audio, hotkeys, transcription, cleanup, and insertion run on worker threads. The UI consumes state; it never delays insertion to render feedback.
 
-On Windows and macOS 14.2+, the UI also exposes meeting transcription: a Meetings page, a tray entry to start or stop taking notes, and a non-modal prompt when a meeting app starts using the microphone. Meetings is hidden everywhere its capture is unsupported (currently Linux); nothing about it changes how push-to-talk dictation looks or behaves.
+On Windows, Linux, and macOS 14.2+, the UI also exposes meeting transcription: a Meetings page, a tray entry to start or stop taking notes, and a non-modal prompt when a meeting app starts using the microphone. Meetings is hidden wherever its capture is unsupported; nothing about it changes how push-to-talk dictation looks or behaves.
 <!-- END:AUTOGEN hark_12_desktop_ui_overview -->
 
 ---
@@ -55,7 +57,7 @@ The native menu groups voice choices under **Voice**, followed (where meetings e
 
 Tooltips name the state and shortcut. Quiet-audio hints preserve the ready icon and explain the issue in text. Updates reach the OS only when something changes, avoiding repeated icon writes and channel traffic.
 
-A recording meeting is shown on an otherwise-idle tray as the same red recording disc, with a tooltip naming the time notes started ("Hark: taking meeting notes since 14:30"); once a detected meeting's app hangs up, the tooltip switches to when the notes will stop ("Hark: the call ended; meeting notes stop at 14:52:07"), matching the Meetings page's notice and its **Stop now** button. A start or stop *time* is shown rather than a countdown so a hidden, idle window never has to wake each second to update it — the recording state has to stay visible for as long as a meeting runs, but a dictation's own recording, processing, or error state still takes priority while it lasts. Where meeting capture does not exist on the platform (Linux), the menu builds without the entry at all rather than shipping one that can never work; where it exists but is off or failed to start, the entry stays in the menu, disabled.
+A recording meeting is shown on an otherwise-idle tray as the same red recording disc, with a tooltip naming the time notes started ("Hark: taking meeting notes since 14:30"); once a detected meeting's app hangs up, the tooltip switches to when the notes will stop ("Hark: the call ended; meeting notes stop at 14:52:07"), matching the Meetings page's notice and its **Stop now** button. A start or stop *time* is shown rather than a countdown so a hidden, idle window never has to wake each second to update it — the recording state has to stay visible for as long as a meeting runs, but a dictation's own recording, processing, or error state still takes priority while it lasts. Where meeting capture does not exist on the platform, the menu builds without the entry at all rather than shipping one that can never work; where it exists but is off or failed to start, the entry stays in the menu, disabled.
 <!-- END:AUTOGEN hark_12_desktop_ui_tray -->
 
 ---
@@ -84,25 +86,38 @@ The meeting detection prompt ("Teams is using your mic. Take meeting notes?") fo
 ---
 
 <!-- BEGIN:AUTOGEN hark_12_desktop_ui_window -->
-## Settings Window Shell
+## Window Shell
 
-A top bar contains Hark, History, Meetings (where meeting capture exists on the platform), Spellbook, Invocations, Stats, and Settings. Selected tabs have a raised surface; keyboard focus has a separate visible ring. Content is centered at up to 860 points and contracts with the window.
+A labeled sidebar groups Home, Insights, History, and Meetings, followed by Spellbook and Invocations, with Settings at the bottom. Below 760 points wide or 500 points of available height after footer bars, it becomes wrapping navigation rows so every destination remains reachable. The appearance picker remains available at the top. Content centers at up to 1,020 points and contracts with the window. The running-pipeline landing page is Home; missing setup or startup errors still lead to Settings.
 
 The footer remains visible with the actual pipeline state, configured shortcut, and active transcription/cleanup models. Long model text truncates with the full value available on hover. A key-related issue opens Dictation settings.
 
-Settings' Save changes / Discard bar stays outside its scroll area. The update banner uses a tinted surface and opens the Updates section directly. Destructive confirmations have stronger elevation, explain the consequence, and initially focus Cancel.
+Settings' Save changes / Discard bar stays outside its scroll area. The update banner opens the Updates section directly. Destructive confirmations explain the consequence and initially focus Cancel. Existing settings drafts and editor state survive page navigation; shortcut capture stops when leaving its settings page.
+
+Sources: [navigation](../../crates/hark-app/src/ui/navigation.rs), [shell](../../crates/hark-app/src/ui/shell.rs), [page routing](../../crates/hark-app/src/ui/pages.rs), [startup](../../crates/hark-app/src/app.rs).
 <!-- END:AUTOGEN hark_12_desktop_ui_window -->
 
 ---
 
 <!-- BEGIN:AUTOGEN hark_12_desktop_ui_pages -->
-## History, Spellbook, Invocations, Stats and Settings
+## Home, Insights, and Editors
 
-- **History** keeps grouped days, search, copy/delete actions, expandable raw transcripts, timing, and Spellbook selection handoff. Wide rows separate timestamps from content. Captions name the actual provider/model and show cleanup only when it ran. Clearing history preserves lifetime statistics.
-- **Meetings** (Windows only for now) is shaped like History: a searchable list of past meetings by title/date/duration, and a detail view with the transcript (speaker chips, timestamps), notes with checkable action items, speaker rename, a Share menu for text, Word, subtitles, audio excerpts, and Windows text sharing, and delete. While a meeting is recording, the page instead shows a live pane: the rolling Me/Them transcript, elapsed time, and a Stop button. A first-run notice reminds the user that some places require every party's consent to record a call; an optional button pastes a canned "I'm using Hark to transcribe this meeting" line into the focused chat.
+- **Home** shows the actual configured push-to-talk shortcut, pipeline state, today's recorded numeric progress, and recent retained dictations with copy/delete actions. Partial-day coverage is labeled when earlier activity may be missing. Links open full History or Insights. Empty and unavailable-storage states use real status rather than sample content. Visible Home and Insights schedule a refresh at local midnight, including daylight-saving transitions.
+- **History** keeps grouped days, search, copy/delete actions, expandable raw transcripts, timing, and Spellbook selection handoff. Wide rows separate timestamps from content. Captions name the actual provider/model and show cleanup only when it ran. Clearing history preserves lifetime counters and retained numeric Insights.
+- **Meetings** (Windows, Linux, and macOS 14.2+) is shaped like History: a searchable list of past meetings by title/date/duration, and a detail view with the transcript (speaker chips, timestamps), notes with checkable action items, speaker rename, a Share menu for text, Word, subtitles, audio excerpts, and Windows text sharing, and delete. While a meeting is recording, the page instead shows a live pane: the rolling Me/Them transcript, elapsed time, and a Stop button. A first-run notice reminds the user that some places require every party's consent to record a call; an optional button pastes a canned "I'm using Hark to transcribe this meeting" line into the focused chat.
 - **Spellbook** has a raised vocabulary surface, editable terms, aliases, the advanced mishearing control, and undo for the most recent addition. Edits still persist immediately.
 - **Invocations** retains trigger scope, expansion text, validation, and explicit Save. Each invocation can also list exact alternate phrases for repeatable transcription errors. The raised test panel reports whether a typed phrase would fire using the real matcher.
-- **Stats** uses responsive elevated cards for dictations, words, speaking time, and average release-to-insert latency. It scrolls at short window heights. The ten-dictation gate, missing-data `n/a`, estimated typing time saved, and independent reset remain intact.
+- **Insights** has Overview, Your voice, and Performance tabs with 7-, 30-, or 90-day ranges. Overview combines words/dictations, estimated pace and time saved, median latency, daily bars, local-calendar activity/streaks, and optional app usage. Your voice shows vocabulary size, measured Spellbook replacements, invocation usage/output words, busiest local hour, and opt-in retained-history word/phrase analysis. Performance compares median/p95 completion latency and provider/voice usage. The first ten dictations have an introductory progress card; measured panels are available from the first dictation. Lifetime totals are available below the selected range.
+
+### Interpreting Insights
+
+Duration-based pace and time savings use only rows with measured clip duration, including capture padding; the UI shows measurement coverage. Savings compare those same words against a 40 WPM typing baseline. Older retained transcripts can supply counts and latency, but their missing duration and correction counts stay unknown. A partial-history notice distinguishes backfilled entries from complete tracking. Missing measurements display a dash rather than a fabricated value.
+
+Invocation dictations count the spoken transcript toward dictated words. **Words in invocation output** is a separate total of full inserted output on dictations where an invocation fired; an anywhere-scope invocation includes the surrounding speech. Dictionary corrections count actual replacements across both Spellbook passes, not provider cleanup edits or a claimed accuracy score. Latency describes recorded successful completions, not a success/failure rate.
+
+App names and text analysis each default off in Settings → Privacy. App detection samples only app identity at dictation start, never window/document titles or continuous activity; it is best effort on Windows, macOS, and local X11 and unavailable on Wayland. Turning it off stops future collection; previous labels remain until expiry or Reset stats. Word/phrase analysis reads retained transcripts locally without storing another text copy or contacting a provider. Reset stats clears numeric details and lifetime counters while retaining transcripts, so opted-in word analysis can still use that history.
+
+Queries and text aggregation run on the storage worker. The UI caches results by data generation, range, local date, and text-analysis choice; an obsolete reply cannot overwrite a newly selected range. See [Data Storage](../core/DATA_STORAGE.md#lifetime-stats-and-detailed-insights) for retention and coverage semantics.
 
 ### Settings
 
@@ -114,7 +129,8 @@ Settings' Save changes / Discard bar stays outside its scroll area. The update b
 | On-device | Off/Backup/Primary modes, model download/progress/cancel/delete |
 | Meetings | Take notes toggle, optional Windows start/stop shortcut, microphone, detection (off/ask/auto, auto-stop delay, app list), speaker labels (Deepgram key, independent of the dictation key), storage cap and usage, delete all meeting audio |
 | Behavior | Cleanup limits, single-word punctuation |
-| Privacy | History capture, retention, audio/text/provider disclosures |
+| Privacy | History capture/retention, optional local app tracking, optional retained-history word/phrase analysis, numeric retention and provider disclosures |
+| Updates | Version, checking, download/install status, release details |
 
 Meetings also exposes **Reduce speaker echo**, off by default. Save applies it
 from the next meeting. It reduces playback picked up by the meeting microphone;
@@ -122,11 +138,10 @@ the helper text recommends leaving it off with headphones and turning it off if
 the local voice sounds worse. It does not change dictation or select a new
 provider ([settings](../../crates/hark-app/src/ui/settings/meetings.rs),
 [capture behavior](MEETINGS.md#reduce-speaker-echo)).
-| Updates | Version, checking, download/install status, release details |
 
 Section navigation is vertical when space permits and wraps above the content in narrow windows. Each section retains its own scroll position and shares one draft. Save validates, persists TOML, and restarts the pipeline; Discard restores saved fields. Theme changes, key actions, and model downloads remain immediate. Download and test completions are polled from root logic even when their section is hidden. Leaving shortcut settings or hiding the window cancels shortcut capture.
 
-General opens by default after setup. Startup and window preferences take effect on Save. Always on top affects the main window; the recording overlay keeps its own behavior. With **Exit when the window is closed** off (the default), the X hides Hark in the tray. With it on, the X exits. Without a working tray, the X always exits so Hark cannot become inaccessible. **Close Program** and the tray's **Quit** always use the full shutdown path, stopping dictation and flushing pending history writes; unsaved settings are discarded.
+Within Settings, General is the initial section after setup. Startup and window preferences take effect on Save. Always on top affects the main window; the recording overlay keeps its own behavior. With **Exit when the window is closed** off (the default), the X hides Hark in the tray. With it on, the X exits. Without a working tray, the X always exits so Hark cannot become inaccessible. **Close Program** and the tray's **Quit** always use the full shutdown path, stopping dictation and flushing pending history writes; unsaved settings are discarded.
 
 ### First run
 
@@ -140,20 +155,25 @@ Permission guidance explains microphone and keyboard/insertion access without cl
 <!-- BEGIN:AUTOGEN hark_12_desktop_ui_theme -->
 ## Theming
 
-The refined Nocturne design uses three levels: recessed inputs and chrome, the canvas, and raised cards. Cards combine a restrained shadow, fine border, and upper-edge highlight. Menus, dialogs, and the floating pill use stronger separation. Inter handles prose and headings; JetBrains Mono remains available for technical values. Embedded Phosphor icons use a dedicated font family to prevent Inter's private-use glyphs from replacing them.
+The visual system combines warm neutral surfaces, restrained forest/sage accents, rounded cards, and a labeled sidebar. Inter remains the interface font; embedded Lora Regular provides editorial Home headings and the brand. JetBrains Mono handles technical values. Phosphor icons keep a dedicated font family so Inter's private-use glyphs cannot replace them. Fonts are bundled locally with their licenses; nothing is fetched at runtime.
 
-| Token | Dark | Light |
-|---|---|---|
-| Canvas | `#1A1C20` | `#F3F3F6` |
-| Chrome / recessed input | `#15171B` | `#FAFAFB` |
-| Raised surface | `#23262C` | `#FFFFFF` |
-| Main text | `#EDEEF3` | `#23242D` |
-| Secondary text | `#A8ADBB` | `#626574` |
-| Accent | `#B7A3F7` | `#6847C4` |
+| Token | Light | Dark | Solarized Light | Solarized Dark |
+|---|---|---|---|---|
+| Canvas | `#F7F7F3` | `#171C19` | `#FDF6E3` | `#002B36` |
+| Sidebar | `#EEEFE9` | `#131814` | `#EEE8D5` | `#073642` |
+| Card | `#FFFFFF` | `#202722` | `#FDF6E3` | `#073642` |
+| Main text | `#252E29` | `#E9EEE4` | `#526A71` | `#EEE8D5` |
+| Secondary text | `#616B63` | `#A4B1A4` | `#526A71` | `#93A1A1` |
+| Action accent | `#376C58` | `#B5CCA1` | `#526A71` | `#93A1A1` |
+| Chart accent | `#527E69` | `#A8C99A` | `#2AA198` | `#2AA198` |
 
-System, Light, and Dark appearance preferences are preserved across launches. Success, warning, and danger use separate light/dark colors with text labels or icons. Contrast tests cover secondary and semantic text on the canvas, chrome, and raised surfaces, plus primary action labels. The tray and overlay use fixed colors because they sit over arbitrary desktop content.
+The two Solarized palettes use [Ethan Schoonover's published base fills and cyan](https://ethanschoonover.com/solarized/), with derived supporting borders. Solarized Light body/action text blends base01 8% toward base02 because the original base01/base2 pair falls below 4.5:1 on the sidebar and hero. Light secondary text is similarly adjusted for those tinted surfaces.
 
-Headless egui layout checks cover the minimum-width navigation and card padding. Actual native window composition, microphone capture, global shortcuts, and text insertion require a desktop smoke test on each supported OS.
+System, Light, Dark, Solarized Light, and Solarized Dark apply immediately and persist independently of the TOML settings draft. A stable egui-memory palette key preserves explicit choices; absent or unknown palette keys respect the previously saved Light/Dark/System preference. Returning to System restores both neutral palettes before following OS changes.
+
+Tests cover serialized appearance restoration, legacy preferences, text and semantic colors across canvas/cards/sidebar/hero, primary labels, and visible focus rings. The tray and overlay keep fixed, readable dark-background colors because they sit over arbitrary desktop content. Actual native window composition, microphone capture, global shortcuts, and text insertion still require target-platform smoke tests.
+
+Sources: [tokens](../../crates/hark-app/src/theme.rs), [palettes](../../crates/hark-app/src/theme/palette.rs), [persistence](../../crates/hark-app/src/theme/appearance.rs), [fonts and licenses](../../crates/hark-app/assets/README.md), [theme tests](../../crates/hark-app/src/theme/tests.rs).
 <!-- END:AUTOGEN hark_12_desktop_ui_theme -->
 
 ---

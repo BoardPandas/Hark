@@ -11,6 +11,7 @@ description = "Hark local storage: SQLite dictation history + lifetime stats wit
 # either target OS, which matters for a self-contained desktop binary.
 rusqlite = { version = "0.40.1", features = ["bundled"] }
 thiserror = "2"
+jiff = "0.2"
 
 [dev-dependencies]
 tempfile = "3"

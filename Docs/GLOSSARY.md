@@ -50,6 +50,9 @@ same person ([meeting labels](features/MEETINGS.md#gemini-files-final-pass)).
 - **Storage cap:** The circular limit on meeting audio kept on disk (`[meeting] audio_cap_mb = 5120`, 5 GiB displayed as 5 GB). It removes oldest completed recordings' audio while preserving transcripts and notes. Recording/processing meetings are protected; zero still allows temporary files until processing finishes ([README: Meetings privacy](../README.md#meetings-windows), [Meetings](features/MEETINGS.md#storage-and-the-audio-cap)).
 - **Tray daemon:** Hark's normal hidden state: the pipeline remains active while the settings, history, and stats window opens only on demand ([README: Architecture](../README.md#architecture)).
 - **Verbatim / Smart:** Gemini rendering modes. Verbatim preserves the literal transcript and is the default; Smart removes disfluencies and formats within the same provider turn ([Transcription](features/TRANSCRIPTION.md#deepgram-and-gemini-live)).
+- **Insights:** Local, period-based numeric dictation details retained for up to 366 days independently of transcript history, plus lifetime totals. Reset stats clears numeric details and counters; retained transcripts remain available for separately opted-in word analysis ([Data Storage](core/DATA_STORAGE.md#lifetime-stats-and-detailed-insights)).
+- **Measured pace:** Words from dictations with known clip duration divided by that duration, including capture padding; older missing durations are excluded and coverage is shown ([Desktop UI](features/DESKTOP_UI.md#interpreting-insights)).
+- **Words in invocation output:** The full inserted word count on rows where an invocation fired, including surrounding speech for anywhere-scope invocations; separate from dictated words ([Invocations](features/INVOCATIONS.md#edge-cases)).
 <!-- END:AUTOGEN hark_14_glossary_terms -->
 
 ---

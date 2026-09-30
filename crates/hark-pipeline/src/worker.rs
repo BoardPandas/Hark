@@ -74,6 +74,8 @@ pub(crate) struct Worker {
     /// (see [`strip_single_word_period`]). Off leaves the text exactly as the
     /// provider/cleanup produced it.
     pub strip_single_word_period: bool,
+    /// Explicit opt-in: app identity only, sampled at engagement.
+    pub track_apps: bool,
     /// Advisory events toward the UI; every send is `let _ =` best-effort.
     pub events: Sender<PipelineEvent>,
     /// The same "is a dictation capturing" fact as [`PipelineEvent::Recording`],
@@ -109,6 +111,7 @@ pub(crate) fn run(mut worker: Worker, rx: Receiver<PttEvent>) {
     // The open live session, if this dictation is streaming. Dropped on every
     // path out of Recording, so a session can never outlive its dictation.
     let mut pump: Option<crate::stream::LivePump> = None;
+    let mut foreground = None;
     loop {
         // While recording, wake regularly to push whatever the ring has
         // gained; otherwise block, so an idle Hark costs nothing.
@@ -188,6 +191,7 @@ pub(crate) fn run(mut worker: Worker, rx: Receiver<PttEvent>) {
         // flight. Everything after that is reported from dictate itself.
         if matches!(state, PipelineState::Idle) {
             if let PipelineState::Recording { down_abs } = next {
+                foreground = crate::foreground::request(worker.track_apps);
                 let _ = worker.events.send(PipelineEvent::Recording);
                 discontinuities_at_down = worker.discontinuities.load(Ordering::Relaxed);
                 // Open the session now so the handshake overlaps the hold
@@ -208,12 +212,20 @@ pub(crate) fn run(mut worker: Worker, rx: Receiver<PttEvent>) {
         if let Action::Dictate { down_abs, up_abs } = action {
             let _ = worker.events.send(PipelineEvent::Processing);
             report_discontinuities(&worker, discontinuities_at_down);
-            state = dictate_guarded(&mut worker, down_abs, up_abs, state, pump.take());
+            state = dictate_guarded(
+                &mut worker,
+                down_abs,
+                up_abs,
+                state,
+                pump.take(),
+                foreground.take(),
+            );
         }
         // Any other way out of Recording (abort, abandoned hold) ends the
         // session too: an orphaned socket would keep billing and never inject.
         if !matches!(state, PipelineState::Recording { .. }) {
             pump = None;
+            foreground = None;
         }
     }
     // The hook is gone; nothing is being captured. Belt and braces for an
@@ -301,10 +313,11 @@ fn dictate_guarded(
     up_abs: u64,
     state: PipelineState,
     pump: Option<crate::stream::LivePump>,
+    foreground: Option<Receiver<Option<String>>>,
 ) -> PipelineState {
     let events = worker.events.clone();
     let attempt = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        dictate(worker, down_abs, up_abs, state, pump)
+        dictate(worker, down_abs, up_abs, state, pump, foreground)
     }));
     match attempt {
         Ok(next) => next,
@@ -329,6 +342,7 @@ fn dictate(
     up_abs: u64,
     state: PipelineState,
     pump: Option<crate::stream::LivePump>,
+    foreground: Option<Receiver<Option<String>>>,
 ) -> PipelineState {
     let released = Instant::now();
     // Cloned up front so reporting a failure does not hold a borrow of
@@ -457,7 +471,7 @@ fn dictate(
         return advance(state, Event::Aborted).0;
     }
 
-    let text = corrected_text(&worker.corrector, &transcript.text);
+    let (text, pass_one_replacements) = corrected_text(&worker.corrector, &transcript.text);
     let expanded = expanded_text(&worker.expander, text);
     // Canned text is authored, not spoken: it never reaches a cleanup model
     // that would rewrite it, and never pays for the call. `None` here makes
@@ -516,7 +530,7 @@ fn dictate(
                     .as_ref()
                     .map_or_else(String::new, |p| p.spec.id.to_string()),
             };
-            let _ = events.send(PipelineEvent::Injected(DictationRecord {
+            let _ = events.send(PipelineEvent::Injected(Box::new(DictationRecord {
                 raw_text: transcript.text,
                 final_text: cleaned.text,
                 voice,
@@ -528,7 +542,12 @@ fn dictate(
                 stt_ms: transcript.request_ms as u64,
                 cleanup_ms: cleaned.request_ms,
                 total_ms,
-            }));
+                spellbook_replacements: Some(
+                    pass_one_replacements.saturating_add(cleaned.spellbook_replacements),
+                ),
+                // Advisory metadata must never hold up successful delivery.
+                foreground_app: foreground.and_then(|rx| rx.try_recv().ok().flatten()),
+            })));
             advance(state, Event::Injected).0
         }
         Err(e) => {
@@ -545,6 +564,7 @@ fn dictate(
 pub(crate) struct CleanupOutcome {
     pub text: String,
     pub request_ms: Option<u64>,
+    pub spellbook_replacements: u64,
 }
 
 /// Whether Hark should spend a cleanup call on this dictation.
@@ -567,6 +587,7 @@ fn cleaned_text(plan: Option<&CleanupPlan>, corrector: &Corrector, text: String)
     let passthrough = |text: String| CleanupOutcome {
         text,
         request_ms: None,
+        spellbook_replacements: 0,
     };
     let Some(plan) = plan else {
         return passthrough(text);
@@ -617,9 +638,11 @@ fn cleaned_text(plan: Option<&CleanupPlan>, corrector: &Corrector, text: String)
                 cleaned.text.chars().count(),
                 cleaned.request_ms
             );
+            let (text, spellbook_replacements) = corrected_text(corrector, &cleaned.text);
             CleanupOutcome {
-                text: corrected_text(corrector, &cleaned.text),
+                text,
                 request_ms: Some(cleaned.request_ms as u64),
+                spellbook_replacements,
             }
         }
         Err(e) => {
@@ -672,14 +695,14 @@ fn expanded_text(expander: &Expander, text: String) -> Expansion {
 
 /// The spellbook pass between transcript and injection. Pure (the testable
 /// seam); logs counts and millis only, never transcript text or terms.
-fn corrected_text(corrector: &Corrector, transcript_text: &str) -> String {
+fn corrected_text(corrector: &Corrector, transcript_text: &str) -> (String, u64) {
     let started = Instant::now();
     let (text, replacements) = corrector.correct(transcript_text);
     log::info!(
         "spellbook: {replacements} replacements in {} ms",
         started.elapsed().as_millis()
     );
-    text
+    (text, replacements as u64)
 }
 
 /// Drop a trailing period from a single-word utterance ("Hello." -> "Hello").
@@ -876,14 +899,18 @@ mod tests {
         let corrector = Corrector::from_terms(&["Vossburg".to_string(), "Modero".to_string()]);
 
         let transcript = transcribe_with_retry(&p, b"wav", true).unwrap();
-        let text = corrected_text(&corrector, &transcript.text);
+        let (text, replacements) = corrected_text(&corrector, &transcript.text);
         assert_eq!(text, "tell Vossburg the Modero build is green");
+        assert_eq!(replacements, 2);
     }
 
     #[test]
     fn empty_spellbook_leaves_the_transcript_untouched() {
         let corrector = Corrector::new(&[]);
-        assert_eq!(corrected_text(&corrector, "as it was"), "as it was");
+        assert_eq!(
+            corrected_text(&corrector, "as it was"),
+            ("as it was".into(), 0)
+        );
     }
 
     // --- single-word period stripping (pure seam) ---
@@ -988,6 +1015,22 @@ mod tests {
         assert_eq!(out.text, "Cleaned and polished.");
         // A successful cleanup reports its wall time for the record.
         assert!(out.request_ms.is_some());
+        assert_eq!(out.spellbook_replacements, 0);
+    }
+
+    #[test]
+    fn insights_count_actual_corrections_in_both_passes() {
+        let corrector = Corrector::from_terms(&["Vossburg".into(), "Modero".into()]);
+        let (text, first) = corrected_text(&corrector, "tell vosburg the madero build is green");
+        let plan = MockCleaner::plan(
+            vec![MockCleaner::ok("Tell Vossburg the madero build is green.")],
+            0,
+        );
+        let cleaned = cleaned_text(Some(&plan), &corrector, text);
+        assert_eq!(first, 2);
+        assert_eq!(cleaned.spellbook_replacements, 1);
+        assert_eq!(cleaned.text, "Tell Vossburg the Modero build is green.");
+        assert_eq!(first + cleaned.spellbook_replacements, 3);
     }
 
     #[test]
@@ -1088,6 +1131,7 @@ mod tests {
         assert_eq!(out.text, "the original transcript stands");
         // Degraded: the record must not claim a cleanup model shaped this.
         assert_eq!(out.request_ms, None);
+        assert_eq!(out.spellbook_replacements, 0);
     }
 
     #[test]

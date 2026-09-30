@@ -8,10 +8,15 @@ All fonts are embedded into the hark-app binary via `include_bytes!` (see
 | Inter-Regular.ttf, Inter-Medium.ttf, Inter-SemiBold.ttf | rsms/inter release v4.1 (`Inter-4.1.zip`, `extras/ttf/`) | SIL OFL 1.1 (`LICENSE-Inter.txt`) |
 | JetBrainsMono-Regular.ttf | JetBrains/JetBrainsMono release v2.304 (`fonts/ttf/`) | SIL OFL 1.1 (`LICENSE-JetBrainsMono.txt`) |
 | Phosphor.ttf | vendored from the egui-phosphor 0.12.0 crate package (`res/Phosphor.ttf`), regular variant | MIT (`LICENSE-Phosphor-MIT.txt`) |
+| Lora-Regular.ttf | [Cyreal Lora](https://github.com/cyrealtype/Lora-Cyrillic/tree/2d53b449b60e185b39f671b44fded83e0910ad30), `fonts/ttf/`, downloaded 2026-09-30 | SIL OFL 1.1 (`LICENSE-Lora.txt`) |
 
 Static per-weight TTFs are deliberate: egui cannot interpolate variable-font
 weight axes (emilk/egui#1862), so each weight registers as its own font
 family.
+
+Lora provides the editorial Home headline and brand; Inter remains the UI font.
+Its copyright and full license are included in `LICENSE-Lora.txt`. No fonts are
+fetched at runtime.
 
 Phosphor is vendored (not a Cargo dependency) because egui-phosphor 0.12.0
 pins egui ^0.34 while Hark is on egui 0.35 (checked 2026-07-16). The glyph

@@ -410,6 +410,17 @@ impl Default for History {
     }
 }
 
+/// Optional local Insights inputs. Both require explicit consent; enabling
+/// text analysis never changes history capture or retention.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+#[serde(default)]
+pub struct Insights {
+    /// Collect the foreground app's name at dictation start, never titles.
+    pub track_apps: bool,
+    /// Analyze retained transcripts locally for words and repeated phrases.
+    pub analyze_text: bool,
+}
+
 /// In-app update behavior. The check hits the GitHub Releases API (network),
 /// so it is user-controllable; the default is on.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -494,6 +505,7 @@ pub struct Settings {
     pub spellbook: Spellbook,
     pub voice: Voice,
     pub history: History,
+    pub insights: Insights,
     pub updates: Updates,
     pub startup: Startup,
     pub general: General,
@@ -519,6 +531,7 @@ impl Default for Settings {
             spellbook: Spellbook::default(),
             voice: Voice::default(),
             history: History::default(),
+            insights: Insights::default(),
             updates: Updates::default(),
             startup: Startup::default(),
             general: General::default(),
@@ -812,6 +825,27 @@ mod tests {
         assert_eq!(s.audio.max_hold_s, 120);
         assert_eq!(s.inject.strategy, InjectStrategy::Clipboard);
         assert!(s.spellbook.terms().is_empty());
+        assert!(!s.insights.track_apps);
+        assert!(!s.insights.analyze_text);
+    }
+
+    #[test]
+    fn insights_opt_ins_are_independent_and_survive_a_settings_roundtrip() {
+        let settings = Settings::from_toml(
+            "[history]\ncapture = false\n[insights]\ntrack_apps = true\nanalyze_text = true",
+        )
+        .unwrap();
+        let encoded = settings.to_toml().unwrap();
+        let restored = Settings::from_toml(&encoded).unwrap();
+        assert!(restored.insights.track_apps);
+        assert!(restored.insights.analyze_text);
+        assert!(
+            !restored.history.capture,
+            "opt-ins must never enable text storage"
+        );
+        let partial = Settings::from_toml("[insights]\ntrack_apps = true").unwrap();
+        assert!(partial.insights.track_apps);
+        assert!(!partial.insights.analyze_text);
     }
 
     #[test]

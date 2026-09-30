@@ -9,6 +9,7 @@
 //! may drop the receiver immediately.
 
 mod events;
+mod foreground;
 mod local;
 pub mod meeting;
 mod retry;
@@ -545,6 +546,7 @@ fn run_inner(
         client,
         stt_model: provider_cfg.model.clone(),
         strip_single_word_period: settings.output.strip_single_word_period,
+        track_apps: settings.insights.track_apps,
         events,
         recording: recording.clone(),
         discontinuities,

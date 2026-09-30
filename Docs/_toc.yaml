@@ -73,6 +73,8 @@ pages:
       - "crates/hark-pipeline/src/state.rs"
       - "crates/hark-pipeline/src/events.rs"
       - "crates/hark-pipeline/src/retry.rs"
+      - "crates/hark-pipeline/Cargo.toml"
+      - "crates/hark-pipeline/src/foreground.rs"
     sections:
       - id: hark_02_architecture_process_model
         title: "Process and Threading Model"
@@ -187,6 +189,8 @@ pages:
       - "crates/hark-config/src/voice.rs"
       - "crates/hark-keychain/src/lib.rs"
       - "config/default-config.toml"
+      - "crates/hark-app/src/ui/settings/preferences.rs"
+      - "crates/hark-app/src/theme/appearance.rs"
     sections:
       - id: hark_04_configuration_layers
         title: "Configuration Layers"
@@ -255,6 +259,12 @@ pages:
       - "crates/hark-pipeline/src/events.rs"
       - "crates/hark-meeting/src/storage.rs"
       - "crates/hark-meeting/src/storage_fs.rs"
+      - "crates/hark-store/Cargo.toml"
+      - "crates/hark-store/migrations/005_insight_events.sql"
+      - "crates/hark-store/src/insights/*.rs"
+      - "crates/hark-store/tests/insights.rs"
+      - "crates/hark-app/src/storage/insights_tests.rs"
+      - "crates/hark-app/src/ui/insights_cache.rs"
     sections:
       - id: hark_05_data_storage_overview
         title: "Overview"
@@ -864,7 +874,7 @@ pages:
     title: "Desktop UI"
     folder: "features"
     filename: "DESKTOP_UI.md"
-    description: "The tray daemon, the recording overlay, and the egui settings/history/stats window."
+    description: "The native Home/Insights workspace, editors, four appearance palettes, tray daemon, and recording overlay."
     category: feature
     source_files:
       - "crates/hark-app/src/tray/mod.rs"
@@ -879,6 +889,13 @@ pages:
       - "crates/hark-app/src/ui/history/mod.rs"
       - "crates/hark-app/src/ui/stats.rs"
       - "crates/hark-app/src/ui/settings/mod.rs"
+      - "crates/hark-app/src/theme/*.rs"
+      - "crates/hark-app/assets/README.md"
+      - "crates/hark-app/src/ui/home.rs"
+      - "crates/hark-app/src/ui/navigation.rs"
+      - "crates/hark-app/src/ui/insights_cache.rs"
+      - "crates/hark-app/src/ui/stats/*.rs"
+      - "crates/hark-app/src/ui/settings/preferences.rs"
     sections:
       - id: hark_12_desktop_ui_overview
         title: "Overview"
@@ -903,7 +920,7 @@ pages:
         diagrams_needed: false
         diagram_types: []
       - id: hark_12_desktop_ui_window
-        title: "Settings Window Shell"
+        title: "Window Shell"
         autogen: true
         source_files:
           - "crates/hark-app/src/ui/shell.rs"
@@ -912,7 +929,7 @@ pages:
         diagrams_needed: false
         diagram_types: []
       - id: hark_12_desktop_ui_pages
-        title: "History, Stats and Settings"
+        title: "Home, Insights, and Editors"
         autogen: true
         source_files:
           - "crates/hark-app/src/ui/history/mod.rs"

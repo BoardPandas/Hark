@@ -6,8 +6,11 @@
 pub mod footer;
 pub mod format;
 pub mod history;
+pub mod home;
+pub mod insights_cache;
 pub mod invocations;
 pub mod meetings;
+pub mod navigation;
 pub mod pages;
 pub mod selectable;
 pub mod settings;

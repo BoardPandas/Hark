@@ -8,6 +8,7 @@ use crate::meeting::{MeetingController, MeetingStatus};
 use crate::meeting_prompt::{PromptWindow, Reply};
 use crate::pipeline::{PipelineController, PipelineStatus};
 use crate::ui::history::HistoryPage;
+use crate::ui::home::HomePage;
 use crate::ui::invocations::InvocationsPage;
 use crate::ui::meetings::MeetingsPage;
 use crate::ui::settings::SettingsPage;
@@ -101,6 +102,7 @@ impl HarkApp {
             }
         );
         let views = pages::Views {
+            home: HomePage::new(),
             settings: SettingsPage::new(&settings, onboarding),
             spellbook: SpellbookPage::new(),
             invocations: InvocationsPage::new(),
@@ -109,10 +111,10 @@ impl HarkApp {
             meetings: MeetingsPage::new(),
         };
 
-        // Window-first onboarding (spec §3.11): land on History when
+        // Window-first onboarding: land on Home when
         // dictation is live, on Settings when it needs attention.
         let page = if pipeline.is_running() {
-            pages::Page::History
+            pages::Page::Home
         } else {
             pages::Page::Settings
         };

@@ -488,3 +488,10 @@ The AI review workflows for 0.50.5 through 0.53.0 skipped their review because
 ## Arch release dependency repair — 2026-09-30 (0.60.5)
 
 - The Arch job now installs Arch package names: `clang` (which carries bindgen's `libclang.so`) and `libpipewire`, instead of the nonexistent `libclang`. The PKGBUILD's makedepends uses `libpipewire` rather than the `libpipewire-0.3` soname.
+
+## Native Home, Insights, and appearance — 2026-09-30 (unreleased scoped sync)
+
+- Reconciled the native sidebar/Home/three-tab Insights design and five appearance choices (System plus four palettes), including local font provenance and readable Solarized text adjustments.
+- Documented the separate numeric/history lifecycles: up to 366 days of numeric details, lifetime counters until reset, opt-in app identity and retained-text analysis, unknown legacy durations/corrections, measured-only estimates, and full invocation-output words rather than a canned-expansion-only claim.
+- Both npm guards, formatting, strict all-targets Clippy, and `git diff --check` pass; existing AUTOGEN marker sequences are unchanged in all 11 edited content pages, and added source-map globs resolve. Workspace tests: 1,075 passed, 0 failed, 1 existing model-dependent test ignored. The 131 application tests cover palette persistence/contrast, responsive navigation, empty charts, worker-backed queries, and local midnight/DST refresh. The Linux debug binary builds successfully.
+- The exact foreground-app module also passes isolated strict Clippy checks for Windows GNU and Apple Silicon macOS. Full Windows/macOS builds and native UI/audio/shortcut/injection/foreground-app runtime remain unverified. Global source baseline `784272c` is unchanged; no version bump, commit, or publication occurred.
