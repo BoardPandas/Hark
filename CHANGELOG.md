@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.60.6] - 2026-09-30
+
+### Changed
+
+- The add-lesson workflow can write its temporary files in `.git/` again. Claude Code's blanket block on editing `.git/` now covers only the parts that control Git's behaviour or data: hooks, config, info, objects, refs, HEAD, the index, packed refs, submodules, worktrees and LFS.
+
 ## [0.60.5] - 2026-09-30
 
 ### Fixed

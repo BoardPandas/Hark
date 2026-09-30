@@ -11,7 +11,8 @@
       "Grep",
       "WebFetch",
       "WebSearch",
-      "Bash(git clone https://github.com/*)"
+      "Bash(git clone https://github.com/*)",
+      "Edit(.git/llg-*.md)"
     ],
     "deny": [
       "Bash(git clone ext::*)",
@@ -44,7 +45,20 @@
       "Edit(**/package-lock.json)",
       "Edit(**/pnpm-lock.yaml)",
       "Edit(**/yarn.lock)",
-      "Edit(**/.git/**)"
+      "Edit(**/.git/hooks/**)",
+      "Edit(**/.git/config)",
+      "Edit(**/.git/config.worktree)",
+      "Edit(**/.git/info/**)",
+      "Edit(**/.git/objects/**)",
+      "Edit(**/.git/refs/**)",
+      "Edit(**/.git/HEAD)",
+      "Edit(**/.git/ORIG_HEAD)",
+      "Edit(**/.git/index)",
+      "Edit(**/.git/packed-refs)",
+      "Edit(**/.git/modules/**)",
+      "Edit(**/.git/worktrees/**)",
+      "Edit(**/.git/shallow)",
+      "Edit(**/.git/lfs/**)"
     ]
   },
   "hooks": {
