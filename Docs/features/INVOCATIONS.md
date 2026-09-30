@@ -121,6 +121,13 @@ The regression test gives its `MockCleaner` an **empty script**, so any call to 
 
 Sources: [worker.rs:218-270](https://github.com/BoardPandas/Hark/blob/bcfcc3fef6f02252870fc3f06440d99992818ade/crates/hark-pipeline/src/worker.rs#L218-L270), [worker.rs:349-395](https://github.com/BoardPandas/Hark/blob/bcfcc3fef6f02252870fc3f06440d99992818ade/crates/hark-pipeline/src/worker.rs#L349-L395), [editor.rs:158-187](https://github.com/BoardPandas/Hark/blob/bcfcc3fef6f02252870fc3f06440d99992818ade/crates/hark-app/src/ui/invocations/editor.rs#L158-L187)
 A fired expansion also passes through cancellation admission immediately before injection. Stopping the pipeline while transcription or cleanup is outstanding prevents a late paste, including canned text. A live failure still consumes the single replay budget; none of these lifecycle checks rewrite an expansion or enable cleanup for it ([worker](../../crates/hark-pipeline/src/worker.rs), [injection admission](../../crates/hark-pipeline/src/lifecycle.rs), [live attempt accounting](../../crates/hark-pipeline/src/stream.rs)).
+Gemini Live must finish the transcription turn before its text reaches
+invocation matching. A premature socket close now takes the existing full-clip
+replay path instead of treating a transcript prefix as the complete utterance.
+Final text sharing a frame with the completion marker is retained. Once an
+invocation fires, its configured expansion still bypasses cleanup and rewriting
+([live finalization](../../crates/hark-stt/src/gemini_live.rs),
+[pipeline](../../crates/hark-pipeline/src/worker.rs)).
 <!-- END:AUTOGEN hark_08b_invocations_cleanup -->
 
 ---

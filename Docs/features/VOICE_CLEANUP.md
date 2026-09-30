@@ -112,6 +112,13 @@ Meeting notes resolve the same way, through the same `resolve_cleanup_provider`,
 Each request builds a system prompt from the effective voice and terms present in that transcript, sends the transcript fenced in `<transcript>` tags, and opens the system prompt with `TRANSCRIPT_IS_DATA_CLAUSE`, which tells the model the fenced text is dictation to edit, never a request to answer. Without it, dictation that sounds like an instruction ("Proceed however you recommend...") was answered instead of edited. The adapter also strips an echoed fence from the response. It derives `max_completion_tokens` from input length with a 512-to-4096 clamp, applies a 10-second request timeout, and never retries ([openai_compatible.rs:20-85](../../crates/hark-voice/src/openai_compatible.rs#L20-L85), [openai_compatible.rs:236-281](../../crates/hark-voice/src/openai_compatible.rs#L236-L281)). `CleanupConfig` has a manual `Debug` implementation that redacts the API key and custom prompt and reports only the spellbook-term count ([openai_compatible.rs:146-190](../../crates/hark-voice/src/openai_compatible.rs#L146-L190)).
 
 Sources: [crates/hark-voice/src/openai_compatible.rs:1-286](../../crates/hark-voice/src/openai_compatible.rs#L1-L286), [crates/hark-config/src/voice.rs:87-189](../../crates/hark-config/src/voice.rs#L87-L189), [crates/hark-config/src/voice.rs:225-338](../../crates/hark-config/src/voice.rs#L225-L338), [crates/hark-pipeline/src/lib.rs](../../crates/hark-pipeline/src/lib.rs), [crates/hark-pipeline/src/meeting/finish.rs](../../crates/hark-pipeline/src/meeting/finish.rs)
+Nonempty content is rejected when `finish_reason` is `length`, `content_filter`,
+`tool_calls`, or `function_call`: a returned prefix is not a complete cleanup.
+The existing fail-open path keeps the original transcript. Compatible endpoints
+that omit the reason remain supported, and error messages include only trusted
+reason labels, never response text
+([parser](../../crates/hark-voice/src/openai_compatible.rs),
+[regressions](../../crates/hark-voice/tests/chat_pure.rs)).
 <!-- END:AUTOGEN hark_09_voice_cleanup_adapter -->
 
 ---

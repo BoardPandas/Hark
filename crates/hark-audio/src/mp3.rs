@@ -14,7 +14,7 @@
 //! of 0 as "unbounded" rather than "none available".
 
 use std::fs::File;
-use std::io;
+use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 
 use mp3lame_encoder::{Bitrate, DualPcm, Encoder as LameEncoder, FlushGap, Mode, MonoPcm, Quality};
@@ -29,7 +29,9 @@ use crate::spool;
 use crate::stereo::{self, SpoolPairChunks};
 
 mod excerpt;
+mod pending;
 pub use excerpt::{export_excerpt_mp3, export_excerpt_wav};
+use pending::PendingFile;
 
 /// The archive file name inside a meeting's directory.
 pub const ARCHIVE_FILE: &str = "audio.mp3";
@@ -129,12 +131,16 @@ pub fn export_mono_mp3(src: &MeetingAudio, out: &Path) -> Result<(), EncodeError
             .map_err(|e| EncodeError::Lame(e.to_string()))?;
     }
     finish_lame(&mut encoder, &mut buf)?;
-    write_via_temp(out, &buf)
+    let (pending, mut file) = PendingFile::new(out)?;
+    file.write_all(&buf)?;
+    drop(file);
+    pending.commit(out)?;
+    Ok(())
 }
 
 /// Shareable mono 16 kHz i16 WAV mixdown, same mix as [`export_mono_mp3`].
 pub fn export_mono_wav(src: &MeetingAudio, out: &Path) -> Result<(), EncodeError> {
-    let tmp = tmp_path_for(out);
+    let (pending, file) = PendingFile::new(out)?;
     {
         let spec = hound::WavSpec {
             channels: 1,
@@ -142,7 +148,7 @@ pub fn export_mono_wav(src: &MeetingAudio, out: &Path) -> Result<(), EncodeError
             bits_per_sample: 16,
             sample_format: hound::SampleFormat::Int,
         };
-        let mut writer = hound::WavWriter::create(&tmp, spec).map_err(io::Error::other)?;
+        let mut writer = hound::WavWriter::new(file, spec).map_err(io::Error::other)?;
         let mut mix = MixSource::open(src, CHUNK_FRAMES)?;
         while let Some((l, r)) = mix.next_chunk()? {
             for s in mix_mono(&l, &r) {
@@ -151,7 +157,7 @@ pub fn export_mono_wav(src: &MeetingAudio, out: &Path) -> Result<(), EncodeError
         }
         writer.finalize().map_err(io::Error::other)?;
     }
-    std::fs::rename(&tmp, out)?;
+    pending.commit(out)?;
     Ok(())
 }
 
@@ -286,17 +292,11 @@ fn file_len(path: &Path) -> io::Result<u64> {
     }
 }
 
+#[cfg(test)]
 fn tmp_path_for(out: &Path) -> PathBuf {
     let mut name = out.file_name().unwrap_or_default().to_os_string();
     name.push(".tmp");
     out.with_file_name(name)
-}
-
-fn write_via_temp(out: &Path, bytes: &[u8]) -> Result<(), EncodeError> {
-    let tmp = tmp_path_for(out);
-    std::fs::write(&tmp, bytes)?;
-    std::fs::rename(&tmp, out)?;
-    Ok(())
 }
 
 /// (L + R) / 2. The sum of two `i16`s always fits an `i32`, and halving it
@@ -862,6 +862,81 @@ mod tests {
         // them is silence, so the mix is me / 2.
         let expected: Vec<i16> = me_samples.iter().map(|&s| s / 2).collect();
         assert_eq!(samples, expected);
+    }
+
+    #[test]
+    fn full_exports_preserve_unrelated_temporary_files() {
+        let dir = tempfile::tempdir().unwrap();
+        let (me, them) = meeting_dir_with(dir.path(), &[1000; 1600], &[0; 1600]);
+        let src = MeetingAudio::Spools { me, them };
+        for extension in ["wav", "mp3"] {
+            let out = dir.path().join(format!("share.{extension}"));
+            let unrelated = tmp_path_for(&out);
+            std::fs::write(&unrelated, b"unrelated work").unwrap();
+            if extension == "wav" {
+                export_mono_wav(&src, &out).unwrap();
+                assert_eq!(hound::WavReader::open(&out).unwrap().duration(), 1600);
+            } else {
+                export_mono_mp3(&src, &out).unwrap();
+                assert_eq!(
+                    ArchiveDecoder::open(&out)
+                        .unwrap()
+                        .decode_all()
+                        .unwrap()
+                        .0
+                        .len(),
+                    1600
+                );
+            }
+            assert_eq!(std::fs::read(unrelated).unwrap(), b"unrelated work");
+        }
+        assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 6);
+    }
+
+    #[test]
+    fn failed_full_exports_preserve_destination_and_remove_owned_partials() {
+        let dir = tempfile::tempdir().unwrap();
+        let broken = dir.path().join("broken.mp3");
+        std::fs::write(&broken, b"not an MP3").unwrap();
+        let src = MeetingAudio::Archive(broken);
+        for extension in ["wav", "mp3"] {
+            let out = dir.path().join(format!("share.{extension}"));
+            let unrelated = tmp_path_for(&out);
+            std::fs::write(&out, b"previous export").unwrap();
+            std::fs::write(&unrelated, b"unrelated work").unwrap();
+            let result = if extension == "wav" {
+                export_mono_wav(&src, &out)
+            } else {
+                export_mono_mp3(&src, &out)
+            };
+            assert!(result.is_err());
+            assert_eq!(std::fs::read(&out).unwrap(), b"previous export");
+            assert_eq!(std::fs::read(&unrelated).unwrap(), b"unrelated work");
+        }
+        assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 5);
+    }
+
+    #[test]
+    fn failed_full_export_renames_remove_owned_partials() {
+        let dir = tempfile::tempdir().unwrap();
+        let (me, them) = meeting_dir_with(dir.path(), &[1000; 1600], &[0; 1600]);
+        let src = MeetingAudio::Spools { me, them };
+        for extension in ["wav", "mp3"] {
+            let out = dir.path().join(format!("share.{extension}"));
+            std::fs::create_dir(&out).unwrap();
+            std::fs::write(out.join("keep"), b"existing directory").unwrap();
+            let result = if extension == "wav" {
+                export_mono_wav(&src, &out)
+            } else {
+                export_mono_mp3(&src, &out)
+            };
+            assert!(result.is_err());
+            assert_eq!(
+                std::fs::read(out.join("keep")).unwrap(),
+                b"existing directory"
+            );
+        }
+        assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 4);
     }
 
     #[test]

@@ -114,10 +114,10 @@ pub fn build_request_body(
 }
 
 /// Extract `choices[0].message.content` from the JSON response body, trimmed.
-/// Pure for unit tests. Empty or missing content is a `Provider` error (the
-/// pipeline treats every cleanup error as fail-open); `finish_reason` rides
-/// the detail because `"length"` there means reasoning tokens ate the whole
-/// `max_completion_tokens` budget, which otherwise looks like a provider bug.
+/// Pure for unit tests. Empty content or a known incomplete `finish_reason`
+/// is a `Provider` error, even when part of the rewrite arrived. The pipeline
+/// can then inject the complete original transcript instead of a truncated
+/// cleanup. Compatible endpoints may omit `finish_reason`.
 pub fn parse_response(provider: &str, body: &str) -> Result<String, CleanupError> {
     #[derive(serde::Deserialize)]
     struct Response {
@@ -144,6 +144,15 @@ pub fn parse_response(provider: &str, body: &str) -> Result<String, CleanupError
             detail: "response contained no choices".to_string(),
         });
     };
+    if let Some(reason @ ("length" | "content_filter" | "tool_calls" | "function_call")) =
+        choice.finish_reason.as_deref()
+    {
+        return Err(CleanupError::Provider {
+            provider: provider.to_string(),
+            // Only the fixed protocol labels above may enter diagnostics.
+            detail: format!("incomplete cleanup (finish_reason: {reason})"),
+        });
+    }
     let content = choice.message.content.unwrap_or_default();
     // A model that echoes the fence must not put it at the user's cursor.
     let mut trimmed = content.trim();

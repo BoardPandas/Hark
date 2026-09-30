@@ -176,6 +176,8 @@ jobs:
       #   libasound2-dev                cpal, microphone capture
       #   libpipewire-0.3-dev          meetings: system-audio loopback and the
       #                                 detection probe (bindgen uses clang)
+      #   libpipewire-0.3-modules      protocol-native for isolated disconnect
+      #                                 tests; no desktop PipeWire service used
       #   libgtk-3-dev                  GTK, which the tray is built out of
       #   libxdo-dev                    libxdo, linked for muda's menu items
       #   libayatana-appindicator3-dev  the tray icon (dlopened at RUN time, so
@@ -209,7 +211,7 @@ jobs:
           sudo apt-get install -y --no-install-recommends \
             libasound2-dev libgtk-3-dev libayatana-appindicator3-dev \
             libxdo-dev libxkbcommon-dev libx11-dev pkg-config cmake clang \
-            libpipewire-0.3-dev
+            libpipewire-0.3-dev libpipewire-0.3-modules
 
       # `toolchain: stable` is a channel, not a version pin -- matching release.yml.
       # The workspace rust-version = "1.97" floor makes cargo error if a runner's

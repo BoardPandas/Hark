@@ -1,5 +1,25 @@
 # Generation Metadata
 
+## Seven review repairs — 2026-09-30 (0.61.2)
+
+- **Source reviewed:** `6222187` plus working-tree fixes for Live completion,
+  cleanup truncation, spellbook punctuation, export file ownership, PipeWire
+  discovery waits, X11 clients, and buffered Linux shortcuts.
+- **Scope:** Overview, Audio Capture, Transcription, Voice Cleanup, Spellbook,
+  Invocations, Meetings, and Release and Packaging. The source map includes the
+  export-file guard and X11 helper; AUTOGEN markers are preserved.
+- **Validation:** both npm guards and formatting pass; default-feature strict
+  Clippy passes on Windows GNU and WSL Debian. Linux default-feature workspace
+  tests: **1,151 passed, 0 failed, 1 ignored**. Windows tests without the optional
+  engine: **1,104 passed, 0 failed, 1 ignored** across the workspace and separate
+  local-manager runs. Exact commands and evidence are recorded in
+  `tasks/review-can-truncate-text-and-stall-linux-plan.md`.
+- **Limits:** Windows default-feature test linking cannot find the sherpa native
+  static library for GNU. No live provider, native desktop capture/hook, X11
+  session, or macOS execution is claimed. Global baseline `784272c` is unchanged.
+  Prepared for release 0.61.2 at the owner's request; commit/tag publication and
+  hosted build completion are verified separately.
+
 ## Nine review repairs — 2026-09-30 (0.61.1)
 
 - **Source reviewed:** `9a7cfdb` (0.61.0) plus the working-tree repairs to pipeline cancellation/input admission/live retries, clipboard restoration, provider diagnostics, meeting deletion, Linux mixing/fallback, and resampler finalization. The source map now includes input admission, cancellation, recovery tests, and the Linux mixer.

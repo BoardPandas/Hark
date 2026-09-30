@@ -193,6 +193,30 @@ fn parse_response_rejects_empty_content_and_names_finish_reason() {
 }
 
 #[test]
+fn parse_response_rejects_nonempty_incomplete_cleanups() {
+    for reason in ["length", "content_filter", "tool_calls", "function_call"] {
+        let body = serde_json::json!({
+            "choices": [{
+                "message": {"content": "The first requirement is encryption."},
+                "finish_reason": reason
+            }]
+        });
+        let error = parse_response("openai", &body.to_string()).unwrap_err();
+        assert!(error.to_string().contains(reason));
+        assert!(!error.to_string().contains("encryption"));
+    }
+}
+
+#[test]
+fn parse_response_keeps_compatible_endpoints_without_finish_reason() {
+    let body = r#"{"choices":[{"message":{"content":"Complete cleanup."}}]}"#;
+    assert_eq!(
+        parse_response("compatible", body).unwrap(),
+        "Complete cleanup."
+    );
+}
+
+#[test]
 fn parse_response_rejects_null_content() {
     let body =
         r#"{"choices":[{"message":{"role":"assistant","content":null},"finish_reason":"length"}]}"#;

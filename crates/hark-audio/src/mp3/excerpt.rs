@@ -1,8 +1,6 @@
 //! Sample-accurate selection after decoding; never cuts compressed MP3 bytes.
 
 use super::*;
-use std::io::Write;
-use std::sync::atomic::{AtomicU64, Ordering};
 
 /// Export the mono excerpt `[start_ms, end_ms)` as WAV. Returns the frames
 /// actually written (legacy archives can end before their recorded duration).
@@ -123,40 +121,6 @@ impl Selection {
             }
         }
         Ok(None)
-    }
-}
-
-/// Own only the unique file we created; a failed export never touches an
-/// existing destination or a similarly named user's temporary file.
-struct PendingFile(PathBuf);
-impl PendingFile {
-    fn new(out: &Path) -> io::Result<(Self, File)> {
-        static NEXT: AtomicU64 = AtomicU64::new(0);
-        let mut name = out.file_name().unwrap_or_default().to_os_string();
-        name.push(format!(
-            ".hark-{}-{}.tmp",
-            std::process::id(),
-            NEXT.fetch_add(1, Ordering::Relaxed)
-        ));
-        let path = out.with_file_name(name);
-        let file = std::fs::OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .open(&path)?;
-        Ok((Self(path), file))
-    }
-
-    fn commit(self, out: &Path) -> io::Result<()> {
-        std::fs::OpenOptions::new()
-            .write(true)
-            .open(&self.0)?
-            .sync_all()?;
-        std::fs::rename(&self.0, out)
-    }
-}
-impl Drop for PendingFile {
-    fn drop(&mut self) {
-        let _ = std::fs::remove_file(&self.0);
     }
 }
 

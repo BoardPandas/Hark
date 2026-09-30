@@ -53,6 +53,12 @@ The application is one native Rust process: an always-on tray daemon plus an egu
 
 Sources: [README: Features](../README.md#features), [README: On-device transcription](../README.md#on-device-transcription), [CLAUDE.md:1-22](../CLAUDE.md#L1-L22)
 The native workspace opens on Home with the configured shortcut and recent history; Insights adds local usage charts, streaks, measured pace estimates, and completion latency. System, Light, Dark, Solarized Light, and Solarized Dark share one design system. Optional app-name tracking and retained-history word analysis each default off; numeric details retain up to 366 days independently of transcripts ([Desktop UI](features/DESKTOP_UI.md), [Data Storage](core/DATA_STORAGE.md#lifetime-stats-and-detailed-insights)).
+The dictation reliability contract includes replaying a saved clip when a live
+connection ends before turn completion and retaining the original transcript
+when cleanup reports an incomplete answer. Meeting audio exports preserve
+unrelated files while writing their replacement output
+([Transcription](features/TRANSCRIPTION.md), [Voice Cleanup](features/VOICE_CLEANUP.md),
+[Audio Capture](features/AUDIO_CAPTURE.md)).
 <!-- END:AUTOGEN hark_01_overview_introduction -->
 
 ---

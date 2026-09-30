@@ -354,6 +354,7 @@ pages:
       - "crates/hark-audio/src/stereo.rs"
       - "crates/hark-audio/src/mp3.rs"
       - "crates/hark-audio/src/mp3/excerpt.rs"
+      - "crates/hark-audio/src/mp3/pending.rs"
       - "crates/hark-hotkey/src/lib.rs"
       - "crates/hark-hotkey/src/hook_win.rs"
       - "crates/hark-hotkey/src/hook_mac.rs"
@@ -425,6 +426,7 @@ pages:
           - "crates/hark-audio/src/stereo.rs"
           - "crates/hark-audio/src/mp3.rs"
           - "crates/hark-audio/src/mp3/excerpt.rs"
+          - "crates/hark-audio/src/mp3/pending.rs"
         diagrams_needed: false
         diagram_types: []
       - id: hark_06_audio_capture_notes
@@ -1067,6 +1069,7 @@ pages:
       - "crates/hark-meeting/src/probe/win.rs"
       - "crates/hark-meeting/src/probe/mac.rs"
       - "crates/hark-meeting/src/probe/linux.rs"
+      - "crates/hark-meeting/src/probe/linux_windows.rs"
       - "crates/hark-meeting/src/probe/watch_linux.rs"
       - "crates/hark-meeting/src/probe/watch_win.rs"
       - "crates/hark-meeting/src/storage.rs"
@@ -1145,6 +1148,7 @@ pages:
           - "crates/hark-meeting/src/probe/win.rs"
           - "crates/hark-meeting/src/probe/mac.rs"
           - "crates/hark-meeting/src/probe/linux.rs"
+          - "crates/hark-meeting/src/probe/linux_windows.rs"
           - "crates/hark-meeting/src/probe/watch_linux.rs"
           - "crates/hark-meeting/src/probe/watch_win.rs"
           - "crates/hark-pipeline/src/meeting/coordinator.rs"

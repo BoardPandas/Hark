@@ -90,6 +90,12 @@ Optional Caps Lock or Scroll Lock suppression is narrowly constrained and Window
 The desktop app uses `spawn_shared_listener` to share one native hook between dictation and the optional meeting toggle — the Windows low-level hook, the Linux evdev loop, and the macOS CGEventTap alike. The pure `ShortcutTracker` holds two existing chord trackers: it preserves all dictation edges and emits a meeting event only for a physical `Down` edge. Injected events and repeats remain filtered; release recovery never creates a toggle. The watchdog stays armed while either chord is engaged. Shortcut recording bypasses both trackers. Meeting keys are always observed, and dictation lock-key suppression is disabled when no dictation worker exists ([router and fixtures](../../crates/hark-hotkey/src/shortcuts.rs), [Windows hook](../../crates/hark-hotkey/src/hook_win.rs), [Linux hook](../../crates/hark-hotkey/src/hook_linux.rs), [app ownership](../../crates/hark-app/src/pipeline.rs)).
 
 Linux routes the same shared listener through its evdev loop, and macOS through CGEventTap ([platform dispatch](../../crates/hark-hotkey/src/lib.rs)).
+Linux shared shortcuts replay buffered key edges against the remaining queued
+transitions before consulting current physical state. This preserves a complete
+press/release cycle that has already ended by dispatch time, while still checking
+carried keys for missed releases. The release watchdog and device/VT recovery
+remain active ([Linux dispatch](../../crates/hark-hotkey/src/hook_linux.rs),
+[routing and regressions](../../crates/hark-hotkey/src/shortcuts.rs)).
 <!-- END:AUTOGEN hark_06_audio_capture_hotkey -->
 
 ---
@@ -145,6 +151,17 @@ and AEC tail flushing ([wrapper and latency fixtures](../../crates/hark-audio/sr
 See [Meetings](MEETINGS.md#reduce-speaker-echo) for the complete reset and bypass
 policy. Them and dictation keep their existing audio paths. The setting defaults
 off and applies next meeting.
+Full and excerpt audio exports share an exclusively created temporary-file
+guard. They sync and rename only the file owned by that export and remove it
+on failure; unrelated `output.wav.tmp` or `output.mp3.tmp` files are preserved.
+The internal archive recovery name `audio.mp3.tmp` remains separate
+([export paths](../../crates/hark-audio/src/mp3.rs),
+[file ownership](../../crates/hark-audio/src/mp3/pending.rs)).
+
+Both initial PipeWire discovery roundtrips have a one-second timeout and quit
+on a core connection error. These guards are installed before each loop runs,
+so a dead or silent server cannot strand startup before its later stream
+watchdog is active ([Linux loopback](../../crates/hark-audio/src/loopback/linux.rs)).
 <!-- END:AUTOGEN hark_06_audio_capture_meeting -->
 
 ---

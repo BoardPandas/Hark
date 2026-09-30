@@ -1,7 +1,8 @@
 //! Linux probe for [`crate::detect`]: who holds the microphone right now,
 //! which processes own a meeting-titled window, and the process list for
 //! resolving a loopback target. Glue only; the decisions are in `detect`.
-//! Verified by hand with `examples/detect_smoke.rs`, never in `cargo test`.
+//! Live facts are verified with `examples/detect_smoke.rs`; tests exercise
+//! isolated transport failures and window-enumeration fixtures.
 //!
 //! Microphone use comes from PipeWire's graph: an application holding the mic
 //! open is a `Stream/Input/Audio` node, and it exists exactly as long as the
@@ -25,11 +26,14 @@ use crate::detect::{MicApp, MicUse, Proc, Snapshot, BROWSERS};
 use std::cell::RefCell;
 use std::io;
 use std::rc::Rc;
+use std::time::Duration;
 use x11rb::connection::Connection;
 use x11rb::protocol::xproto::ConnectionExt;
 
 #[path = "watch_linux.rs"]
 mod watch;
+#[path = "linux_windows.rs"]
+mod windows;
 pub use watch::ChangeWatcher;
 
 pub(super) fn snapshot() -> io::Result<Snapshot> {
@@ -79,17 +83,6 @@ fn mic_users() -> io::Result<Vec<MicUse>> {
     let users: Rc<RefCell<Vec<MicUse>>> = Rc::new(RefCell::new(Vec::new()));
     let registry_weak = registry.downgrade();
     let held: HeldNodes = Rc::new(RefCell::new(Vec::new()));
-
-    let pending = core.sync(0).map_err(|e| err("cannot sync", e))?;
-    let ml = mainloop.clone();
-    let _core_l = core
-        .add_listener_local()
-        .done(move |id, seq| {
-            if id == pipewire::core::PW_ID_CORE && seq == pending {
-                ml.quit();
-            }
-        })
-        .register();
 
     let sink_users = users.clone();
     let sink_held = held.clone();
@@ -158,8 +151,8 @@ fn mic_users() -> io::Result<Vec<MicUse>> {
     let _ = held;
     // One roundtrip drains the enumeration; a second flushes the bound
     // nodes' info events (measured: one is not enough).
-    mainloop.run();
-    roundtrip(&mainloop, &core).map_err(|e| err("roundtrip", e))?;
+    roundtrip(&mainloop, &core, Duration::from_secs(1))?;
+    roundtrip(&mainloop, &core, Duration::from_secs(1))?;
     let users = users.borrow().clone();
     Ok(users)
 }
@@ -167,19 +160,57 @@ fn mic_users() -> io::Result<Vec<MicUse>> {
 fn roundtrip(
     mainloop: &pipewire::main_loop::MainLoopRc,
     core: &pipewire::core::CoreRc,
-) -> Result<(), pipewire::Error> {
-    let pending = core.sync(0)?;
+    timeout: Duration,
+) -> io::Result<()> {
+    let pending = core
+        .sync(0)
+        .map_err(|_| io::Error::other("cannot request PipeWire discovery"))?;
+    let outcome = Rc::new(RefCell::new(None));
+    let done = outcome.clone();
     let ml = mainloop.clone();
+    let failed = outcome.clone();
+    let error_loop = mainloop.clone();
     let _l = core
         .add_listener_local()
         .done(move |id, seq| {
             if id == pipewire::core::PW_ID_CORE && seq == pending {
+                done.borrow_mut().get_or_insert(Ok(()));
                 ml.quit();
             }
         })
+        .error(move |id, _seq, code, _message| {
+            if id == pipewire::core::PW_ID_CORE {
+                *failed.borrow_mut() = Some(Err(io::Error::new(
+                    io::ErrorKind::ConnectionAborted,
+                    format!("PipeWire discovery connection failed ({code})"),
+                )));
+                error_loop.quit();
+            }
+        })
         .register();
+    // The timer must cover the first enumeration too, before capture's own
+    // startup watchdog exists. Peer disconnects do not stop a PipeWire loop.
+    let expired = outcome.clone();
+    let timeout_loop = mainloop.clone();
+    let timer = mainloop.loop_().add_timer(move |_| {
+        expired.borrow_mut().get_or_insert_with(|| {
+            Err(io::Error::new(
+                io::ErrorKind::TimedOut,
+                "PipeWire discovery timed out",
+            ))
+        });
+        timeout_loop.quit();
+    });
+    timer
+        .update_timer(Some(timeout), None)
+        .into_result()
+        .map_err(|_| io::Error::other("cannot arm PipeWire discovery timeout"))?;
     mainloop.run();
-    Ok(())
+    let result = outcome
+        .borrow_mut()
+        .take()
+        .unwrap_or_else(|| Err(io::Error::other("PipeWire discovery interrupted")));
+    result
 }
 
 /// Lowercase exe names of processes owning a top-level window whose title
@@ -197,16 +228,8 @@ fn meeting_window_exes() -> Vec<String> {
     let Some(screen) = conn.setup().roots.get(screen) else {
         return Vec::new();
     };
-    let tree = match conn
-        .query_tree(screen.root)
-        .map_err(Into::into)
-        .and_then(|c| c.reply())
-    {
-        Ok(reply) => reply,
-        Err(_) => return Vec::new(),
-    };
     let mut exes = Vec::new();
-    for &window in &tree.children {
+    for window in windows::clients(conn, screen.root) {
         let title = window_title(conn, window);
         if !crate::detect::title_has_meeting_marker(&title) {
             continue;
@@ -330,6 +353,40 @@ pub(super) fn processes() -> io::Result<Vec<Proc>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn discovery_timeout_and_disconnect_exit_the_real_pipewire_loop() {
+        use std::os::unix::net::UnixStream;
+
+        let config_dir = tempfile::tempdir().unwrap();
+        let config = config_dir.path().join("client.conf");
+        std::fs::write(
+            &config,
+            "context.modules = [ { name = libpipewire-module-protocol-native } ]",
+        )
+        .unwrap();
+        for disconnect in [false, true] {
+            pipewire::init();
+            let mainloop = pipewire::main_loop::MainLoopRc::new(None).unwrap();
+            let props = pipewire::properties::properties! {
+                "config.name" => config.to_str().unwrap(),
+            };
+            let context = pipewire::context::ContextRc::new(&mainloop, Some(props)).unwrap();
+            let (client, peer) = UnixStream::pair().unwrap();
+            let core = context.connect_fd_rc(client.into(), None).unwrap();
+            let peer = (!disconnect).then_some(peer);
+            let error = roundtrip(&mainloop, &core, Duration::from_millis(50)).unwrap_err();
+            assert_eq!(
+                error.kind(),
+                if disconnect {
+                    io::ErrorKind::ConnectionAborted
+                } else {
+                    io::ErrorKind::TimedOut
+                }
+            );
+            drop(peer);
+        }
+    }
 
     #[test]
     fn the_process_list_contains_us_and_the_kernel_init() {

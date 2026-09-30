@@ -107,6 +107,12 @@ The tokenizer splits on whitespace and then on interior ASCII hyphens. It preser
 These cases are covered directly by tokenizer tests ([tokenize.rs:63-145](../../crates/hark-spellbook/src/tokenize.rs#L63-L145)). History selection uses the same tokenizer through `snap_to_tokens` and `snapped_text`, converting egui character ranges to token-aligned text so a clipped drag cannot create a correction the matcher will never see ([snap.rs:1-17](../../crates/hark-spellbook/src/snap.rs#L1-L17), [snap.rs:51-107](../../crates/hark-spellbook/src/snap.rs#L51-L107)).
 
 Sources: [crates/hark-spellbook/src/tokenize.rs:1-145](../../crates/hark-spellbook/src/tokenize.rs#L1-L145), [crates/hark-spellbook/src/snap.rs:1-107](../../crates/hark-spellbook/src/snap.rs#L1-L107)
+Canonical edge punctuation already adjacent to a matched core is reused rather
+than inserted again. `C++`, `C#`, and `.NET` therefore survive both correction
+passes unchanged, including when the first pass inserts the term through an
+alias. Quotes, brackets, and sentence punctuation remain outside the splice;
+neighboring matches cannot claim overlapping byte ranges
+([corrector and regressions](../../crates/hark-spellbook/src/lib.rs)).
 <!-- END:AUTOGEN hark_08_spellbook_tokenize -->
 
 ---

@@ -654,9 +654,9 @@ fn run(
         }
 
         let mut disconnected = false;
-        // Edges read this pass, dispatched after the mutable device borrows
-        // end: dispatch asks the kernel for other keys' state and so needs
-        // the devices immutably.
+        // Keep later transitions available while replaying the batch: a live
+        // key-state query may already include their releases. Device borrows
+        // also end before dispatch needs the kernel state of other members.
         let mut edges: Vec<(PttKeyCode, bool)> = Vec::new();
         // Skip index 0: that is the stop pipe, and the flag check above is the
         // only thing that reads it.
@@ -695,8 +695,15 @@ fn run(
                 }
             }
         }
-        for (key, down) in edges {
-            if dispatch(&mut mode, key, down, &mut engaged, &devices) {
+        for (index, &(key, down)) in edges.iter().enumerate() {
+            if dispatch(
+                &mut mode,
+                key,
+                down,
+                &mut engaged,
+                &edges[index + 1..],
+                &devices,
+            ) {
                 disconnected = true;
             }
         }
@@ -726,6 +733,7 @@ fn dispatch(
     key: PttKeyCode,
     down: bool,
     engaged: &mut bool,
+    remaining: &[(PttKeyCode, bool)],
     devices: &[(PathBuf, Device)],
 ) -> bool {
     match mode {
@@ -754,11 +762,14 @@ fn dispatch(
             }
         }
         Mode::Shortcuts { tracker, tx, .. } => {
-            // The same verified engage the Windows hook uses: other members
-            // are confirmed against the kernel's own key state, so a release
-            // lost to a VT switch cannot leave a stale member armed.
             let now = Instant::now();
-            let events = tracker.on_event(key, down, false, |k| physically_down(devices, k), now);
+            let events = tracker.on_buffered_event(
+                key,
+                down,
+                remaining,
+                |k| physically_down(devices, k),
+                now,
+            );
             *engaged = tracker.engaged();
             events
                 .into_iter()
@@ -837,6 +848,52 @@ fn rescan(name: &str, devices: &mut Vec<(PathBuf, Device)>) {
 mod tests {
     use super::*;
     use std::collections::HashSet;
+
+    #[test]
+    fn shared_dispatch_preserves_complete_shortcuts_before_polling_released_keys() {
+        let (tx, rx) = mpsc::channel();
+        let mut mode = Mode::Shortcuts {
+            tracker: ShortcutTracker::new(
+                PttChord::parse("LCtrl+F12").unwrap(),
+                false,
+                Some(PttChord::parse("LCtrl+F11").unwrap()),
+            ),
+            tx,
+            tap: Arc::new(std::sync::OnceLock::new()),
+        };
+        let edges = [
+            (K::LCtrl, true),
+            (K::F12, true),
+            (K::F11, true),
+            (K::LCtrl, false),
+            (K::F12, false),
+            (K::F11, false),
+        ];
+        let mut engaged = false;
+        for (index, &(key, down)) in edges.iter().enumerate() {
+            // No devices means the live poll reports every key released,
+            // as when this entire press/release batch predates dispatch.
+            assert!(!dispatch(
+                &mut mode,
+                key,
+                down,
+                &mut engaged,
+                &edges[index + 1..],
+                &[],
+            ));
+        }
+        assert_eq!(
+            rx.try_iter().collect::<Vec<_>>(),
+            [
+                ShortcutEvent::Dictation(PttEvent::Down),
+                ShortcutEvent::MeetingToggle,
+                ShortcutEvent::Dictation(PttEvent::Up),
+            ]
+        );
+        assert!(!engaged);
+        assert!(!watchdog(&mut mode, &[]));
+        assert!(rx.try_recv().is_err());
+    }
 
     #[test]
     fn evdev_mapping_covers_the_default_chord() {

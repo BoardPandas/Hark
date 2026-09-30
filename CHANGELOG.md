@@ -6,6 +6,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.61.2] - 2026-09-30
+
+### Fixed
+
+- Gemini Live rejects a socket close before turn completion and replays the preserved recording instead of accepting a partial transcript. Completion markers sharing a frame with final text retain both pieces of information.
+- Cleanup rejects nonempty responses stopped by a token limit, content filter, or tool/function call, preserving the original transcript through the existing fallback.
+- Spellbook corrections reuse punctuation already present in terms such as C++, C#, and .NET, so repeated correction no longer grows punctuation.
+- Full meeting WAV and MP3 exports use exclusively created temporary files, preserve unrelated companion files, and remove their own partial files on failure.
+- Linux PipeWire discovery waits exit on connection failure or timeout. X11 meeting detection finds managed client windows behind window-manager frames, and buffered shortcut presses keep their observed event order while retaining missed-release recovery.
+
 ## [0.61.1] - 2026-09-30
 
 ### Fixed

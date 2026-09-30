@@ -155,15 +155,40 @@ impl Corrector {
                 }
                 consumed[i..i + n].fill(true);
                 let (start, end) = (tokens[i].start, tokens[i + n - 1].end);
+                let replacement =
+                    reuse_edge_punctuation(&entry.canonical, &text[..start], &text[end..]);
                 // Already canonical: consume (so overlapping terms skip it)
                 // but splice nothing and count nothing.
-                if text[start..end] != entry.canonical {
-                    splices.push((start, end, &entry.canonical));
+                if text[start..end] != *replacement {
+                    splices.push((start, end, replacement));
                     *replacements += 1;
                 }
             }
         }
     }
+}
+
+/// Token spans omit edge punctuation. Reuse any canonical punctuation already
+/// just outside the span instead of writing it a second time. Keeping the core
+/// span also prevents adjacent terms from claiming the same punctuation byte.
+fn reuse_edge_punctuation<'a>(canonical: &'a str, before: &str, after: &str) -> &'a str {
+    let Some(first) = canonical.find(char::is_alphanumeric) else {
+        return canonical;
+    };
+    let last = canonical
+        .trim_end_matches(|c: char| !c.is_alphanumeric())
+        .len();
+    let start = if before.ends_with(&canonical[..first]) {
+        first
+    } else {
+        0
+    };
+    let end = if after.starts_with(&canonical[last..]) {
+        last
+    } else {
+        canonical.len()
+    };
+    &canonical[start..end]
 }
 
 #[cfg(test)]
@@ -337,6 +362,39 @@ mod tests {
         let (out, n) = c.correct("Modero is live");
         assert_eq!(out, "Modero is live");
         assert_eq!(n, 0);
+    }
+
+    #[test]
+    fn canonical_edge_punctuation_is_idempotent() {
+        for term in ["C++", "C#", ".NET", "«Rust»"] {
+            let c = corrector(&[term]);
+            let text = format!("Use ({term}), then {term}.");
+            assert_eq!(c.correct(&text), (text.clone(), 0));
+            assert_eq!(c.correct(&c.correct(&text).0), (text, 0));
+        }
+    }
+
+    #[test]
+    fn punctuated_aliases_survive_both_correction_passes() {
+        for (term, alias) in [
+            ("C++", "see plus plus"),
+            ("C#", "see sharp"),
+            (".NET", "dot net"),
+        ] {
+            let c = with_aliases(&[(term, &[alias])]);
+            let text = format!("Use ({alias}), then continue.");
+            let expected = format!("Use ({term}), then continue.");
+            assert_eq!(c.correct(&text), (expected.clone(), 1));
+            assert_eq!(c.correct(&expected), (expected, 0));
+        }
+    }
+
+    #[test]
+    fn canonical_casing_reuses_punctuation_without_overlapping_spans() {
+        let c = corrector(&[".NET", "C++"]);
+        assert_eq!(c.correct("(.net), c++."), ("(.NET), C++.".into(), 2));
+        let c = corrector(&["Foo-", "-Bar"]);
+        assert_eq!(c.correct("foo-bar"), ("Foo-Bar".into(), 2));
     }
 
     #[test]

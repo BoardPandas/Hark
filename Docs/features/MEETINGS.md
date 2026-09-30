@@ -169,6 +169,14 @@ Rules, in the order they apply:
 5. **Auto-stop** once the detected app has released the mic for `auto_stop_after_s` (default 15, `0` disables it). The moment the app lets go, the Meetings page says "Teams ended the call. Notes stop at 14:52:07." with a **Stop now** button, and the tray tooltip says the same; the notice clears if the app takes the mic back (a device switch mid-call). The first real test ran with a 60 s default and a silent wait, which read as auto-stop not working; a manual start **adopts the call in progress**: if a meeting app held the mic at the last check (prompted, suppressed after an unanswered prompt, or still in its debounce), the meeting auto-stops when that app hangs up, like a detected one; without a call in progress, or if the adopted app is not seen holding the mic again at the next check (the call had just ended), it is a plain manual meeting and never auto-stops ([detect.rs](../../crates/hark-meeting/src/detect.rs)). This came from the first real Meet call, started by hand after its prompt went unseen and then recorded past the hang-up. The rest of the rule set is unchanged ([detect.rs](../../crates/hark-meeting/src/detect.rs)).
 
 `DetectMode` is `off` / `ask` (the default, a non-modal prompt) / `auto` (starts silently, but the tray and live-pane recording indicator stay visible either way — "auto" is never invisible) ([detect.rs](../../crates/hark-meeting/src/detect.rs)). The detection prompt itself follows the recording overlay's rule for the same reason: one persistent, deferred viewport, registered from root `logic`, created hidden and only ever shown or hidden — see [Desktop UI](DESKTOP_UI.md#recording-overlay). It always opens at the bottom-right of the **primary** monitor's work area, and while it waits it re-asserts always-on-top once a second without taking focus ([meeting_prompt.rs](../../crates/hark-app/src/meeting_prompt.rs)). It used to follow the monitor of the focused window, and on a tall portrait screen it opened far below the Teams window the user was watching: detected, placed and painted, yet unseen, so the notes were started by hand.
+Linux microphone discovery bounds each of its two PipeWire roundtrips to one
+second and exits on core connection errors. X11 title detection prefers the
+EWMH managed-client lists, so it inspects browser clients rather than only their
+window-manager frames. Without those lists, a cycle-safe ICCCM tree walk searches
+for clients to a depth of eight and a budget of 1,024 window identifiers.
+This does not add a native Wayland window-title API
+([probe](../../crates/hark-meeting/src/probe/linux.rs),
+[client enumeration and fixtures](../../crates/hark-meeting/src/probe/linux_windows.rs)).
 <!-- END:AUTOGEN hark_15_meetings_detection -->
 
 ---
@@ -292,6 +300,12 @@ Word export uses `docx-rs` 0.4.22 with default features disabled. It writes the 
 Save dialogs and encoding/writes run on workers. Export destinations cannot be inside Hark's meeting-storage directory, including through a parent symlink or junction. Text/DOCX and excerpt-audio saves use uniquely owned temporary files before replacement; failed excerpt selection leaves an existing destination intact. Whole-meeting audio exports mix both channels to mono. MP3 shares and excerpts use 40 kbps (25% larger nominal files than the previous 32 kbps) so encoder-delay/padding metadata fits. New archives and exports finalize all buffered ending audio and retain exact decoded sample counts; stored stereo archives remain 64 kbps. Older archives are unchanged and their missing endings cannot be reconstructed. Clipboard copy directly replaces clipboard contents, without dictation's stash/paste/restore sequence ([file boundaries](../../crates/hark-app/src/ui/meetings/share/files.rs), [audio exports](../../crates/hark-audio/src/mp3.rs)).
 
 A first-run consent card on the Meetings page reminds the user that some places require every participant's consent, with a "Copy an announcement line" button that copies `"I'm using Hark to transcribe this meeting."` to the clipboard as plain text for the user to paste themselves — a deliberate plain clipboard copy, not an `hark-inject` paste into the call, for the same restore-clobbering reason as the Share menu's Copy actions ([ui/meetings/mod.rs](../../crates/hark-app/src/ui/meetings/mod.rs)). The card is shown once per install until dismissed (`consent_acknowledged`), and again on demand if `consent_reminder` stays on ([ui/meetings/mod.rs](../../crates/hark-app/src/ui/meetings/mod.rs)).
+Full WAV/MP3 exports and excerpts use exclusively created, owned temporary files.
+Failed writes or renames clean up the owned partial and leave unrelated files
+and the existing destination intact; an existing `output.wav.tmp` or
+`output.mp3.tmp` is never borrowed for the export
+([export implementation](../../crates/hark-audio/src/mp3.rs),
+[temporary-file ownership](../../crates/hark-audio/src/mp3/pending.rs)).
 <!-- END:AUTOGEN hark_15_meetings_sharing -->
 
 ---

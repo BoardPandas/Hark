@@ -158,6 +158,13 @@ Sources: [release.yml:114-118](../../.github/workflows/release.yml#L114-L118)
 The exe is signed **before** `ISCC` packages it, and the installer is signed **by** `ISCC` while it compiles. Signing the finished setup.exe afterwards is not enough: setup.exe is a loader that extracts the real setup engine to `%TEMP%\is-XXXXX.tmp\<name>.tmp` and runs it, and a post-compile signature never reaches that engine. Through 0.60.5 the engine shipped unsigned, and Smart App Control blocked it on every install and in-app update, even though the setup.exe signature check passed ([release.yml:298-379](../../.github/workflows/release.yml#L298-L379)).
 
 Sources: [ci.yml:1-102](../../.github/workflows/ci.yml#L1-L102), [release.yml:54-704](../../.github/workflows/release.yml#L54-L704)
+Linux CI installs `libpipewire-0.3-modules` alongside the development package.
+The PipeWire discovery regressions load its native-protocol module against
+private Unix socket peers and temporary configuration; they do not require a
+desktop server or microphone. Installing headers alone with
+`--no-install-recommends` does not supply this runtime test dependency
+([CI dependencies](../../.github/workflows/ci.yml),
+[probe fixtures](../../crates/hark-meeting/src/probe/linux.rs)).
 <!-- END:AUTOGEN hark_13_release_packaging_workflow -->
 
 ---

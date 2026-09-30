@@ -118,6 +118,13 @@ HTTP 401/403 errors retain only an allowlisted machine-readable reason, 429 reta
 Gemini Live reports WebSocket error categories, HTTP status, I/O kinds, and numeric close codes without copying request URLs or server close reasons. Unexpected message diagnostics retain known protocol field names but replace unknown keys with `<unknown>`, preventing arbitrary JSON keys from becoming logged content ([gemini_live.rs](../../crates/hark-stt/src/gemini_live.rs)).
 
 `request_ms` covers the adapter's observed request/session time. Pipeline history separately records full release-to-inject time, so provider latency and product latency remain distinguishable.
+Live finalization requires `generationComplete` or `turnComplete`. A socket
+close or EOF before that marker is an error even if some final transcript
+segments arrived, allowing the pipeline to replay the full preserved recording
+within its existing retry budget. A frame containing both final text and the
+completion marker retains both. The intentional quiet-meeting timeout still
+returns an empty result; a disconnected meeting socket does not count as silence
+([finalizer and local WebSocket regressions](../../crates/hark-stt/src/gemini_live.rs)).
 <!-- END:AUTOGEN hark_07_transcription_errors -->
 
 ---

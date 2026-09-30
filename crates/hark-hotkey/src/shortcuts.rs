@@ -45,6 +45,34 @@ impl ShortcutTracker {
         ]
     }
 
+    /// Replay a kernel edge before the remaining buffered transitions. A
+    /// member's next release proves it is held now; its next press proves it
+    /// is up now. Only members without a queued transition use the live poll,
+    /// preserving stale-member rejection without applying future releases to
+    /// an earlier shortcut. Linux drops auto-repeat before this boundary.
+    #[cfg(any(target_os = "linux", test))]
+    pub(crate) fn on_buffered_event(
+        &mut self,
+        key: PttKeyCode,
+        down: bool,
+        remaining: &[(PttKeyCode, bool)],
+        mut physical: impl FnMut(PttKeyCode) -> bool,
+        now: Instant,
+    ) -> [Option<ShortcutEvent>; 2] {
+        self.on_event(
+            key,
+            down,
+            false,
+            |member| {
+                remaining
+                    .iter()
+                    .find(|(next, _)| *next == member)
+                    .map_or_else(|| physical(member), |(_, next_down)| !*next_down)
+            },
+            now,
+        )
+    }
+
     /// Heal releases for both trackers, but only dictation needs an outgoing
     /// release event. Never invent a meeting toggle from a physical-state poll.
     pub(crate) fn resync(
@@ -89,6 +117,117 @@ mod tests {
             .into_iter()
             .flatten()
             .collect()
+    }
+
+    fn buffered(
+        t: &mut ShortcutTracker,
+        edges: &[(PttKeyCode, bool)],
+        physically_held: bool,
+    ) -> Vec<ShortcutEvent> {
+        let now = Instant::now();
+        edges
+            .iter()
+            .enumerate()
+            .flat_map(|(index, &(key, down))| {
+                t.on_buffered_event(key, down, &edges[index + 1..], |_| physically_held, now)
+                    .into_iter()
+                    .flatten()
+            })
+            .collect()
+    }
+
+    #[test]
+    fn buffered_complete_dictation_survives_final_released_key_state() {
+        let mut t = tracker();
+        let edges = [
+            (K::LCtrl, true),
+            (K::F12, true),
+            (K::LCtrl, false),
+            (K::F12, false),
+        ];
+        assert_eq!(
+            buffered(&mut t, &edges, false),
+            [
+                ShortcutEvent::Dictation(PttEvent::Down),
+                ShortcutEvent::Dictation(PttEvent::Up),
+            ]
+        );
+        assert!(!t.engaged());
+    }
+
+    #[test]
+    fn buffered_meeting_toggle_fires_once_with_interleaved_dictation() {
+        let mut t = tracker();
+        let edges = [
+            (K::LCtrl, true),
+            (K::F12, true),
+            (K::F11, true),
+            (K::F11, true),
+            (K::F12, false),
+            (K::F11, false),
+            (K::LCtrl, false),
+        ];
+        assert_eq!(
+            buffered(&mut t, &edges, false),
+            [
+                ShortcutEvent::Dictation(PttEvent::Down),
+                ShortcutEvent::MeetingToggle,
+                ShortcutEvent::Dictation(PttEvent::Up),
+            ]
+        );
+        assert!(!t.engaged());
+    }
+
+    #[test]
+    fn buffered_release_preserves_a_modifier_pressed_in_an_earlier_batch() {
+        let mut t = tracker();
+        press(&mut t, K::LCtrl, true);
+        let edges = [(K::F11, true), (K::LCtrl, false), (K::F11, false)];
+        assert_eq!(
+            buffered(&mut t, &edges, false),
+            [ShortcutEvent::MeetingToggle]
+        );
+        assert!(!t.engaged());
+    }
+
+    #[test]
+    fn buffered_events_reject_a_stale_modifier_without_a_queued_transition() {
+        let mut t = tracker();
+        press(&mut t, K::LCtrl, true);
+        // A missed release, e.g. after device removal, is still checked when
+        // a subsequent batch tries to complete the shortcut with a bare F11.
+        assert!(buffered(&mut t, &[(K::F11, true), (K::F11, false)], false).is_empty());
+        assert!(!t.engaged());
+    }
+
+    #[test]
+    fn buffered_later_press_cannot_retroactively_complete_an_earlier_chord() {
+        let mut t = tracker();
+        press(&mut t, K::LCtrl, true);
+        // Ctrl's old release was missed. Its next press proves it was not
+        // held during the preceding F11 tap, even if the final poll says down.
+        let edges = [(K::F11, true), (K::F11, false), (K::LCtrl, true)];
+        assert!(buffered(&mut t, &edges, true).is_empty());
+        assert!(!t.engaged());
+    }
+
+    #[test]
+    fn buffered_holds_still_heal_missed_releases_without_a_meeting_toggle() {
+        let mut t = tracker();
+        let edges = [(K::LCtrl, true), (K::F12, true), (K::F11, true)];
+        assert_eq!(
+            buffered(&mut t, &edges, true),
+            [
+                ShortcutEvent::Dictation(PttEvent::Down),
+                ShortcutEvent::MeetingToggle
+            ]
+        );
+        assert_eq!(
+            t.resync(|_| false, Instant::now()),
+            Some(ShortcutEvent::Dictation(PttEvent::UpMissed))
+        );
+        assert!(!t.engaged());
+        assert_eq!(t.resync(|_| false, Instant::now()), None);
     }
 
     #[test]

@@ -2,6 +2,7 @@
 //! Glue verifiable only against a live session manager; exercised by hand
 //! with `examples/loopback_smoke.rs` (a private `PIPEWIRE_RUNTIME_DIR` stack
 //! with a null sink is enough — see `packaging/LINUX.md`).
+//! Discovery-failure tests use private socket peers without an audio server.
 //!
 //! One dedicated thread owns the entire `pipewire-rs` stack (loop, context,
 //! core, registry, streams); every callback runs on it, mirroring the Windows
@@ -420,12 +421,12 @@ fn capture_thread(
     // Two roundtrips: the first drains the registry enumeration, the second
     // flushes the metadata property events the binds above queued (measured:
     // one roundtrip is not enough for those).
-    if let Err(e) = roundtrip(&mainloop, &core) {
-        let _ = result_tx.send(Err(failed("PipeWire roundtrip", e)));
+    if let Err(e) = roundtrip(&mainloop, &core, Duration::from_secs(1)) {
+        let _ = result_tx.send(Err(LoopbackError::Start(e.to_string())));
         return;
     }
-    if let Err(e) = roundtrip(&mainloop, &core) {
-        let _ = result_tx.send(Err(failed("PipeWire roundtrip", e)));
+    if let Err(e) = roundtrip(&mainloop, &core, Duration::from_secs(1)) {
+        let _ = result_tx.send(Err(LoopbackError::Start(e.to_string())));
         return;
     }
     state.borrow_mut().enumerated = true;
@@ -471,19 +472,59 @@ fn capture_thread(
 fn roundtrip(
     mainloop: &pw::main_loop::MainLoopRc,
     core: &pw::core::CoreRc,
-) -> Result<(), pw::Error> {
-    let pending = core.sync(0)?;
+    timeout: Duration,
+) -> std::io::Result<()> {
+    use std::io;
+
+    let pending = core
+        .sync(0)
+        .map_err(|_| io::Error::other("cannot request PipeWire discovery"))?;
+    let outcome = Rc::new(RefCell::new(None));
+    let done = outcome.clone();
     let ml = mainloop.clone();
+    let failed = outcome.clone();
+    let error_loop = mainloop.clone();
     let _l = core
         .add_listener_local()
         .done(move |id, seq| {
             if id == pw::core::PW_ID_CORE && seq == pending {
+                done.borrow_mut().get_or_insert(Ok(()));
                 ml.quit();
             }
         })
+        .error(move |id, _seq, code, _message| {
+            if id == pw::core::PW_ID_CORE {
+                *failed.borrow_mut() = Some(Err(io::Error::new(
+                    io::ErrorKind::ConnectionAborted,
+                    format!("PipeWire discovery connection failed ({code})"),
+                )));
+                error_loop.quit();
+            }
+        })
         .register();
+    // Arm this before either discovery pass; the stream startup timer below
+    // cannot help while registry enumeration is still waiting for its reply.
+    let expired = outcome.clone();
+    let timeout_loop = mainloop.clone();
+    let timer = mainloop.loop_().add_timer(move |_| {
+        expired.borrow_mut().get_or_insert_with(|| {
+            Err(io::Error::new(
+                io::ErrorKind::TimedOut,
+                "PipeWire discovery timed out",
+            ))
+        });
+        timeout_loop.quit();
+    });
+    timer
+        .update_timer(Some(timeout), None)
+        .into_result()
+        .map_err(|_| io::Error::other("cannot arm PipeWire discovery timeout"))?;
     mainloop.run();
-    Ok(())
+    let result = outcome
+        .borrow_mut()
+        .take()
+        .unwrap_or_else(|| Err(io::Error::other("PipeWire discovery interrupted")));
+    result
 }
 
 /// The periodic bookkeeping pass. Returns true when the loop should stop.
@@ -862,6 +903,40 @@ pub(super) fn default_sink_name(value: &str) -> Option<&str> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn discovery_timeout_and_disconnect_exit_the_real_pipewire_loop() {
+        use std::os::unix::net::UnixStream;
+
+        let config_dir = tempfile::tempdir().unwrap();
+        let config = config_dir.path().join("client.conf");
+        std::fs::write(
+            &config,
+            "context.modules = [ { name = libpipewire-module-protocol-native } ]",
+        )
+        .unwrap();
+        for disconnect in [false, true] {
+            pw::init();
+            let mainloop = pw::main_loop::MainLoopRc::new(None).unwrap();
+            let props = properties! {
+                "config.name" => config.to_str().unwrap(),
+            };
+            let context = pw::context::ContextRc::new(&mainloop, Some(props)).unwrap();
+            let (client, peer) = UnixStream::pair().unwrap();
+            let core = context.connect_fd_rc(client.into(), None).unwrap();
+            let peer = (!disconnect).then_some(peer);
+            let error = roundtrip(&mainloop, &core, Duration::from_millis(50)).unwrap_err();
+            assert_eq!(
+                error.kind(),
+                if disconnect {
+                    std::io::ErrorKind::ConnectionAborted
+                } else {
+                    std::io::ErrorKind::TimedOut
+                }
+            );
+            drop(peer);
+        }
+    }
 
     #[test]
     fn missing_app_stream_queues_the_existing_default_sink_before_startup_failure() {

@@ -326,6 +326,12 @@ pub enum ServerEvent {
 /// socket — which matters because the wire path itself cannot be exercised
 /// offline.
 pub fn parse_server_message(body: &str) -> Result<ServerEvent, SttError> {
+    parse_server_frame(body).map(|(event, _)| event)
+}
+
+// A frame may carry both its final transcript and the completion marker.
+// Keep those facts independent so collecting the text cannot hide completion.
+fn parse_server_frame(body: &str) -> Result<(ServerEvent, bool), SttError> {
     let v: Value = serde_json::from_str(body).map_err(|e| {
         fail(crate::error::json_error_detail(
             "server frame was not JSON",
@@ -333,7 +339,7 @@ pub fn parse_server_message(body: &str) -> Result<ServerEvent, SttError> {
         ))
     })?;
     if v.get("setupComplete").is_some() {
-        return Ok(ServerEvent::SetupComplete);
+        return Ok((ServerEvent::SetupComplete, false));
     }
     let content = match v.get("serverContent") {
         Some(c) => c,
@@ -343,29 +349,28 @@ pub fn parse_server_message(body: &str) -> Result<ServerEvent, SttError> {
             // only -- a frame may carry transcript text, which belongs in
             // history, not in a log line.
             log::debug!("gemini live: unhandled frame with keys {:?}", top_keys(&v));
-            return Ok(ServerEvent::Other);
+            return Ok((ServerEvent::Other, false));
         }
     };
+    // Observed against the real API: a transcription turn ends with
+    // `generationComplete`. Accept the documented `turnComplete` too.
+    let complete = ["generationComplete", "turnComplete"]
+        .into_iter()
+        .any(|done| content.get(done).and_then(Value::as_bool) == Some(true));
     if let Some(text) = content
         .get("inputTranscription")
         .and_then(|t| t.get("text"))
         .and_then(|t| t.as_str())
     {
-        return Ok(ServerEvent::Final(text.to_string()));
+        return Ok((ServerEvent::Final(text.to_string()), complete));
     }
     if content.get("interimInputTranscription").is_some() {
-        return Ok(ServerEvent::Interim);
+        return Ok((ServerEvent::Interim, complete));
     }
-    // Observed against the real API: a transcription turn ends with
-    // `generationComplete`, and `turnComplete` never arrives at all. Both are
-    // accepted — waiting for only the documented one meant collecting the
-    // final transcript and then timing out while discarding it.
-    for done in ["generationComplete", "turnComplete"] {
-        if content.get(done).and_then(|t| t.as_bool()).unwrap_or(false) {
-            return Ok(ServerEvent::TurnComplete);
-        }
+    if complete {
+        return Ok((ServerEvent::TurnComplete, true));
     }
-    Ok(ServerEvent::Other)
+    Ok((ServerEvent::Other, false))
 }
 
 /// Classify one server frame and keep anything it contributed.
@@ -376,11 +381,15 @@ pub fn parse_server_message(body: &str) -> Result<ServerEvent, SttError> {
 /// the other silently dropping them, which cost users everything they said
 /// before the last pause. Returns the event so callers can still act on it.
 pub fn absorb(body: &str, segments: &mut Vec<String>) -> Result<ServerEvent, SttError> {
-    let event = parse_server_message(body)?;
+    let (event, complete) = parse_server_frame(body)?;
     if let ServerEvent::Final(text) = &event {
         segments.push(text.clone());
     }
-    Ok(event)
+    Ok(if complete {
+        ServerEvent::TurnComplete
+    } else {
+        event
+    })
 }
 
 /// Known protocol keys only: an unknown JSON key can itself be user content.
@@ -704,7 +713,9 @@ pub(crate) mod session {
                     configured_ms: per_frame_ms,
                 }
             })?;
-            let Some(frame) = frame else { break };
+            let Some(frame) = frame else {
+                return Err(fail("the session ended before turn completion".into()));
+            };
             let frame = frame.map_err(|e| socket_error("socket read failed", &e))?;
             frames += 1;
             if let Some(body) = frame_json(&frame) {
@@ -719,8 +730,17 @@ pub(crate) mod session {
                 }
                 continue;
             }
-            if matches!(frame, Message::Close(_)) {
-                break;
+            if let Message::Close(frame) = frame {
+                // Even a normal socket close does not prove that the whole
+                // recording was transcribed. Fail so the preserved clip can
+                // replay; never expose the server's free-form close reason.
+                return Err(fail(match frame {
+                    Some(frame) => format!(
+                        "the session closed before turn completion (WebSocket close code {})",
+                        u16::from(frame.code)
+                    ),
+                    None => "the session closed before turn completion".into(),
+                }));
             }
         }
         // Bounded like every other write: a close handshake to a peer that has
@@ -801,6 +821,138 @@ pub(crate) mod session {
             }));
             assert!(safe.to_string().contains("1008"));
             assert!(!format!("{safe} {safe:?}").contains(PRIVATE));
+        }
+
+        /// Exercise the real finalizer with a local WebSocket peer. No TLS,
+        /// provider key, or external service is involved.
+        fn finish_from_peer(
+            frames: Vec<Message>,
+            wait_for_close: bool,
+            budget: Finalize,
+            segments: Vec<String>,
+        ) -> Result<String, SttError> {
+            tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .unwrap()
+                .block_on(async {
+                    tokio::time::timeout(Duration::from_secs(5), async {
+                        use tokio_tungstenite::tungstenite::protocol::Role;
+
+                        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+                        let address = listener.local_addr().unwrap();
+                        let peer = tokio::spawn(async move {
+                            let (stream, _) = listener.accept().await.unwrap();
+                            let mut socket =
+                                WebSocketStream::from_raw_socket(stream, Role::Server, None).await;
+                            // The real finalizer must signal both end markers.
+                            for expected in [activity_end_message(), audio_stream_end_message()] {
+                                let frame = socket.next().await.unwrap().unwrap();
+                                let actual: Value =
+                                    serde_json::from_str(&frame_json(&frame).unwrap()).unwrap();
+                                assert_eq!(actual, expected);
+                            }
+                            for frame in frames {
+                                socket.send(frame).await.unwrap();
+                            }
+                            if wait_for_close {
+                                assert!(matches!(socket.next().await, Some(Ok(Message::Close(_)))));
+                            }
+                        });
+                        let stream = tokio::net::TcpStream::connect(address).await.unwrap();
+                        let mut socket = WebSocketStream::from_raw_socket(
+                            MaybeTlsStream::Plain(stream),
+                            Role::Client,
+                            None,
+                        )
+                        .await;
+                        let result =
+                            finish(&mut socket, TranscribeMode::Verbatim, segments, budget).await;
+                        drop(socket);
+                        peer.await.unwrap();
+                        result
+                    })
+                    .await
+                    .expect("local WebSocket finalization must terminate")
+                })
+        }
+
+        fn text_frame(content: Value) -> Message {
+            Message::Text(json!({"serverContent": content}).to_string().into())
+        }
+
+        #[test]
+        fn a_close_before_turn_completion_rejects_partial_transcripts() {
+            for code in [CloseCode::Normal, CloseCode::Error, CloseCode::Policy] {
+                let error = finish_from_peer(
+                    vec![Message::Close(Some(CloseFrame {
+                        code,
+                        reason: "private_provider_content".into(),
+                    }))],
+                    false,
+                    Finalize::STREAM,
+                    vec!["Only the first sentence.".into()],
+                )
+                .unwrap_err();
+                assert!(error.to_string().contains(&u16::from(code).to_string()));
+                assert!(!format!("{error} {error:?}").contains("private_provider_content"));
+            }
+        }
+
+        #[test]
+        fn an_empty_close_or_tcp_eof_cannot_complete_a_partial_transcript() {
+            for frames in [vec![Message::Close(None)], vec![]] {
+                assert!(finish_from_peer(
+                    frames,
+                    false,
+                    Finalize::STREAM,
+                    vec!["Only the first sentence.".into()],
+                )
+                .is_err());
+            }
+        }
+
+        #[test]
+        fn explicit_completion_keeps_all_finalized_segments() {
+            for marker in ["generationComplete", "turnComplete"] {
+                let text = finish_from_peer(
+                    vec![
+                        text_frame(json!({"inputTranscription": {"text": "The second sentence."}})),
+                        text_frame(json!({marker: true})),
+                    ],
+                    true,
+                    Finalize::STREAM,
+                    vec!["The first sentence.".into()],
+                )
+                .unwrap();
+                assert_eq!(text, "The first sentence. The second sentence.");
+            }
+        }
+
+        #[test]
+        fn completion_and_final_text_in_one_frame_keep_both_facts() {
+            let text = finish_from_peer(
+                vec![text_frame(json!({
+                    "inputTranscription": {"text": "The last sentence."},
+                    "turnComplete": true
+                }))],
+                true,
+                Finalize::STREAM,
+                vec!["The first sentence.".into()],
+            )
+            .unwrap();
+            assert_eq!(text, "The first sentence. The last sentence.");
+        }
+
+        #[test]
+        fn meeting_silence_stays_empty_but_disconnect_is_an_error() {
+            let budget = Finalize {
+                per_frame_ms: 20,
+                total_ms: 100,
+                quiet_is_empty: true,
+            };
+            assert_eq!(finish_from_peer(vec![], true, budget, vec![]).unwrap(), "");
+            assert!(finish_from_peer(vec![Message::Close(None)], false, budget, vec![],).is_err());
         }
     }
 }
