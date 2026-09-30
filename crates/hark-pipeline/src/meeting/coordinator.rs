@@ -191,12 +191,12 @@ impl Coordinator {
             let now = Instant::now();
             let watch_alive = watcher
                 .as_ref()
-                .is_some_and(hark_meeting::probe_win::ChangeWatcher::is_alive);
+                .is_some_and(hark_meeting::probe::ChangeWatcher::is_alive);
             if !watch_alive && now >= next_watch {
                 watcher.take();
                 let tx = watch_tx.clone();
                 let pending = notification_pending.clone();
-                match hark_meeting::probe_win::ChangeWatcher::start(move || {
+                match hark_meeting::probe::ChangeWatcher::start(move || {
                     // Several registry writes can describe one mic transition.
                     // At most one undrained wakeup is enough for a fresh snapshot.
                     if !pending.swap(true, Ordering::AcqRel) {
@@ -210,7 +210,9 @@ impl Coordinator {
                     }
                     Err(error) => {
                         if !watch_failed {
-                            log::warn!("meeting detection notifications unavailable ({error}); using polling");
+                            log::warn!(
+                                "meeting change notifications unavailable ({error}); using polling"
+                            );
                         }
                         watch_failed = true;
                     }
@@ -259,7 +261,6 @@ impl Coordinator {
         }
         // Retire the sender-holding watcher before closing capture and letting
         // this coordinator's completion channel disconnect.
-        #[cfg(windows)]
         drop(watcher);
         // Quitting: keep what was recorded; the after-call work would outlive
         // the process, so it is skipped (the meeting keeps its live lines).
@@ -340,7 +341,7 @@ impl Coordinator {
         if self.probe_failed || !(watching || auto_stopping) {
             return;
         }
-        let snapshot = match hark_meeting::probe_win::snapshot() {
+        let snapshot = match hark_meeting::probe::snapshot() {
             Ok(s) => s,
             Err(e) => {
                 log::warn!("meeting detection off for this session: {e}");
@@ -562,7 +563,7 @@ impl Coordinator {
             return everything_but_hark;
         }
         let exe = detect::target_exe(app);
-        match hark_meeting::probe_win::processes()
+        match hark_meeting::probe::processes()
             .ok()
             .and_then(|procs| detect::root_pid(&procs, &exe))
         {

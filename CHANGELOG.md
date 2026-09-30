@@ -6,6 +6,40 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.60.0] - 2026-09-30
+
+### Added
+
+- **Meeting mode on Linux** (feature parity with the Windows build): recording
+  with the microphone plus system audio, auto-detection with the ask/auto
+  prompt, the live transcript, the final pass, notes, the MP3 archive, and the
+  Meetings page, tray entry, Settings section, and toggle chord. System audio
+  comes from PipeWire — the default sink's monitor for a manual start, the
+  meeting app's own output streams for a detected one — and detection watches
+  PipeWire's microphone-capture nodes with `/proc` for process trees; browser
+  window titles are read on X11 sessions. `libpipewire-0.3` is a new Linux
+  runtime dependency (declared by every package); building it needs
+  `libpipewire-0.3-dev` and clang for bindgen.
+- Linux Share-menu parity: native save dialogs through `zenity`/`kdialog`,
+  Word document export, and "show/open in folder" through the desktop's file
+  manager (FileManager1 D-Bus with an `xdg-open` fallback). The OS share sheet
+  remains Windows-only (no Linux equivalent exists).
+
+### Changed
+
+- The `loopback_win` and `probe_win` modules became `loopback/` and `probe/`
+  with per-platform backends (`win.rs`, `linux.rs`, `mac.rs`); their public
+  contracts are unchanged. `meetings_supported()` now consults the loopback
+  module on every platform.
+
+### Known platform differences (documented in `packaging/LINUX.md`)
+
+- Meeting auto-detection of browser calls requires X11 (Wayland exposes no
+  window titles); native clients detect everywhere. An app that bypasses
+  PipeWire has no per-app stream to target, so a detected meeting falls back
+  to capturing the default output, as on Windows when the app's process is
+  gone.
+
 ## [0.59.1] - 2026-09-29
 
 ### Fixed

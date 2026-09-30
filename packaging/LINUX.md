@@ -104,8 +104,10 @@ next upgrade.
 
 These are the places Linux cannot match Windows exactly. Everything else —
 dictation, cleanup, voices, the spellbook, invocations, history, statistics,
-on-device transcription, the recording overlay, launch-at-login — behaves the
-same.
+on-device transcription, the recording overlay, launch-at-login, and meeting
+mode (recording, detection, live transcript, the final pass, notes, archive,
+the Share menu) — behaves the same. Meetings need PipeWire, which every
+current distribution runs; the packages declare the dependency themselves.
 
 - **`swallow_lock_keys` does nothing.** On Windows, a chord containing Caps
   Lock or Scroll Lock can suppress the lock's toggle. Doing that on Linux would
@@ -128,8 +130,29 @@ same.
   active layout is, so on Dvorak or Colemak the paste chord lands on the wrong
   key. X11 sessions have no such problem — Hark uses XTEST there, which
   resolves the layout properly.
+- **Meeting auto-detection of browser calls needs X11.** Under Wayland there
+  is no universal way to read window titles, so a Meet tab holding the
+  microphone is not offered meeting notes there; everything else about
+  meetings works, and native clients (Zoom, the Teams client, …) are detected
+  on both. Under X11 there is no difference.
+- **A detected app's audio targets its PipeWire streams.** When the meeting
+  app plays audio through PipeWire, Hark captures exactly those streams —
+  matching Windows' process loopback. An app that bypasses PipeWire has no
+  stream to target, and Hark captures the default output instead (the same
+  fallback Windows uses when the app's process cannot be found).
+- **Save dialogs come from the desktop.** The Share menu's "Save as…" uses
+  `zenity` or `kdialog` (whichever your desktop ships). With neither
+  installed, saving answers "cancelled" — copy actions and the folder path
+  still work.
+- **There is no OS share sheet.** The Windows build's "Share with Windows…"
+  has no Linux equivalent; every other Share action exists.
 
 ## Troubleshooting
+
+**Meeting mode says other people's audio cannot be captured.** Hark could not
+reach PipeWire's session manager (WirePlumber). That happens over a bare SSH
+session with no desktop. Log into a graphical session, or record with the
+microphone only — the meeting stays, just without the far side.
 
 **Nothing happens when I hold the chord.** Check `id -nG` includes `input`. If
 it does, look at `~/.local/share/hark/hark.log` — the listener logs how many

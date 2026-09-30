@@ -4,7 +4,7 @@ version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
-description = "Hark meeting mode logic: the per-meeting session state machine, the per-channel live chunker, the Me/Them transcript merge, auto-detection, and the audio storage cap. Pure apart from the guarded storage deletion layer and the Windows detection probe."
+description = "Hark meeting mode logic: the per-meeting session state machine, the per-channel live chunker, the Me/Them transcript merge, auto-detection, and the audio storage cap. Pure apart from the guarded storage deletion layer and the per-OS detection probe."
 
 [dependencies]
 # Only for the loudness statistics: a live chunk is judged by the same
@@ -12,7 +12,14 @@ description = "Hark meeting mode logic: the per-meeting session state machine, t
 hark-audio = { path = "../hark-audio" }
 log = "0.4"
 
-# The detection probe (probe_win.rs). winreg reads the ConsentStore in process
+# The Linux probe (probe/linux.rs): PipeWire node identity for microphone
+# use (same crate/version/binding note as hark-audio's loopback) and x11rb
+# for meeting-titled windows on X11 sessions — pure Rust, no libX11 link.
+[target.'cfg(target_os = "linux")'.dependencies]
+pipewire = { version = "0.10", features = ["v0_3_44"] }
+x11rb = "0.13"
+
+# The detection probe (probe/win.rs). winreg reads the ConsentStore in process
 # (already locked through hark-autostart); never shell out to reg.exe.
 # - Win32_System_Diagnostics_ToolHelp: process list, for the loopback root PID
 # - Win32_System_Threading: OpenProcess / QueryFullProcessImageNameW

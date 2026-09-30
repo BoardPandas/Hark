@@ -21,7 +21,6 @@ mod excerpt;
 mod files;
 #[cfg(windows)]
 mod native;
-#[cfg(any(windows, target_os = "macos"))]
 mod word;
 use files::{meeting_dir, save_audio, save_text, show_in_folder};
 
@@ -33,7 +32,6 @@ pub(super) enum ShareAction {
     SaveText,
     SaveSrt,
     SaveVtt,
-    #[cfg(any(windows, target_os = "macos"))]
     SaveDocx,
     #[cfg(target_os = "macos")]
     MacShare,
@@ -62,7 +60,6 @@ pub(super) fn menu(ui: &mut egui::Ui, has_audio: bool) -> Option<ShareAction> {
         item(ui, "Save as text…", ShareAction::SaveText);
         item(ui, "Save subtitles as SRT…", ShareAction::SaveSrt);
         item(ui, "Save subtitles as VTT…", ShareAction::SaveVtt);
-        #[cfg(any(windows, target_os = "macos"))]
         item(ui, "Save as Word document…", ShareAction::SaveDocx);
         #[cfg(windows)]
         item(ui, "Share with Windows…", ShareAction::WindowsShare);
@@ -241,7 +238,6 @@ impl Sharing {
                 };
                 self.spawn(ctx, move || save_text(name, body, filter, ext));
             }
-            #[cfg(any(windows, target_os = "macos"))]
             ShareAction::SaveDocx => self.spawn(ctx, move || word::save(export)),
             #[cfg(windows)]
             ShareAction::WindowsShare => {

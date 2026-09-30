@@ -1,4 +1,5 @@
-//! Hand check for the native detection probe on Windows or macOS 14.2+:
+//! Hand check for the detection probe (`src/probe/`) on a real session
+//! (Windows, Linux, macOS 14.2+):
 //! polls every 2 s and prints which apps hold the mic, which own a meeting
 //! window, the detector's verdicts (Ask mode), and each detected app's
 //! loopback root PID. Prints app ids only; window titles are never shown.
@@ -13,7 +14,7 @@
 use hark_meeting::detect::{
     root_pid, target_exe, DetectConfig, DetectMode, Detector, Verdict, DEFAULT_APPS, POLL_MS,
 };
-use hark_meeting::probe_win;
+use hark_meeting::probe;
 use std::time::{Duration, Instant};
 
 fn main() {
@@ -34,10 +35,24 @@ fn main() {
         self_exe,
     });
 
+    // The change watcher, so the hand check covers how detection actually
+    // wakes: registry events on Windows, graph events on Linux.
+    let wakes = std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0));
+    let counter = wakes.clone();
+    let watcher = match probe::ChangeWatcher::start(move || {
+        counter.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    }) {
+        Ok(w) => w,
+        Err(e) => {
+            eprintln!("change watcher unavailable ({e}); polling only");
+            return;
+        }
+    };
+
     let t0 = Instant::now();
     while t0.elapsed() < Duration::from_secs(secs) {
         let took = Instant::now();
-        let snapshot = match probe_win::snapshot() {
+        let snapshot = match probe::snapshot() {
             Ok(s) => s,
             Err(e) => {
                 eprintln!("probe failed: {e}");
@@ -61,7 +76,7 @@ fn main() {
         );
         if let Verdict::Prompt(app) | Verdict::Start(app) = &verdict {
             let exe = target_exe(app);
-            match probe_win::processes() {
+            match probe::processes() {
                 Ok(procs) => println!(
                     "        loopback target: {exe} root pid {:?}",
                     root_pid(&procs, &exe)
@@ -71,4 +86,9 @@ fn main() {
         }
         std::thread::sleep(Duration::from_millis(POLL_MS));
     }
+    println!(
+        "watcher alive: {}, graph change notifications: {}",
+        watcher.is_alive(),
+        wakes.load(std::sync::atomic::Ordering::Relaxed)
+    );
 }

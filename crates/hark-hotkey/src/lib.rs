@@ -286,8 +286,9 @@ pub fn spawn_listener(
 
 /// One native listener for dictation and the optional meeting toggle. The
 /// caller owns routing, so an unavailable dictation provider cannot disable
-/// meeting shortcuts. Meeting capture is supported on Windows and macOS; other platforms keep
-/// their existing dictation listener and never emit meeting toggles.
+/// meeting shortcuts. Meeting capture is supported on Windows, Linux, and
+/// macOS; other platforms keep their existing dictation listener and never
+/// emit meeting toggles.
 pub fn spawn_shared_listener(
     chord: PttChord,
     swallow_locks: bool,
@@ -305,7 +306,11 @@ pub fn spawn_shared_listener(
     {
         hook_mac::spawn_shared_listener(chord, swallow_locks, meeting, tx)
     }
-    #[cfg(not(any(windows, target_os = "macos")))]
+    #[cfg(target_os = "linux")]
+    {
+        hook_linux::spawn_shared_listener(chord, swallow_locks, meeting, tx)
+    }
+    #[cfg(not(any(windows, target_os = "linux", target_os = "macos")))]
     {
         let _ = meeting;
         let (ptt_tx, ptt_rx) = std::sync::mpsc::channel();

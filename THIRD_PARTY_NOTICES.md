@@ -20,6 +20,25 @@ version. Hark's complete source is public at
 after pointing `mp3lame-sys` at your modified LAME (for example with a Cargo
 `[patch]` entry).
 
+## PipeWire client library
+
+Hark's Linux builds capture system audio for meeting mode and watch the audio
+graph for meeting detection through **libpipewire** (`libpipewire-0.3.so.0`),
+via the `pipewire` / `pipewire-sys` / `libspa` / `libspa-sys` Rust bindings.
+The library is dynamically linked, never bundled or modified.
+
+- License: MIT (the bindings are MIT as well).
+- Project: <https://pipewire.org/> / <https://gitlab.freedesktop.org/pipewire/pipewire>
+- Bindings: <https://github.com/PixiB/pipewire-rs>
+
+## X11 client library
+
+Hark's Linux builds read window titles for meeting auto-detection on X11
+sessions through **x11rb** (a pure-Rust X11 client; no X library is linked).
+
+- License: MIT OR Apache-2.0.
+- Project: <https://github.com/psychon/x11rb>
+
 ## AEC3 Rust port and WebRTC
 
 Hark's optional meeting microphone echo reduction uses **aec3 0.4.0**,

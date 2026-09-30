@@ -1,5 +1,6 @@
-//! Pure routing for the shared native keyboard hook. The meeting chord only emits a
-//! toggle on its physical engage edge; dictation keeps its full edge stream.
+//! Pure routing for the shared native keyboard hook (Windows, Linux, macOS).
+//! The meeting chord only emits a toggle on its physical engage edge;
+//! dictation keeps its full edge stream.
 
 use crate::{ChordTracker, PttChord, PttEvent, PttKeyCode};
 use std::time::Instant;
@@ -10,13 +11,11 @@ pub enum ShortcutEvent {
     MeetingToggle,
 }
 
-#[cfg_attr(not(windows), allow(dead_code))]
 pub(crate) struct ShortcutTracker {
     ptt: ChordTracker,
     meeting: Option<ChordTracker>,
 }
 
-#[cfg_attr(not(windows), allow(dead_code))]
 impl ShortcutTracker {
     pub(crate) fn new(ptt: PttChord, swallow_locks: bool, meeting: Option<PttChord>) -> Self {
         Self {
@@ -64,6 +63,9 @@ impl ShortcutTracker {
         self.ptt.is_engaged() || self.meeting.as_ref().is_some_and(ChordTracker::is_engaged)
     }
 
+    // Windows-only: the Linux hook cannot swallow a key without grabbing the
+    // whole device, so it never asks.
+    #[cfg_attr(not(windows), allow(dead_code))]
     pub(crate) fn swallow(&self, key: PttKeyCode, down: bool, injected: bool) -> bool {
         self.ptt.swallow(key, down, injected)
     }

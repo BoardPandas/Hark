@@ -15,13 +15,13 @@
 //! Window titles are read in memory to test for a meeting marker and never
 //! stored, returned or logged.
 //!
-//! The public facade dispatches macOS to `probe_mac`; other non-Windows
-//! platforms return `Unsupported`. Registry notifications remain Windows-only.
+//! The `probe` facade dispatches to this on Windows, `linux.rs` on Linux,
+//! and `mac.rs` on macOS; anything else returns `Unsupported`.
 
 use crate::detect::{Proc, Snapshot};
 use std::io;
 
-#[path = "probe_watch_win.rs"]
+#[path = "watch_win.rs"]
 mod watch;
 pub use watch::ChangeWatcher;
 

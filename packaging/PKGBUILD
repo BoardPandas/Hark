@@ -35,7 +35,7 @@ license=('MIT')
 # cleanly and then fails at runtime -- silently for the tray, at startup for
 # the others. libxcb is deliberately absent: x11rb speaks the X protocol in
 # pure Rust and links no XCB.
-depends=('alsa-lib' 'gtk3' 'xdotool' 'libappindicator-gtk3' 'libx11' 'libxkbcommon')
+depends=('alsa-lib' 'gtk3' 'xdotool' 'libappindicator-gtk3' 'libx11' 'libxkbcommon' 'pipewire')
 # base-devel ships neither cmake nor clang, and a build dependency that comes
 # in through a -sys crate's build script is named nowhere pacman can see it, so
 # leaving them out fails an AUR build with a bare "cmake: command not found"
@@ -48,7 +48,7 @@ depends=('alsa-lib' 'gtk3' 'xdotool' 'libappindicator-gtk3' 'libx11' 'libxkbcomm
 #           in Cargo.lock turns it on, and `cc` picks gcc from base-devel
 #           regardless. It is here so an AUR build uses the same toolchain the
 #           release container installs, rather than a near-miss of it.
-makedepends=('rust' 'cargo' 'pkgconf' 'cmake' 'clang')
+makedepends=('rust' 'cargo' 'pkgconf' 'cmake' 'clang' 'libpipewire-0.3')
 # The API key is stored through the Secret Service. Optional, not a hard
 # dependency: HARK_STT_KEY works without any keyring at all.
 optdepends=('gnome-keyring: store the API key in the GNOME keyring'

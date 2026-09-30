@@ -34,6 +34,7 @@
 use crate::capture::CaptureEvent;
 use crate::edges::{ChordTracker, PttChord, PttEvent};
 use crate::keycode::{PttKeyCode, ALL_KEYS};
+use crate::shortcuts::{ShortcutEvent, ShortcutTracker};
 use crate::{CaptureTap, HotkeyError, ListenerHandle};
 use evdev::{Device, EventType, KeyCode};
 use std::os::fd::AsRawFd;
@@ -437,6 +438,14 @@ enum Mode {
         tx: Sender<PttEvent>,
         tap: Arc<std::sync::OnceLock<Arc<CaptureTap>>>,
     },
+    /// Push-to-talk plus the optional meeting chord, routed like the Windows
+    /// shared hook: dictation keeps its full edge stream, the meeting chord
+    /// toggles once per physical engage edge.
+    Shortcuts {
+        tracker: ShortcutTracker,
+        tx: Sender<ShortcutEvent>,
+        tap: Arc<std::sync::OnceLock<Arc<CaptureTap>>>,
+    },
     /// Recording a shortcut: forward every chord-capable edge raw.
     Capture { tx: Sender<CaptureEvent> },
 }
@@ -478,6 +487,49 @@ pub(crate) fn spawn_listener(
         "hark-hotkey",
         Mode::Ptt {
             tracker: ChordTracker::with_lock_suppression(chord, swallow_locks),
+            tx,
+            tap: shared.clone(),
+        },
+    )?;
+    let tap = Arc::new(CaptureTap::new(capture_tx, handle.alive.clone()));
+    let _ = shared.set(tap.clone());
+    handle.tap = Some(tap);
+    handle.capture_rx = Some(capture_rx);
+    Ok(handle)
+}
+
+/// The shared listener, mirroring `hook_win.rs`: one evdev loop, two chord
+/// trackers, meeting toggles on engage edges only. The capture tap rides the
+/// same loop exactly as the dictation listener's does.
+pub(crate) fn spawn_shared_listener(
+    chord: PttChord,
+    swallow_locks: bool,
+    meeting: Option<PttChord>,
+    tx: Sender<ShortcutEvent>,
+) -> Result<ListenerHandle, HotkeyError> {
+    if swallow_locks {
+        log::info!(
+            "hark-hotkey: hotkey.swallow_locks has no effect on Linux; the kernel \
+             offers no way to suppress one key without grabbing the whole device"
+        );
+    }
+    for (label, chord) in [("push-to-talk", &chord)]
+        .into_iter()
+        .chain(meeting.as_ref().map(|c| ("meeting", c)))
+    {
+        for key in unmappable(chord) {
+            log::warn!(
+                "hark-hotkey: the {label} chord contains {key}, which has no evdev \
+                 equivalent; that key cannot be part of it on Linux"
+            );
+        }
+    }
+    let (capture_tx, capture_rx) = mpsc::channel();
+    let shared: Arc<std::sync::OnceLock<Arc<CaptureTap>>> = Arc::new(std::sync::OnceLock::new());
+    let mut handle = spawn_loop(
+        "hark-hotkey",
+        Mode::Shortcuts {
+            tracker: ShortcutTracker::new(chord, swallow_locks, meeting),
             tx,
             tap: shared.clone(),
         },
@@ -602,6 +654,10 @@ fn run(
         }
 
         let mut disconnected = false;
+        // Edges read this pass, dispatched after the mutable device borrows
+        // end: dispatch asks the kernel for other keys' state and so needs
+        // the devices immutably.
+        let mut edges: Vec<(PttKeyCode, bool)> = Vec::new();
         // Skip index 0: that is the stop pipe, and the flag check above is the
         // only thing that reads it.
         for (slot, (path, device)) in fds[1..].iter().zip(devices.iter_mut()) {
@@ -614,7 +670,7 @@ fn run(
                 continue;
             }
             let events = match device.fetch_events() {
-                Ok(events) => events,
+                Ok(events) => events.collect::<Vec<_>>(),
                 // A non-blocking fd that poll reported readable can still come
                 // up empty (another reader drained it, a spurious wakeup); that
                 // is EAGAIN, not a fault, and logging it would spam.
@@ -634,12 +690,14 @@ fn run(
                     1 => true,
                     _ => continue,
                 };
-                let Some(key) = evdev_to_key(KeyCode::new(event.code())) else {
-                    continue;
-                };
-                if dispatch(&mut mode, key, down, &mut engaged) {
-                    disconnected = true;
+                if let Some(key) = evdev_to_key(KeyCode::new(event.code())) {
+                    edges.push((key, down));
                 }
+            }
+        }
+        for (key, down) in edges {
+            if dispatch(&mut mode, key, down, &mut engaged, &devices) {
+                disconnected = true;
             }
         }
 
@@ -663,9 +721,17 @@ fn run(
 
 /// Feed one edge to whatever the listener is doing. Returns true when the
 /// receiving end has gone away.
-fn dispatch(mode: &mut Mode, key: PttKeyCode, down: bool, engaged: &mut bool) -> bool {
+fn dispatch(
+    mode: &mut Mode,
+    key: PttKeyCode,
+    down: bool,
+    engaged: &mut bool,
+    devices: &[(PathBuf, Device)],
+) -> bool {
     match mode {
-        Mode::Ptt { tap, .. } if tap.get().is_some_and(|t| t.forward(key, down)) => {
+        Mode::Ptt { tap, .. } | Mode::Shortcuts { tap, .. }
+            if tap.get().is_some_and(|t| t.forward(key, down)) =>
+        {
             // The settings recorder consumed it, so the tracker never sees it
             // and the chord being recorded cannot also fire a dictation.
             false
@@ -687,24 +753,48 @@ fn dispatch(mode: &mut Mode, key: PttKeyCode, down: bool, engaged: &mut bool) ->
                 None => false,
             }
         }
+        Mode::Shortcuts { tracker, tx, .. } => {
+            // The same verified engage the Windows hook uses: other members
+            // are confirmed against the kernel's own key state, so a release
+            // lost to a VT switch cannot leave a stale member armed.
+            let now = Instant::now();
+            let events = tracker.on_event(key, down, false, |k| physically_down(devices, k), now);
+            *engaged = tracker.engaged();
+            events
+                .into_iter()
+                .flatten()
+                .any(|event| tx.send(event).is_err())
+        }
         Mode::Capture { tx } => tx.send(CaptureEvent { key, down }).is_err(),
     }
 }
 
-/// One watchdog poll: if the chord the tracker believes is held is no longer
+/// One watchdog poll: if a chord the tracker believes is held is no longer
 /// physically down, its release never arrived -- emit it so the recording ends
 /// instead of running forever. Returns true when it healed one.
 fn watchdog(mode: &mut Mode, devices: &[(PathBuf, Device)]) -> bool {
-    let Mode::Ptt { tracker, tx, .. } = mode else {
-        return false;
-    };
-    let Some(event) = tracker.resync_released(|key| physically_down(devices, key), Instant::now())
-    else {
-        return false;
-    };
-    log::warn!("push-to-talk release never arrived; ending the recording");
-    let _ = tx.send(event);
-    true
+    match mode {
+        Mode::Ptt { tracker, tx, .. } => {
+            let Some(event) =
+                tracker.resync_released(|key| physically_down(devices, key), Instant::now())
+            else {
+                return false;
+            };
+            log::warn!("push-to-talk release never arrived; ending the recording");
+            tx.send(event).is_err()
+        }
+        Mode::Shortcuts { tracker, tx, .. } => {
+            // Heal both chords' releases, but only dictation needs the
+            // outgoing edge; a meeting toggle is never invented from a poll.
+            let Some(event) = tracker.resync(|key| physically_down(devices, key), Instant::now())
+            else {
+                return false;
+            };
+            log::warn!("push-to-talk release never arrived; ending the recording");
+            tx.send(event).is_err()
+        }
+        Mode::Capture { .. } => false,
+    }
 }
 
 /// Is `key` physically held on any attached keyboard? Asks the kernel for each

@@ -66,10 +66,25 @@ windows = { version = "0.62.2", features = [
 # crate already pulls in.
 windows-core = "0.62"
 
+# Meeting-mode system-audio loopback (loopback/linux.rs): the official Rust
+# bindings, linking libpipewire-0.3 through pkg-config. v0_3_44 is the
+# TARGET_OBJECT key (per-stream targeting), present since PipeWire 0.3.44
+# (2022) — every supported distro ships newer. Build-time note: the -sys
+# crates run bindgen, which needs libclang; CI installs it, and
+# packaging/LINUX.md records the dev-machine workaround.
+[target.'cfg(target_os = "linux")'.dependencies]
+pipewire = { version = "0.10", features = ["v0_3_44"] }
+# CLOCK_MONOTONIC for the loopback's start timestamp (the recorder's timeline
+# aligns by sample count; the timestamp is for diagnostics and smoke tests).
+libc = "0.2"
+
 [dev-dependencies]
 # Spool and archive tests build synthetic tones and read files back inside a
 # temp dir.
 tempfile = "3"
+# The loopback smoke example is a hand tool: it shows the capture thread's
+# state transitions, which log rather than print.
+env_logger = "0.11"
 
 [build-dependencies]
 cc = "1"

@@ -8,6 +8,14 @@
 - **Validation:** native Apple Silicon default-feature release build; 1,035 workspace tests pass, one existing local-model fixture test ignored because it requires the ~670 MB downloaded model; workspace Clippy with warnings denied; formatting; wiring; documentation drift and guard tests. Ad-hoc signed Hark.app and arm64 DMG built, signature structure and system-library closure verified, packaged executable `--version` succeeds, DMG checksum verified.
 - **Not yet validated:** interactive TCC approvals, actual microphone/system-audio capture, dictation insertion and focus/Spaces behavior, native login registration, Intel executable runtime, Developer ID notarization and a signed update/relaunch. Intel CI and signed release jobs are configured; those jobs were not run in this local session.
 
+## Scoped Linux meetings parity — 2026-09-29 (0.60.0)
+
+- **Source reviewed:** `1c1384c` (0.58.0) plus the new Linux seams: `crates/hark-audio/src/loopback/{mod,linux}.rs`, `crates/hark-meeting/src/probe/{mod,linux,watch_linux}.rs`, `crates/hark-hotkey/src/hook_linux.rs` (Shortcuts mode), the `meetings_supported()` centralization, the Share-menu un-gating, and the CI/packaging dependency additions. Rebased over the macOS parity work (`5413853`, `6414856`): the loopback and probe facades now dispatch all three platforms.
+- **Evidence:** on a private `PIPEWIRE_RUNTIME_DIR` stack (PipeWire 1.6 + WirePlumber + a null sink) the production loopback smoke captured ~16,000 frames/s of 16 kHz mono f32 in both modes — default-sink monitor for `ExcludeTree`, and the targeted stream node for `IncludeTree` (a sine routed to a non-default sink arrived only via its stream node) — and the detection smoke observed a fake `zoom` mic holder, debounced, and issued `Prompt("zoom")` with graph-event watcher wakes. Real-mic-in-a-real-call behavior remains native-user validation, as it was for Windows.
+- **Scope:** Meetings (platform paragraph, operational bullets, hand-check bullet), Audio Capture (hook sharing and the loopback platform sections), Overview (platform rows), Release and Packaging (libpipewire build/runtime dependency and gates), packaging/LINUX.md (known differences), notices (PipeWire, x11rb), AGENTS.md (platform sentence).
+- **Baseline policy:** global baseline `784272c` remains unchanged.
+- **Validation:** `cargo fmt --all -- --check`, workspace `cargo clippy --all-targets -- -D warnings`, `cargo test --workspace` (all green), `npm run check:docs`, and `npm run check:claude` pass on the Linux dev machine with `libpipewire` 1.6.9, on the tree rebased over the macOS work.
+
 ## Scoped Elevate call detection — 2026-09-29 (0.58.0)
 
 - **Source reviewed:** `cc37f47` (0.57.5) plus `crates/hark-meeting/src/detect.rs` (the "Elevate UC" browser title marker and `elevate uc.exe` in `DEFAULT_APPS`) and `crates/hark-pipeline/src/meeting/mod.rs` (the "Elevate" display name).

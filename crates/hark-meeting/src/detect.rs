@@ -1,5 +1,5 @@
 //! Meeting auto-detection, pure: who is using the microphone, and when to
-//! offer (or start) meeting notes. The per-OS probe (`probe_win`) takes the
+//! offer (or start) meeting notes. The per-OS probe (`probe`) takes the
 //! snapshots; everything that decides lives here and is tested on fixtures.
 //!
 //! Rules (plan §4.8): Hark itself never counts (its pre-roll stream holds the
@@ -23,6 +23,11 @@ pub const DEBOUNCE_MS: u64 = 5_000;
 /// compared case-insensitively. Zoom, Webex, GoTo and RingCentral exe names
 /// are from vendor documentation, not yet seen in a live-call ConsentStore
 /// dump (CP0 row 5); the list is user-editable for exactly that reason.
+///
+/// The Linux entries are the binary names apps carry on their PipeWire
+/// stream nodes (`firefox`, `chromium`, `zoom`, ...), including the wrapper
+/// spellings distros differ on; they can never collide with the Windows ids
+/// because those all end in `.exe` or are package families.
 pub const DEFAULT_APPS: &[&str] = &[
     "MSTeams_8wekyb3d8bbwe", // new Teams (packaged)
     "teams.exe",             // classic Teams
@@ -40,6 +45,7 @@ pub const DEFAULT_APPS: &[&str] = &[
     "msedge.exe",
     "firefox.exe",
     "brave.exe",
+    // macOS bundle identifiers (Core Audio process objects report these).
     "com.microsoft.teams2",
     "com.microsoft.teams",
     "us.zoom.xos",
@@ -54,10 +60,27 @@ pub const DEFAULT_APPS: &[&str] = &[
     "org.mozilla.firefox",
     "com.brave.browser",
     "com.apple.safari",
+    // Linux binaries.
+    "zoom",
+    "teams",
+    "teams-for-linux", // the community Electron client's binary
+    "slack",
+    "discord",
+    "webex",
+    "firefox",
+    "chromium",
+    "chromium-browser",
+    "chrome",
+    "google-chrome",
+    "msedge",
+    "microsoft-edge",
+    "brave",
+    "brave-browser",
 ];
 
 /// Apps that hold the mic for anything (a dictation site, a voice note), so
-/// they only count while a window title says a meeting is open.
+/// they only count while a window title says a meeting is open. On Linux the
+/// title check needs X11 (the probe documents the Wayland consequence).
 pub const BROWSERS: &[&str] = &[
     "chrome.exe",
     "msedge.exe",
@@ -68,6 +91,15 @@ pub const BROWSERS: &[&str] = &[
     "org.mozilla.firefox",
     "com.brave.browser",
     "com.apple.safari",
+    "firefox",
+    "chromium",
+    "chromium-browser",
+    "chrome",
+    "google-chrome",
+    "msedge",
+    "microsoft-edge",
+    "brave",
+    "brave-browser",
 ];
 
 /// Title fragments that mark a browser window as a meeting. Elevate's web

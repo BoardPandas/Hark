@@ -10,9 +10,9 @@ Hark is a single-user, system-wide push-to-talk dictation desktop app for
 Windows, macOS, and Linux. Hold a configured chord, speak, release it, and Hark
 injects polished English text at the cursor in the focused application.
 
-Windows and Linux currently have end-to-end push-to-talk implementations.
-macOS UI, tray, keychain, and injection paths exist, but its CGEventTap hotkey
-hook is still a planned seam; current source returns `UnsupportedPlatform`.
+All three desktop platforms have end-to-end push-to-talk implementations,
+and meeting mode runs on all of them: WASAPI and the ConsentStore on Windows,
+PipeWire and `/proc` on Linux, Core Audio process taps on macOS 14.2+.
 
 - It is one native Rust process: tray daemon, native egui window, and worker
   threads. There is no Hark web service, account system, hosted database, or

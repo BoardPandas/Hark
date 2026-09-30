@@ -167,19 +167,28 @@ pub fn app_display_name(app: &str) -> String {
         "goto.exe" | "com.logmein.goto" => "GoTo",
         "ringcentral.exe" | "com.ringcentral.glip" => "RingCentral",
         "elevate uc.exe" => "Elevate",
-        "chrome.exe" | "com.google.chrome" => "Chrome",
-        "msedge.exe" | "com.microsoft.edgemac" => "Edge",
-        "firefox.exe" | "org.mozilla.firefox" => "Firefox",
-        "brave.exe" | "com.brave.browser" => "Brave",
+        "chrome.exe" | "com.google.chrome" | "chrome" | "google-chrome" => "Chrome",
+        "msedge.exe" | "com.microsoft.edgemac" | "msedge" | "microsoft-edge" => "Edge",
+        "firefox.exe" | "org.mozilla.firefox" | "firefox" => "Firefox",
+        "brave.exe" | "com.brave.browser" | "brave" | "brave-browser" => "Brave",
         "com.apple.safari" => "Safari",
+        // Linux binaries, including distro wrapper spellings.
+        "zoom" => "Zoom",
+        "teams" | "teams-for-linux" => "Teams",
+        "webex" => "Webex",
+        "slack" => "Slack",
+        "discord" => "Discord",
+        "chromium" | "chromium-browser" => "Chromium",
         other => return other.trim_end_matches(".exe").to_string(),
     };
     name.to_string()
 }
 
-/// Whether this OS supports native meeting audio capture. macOS requires 14.2+.
+/// Whether this OS supports native meeting audio capture: true on Windows
+/// and Linux always, and on macOS 14.2+ (the loopback module owns the check).
+/// The UI hides Meetings where this is false.
 pub fn meetings_supported() -> bool {
-    hark_audio::loopback_win::supported()
+    hark_audio::loopback::supported()
 }
 
 #[cfg(test)]
@@ -192,6 +201,16 @@ mod tests {
         assert_eq!(app_display_name("zoom.exe"), "Zoom");
         assert_eq!(app_display_name("elevate uc.exe"), "Elevate");
         assert_eq!(app_display_name("whereby.exe"), "whereby");
+    }
+
+    #[test]
+    fn linux_app_ids_get_friendly_names_too() {
+        assert_eq!(app_display_name("firefox"), "Firefox");
+        assert_eq!(app_display_name("google-chrome"), "Chrome");
+        assert_eq!(app_display_name("chromium-browser"), "Chromium");
+        assert_eq!(app_display_name("teams-for-linux"), "Teams");
+        assert_eq!(app_display_name("microsoft-edge"), "Edge");
+        assert_eq!(app_display_name("flatpak-unknown"), "flatpak-unknown");
     }
 
     #[test]

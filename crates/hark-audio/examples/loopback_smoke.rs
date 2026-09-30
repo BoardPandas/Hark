@@ -1,7 +1,16 @@
-//! Hand check for per-process loopback (`src/loopback_win.rs`) on real
-//! Windows or macOS 14.2+: `cargo test` never opens an audio device. Captures for a few
-//! seconds and prints, per second, the frames delivered and their level in
-//! dBFS. Never prints or saves samples.
+//! Hand check for per-process loopback (`src/loopback/`) on real hardware:
+//! WASAPI on Windows, PipeWire on Linux, the process tap on macOS 14.2+.
+//! `cargo test` never opens an audio device. Captures for a few seconds and
+//! prints, per second, the frames delivered and their level in dBFS. Never
+//! prints or saves samples.
+//!
+//! On a headless Linux box a private stack with a null sink is enough:
+//! ```text
+//! mkdir -p /tmp/pwrt
+//! PIPEWIRE_RUNTIME_DIR=/tmp/pwrt pipewire &
+//! PIPEWIRE_RUNTIME_DIR=/tmp/pwrt wireplumber &
+//! # then create a sink (any client will do) and run with the same runtime dir
+//! ```
 //!
 //! ```text
 //! cargo run -p hark-audio --example loopback_smoke -- [--secs 5] [--include PID]
@@ -26,6 +35,7 @@ fn db(x: f32) -> f32 {
 }
 
 fn main() {
+    env_logger::init();
     let args: Vec<String> = std::env::args().collect();
     let value = |flag: &str| {
         args.iter()

@@ -43,6 +43,9 @@ hark-stt = { path = "../hark-stt" }
 # shared reqwest client from hark-stt.
 hark-update = { path = "../hark-update" }
 hark-voice = { path = "../hark-voice" }
+# Text-only Word meeting exports (the Share menu); image codecs are
+# unnecessary. Pure Rust, so it builds and ships everywhere meetings do.
+docx-rs = { version = "0.4.22", default-features = false }
 # Local-timezone day grouping and timestamps for the history panel; bundles
 # its own tzdb on Windows (no registry parsing).
 jiff = "0.2"
@@ -69,8 +72,6 @@ windows = { version = "0.62.2", features = [
     "ApplicationModel_DataTransfer",
     "Foundation",
 ] }
-# Text-only Word meeting exports; image codecs are unnecessary.
-docx-rs = { version = "0.4.22", default-features = false }
 # The meeting Share menu's save dialogs (plan §4.10), Windows only: meetings
 # ship there first (D4), and rfd's Linux portal backend would drag in a second
 # async runtime (plan §8). No default features: those are Linux-only too.
@@ -196,9 +197,6 @@ gemini-live = ["hark-stt/live", "hark-pipeline/live"]
 
 [build-dependencies]
 cc = "1"
-
-[target.'cfg(target_os = "macos")'.dependencies]
-docx-rs = { version = "0.4.22", default-features = false }
 
 [dev-dependencies]
 tempfile = "3"

@@ -447,6 +447,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             libasound2-dev libgtk-3-dev libayatana-appindicator3-dev \
+            libpipewire-0.3-dev \
             libxdo-dev libxkbcommon-dev libx11-dev pkg-config cmake clang
 
       # SHA-pinned for the same reason every `uses:` in the Windows job is: this
@@ -528,7 +529,7 @@ jobs:
           deb=$(ls target/debian/*.deb)
           depends=$(dpkg-deb -f "$deb" Depends)
           echo "deb Depends: $depends"
-          for want in libayatana-appindicator3-1 libasound2 libgtk-3-0 libc6; do
+          for want in libayatana-appindicator3-1 libasound2 libgtk-3-0 libc6 libpipewire-0.3-0; do
             case "$depends" in
               *"$want"*) ;;
               *) echo "::error::.deb Depends is missing $want -- see the packaging metadata in crates/hark-app/Cargo.toml"; exit 1 ;;
@@ -538,7 +539,7 @@ jobs:
           rpm=$(ls target/generate-rpm/*.rpm)
           requires=$(rpm -qpR "$rpm")
           echo "rpm Requires:"; echo "$requires"
-          for want in libayatana-appindicator3.so.1 libasound.so.2 libgtk-3.so.0; do
+          for want in libayatana-appindicator3.so.1 libasound.so.2 libgtk-3.so.0 libpipewire-0.3.so.0; do
             case "$requires" in
               *"$want"*) ;;
               *) echo "::error::.rpm Requires is missing $want -- see the packaging metadata in crates/hark-app/Cargo.toml"; exit 1 ;;
@@ -687,7 +688,8 @@ jobs:
         run: |
           pacman -Syu --noconfirm --needed \
             git github-cli rust cargo pkgconf cmake clang \
-            alsa-lib gtk3 libappindicator-gtk3 libxkbcommon libx11 libxcb xdotool
+            alsa-lib gtk3 libappindicator-gtk3 libxkbcommon libx11 libxcb xdotool \
+            pipewire clang libclang
 
       - name: Check out the tagged commit
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -748,7 +750,7 @@ jobs:
           echo "$info" | grep -E '^(pkgname|pkgver|depend)'
           echo "$info" | grep -Fxq "pkgver = ${VERSION}-1" \
             || { echo "::error::Arch package version does not match the release"; exit 1; }
-          for want in alsa-lib gtk3 xdotool libappindicator-gtk3 libx11 libxkbcommon; do
+          for want in alsa-lib gtk3 xdotool libappindicator-gtk3 libx11 libxkbcommon pipewire; do
             echo "$info" | grep -qx "depend = $want" \
               || { echo "::error::PKGBUILD depends is missing $want"; exit 1; }
           done

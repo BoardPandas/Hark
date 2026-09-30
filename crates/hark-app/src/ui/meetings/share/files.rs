@@ -6,9 +6,14 @@ pub(super) fn meeting_dir(id: &str) -> Option<PathBuf> {
     hark_config::default_data_dir().map(|d| d.join("meetings").join(id))
 }
 
-/// Ask where to save. `None` when cancelled (or no dialog on this platform).
-/// Runs on a worker thread, owned by Hark's window (plan §4.10) so it stays in
-/// front of it rather than surfacing behind.
+/// Ask where to save. `None` when cancelled (or no dialog helper on this
+/// machine). Runs on a worker thread, owned by Hark's window (plan §4.10) so
+/// it stays in front of it rather than surfacing behind it.
+///
+/// Linux uses the desktop's own dialog helper, `zenity` then `kdialog`: the
+/// alternative, rfd's portal backend, would drag a second async runtime into
+/// the process for one dialog (plan §8). Neither helper installed cancels
+/// politely, the same answer a cancelled dialog gives.
 pub(super) fn ask_path(file_name: &str, filter: &str, ext: &str) -> Option<PathBuf> {
     #[cfg(windows)]
     {
@@ -28,9 +33,54 @@ pub(super) fn ask_path(file_name: &str, filter: &str, ext: &str) -> Option<PathB
     }
     #[cfg(not(any(windows, target_os = "macos")))]
     {
-        let _ = (file_name, filter, ext);
+        let suggested = std::env::temp_dir().join(file_name);
+        for (program, arguments) in [
+            (
+                "zenity",
+                vec![
+                    "--file-selection".to_string(),
+                    "--save".to_string(),
+                    "--confirm-overwrite".to_string(),
+                    format!("--filename={}", suggested.display()),
+                    format!("--file-filter={filter}|*.{ext}"),
+                ],
+            ),
+            (
+                "kdialog",
+                vec![
+                    "--getsavefilename".to_string(),
+                    suggested.display().to_string(),
+                    format!("{filter} (*.{ext})"),
+                ],
+            ),
+        ] {
+            let Ok(which) = which(program) else {
+                continue;
+            };
+            let output = std::process::Command::new(which).args(arguments).output();
+            match output {
+                Ok(output) if output.status.success() => {
+                    let path = String::from_utf8_lossy(&output.stdout).trim().to_string();
+                    return (!path.is_empty()).then(|| PathBuf::from(path));
+                }
+                _ => return None, // cancelled, or the helper itself failed
+            }
+        }
         None
     }
+}
+
+/// The first of these programs that exists on `PATH`.
+#[cfg(not(any(windows, target_os = "macos")))]
+fn which(program: &str) -> Result<PathBuf, std::io::Error> {
+    let path = std::env::var_os("PATH").ok_or_else(|| std::io::Error::other("no PATH"))?;
+    for dir in std::env::split_paths(&path) {
+        let candidate = dir.join(program);
+        if candidate.is_file() {
+            return Ok(candidate);
+        }
+    }
+    Err(std::io::Error::other(format!("{program} is not installed")))
 }
 
 pub(super) fn save_text(name: String, body: String, filter: &str, ext: &str) -> String {
@@ -163,8 +213,35 @@ pub(super) fn show_in_folder(dir: Option<PathBuf>) -> String {
     }
     #[cfg(not(any(windows, target_os = "macos")))]
     {
-        let _ = target;
-        format!("The audio is in {}.", dir.display())
+        // Ask the file manager to show the file, the xdg way; opening the
+        // folder is the fallback when no manager owns the interface.
+        if let Some(file) = &target {
+            let url = format!("file://{}", file.display());
+            let shown = std::process::Command::new("dbus-send")
+                .args([
+                    "--session",
+                    "--print-reply",
+                    "--dest=org.freedesktop.FileManager1",
+                    "/org/freedesktop/FileManager1",
+                    "org.freedesktop.FileManager1.ShowItems",
+                ])
+                .arg(format!("array:string:{url}"))
+                .arg("string:")
+                .stdout(std::process::Stdio::null())
+                .status();
+            if shown.is_ok_and(|s| s.success()) {
+                return "Opened the meeting's folder.".to_string();
+            }
+        }
+        match std::process::Command::new("xdg-open")
+            .arg(&dir)
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status()
+        {
+            Ok(status) if status.success() => "Opened the meeting's folder.".to_string(),
+            _ => format!("The audio is in {}.", dir.display()),
+        }
     }
 }
 

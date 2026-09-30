@@ -37,11 +37,11 @@ Windows, macOS and Linux implement the push-to-talk path. macOS uses CGEventTap 
 
 Cloud transcription is bring-your-own-key, with Deepgram, OpenAI, Groq, OpenAI-compatible endpoints, and Gemini Live supported. An optional Parakeet engine can instead run locally as a cloud backup or the primary recognizer ([README: Tech stack](../README.md#tech-stack), [README: On-device transcription](../README.md#on-device-transcription)). History, stats, settings, the spellbook, and invocations are stored on the machine; provider requests can include transcript text and vocabulary. Hark operates no server, account system, hosted database, or browser frontend ([README: Privacy](../README.md#privacy)).
 
-Windows also supports **Meetings**: microphone and playback capture, live Me/Them transcripts, optional Deepgram or Gemini refinement and LLM notes, transcript search, speaker renaming, explicit final-pass reruns from retained recordings, text/Word/subtitle/audio exports, selected excerpts, and Windows text sharing. On-device Primary keeps live meeting chunks local; the final pass and notes generation have independent settings. Audio is kept under a configurable cap, while eviction preserves transcripts and notes ([README: Features](../README.md#features), [Meetings: Privacy](features/MEETINGS.md#privacy)).
+**Meetings** run on Windows and Linux: microphone and playback capture, live Me/Them transcripts, optional Deepgram or Gemini refinement and LLM notes, transcript search, speaker renaming, explicit final-pass reruns from retained recordings, text/Word/subtitle/audio exports, and selected excerpts; Windows additionally has the OS share sheet. On Linux, system audio and detection come from PipeWire, and save dialogs use the desktop's zenity/kdialog ([Meetings](features/MEETINGS.md), [Audio Capture](features/AUDIO_CAPTURE.md)). On-device Primary keeps live meeting chunks local; the final pass and notes generation have independent settings. Audio is kept under a configurable cap, while eviction preserves transcripts and notes ([README: Features](../README.md#features), [Meetings: Privacy](features/MEETINGS.md#privacy)).
 
-An optional Windows meeting toggle shares the existing keyboard hook with push-to-talk and remains available without dictation credentials ([meeting shortcut](features/MEETINGS.md#start--stop-shortcut)).
+An optional meeting toggle shares the existing keyboard hook with push-to-talk (the Windows low-level hook and the Linux evdev loop alike) and remains available without dictation credentials ([meeting shortcut](features/MEETINGS.md#start--stop-shortcut)).
 
-Windows meeting detection uses registry change notifications with timed checks for debounce, auto-stop, and browser title changes ([Meetings: Auto-Detection](features/MEETINGS.md#auto-detection)).
+Meeting detection is event-driven — registry change notifications on Windows, PipeWire graph events on Linux — with timed checks for debounce, auto-stop, and browser title changes ([Meetings: Auto-Detection](features/MEETINGS.md#auto-detection)).
 
 The optional **Reduce speaker echo** setting uses Rust AEC3 to filter meeting
 microphone audio against captured playback before recording and transcription.
@@ -112,7 +112,7 @@ Hark is one Cargo workspace with 16 member crates and one application binary ([C
 | Text | `hark-spellbook`, `hark-voice` | Correction, invocations, cleanup, and meeting-notes summarization |
 | Output | `hark-inject` | Clipboard and synthesized-key text injection |
 | Orchestration | `hark-pipeline` | State machine, transport selection, retry/fallback, reporting, and (in `pipeline::meeting`) the meeting coordinator/live/finisher threads |
-| Meetings | `hark-meeting` | Meeting logic: lifecycle state machine, live chunking, Me/Them transcript ordering, meeting auto-detection, the audio storage cap, and Share-menu export. Wired into `hark-app` on Windows; see [Meetings](features/MEETINGS.md) |
+| Meetings | `hark-meeting` | Meeting logic: lifecycle state machine, live chunking, Me/Them transcript ordering, meeting auto-detection, the audio storage cap, and Share-menu export. Wired into `hark-app` on Windows and Linux; see [Meetings](features/MEETINGS.md) |
 | State | `hark-config`, `hark-keychain`, `hark-store` | Settings, secrets, history, statistics, and meeting transcripts/notes |
 | Desktop integration | `hark-autostart`, `hark-update` | Login startup and platform update behavior |
 

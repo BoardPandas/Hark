@@ -451,16 +451,25 @@ fn open_meetings_folder() {
     };
     if let Err(e) = std::fs::create_dir_all(&dir) {
         log::warn!("cannot create the meetings folder: {e}");
-    } else {
-        #[cfg(windows)]
-        open_in_explorer(&dir);
-        #[cfg(target_os = "macos")]
-        if let Err(error) = std::process::Command::new("/usr/bin/open")
-            .arg(&dir)
-            .spawn()
-        {
-            log::warn!("cannot open the meetings folder: {error}");
-        }
+        return;
+    }
+    #[cfg(windows)]
+    open_in_explorer(&dir);
+    #[cfg(target_os = "macos")]
+    if let Err(error) = std::process::Command::new("/usr/bin/open")
+        .arg(&dir)
+        .spawn()
+    {
+        log::warn!("cannot open the meetings folder: {error}");
+    }
+    #[cfg(all(unix, not(target_os = "macos")))]
+    if let Err(e) = std::process::Command::new("xdg-open")
+        .arg(&dir)
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+    {
+        log::warn!("cannot open the meetings folder: {e}");
     }
 }
 

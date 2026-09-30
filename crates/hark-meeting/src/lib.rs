@@ -13,8 +13,8 @@
 //!   menu.
 //!
 //! The exceptions to "pure" are small and fenced: [`storage_fs`] (measure
-//! and delete meeting audio, behind a path guard) and [`probe_win`] (read who
-//! holds the microphone on Windows).
+//! and delete meeting audio, behind a path guard) and [`probe`] (read who
+//! holds the microphone: the ConsentStore on Windows, PipeWire on Linux).
 //!
 //! Everything else is arithmetic: no I/O, no threads, no clocks. The
 //! session timeline is counted in 16 kHz samples from the session start, the
@@ -25,9 +25,7 @@ pub mod chunker;
 pub mod detect;
 pub mod export;
 pub mod merge;
-#[cfg(target_os = "macos")]
-pub mod probe_mac;
-pub mod probe_win;
+pub mod probe;
 pub mod session;
 pub mod storage;
 pub mod storage_fs;
