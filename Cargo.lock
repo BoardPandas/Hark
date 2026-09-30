@@ -2570,7 +2570,7 @@ dependencies = [
 
 [[package]]
 name = "hark-app"
-version = "0.60.4"
+version = "0.60.5"
 dependencies = [
  "cc",
  "docx-rs",
@@ -2603,7 +2603,7 @@ dependencies = [
 
 [[package]]
 name = "hark-audio"
-version = "0.60.4"
+version = "0.60.5"
 dependencies = [
  "aec3",
  "cc",
@@ -2624,7 +2624,7 @@ dependencies = [
 
 [[package]]
 name = "hark-autostart"
-version = "0.60.4"
+version = "0.60.5"
 dependencies = [
  "hark-config",
  "objc2-service-management",
@@ -2635,7 +2635,7 @@ dependencies = [
 
 [[package]]
 name = "hark-config"
-version = "0.60.4"
+version = "0.60.5"
 dependencies = [
  "hark-hotkey",
  "log",
@@ -2647,7 +2647,7 @@ dependencies = [
 
 [[package]]
 name = "hark-hotkey"
-version = "0.60.4"
+version = "0.60.5"
 dependencies = [
  "evdev",
  "libc",
@@ -2658,7 +2658,7 @@ dependencies = [
 
 [[package]]
 name = "hark-inject"
-version = "0.60.4"
+version = "0.60.5"
 dependencies = [
  "arboard",
  "enigo",
@@ -2669,7 +2669,7 @@ dependencies = [
 
 [[package]]
 name = "hark-keychain"
-version = "0.60.4"
+version = "0.60.5"
 dependencies = [
  "keyring",
  "thiserror 2.0.20",
@@ -2677,7 +2677,7 @@ dependencies = [
 
 [[package]]
 name = "hark-local-stt"
-version = "0.60.4"
+version = "0.60.5"
 dependencies = [
  "hark-config",
  "log",
@@ -2690,7 +2690,7 @@ dependencies = [
 
 [[package]]
 name = "hark-meeting"
-version = "0.60.4"
+version = "0.60.5"
 dependencies = [
  "hark-audio",
  "log",
@@ -2703,7 +2703,7 @@ dependencies = [
 
 [[package]]
 name = "hark-pipeline"
-version = "0.60.4"
+version = "0.60.5"
 dependencies = [
  "hark-audio",
  "hark-config",
@@ -2724,7 +2724,7 @@ dependencies = [
 
 [[package]]
 name = "hark-single-instance"
-version = "0.60.4"
+version = "0.60.5"
 dependencies = [
  "hark-config",
  "libc",
@@ -2735,7 +2735,7 @@ dependencies = [
 
 [[package]]
 name = "hark-spellbook"
-version = "0.60.4"
+version = "0.60.5"
 dependencies = [
  "rphonetic",
  "strsim",
@@ -2743,7 +2743,7 @@ dependencies = [
 
 [[package]]
 name = "hark-store"
-version = "0.60.4"
+version = "0.60.5"
 dependencies = [
  "rusqlite",
  "tempfile",
@@ -2752,7 +2752,7 @@ dependencies = [
 
 [[package]]
 name = "hark-stt"
-version = "0.60.4"
+version = "0.60.5"
 dependencies = [
  "base64 0.23.1",
  "env_logger",
@@ -2770,7 +2770,7 @@ dependencies = [
 
 [[package]]
 name = "hark-update"
-version = "0.60.4"
+version = "0.60.5"
 dependencies = [
  "log",
  "reqwest",
@@ -2784,7 +2784,7 @@ dependencies = [
 
 [[package]]
 name = "hark-voice"
-version = "0.60.4"
+version = "0.60.5"
 dependencies = [
  "hark-stt",
  "log",

@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.60.5] - 2026-09-30
+
+### Fixed
+
+- The Arch Linux package builds again. The release asked pacman for `libclang`, which Arch does not have (it ships inside `clang`), so 0.60.4 published no `.pkg.tar.zst`. The PKGBUILD now names `libpipewire`, the real Arch package for PipeWire's build files, so building from the AUR recipe works too.
+
 ## [0.60.4] - 2026-09-30
 
 ### Changed

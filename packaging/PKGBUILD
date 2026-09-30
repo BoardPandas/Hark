@@ -44,11 +44,12 @@ depends=('alsa-lib' 'gtk3' 'xdotool' 'libappindicator-gtk3' 'libx11' 'libxkbcomm
 #           rustls -> reqwest -- the cloud STT path, not the optional local
 #           engine. `--no-default-features` does not avoid it. (sherpa-onnx-sys
 #           1.13.4 needs no cmake at all: it downloads a prebuilt archive.)
-#   clang   not load-bearing today -- aws-lc-sys's bindgen is optional, nothing
-#           in Cargo.lock turns it on, and `cc` picks gcc from base-devel
-#           regardless. It is here so an AUR build uses the same toolchain the
-#           release container installs, rather than a near-miss of it.
-makedepends=('rust' 'cargo' 'pkgconf' 'cmake' 'clang' 'libpipewire-0.3')
+#   clang   pipewire-sys and libspa-sys run bindgen, which loads libclang.so;
+#           Arch ships that inside `clang` (there is no `libclang` package).
+#   libpipewire  the PipeWire headers and libpipewire-0.3.pc those bindings
+#           build against. The package is `libpipewire`; `libpipewire-0.3` is
+#           a soname, not a name pacman can resolve.
+makedepends=('rust' 'cargo' 'pkgconf' 'cmake' 'clang' 'libpipewire')
 # The API key is stored through the Secret Service. Optional, not a hard
 # dependency: HARK_STT_KEY works without any keyring at all.
 optdepends=('gnome-keyring: store the API key in the GNOME keyring'

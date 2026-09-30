@@ -1,5 +1,11 @@
 # Generation Metadata
 
+## Arch release dependency repair — 2026-09-30 (0.60.5)
+
+- **Scope:** the 0.60.4 Arch job failed at `pacman -Syu` with `target not found: libclang`. Arch has no such package (`clang` ships `libclang.so`); the install line now names `libpipewire` for PipeWire headers and drops the virtual `cargo` that triggered a provider prompt. The PKGBUILD's `libpipewire-0.3` makedepend (a soname, not a package) became `libpipewire`.
+- **Source reviewed:** `ef4a80a` plus the Arch job in `release.yml`, `packaging/PKGBUILD`, and Arch's package index for `clang` and `libpipewire` file lists.
+- **Baseline policy:** global baseline `784272c` remains unchanged.
+
 ## Apple Silicon-only Mac distribution — 2026-09-30 (0.60.4)
 
 - **Scope:** per the owner's request, Mac support now targets ARM64 only. Removed the Intel CI runner and release matrix entry; packaging rejects other requested architectures and the updater no longer selects Intel Mac assets. Updated current installation, distribution and updater guidance; earlier Intel validation notes below describe historical scope.

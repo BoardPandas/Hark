@@ -484,3 +484,7 @@ The AI review workflows for 0.50.5 through 0.53.0 skipped their review because
 
 - The owner removed Intel Mac support. CI and release packaging now use one Apple Silicon runner; the packager rejects Intel requests and the updater accepts only ARM64 Mac assets.
 - Native ARM checks pass: formatting, full workspace Clippy, 1,036 tests (one optional fixture ignored), workflow YAML validation, both npm guards, and app/DMG packaging with an executable version smoke check. Earlier Intel acceptance notes are historical; Windows/Linux release targets remain unchanged.
+
+## Arch release dependency repair — 2026-09-30 (0.60.5)
+
+- The Arch job now installs Arch package names: `clang` (which carries bindgen's `libclang.so`) and `libpipewire`, instead of the nonexistent `libclang`. The PKGBUILD's makedepends uses `libpipewire` rather than the `libpipewire-0.3` soname.

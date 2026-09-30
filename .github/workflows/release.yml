@@ -684,12 +684,17 @@ jobs:
       # ships without it. A full -Syu rather than -Sy because Arch does not
       # support partial upgrades -- a mixed library set breaks in ways that
       # look like build errors.
+      # Arch package names, not Debian ones: there is no `libclang` package
+      # (bindgen's libclang.so ships in `clang`), and PipeWire's headers and .pc
+      # are `libpipewire`. An unknown name fails the whole transaction with
+      # "target not found". `cargo` is left to `rust`: naming the virtual
+      # package makes pacman stop at a provider prompt.
       - name: Install build dependencies
         run: |
           pacman -Syu --noconfirm --needed \
-            git github-cli rust cargo pkgconf cmake clang \
+            git github-cli rust pkgconf cmake clang \
             alsa-lib gtk3 libappindicator-gtk3 libxkbcommon libx11 libxcb xdotool \
-            pipewire clang libclang
+            pipewire libpipewire
 
       - name: Check out the tagged commit
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
