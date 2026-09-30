@@ -26,7 +26,11 @@ mod watch;
 pub use watch::ChangeWatcher;
 
 /// Take one detector snapshot. Window titles are only scanned when a browser
-/// holds the mic, since only browsers consult them.
+/// holds the mic, since only browsers consult them. Off Windows the facade
+/// routes elsewhere, so this exists only for the Windows dispatch (and would
+/// otherwise be dead code on the macOS build, which still compiles this
+/// module for its `ChangeWatcher`).
+#[cfg(windows)]
 pub fn snapshot() -> io::Result<Snapshot> {
     #[cfg(windows)]
     {
@@ -38,7 +42,9 @@ pub fn snapshot() -> io::Result<Snapshot> {
     }
 }
 
-/// Every running process, for [`crate::detect::root_pid`].
+/// Every running process, for [`crate::detect::root_pid`]. Windows only,
+/// like [`snapshot`].
+#[cfg(windows)]
 pub fn processes() -> io::Result<Vec<Proc>> {
     #[cfg(windows)]
     {

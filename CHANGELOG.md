@@ -6,6 +6,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.60.2] - 2026-09-30
+
+### Fixed
+
+- The 0.60.1 tree still failed macOS clippy: the Windows probe's
+  `snapshot`/`processes` became dead code there once the facade routed macOS
+  to its own probe, and denied-warnings builds treat that as an error. They
+  are now compiled only for the Windows dispatch; macOS keeps compiling that
+  module for its polling-fallback watcher. Mapped documentation pages are
+  updated in the same commit, and `package.json` keeps its original
+  no-trailing-newline form so version-only bumps stay exempt from the
+  documentation drift guard.
+
 ## [0.60.1] - 2026-09-30
 
 ### Fixed

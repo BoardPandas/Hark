@@ -1,5 +1,13 @@
 # Generation Metadata
 
+## Scoped Windows/macOS build repairs — 2026-09-30 (0.60.1–0.60.2)
+
+- **Source reviewed:** the 0.60.0 rebased tree: `crates/hark-audio/src/core_audio_mac.rs` (stale `loopback_win` import), `crates/hark-meeting/src/probe/win.rs` and `watch_win.rs` (inner module collision and macOS dead code after the facade split), and `package.json` (trailing newline defeating the version-only drift exemption).
+- **Evidence:** `cargo check`/`clippy -D warnings` clean for the native Linux target and a cross-check for `x86_64-pc-windows-gnu`; the macOS-only dead-code path is the same class CI caught and is gated off. The asset-less broken v0.60.0 and v0.60.1 releases and tags were removed.
+- **Scope:** this record plus the Meetings operational bullet and the Audio Capture hook sentence.
+- **Baseline policy:** global baseline `784272c` remains unchanged.
+- **Validation:** fmt, workspace clippy/tests, both npm guards, Windows cross-check.
+
 ## macOS implementation parity — 2026-09-29
 
 - **Source reviewed:** `1c1384c` plus the current macOS native backend, app, export, permission, update, login-item and packaging changes. Existing Windows and Linux implementations are preserved behind their platform gates.
