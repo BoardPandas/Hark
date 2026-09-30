@@ -75,3 +75,10 @@ same person ([meeting labels](features/MEETINGS.md#gemini-files-final-pass)).
 reference to reduce its echo in microphone input. Hark's
 [standalone comparison](../tools/meeting-aec-bakeoff/RESULTS.md) measures candidate
 engines; production AEC remains disabled pending listening/build/alignment work.
+
+## Mac native integration
+
+- **CGEventTap:** Quartz’s keyboard event stream, used by Hark for held shortcuts, shortcut recording and meeting toggles. It runs on a dedicated Core Foundation run loop.
+- **Core Audio process tap:** macOS 14.2+ capture of selected processes or the system mix, used for the meeting’s Them track.
+- **TCC permissions:** macOS user approvals for microphone access, global input observation, text insertion and system audio/screen capture. These are separate from an app’s code signature.
+- **Developer ID and notarization:** the publisher signature and Apple assessment required by Hark’s production Mac package and self-update verification; ad-hoc development signatures are not an update trust anchor.

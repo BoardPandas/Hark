@@ -106,6 +106,9 @@ impl PromptWindow {
             log::info!("meeting prompt: showing");
             #[cfg(windows)]
             win::place(ctx.zoom_factor());
+            #[cfg(target_os = "macos")]
+            crate::macos::place_overlay(TITLE, true);
+            #[cfg(not(target_os = "macos"))]
             ctx.send_viewport_cmd_to(viewport_id(), egui::ViewportCommand::Visible(true));
             ctx.request_repaint_of(viewport_id());
         } else if gone && reply.is_none() {
@@ -124,6 +127,17 @@ impl PromptWindow {
         }
         if let Some(reply) = reply {
             log::info!("meeting prompt: answered {reply:?}");
+        }
+        #[cfg(target_os = "macos")]
+        {
+            crate::macos::place_overlay(TITLE, true);
+            let visible = prompt.is_some() && reply.is_none();
+            if !crate::macos::overlay_visible(TITLE, visible) && visible {
+                ctx.request_repaint_after_for(Duration::from_millis(50), egui::ViewportId::ROOT);
+            }
+            if visible {
+                ctx.request_repaint_of(viewport_id());
+            }
         }
         register(ctx, self.shared.clone());
         reply
@@ -161,6 +175,8 @@ fn paint(ui: &mut egui::Ui, shared: &Mutex<Shared>) {
         ctx.send_viewport_cmd(egui::ViewportCommand::Visible(false));
         return;
     };
+    #[cfg(target_os = "macos")]
+    crate::macos::place_overlay(TITLE, true);
     if state.painted != Some(shown) {
         state.painted = Some(shown);
         log::info!("meeting prompt: painted");

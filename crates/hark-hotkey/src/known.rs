@@ -57,8 +57,13 @@ impl KnownShortcut {
                  it to Hark, so it would never start a dictation. Pick another one."
                 .to_string(),
             Tier::SystemTaken => format!(
-                "Windows uses this shortcut too — it {}. Hark never swallows keys, so \
+                "{} uses this shortcut too — it {}. Hark never swallows keys, so \
                  dictating will do both.",
+                if cfg!(target_os = "macos") {
+                    "macOS"
+                } else {
+                    "Windows"
+                },
                 self.action
             ),
             Tier::AppTaken => format!(
@@ -90,14 +95,28 @@ const fn sideless(key: PttKeyCode) -> &'static str {
 /// belongs to the KEY, not the combination, so it must be reported for any
 /// chord containing one — unlike an app shortcut, where Ctrl+Shift+A genuinely
 /// is not Ctrl+A and exact matching is right.
-fn lock_key_in(keys: &[PttKeyCode]) -> Option<&'static KnownShortcut> {
+fn lock_key_in(
+    keys: &[PttKeyCode],
+    table: &'static [KnownShortcut],
+) -> Option<&'static KnownShortcut> {
     let lock = keys
         .iter()
         .find(|k| matches!(k, K::CapsLock | K::NumLock | K::ScrollLock))?;
-    KNOWN.iter().find(|row| row.chord == lock.token())
+    table.iter().find(|row| row.chord == lock.token())
 }
 
 pub fn lookup(keys: &[PttKeyCode]) -> Option<&'static KnownShortcut> {
+    #[cfg(target_os = "macos")]
+    let table = crate::known_mac::KNOWN_MAC;
+    #[cfg(not(target_os = "macos"))]
+    let table = KNOWN;
+    lookup_in(keys, table)
+}
+
+pub(crate) fn lookup_in(
+    keys: &[PttKeyCode],
+    table: &'static [KnownShortcut],
+) -> Option<&'static KnownShortcut> {
     // Normalise: side-less, and deduped — LCtrl+RCtrl+A is Ctrl+A to Windows.
     let mut mine: [&'static str; 4] = [""; 4];
     let mut len = 0usize;
@@ -109,11 +128,11 @@ pub fn lookup(keys: &[PttKeyCode]) -> Option<&'static KnownShortcut> {
         }
     }
     let mine = &mine[..len];
-    KNOWN
+    table
         .iter()
         .find(|row| row_matches(row.chord, mine, false))
-        .or_else(|| KNOWN.iter().find(|row| row_matches(row.chord, mine, true)))
-        .or_else(|| lock_key_in(keys))
+        .or_else(|| table.iter().find(|row| row_matches(row.chord, mine, true)))
+        .or_else(|| lock_key_in(keys, table))
 }
 
 impl PttChord {
@@ -396,6 +415,14 @@ pub const KNOWN: &[KnownShortcut] = &[
 ];
 
 #[cfg(test)]
+impl PttChord {
+    // Keep exercising the Windows table on every host alongside native tests.
+    fn windows_shortcut(&self) -> Option<&'static KnownShortcut> {
+        lookup_in(self.keys(), KNOWN)
+    }
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
     use std::collections::HashSet;
@@ -442,21 +469,21 @@ mod tests {
     #[test]
     fn matching_is_sideless_orderless_and_exact() {
         let a = PttChord::parse("RCtrl+RShift+A").unwrap();
-        assert_eq!(a.known_shortcut().unwrap().chord, "Ctrl+Shift+A");
+        assert_eq!(a.windows_shortcut().unwrap().chord, "Ctrl+Shift+A");
         let b = PttChord::parse("A+LShift+LCtrl").unwrap();
-        assert_eq!(b.known_shortcut().unwrap().chord, "Ctrl+Shift+A");
+        assert_eq!(b.windows_shortcut().unwrap().chord, "Ctrl+Shift+A");
         // Superset must NOT match a subset row.
         assert!(PttChord::parse("Ctrl+A").is_err() || true);
         let c = PttChord::parse("LCtrl+A").unwrap();
         assert!(
-            c.known_shortcut().is_none(),
+            c.windows_shortcut().is_none(),
             "Ctrl+A must not match Ctrl+Shift+A"
         );
         // Wildcard, and exact beats wildcard.
         assert_eq!(
             PttChord::parse("LWin+7")
                 .unwrap()
-                .known_shortcut()
+                .windows_shortcut()
                 .unwrap()
                 .chord,
             "Win+Digit"
@@ -464,7 +491,7 @@ mod tests {
         assert_eq!(
             PttChord::parse("LCtrl+LAlt+1")
                 .unwrap()
-                .known_shortcut()
+                .windows_shortcut()
                 .unwrap()
                 .chord,
             "Ctrl+Alt+1"
@@ -473,7 +500,7 @@ mod tests {
         assert_eq!(
             PttChord::parse("LCtrl+RCtrl+T")
                 .unwrap()
-                .known_shortcut()
+                .windows_shortcut()
                 .unwrap()
                 .chord,
             "Ctrl+T"
@@ -531,9 +558,9 @@ mod table_integrity {
     fn a_superset_never_matches_a_shorter_row() {
         // Ctrl+Shift+A is a known row; adding Alt makes it a different chord
         // that nothing claims, and it must NOT inherit the shorter row's text.
-        assert!(chord("LCtrl+LShift+A").known_shortcut().is_some());
+        assert!(chord("LCtrl+LShift+A").windows_shortcut().is_some());
         let longer = chord("LCtrl+LShift+LAlt+A");
-        if let Some(hit) = longer.known_shortcut() {
+        if let Some(hit) = longer.windows_shortcut() {
             assert_eq!(
                 hit.chord.split('+').count(),
                 4,
@@ -545,14 +572,14 @@ mod table_integrity {
 
     #[test]
     fn left_and_right_modifiers_are_the_same_shortcut() {
-        let left = chord("LCtrl+LShift+M").known_shortcut();
-        let right = chord("RCtrl+RShift+M").known_shortcut();
+        let left = chord("LCtrl+LShift+M").windows_shortcut();
+        let right = chord("RCtrl+RShift+M").windows_shortcut();
         assert!(left.is_some(), "Ctrl+Shift+M should be a known shortcut");
         assert_eq!(left.map(|k| k.chord), right.map(|k| k.chord));
         // ...and holding both Ctrls is still just Ctrl.
         assert_eq!(
             chord("LCtrl+RCtrl+LShift+M")
-                .known_shortcut()
+                .windows_shortcut()
                 .map(|k| k.chord),
             left.map(|k| k.chord)
         );
@@ -561,8 +588,8 @@ mod table_integrity {
     #[test]
     fn order_does_not_matter() {
         assert_eq!(
-            chord("LShift+LCtrl+M").known_shortcut().map(|k| k.chord),
-            chord("LCtrl+LShift+M").known_shortcut().map(|k| k.chord)
+            chord("LShift+LCtrl+M").windows_shortcut().map(|k| k.chord),
+            chord("LCtrl+LShift+M").windows_shortcut().map(|k| k.chord)
         );
     }
 
@@ -579,7 +606,9 @@ mod table_integrity {
                     .replace("Alt", "LAlt")
                     .replace("Win", "LWin"),
             ) {
-                let hit = c.known_shortcut().expect("wildcard should match at least");
+                let hit = c
+                    .windows_shortcut()
+                    .expect("wildcard should match at least");
                 let exact_exists = KNOWN.iter().any(|r| r.chord == specific);
                 if exact_exists {
                     assert_eq!(hit.chord, specific, "wildcard shadowed the exact row");
@@ -613,7 +642,7 @@ mod table_integrity {
             "ScrollLock",
         ] {
             let hit = chord(text)
-                .known_shortcut()
+                .windows_shortcut()
                 .unwrap_or_else(|| panic!("{text} should report its lock key"));
             assert!(
                 hit.action.contains("toggles"),
@@ -622,14 +651,14 @@ mod table_integrity {
             );
         }
         // A chord with no lock key is unaffected by the fallback.
-        assert!(chord("LCtrl+LWin+F13").known_shortcut().is_none());
+        assert!(chord("LCtrl+LWin+F13").windows_shortcut().is_none());
     }
 
     #[test]
     fn a_shortcut_nobody_uses_is_not_reported() {
-        assert!(chord("LCtrl+LWin+F13").known_shortcut().is_none());
+        assert!(chord("LCtrl+LWin+F13").windows_shortcut().is_none());
         assert!(
-            chord("LCtrl+LWin").known_shortcut().is_none(),
+            chord("LCtrl+LWin").windows_shortcut().is_none(),
             "the shipped default must be clean"
         );
     }
@@ -637,7 +666,7 @@ mod table_integrity {
     #[test]
     fn the_message_says_both_things_happen() {
         let hit = chord("LWin+P")
-            .known_shortcut()
+            .windows_shortcut()
             .expect("Win+P is well known");
         let msg = hit.message();
         assert!(msg.contains("both"), "unhelpfully worded: {msg}");

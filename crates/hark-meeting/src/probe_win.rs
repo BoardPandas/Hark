@@ -15,8 +15,8 @@
 //! Window titles are read in memory to test for a meeting marker and never
 //! stored, returned or logged.
 //!
-//! Off Windows everything returns `Unsupported` (macOS gets its own probe in
-//! the macOS phase; Linux is deferred).
+//! The public facade dispatches macOS to `probe_mac`; other non-Windows
+//! platforms return `Unsupported`. Registry notifications remain Windows-only.
 
 use crate::detect::{Proc, Snapshot};
 use std::io;
@@ -32,7 +32,11 @@ pub fn snapshot() -> io::Result<Snapshot> {
     {
         win::snapshot()
     }
-    #[cfg(not(windows))]
+    #[cfg(target_os = "macos")]
+    {
+        super::probe_mac::snapshot()
+    }
+    #[cfg(not(any(windows, target_os = "macos")))]
     {
         Err(unsupported())
     }
@@ -44,7 +48,11 @@ pub fn processes() -> io::Result<Vec<Proc>> {
     {
         win::processes()
     }
-    #[cfg(not(windows))]
+    #[cfg(target_os = "macos")]
+    {
+        super::probe_mac::processes()
+    }
+    #[cfg(not(any(windows, target_os = "macos")))]
     {
         Err(unsupported())
     }

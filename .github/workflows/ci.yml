@@ -158,12 +158,14 @@ jobs:
   # compiled on in CI.
   rust:
     name: clippy + tests (${{ matrix.os }})
+    env:
+      MACOSX_DEPLOYMENT_TARGET: "14.2"
     needs: [wiring, fmt]
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
-        os: [windows-latest, macos-latest, ubuntu-latest]
+        os: [windows-latest, macos-15, macos-15-intel, ubuntu-latest]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -238,3 +240,13 @@ jobs:
 
       - name: cargo test
         run: cargo test --workspace
+
+      - name: Verify macOS bundle packaging
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          cargo build -p hark-app
+          arch=arm64
+          [[ "$(uname -m)" == x86_64 ]] && arch=x64
+          bash scripts/package-macos.sh target/debug/hark-app dist "$(node -p 'require("./package.json").version')" "$arch"
+          test "$(dist/Hark.app/Contents/MacOS/hark-app --version)" = "Hark $(node -p 'require("./package.json").version')"

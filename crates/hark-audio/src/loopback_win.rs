@@ -52,17 +52,26 @@ pub enum LoopbackError {
 /// moves to the meeting drain; this handle keeps the stream alive, and
 /// dropping it stops the stream and joins its thread.
 pub struct LoopbackHandle {
-    shutdown: Arc<AtomicBool>,
-    stream_error: Arc<AtomicBool>,
-    discontinuities: Arc<AtomicU64>,
-    start_qpc_ns: Arc<AtomicU64>,
-    thread: Option<std::thread::JoinHandle<()>>,
+    #[cfg(target_os = "macos")]
+    pub(crate) sample_rate: u32,
+    pub(crate) shutdown: Arc<AtomicBool>,
+    pub(crate) stream_error: Arc<AtomicBool>,
+    pub(crate) discontinuities: Arc<AtomicU64>,
+    pub(crate) start_qpc_ns: Arc<AtomicU64>,
+    pub(crate) thread: Option<std::thread::JoinHandle<()>>,
 }
 
 impl LoopbackHandle {
-    /// Always [`LOOPBACK_RATE`]: no resampling needed downstream.
+    /// Windows delivers 16 kHz; macOS delivers the tap device rate.
     pub fn sample_rate(&self) -> u32 {
-        LOOPBACK_RATE
+        #[cfg(target_os = "macos")]
+        {
+            self.sample_rate
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            LOOPBACK_RATE
+        }
     }
 
     /// True once capture has stopped for good (the stream reported an error
@@ -77,8 +86,8 @@ impl LoopbackHandle {
         self.discontinuities.clone()
     }
 
-    /// When ring sample 0 was captured, on the QPC clock in nanoseconds (the
-    /// clock cpal stamps microphone packets with), or `None` before the first
+    /// When ring sample 0 was captured, in host-clock nanoseconds (QPC on
+    /// Windows, mach absolute time on macOS), or `None` before the first
     /// packet with a valid timestamp. The drain uses it to place this channel
     /// on the session timeline beside the microphone.
     pub fn start_qpc_ns(&self) -> Option<u64> {
@@ -109,7 +118,11 @@ pub fn start_process_loopback(
     {
         win::start(target, ring_seconds)
     }
-    #[cfg(not(windows))]
+    #[cfg(target_os = "macos")]
+    {
+        crate::core_audio_mac::start(target, ring_seconds)
+    }
+    #[cfg(not(any(windows, target_os = "macos")))]
     {
         let _ = (target, ring_seconds);
         Err(LoopbackError::UnsupportedPlatform)
@@ -482,5 +495,17 @@ mod win {
                 stream.capture.ReleaseBuffer(frames)?;
             }
         }
+    }
+}
+
+/// Whether this OS has a native system-audio capture API. Permission is requested at start.
+pub fn supported() -> bool {
+    #[cfg(target_os = "macos")]
+    {
+        crate::core_audio_mac::supported()
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        cfg!(windows)
     }
 }

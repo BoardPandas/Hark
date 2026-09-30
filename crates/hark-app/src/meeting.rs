@@ -101,7 +101,7 @@ impl MeetingController {
             .store(settings.meeting.audio_cap_bytes(), Ordering::Relaxed);
         if !meeting::meetings_supported() {
             self.status = MeetingStatus::Unavailable(
-                "Meeting notes are available on Windows for now.".to_string(),
+                "Meeting notes require Windows or macOS 14.2 or newer.".to_string(),
             );
             return;
         }

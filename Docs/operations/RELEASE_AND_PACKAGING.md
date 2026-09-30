@@ -25,7 +25,7 @@ The following files were used as evidence for this page:
 <!-- BEGIN:AUTOGEN hark_13_release_packaging_overview -->
 ## Overview
 
-Cutting a Hark release means pushing a `vMAJOR.MINOR.PATCH` tag; everything after that (build, sign, verify, package, publish) is automated by GitHub Actions ([release.yml:72-704](../../.github/workflows/release.yml#L72-L704)). The work is split across four jobs: a `version` gate that verifies the tag and creates the release object, then `release` (Windows), `linux`, and `linux-arch` appending assets to it ([release.yml:84-185](../../.github/workflows/release.yml#L84-L185)). The Windows job builds `hark-app`, signs the binary with Azure Trusted Signing, packages it into a per-user Inno Setup installer, signs that installer too, and verifies both signatures ([release.yml:185-395](../../.github/workflows/release.yml#L185-L395)).
+Cutting a Hark release means pushing a `vMAJOR.MINOR.PATCH` tag; everything after that (build, sign, verify, package, publish) is automated by GitHub Actions ([release.yml:72-704](../../.github/workflows/release.yml#L72-L704)). The work is split across platform jobs: a `version` gate that verifies the tag and creates the release object, then Windows, macOS (Apple Silicon and Intel), Linux and Arch jobs appending assets to it ([release.yml:84-185](../../.github/workflows/release.yml#L84-L185)). The Windows job builds `hark-app`, signs the binary with Azure Trusted Signing, packages it into a per-user Inno Setup installer, signs that installer too, and verifies both signatures ([release.yml:185-395](../../.github/workflows/release.yml#L185-L395)).
 
 The trigger is either a pushed tag matching `v*` or a manual `workflow_dispatch` run against an existing tag ([release.yml:54-62](../../.github/workflows/release.yml#L54-L62)). A `concurrency` group keyed on the tag prevents two runs from racing on the same release, with `cancel-in-progress: false` so a second tag never cancels a build already under way ([release.yml:68-70](../../.github/workflows/release.yml#L68-L70)).
 
@@ -217,3 +217,9 @@ Sources: [package.json:1-7](https://github.com/BoardPandas/Hark/blob/1c1738716fa
 <!-- END:AUTOGEN hark_13_release_packaging_version -->
 
 ---
+
+## macOS distribution
+
+The Mac package is a complete `Hark.app` inside an architecture-specific DMG. It targets macOS 14.2+, includes microphone/system-audio usage descriptions and the audio-input entitlement, and ships the third-party notices with the bundle. Local packaging can use an ad-hoc signature for development. Release packaging requires Developer ID signing, notarization and stapling; it must fail when signing credentials are missing rather than publish an unsigned release.
+
+Mac CI builds and tests both Apple Silicon and Intel. Interactive validation still covers the TCC permission flow, held shortcuts, insertion into other apps, meeting app/system audio, screen placement, save/share sheets, login registration and a signed update. Refer to the Mac packaging instructions for commands and the exact secret names.

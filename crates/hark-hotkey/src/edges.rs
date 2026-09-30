@@ -100,13 +100,16 @@ impl PttChord {
                 return Some(Rejected::LoneModifier(only));
             }
         }
-        // Hark pastes with Ctrl+V. A chord built on it fights its own
+        // Hark pastes with Ctrl+V (Command+V on macOS). A chord built on it fights its own
         // injection — and V only became bindable when the key set opened up.
-        let has_ctrl = self
-            .keys
-            .iter()
-            .any(|k| matches!(k, PttKeyCode::LCtrl | PttKeyCode::RCtrl));
-        if has_ctrl && self.keys.contains(&PttKeyCode::V) {
+        let has_paste_modifier = self.keys.iter().any(|k| {
+            if cfg!(target_os = "macos") {
+                matches!(k, PttKeyCode::LWin | PttKeyCode::RWin)
+            } else {
+                matches!(k, PttKeyCode::LCtrl | PttKeyCode::RCtrl)
+            }
+        });
+        if has_paste_modifier && self.keys.contains(&PttKeyCode::V) {
             return Some(Rejected::CollidesWithInjection);
         }
         if self.keys.iter().any(|k| k.is_command_modifier()) {
@@ -1072,13 +1075,23 @@ mod tests {
     /// Hark pastes with Ctrl+V. Binding push-to-talk to it would have the
     /// dictation fight its own injection -- newly reachable now that V binds.
     #[test]
-    fn ctrl_v_collides_with_harks_own_paste() {
+    fn platform_paste_chord_collides_with_harks_own_paste() {
+        let left = if cfg!(target_os = "macos") {
+            "LWin+V"
+        } else {
+            "LCtrl+V"
+        };
+        let right = if cfg!(target_os = "macos") {
+            "RWin+LShift+V"
+        } else {
+            "RCtrl+LShift+V"
+        };
         assert_eq!(
-            chord("LCtrl+V").rejection(),
+            chord(left).rejection(),
             Some(Rejected::CollidesWithInjection)
         );
         assert_eq!(
-            chord("RCtrl+LShift+V").rejection(),
+            chord(right).rejection(),
             Some(Rejected::CollidesWithInjection)
         );
         // Without Ctrl there is no collision.

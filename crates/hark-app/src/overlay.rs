@@ -98,6 +98,7 @@ pub use feedback::Feedback;
 /// instead. The pulse glow is clipped to the capsule.
 const WINDOW: egui::Vec2 = theme::OVERLAY_SIZE;
 /// Fraction of the screen height to float above the bottom edge.
+#[cfg(not(target_os = "macos"))]
 const BOTTOM_MARGIN_FRAC: f32 = 0.09;
 
 /// The overlay's viewport id. One window for the life of the pipeline, so this
@@ -128,6 +129,22 @@ pub fn register(
     monitor: Option<egui::Vec2>,
 ) {
     let id = viewport_id();
+    #[cfg(target_os = "macos")]
+    {
+        let visible = feedback.state(recording.load(std::sync::atomic::Ordering::Relaxed))
+            != feedback::State::Hidden;
+        crate::macos::place_overlay("Hark recording", false);
+        if !crate::macos::overlay_visible("Hark recording", visible) && visible {
+            // Deferred native window creation completes after this parent pass.
+            ctx.request_repaint_after_for(
+                std::time::Duration::from_millis(50),
+                egui::ViewportId::ROOT,
+            );
+        }
+        if visible {
+            ctx.request_repaint_of(id);
+        }
+    }
 
     let builder = egui::ViewportBuilder::default()
         .with_title("Hark recording")
@@ -152,7 +169,7 @@ pub fn register(
     // Windows places the pill itself, from the real work area of the monitor
     // the user is on (`place`); a creation-time guess would only put it
     // somewhere wrong until the first paint moves it.
-    #[cfg(not(windows))]
+    #[cfg(not(any(windows, target_os = "macos")))]
     let builder = match monitor {
         Some(monitor) => builder.with_position(bottom_centre(monitor)),
         None => builder,
@@ -168,7 +185,7 @@ pub fn register(
 /// Only meaningful off Windows: a size with no origin assumes the monitor
 /// starts at (0, 0) and shares the primary's DPI, which a multi-monitor Windows
 /// desktop breaks. `work_area_position` is the Windows answer.
-#[cfg(not(windows))]
+#[cfg(not(any(windows, target_os = "macos")))]
 fn bottom_centre(monitor: egui::Vec2) -> egui::Pos2 {
     let x = (monitor.x - WINDOW.x) / 2.0;
     let y = monitor.y - WINDOW.y - monitor.y * BOTTOM_MARGIN_FRAC;
@@ -191,7 +208,7 @@ fn place(ctx: &egui::Context, monitor: Option<egui::Vec2>) {
     reposition(ctx);
 }
 
-#[cfg(not(windows))]
+#[cfg(not(any(windows, target_os = "macos")))]
 fn place(ctx: &egui::Context, monitor: Option<egui::Vec2>) {
     let Some(monitor) = monitor else {
         return;
@@ -440,4 +457,9 @@ pub(crate) fn strip_frame_styles(hwnd: windows::Win32::Foundation::HWND) -> bool
         );
     }
     true
+}
+
+#[cfg(target_os = "macos")]
+fn place(_ctx: &egui::Context, _monitor: Option<egui::Vec2>) {
+    crate::macos::place_overlay("Hark recording", false);
 }

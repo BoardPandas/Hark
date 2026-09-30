@@ -40,11 +40,35 @@ pub const DEFAULT_APPS: &[&str] = &[
     "msedge.exe",
     "firefox.exe",
     "brave.exe",
+    "com.microsoft.teams2",
+    "com.microsoft.teams",
+    "us.zoom.xos",
+    "com.cisco.webexmeetingsapp",
+    "com.cisco.webex",
+    "com.tinyspeck.slackmacgap",
+    "com.hnc.discord",
+    "com.logmein.goto",
+    "com.ringcentral.glip",
+    "com.google.chrome",
+    "com.microsoft.edgemac",
+    "org.mozilla.firefox",
+    "com.brave.browser",
+    "com.apple.safari",
 ];
 
 /// Apps that hold the mic for anything (a dictation site, a voice note), so
 /// they only count while a window title says a meeting is open.
-pub const BROWSERS: &[&str] = &["chrome.exe", "msedge.exe", "firefox.exe", "brave.exe"];
+pub const BROWSERS: &[&str] = &[
+    "chrome.exe",
+    "msedge.exe",
+    "firefox.exe",
+    "brave.exe",
+    "com.google.chrome",
+    "com.microsoft.edgemac",
+    "org.mozilla.firefox",
+    "com.brave.browser",
+    "com.apple.safari",
+];
 
 /// Title fragments that mark a browser window as a meeting. Elevate's web
 /// phone keeps the same title idle and on a call, but holds the mic only
@@ -670,6 +694,25 @@ mod tests {
         let mut d = Detector::new(config(DetectMode::Auto));
         let recorder = snap(vec![desktop(r"C:#Tools#audacity.exe", true)]);
         assert!(poll(&mut d, &recorder, 0, 60_000).is_empty());
+    }
+
+    #[test]
+    fn macos_bundle_ids_require_real_mic_use_and_browser_meeting_titles() {
+        let mut detector = Detector::new(config(DetectMode::Auto));
+        let mut snapshot = snap(vec![MicUse {
+            app: MicApp::Packaged("com.google.chrome".into()),
+            in_use: false,
+        }]);
+        snapshot.meeting_windows.push("com.google.chrome".into());
+        assert!(poll(&mut detector, &snapshot, 0, 10_000).is_empty());
+        snapshot.users[0].in_use = true;
+        snapshot.meeting_windows.clear();
+        assert!(poll(&mut detector, &snapshot, 12_000, 22_000).is_empty());
+        snapshot.meeting_windows.push("com.google.chrome".into());
+        assert_eq!(
+            poll(&mut detector, &snapshot, 24_000, 30_000),
+            vec![(30_000, Verdict::Start("com.google.chrome".into()))]
+        );
     }
 
     #[test]

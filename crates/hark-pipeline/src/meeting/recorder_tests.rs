@@ -159,3 +159,23 @@ fn an_error_arriving_after_the_drain_snapshot_cannot_close_an_unflushed_track() 
         expected.into_iter().map(f32_to_i16).collect::<Vec<_>>()
     );
 }
+
+#[test]
+fn initial_alignment_does_not_treat_resampler_buffering_as_startup_silence() {
+    let dir = tempfile::tempdir().unwrap();
+    for (channel, rate) in [(Channel::Me, 44_100), (Channel::Them, 48_000)] {
+        let (producer, mut track) = track(dir.path(), channel, rate);
+        track.aligned = false;
+        let input = vec![0.25; rate as usize / 10];
+        let mut reference = StreamResampler::new(rate).unwrap();
+        let expected = reference.push(&input).unwrap();
+        assert!(expected.len() < 1600, "fixture must leave audio buffered");
+        producer.push(&input);
+        // 100 ms captured, read 150 ms after session start: exactly 50 ms
+        // of startup silence, regardless of either resampler's buffering.
+        let actual = track.read(150).unwrap();
+        assert_eq!(actual.len(), 800 + expected.len());
+        assert!(actual[..800].iter().all(|&sample| sample == 0.0));
+        assert_eq!(&actual[800..], expected);
+    }
+}

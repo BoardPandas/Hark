@@ -183,3 +183,5 @@ alongside its local speaker number. They remain separate identities in storage,
 rename controls, and exports; no cross-window match is implied
 ([parse](../../crates/hark-stt/src/meeting_gemini.rs),
 [label](../../crates/hark-meeting/src/export.rs)).
+
+Mac native capture and UI use the same local history and meeting storage workers as Windows. Permission changes restart capture without replacing the data directory. Updates stage their DMG outside the signed app and replace only the app bundle; settings, keychain credentials, meeting audio and history remain in their existing OS locations ([app lifecycle](../../crates/hark-app/src/app.rs), [Mac updater](../../crates/hark-update/src/macos.rs)).

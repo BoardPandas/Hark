@@ -1,6 +1,7 @@
 //! In-app update checking and self-update against GitHub Releases.
 //!
-//! **Self-update is Windows-only, on purpose.** A Linux build is installed by
+//! Windows installs signed Setup packages; macOS replaces a verified, notarized
+//! application bundle. A Linux build is installed by
 //! `apt`/`dnf`/`pacman` from the `.deb`/`.rpm`/`.pkg.tar.zst` this repo
 //! publishes, and those files belong to the package manager: overwriting one in
 //! place would fail its integrity checks and be silently reverted by the next
@@ -33,10 +34,15 @@
 //! API key or audio ever passes through this crate, so nothing here logs
 //! secrets.
 
-use std::path::{Path, PathBuf};
+#[cfg(not(target_os = "macos"))]
+use std::path::Path;
+use std::path::PathBuf;
 use std::time::Duration;
 
 use serde::Deserialize;
+
+#[cfg(target_os = "macos")]
+mod macos;
 
 mod verify;
 pub use verify::verify;
@@ -64,13 +70,16 @@ const USER_AGENT: &str = concat!(
 /// before this change, meeting a release from after it, finds no asset and
 /// falls back to offering the release page — a one-time manual install, not a
 /// failure.
+#[cfg_attr(target_os = "macos", allow(dead_code))]
 const WINDOWS_ASSET_SUFFIX: &str = "-windows-x64-setup.exe";
 
 /// Parameters passed to the downloaded installer by [`install`]. `relaunch=yes`
 /// is Hark's own, read by `installer/hark.iss`; the rest are Inno Setup's.
 /// Pinned against the installer script by a test below, because a rename on
 /// either side would leave the app silently not restarting after an update.
+#[cfg(any(not(target_os = "macos"), test))]
 const INSTALLER_RELAUNCH_ARG: &str = "/relaunch=yes";
+#[cfg(not(target_os = "macos"))]
 const INSTALLER_ARGS: &[&str] = &[
     "/SILENT",
     "/SUPPRESSMSGBOXES",
@@ -99,6 +108,8 @@ pub enum UpdateError {
         value: String,
         source: semver::Error,
     },
+    #[error("the latest release has no download for this platform")]
+    NoPlatformAsset,
     /// The release carries no Windows exe asset (cannot self-install).
     #[error("the latest release has no Windows download")]
     NoWindowsAsset,
@@ -119,11 +130,11 @@ pub struct ReleaseInfo {
     pub tag: String,
     /// Release notes body (may be empty).
     pub notes: String,
-    /// The release page on github.com, for the "view release" / macOS path.
+    /// The release page on github.com, used when native install is unavailable.
     pub html_url: String,
-    /// The Windows asset filename, empty if the release has none.
+    /// The current platform asset filename, empty if the release has none.
     pub asset_name: String,
-    /// Direct download URL for the Windows asset, empty if none.
+    /// Direct download URL for the current platform asset, empty if none.
     pub asset_url: String,
 }
 
@@ -131,7 +142,12 @@ impl ReleaseInfo {
     /// True when a Windows asset exists to self-install; false means the UI
     /// should fall back to opening [`ReleaseInfo::html_url`].
     pub fn has_windows_asset(&self) -> bool {
-        !self.asset_url.is_empty()
+        self.asset_name.ends_with(WINDOWS_ASSET_SUFFIX) && !self.asset_url.is_empty()
+    }
+
+    /// Whether this release includes the native installer for this machine.
+    pub fn has_installable_asset(&self) -> bool {
+        !self.asset_url.is_empty() && self.asset_name.ends_with(platform_asset_suffix())
     }
 }
 
@@ -183,9 +199,9 @@ pub fn check(
     let asset = release
         .assets
         .iter()
-        .find(|a| a.name.ends_with(WINDOWS_ASSET_SUFFIX));
+        .find(|a| a.name.ends_with(platform_asset_suffix()));
     log::info!(
-        "update check: {latest} available (running {current}); windows asset: {}",
+        "update check: {latest} available (running {current}); platform asset: {}",
         asset.is_some()
     );
 
@@ -201,18 +217,16 @@ pub fn check(
     }))
 }
 
-/// Download the Windows asset to `<dir-of-running-exe>/<asset_name>.download`.
-/// Staging on the same volume as the exe is required for the in-place swap in
-/// [`apply`]. Returns the staged path.
+/// Download the platform installer. Windows stages next to the executable;
+/// macOS uses an exclusive temporary DMG outside the signed bundle. Returns
+/// the staged path, which the caller removes after installation or failure.
 pub fn download(
     client: &reqwest::blocking::Client,
     release: &ReleaseInfo,
 ) -> Result<PathBuf, UpdateError> {
-    if !release.has_windows_asset() {
-        return Err(UpdateError::NoWindowsAsset);
+    if !release.has_installable_asset() {
+        return Err(UpdateError::NoPlatformAsset);
     }
-    let staged = staged_path(&release.asset_name)?;
-
     let bytes = client
         .get(&release.asset_url)
         .header(reqwest::header::USER_AGENT, USER_AGENT)
@@ -221,7 +235,15 @@ pub fn download(
         .error_for_status()?
         .bytes()?;
 
-    std::fs::write(&staged, &bytes)?;
+    // On macOS staged_path allocates an exclusive tempfile. Create it only
+    // after the request succeeds, and remove partial data on a disk error.
+    let staged = staged_path(&release.asset_name)?;
+    if let Err(error) = std::fs::write(&staged, &bytes) {
+        if let Err(cleanup) = std::fs::remove_file(&staged) {
+            log::warn!("could not remove incomplete update download: {cleanup}");
+        }
+        return Err(error.into());
+    }
     log::info!(
         "staged update: {} ({} bytes)",
         staged.display(),
@@ -256,12 +278,14 @@ pub fn download(
 ///                       `[Run]`'s interactive entry is `skipifsilent`, so
 ///                       without this nothing would start Hark again and the
 ///                       update would end with the app simply gone.
+#[cfg(not(target_os = "macos"))]
 pub fn install(staged: &Path) -> Result<(), UpdateError> {
     spawn_detached(staged, INSTALLER_ARGS)?;
     log::info!("installer started: {}", staged.display());
     Ok(())
 }
 
+#[cfg(not(target_os = "macos"))]
 fn staged_path(asset_name: &str) -> Result<PathBuf, UpdateError> {
     let exe = current_exe()?;
     let dir = exe
@@ -277,6 +301,35 @@ fn staged_path(asset_name: &str) -> Result<PathBuf, UpdateError> {
 
 fn current_exe() -> Result<PathBuf, UpdateError> {
     std::env::current_exe().map_err(|e| UpdateError::CurrentExe(e.to_string()))
+}
+
+#[cfg(target_os = "macos")]
+pub use macos::install;
+#[cfg(target_os = "macos")]
+use macos::staged_path;
+
+/// Whether the installed app can update itself. The first call checks signing
+/// and write access on macOS; subsequent calls read the cached result.
+pub fn self_install_supported() -> bool {
+    #[cfg(target_os = "macos")]
+    {
+        static SUPPORTED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+        *SUPPORTED.get_or_init(macos::self_install_supported)
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        cfg!(windows)
+    }
+}
+
+fn platform_asset_suffix() -> &'static str {
+    if cfg!(all(target_os = "macos", target_arch = "aarch64")) {
+        "-macos-arm64.dmg"
+    } else if cfg!(target_os = "macos") {
+        "-macos-x64.dmg"
+    } else {
+        WINDOWS_ASSET_SUFFIX
+    }
 }
 
 fn parse_version(value: &str) -> Result<semver::Version, UpdateError> {
@@ -298,7 +351,7 @@ fn spawn_detached(exe: &Path, args: &[&str]) -> Result<(), UpdateError> {
     Ok(())
 }
 
-#[cfg(not(windows))]
+#[cfg(not(any(windows, target_os = "macos")))]
 fn spawn_detached(exe: &Path, args: &[&str]) -> Result<(), UpdateError> {
     std::process::Command::new(exe).args(args).spawn()?;
     Ok(())
@@ -448,6 +501,25 @@ mod tests {
         assert_eq!(release.assets.len(), 1);
         let latest = parse_version(release.tag_name.trim_start_matches('v')).unwrap();
         assert_eq!(latest.to_string(), "0.14.0");
+    }
+
+    #[test]
+    fn platform_picker_rejects_other_architectures() {
+        let mut release = info(true);
+        release.asset_name = format!("Hark-9.9.9{}", platform_asset_suffix());
+        assert!(release.has_installable_asset());
+        release.asset_name = "Hark-9.9.9-linux-x64.deb".into();
+        assert!(!release.has_installable_asset());
+        if cfg!(target_os = "macos") {
+            release.asset_name = "Hark-9.9.9-windows-x64-setup.exe".into();
+            assert!(!release.has_installable_asset());
+            release.asset_name = if cfg!(target_arch = "aarch64") {
+                "Hark-9.9.9-macos-x64.dmg".into()
+            } else {
+                "Hark-9.9.9-macos-arm64.dmg".into()
+            };
+            assert!(!release.has_installable_asset());
+        }
     }
 
     #[test]

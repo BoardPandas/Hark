@@ -25,9 +25,8 @@
 //! after an upgrade) or deletes it, exactly as the Windows branch does with
 //! its registry value.
 //!
-//! Remaining non-Windows, non-Linux targets get no-ops so the desktop app
-//! compiles everywhere. The macOS login item (`SMAppService` / `LaunchAgent`)
-//! is a separate task.
+//! macOS: the signed main app is registered with SMAppService. Approval revoked
+//! in System Settings stays revoked; reconciling never overrides that choice.
 
 use thiserror::Error;
 
@@ -46,6 +45,9 @@ pub const HIDDEN_FLAG: &str = "--hidden";
 pub enum Error {
     #[error("cannot determine the current executable path: {0}")]
     Exe(#[source] std::io::Error),
+    #[cfg(target_os = "macos")]
+    #[error("login item: {0}")]
+    LoginItem(String),
     #[cfg(windows)]
     #[error("registry access failed: {0}")]
     Registry(#[source] std::io::Error),
@@ -345,7 +347,11 @@ fn exec_line(exe: &std::path::Path) -> String {
     format!("Exec=\"{escaped}\" {HIDDEN_FLAG}")
 }
 
-#[cfg(not(any(windows, target_os = "linux")))]
+#[cfg(target_os = "macos")]
+#[path = "macos.rs"]
+mod imp;
+
+#[cfg(not(any(windows, target_os = "linux", target_os = "macos")))]
 mod imp {
     use super::Error;
 

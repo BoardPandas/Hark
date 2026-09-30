@@ -23,7 +23,23 @@
 
 use enigo::{Direction, Enigo, Key, Keyboard, Settings};
 
+#[cfg(target_os = "macos")]
+pub(crate) fn preflight() -> Result<(), String> {
+    #[link(name = "CoreGraphics", kind = "framework")]
+    unsafe extern "C" {
+        fn CGPreflightPostEventAccess() -> bool;
+    }
+    // CGEventPost has no failure return. Check before touching the clipboard,
+    // and again when creating the keyboard in case access was revoked.
+    if !unsafe { CGPreflightPostEventAccess() } {
+        return Err("macOS denied text injection. Enable Hark in System Settings → Privacy & Security → Accessibility, then quit and reopen Hark.".into());
+    }
+    Ok(())
+}
+
 fn new_enigo() -> Result<Enigo, String> {
+    #[cfg(target_os = "macos")]
+    preflight()?;
     Enigo::new(&Settings::default()).map_err(|e| format!("cannot initialize key synthesis: {e}"))
 }
 

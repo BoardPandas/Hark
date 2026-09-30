@@ -83,6 +83,8 @@ pub fn inject(text: &str, settings: &InjectSettings) -> Result<(), InjectError> 
     if text.is_empty() {
         return Ok(());
     }
+    #[cfg(target_os = "macos")]
+    keys::preflight().map_err(InjectError::Typing)?;
     match plan_for(settings.strategy) {
         Plan::TypeOnly => keys::type_text(text).map_err(InjectError::Typing),
         Plan::ClipboardThenType => match clipboard::paste_via_clipboard(text, settings) {

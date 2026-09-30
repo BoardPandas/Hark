@@ -1,6 +1,6 @@
 # Hark — Project Rules
 
-Hark is a single-user, **push-to-talk voice dictation desktop app** for Windows + macOS + Linux, written in **Rust**. Hold a key, speak, release; polished English text is injected at the cursor in any app. Transcription is **BYOK cloud by default** (the user's own STT provider key, multi-provider adapters) with an **opt-in on-device engine** alongside it; history, stats, and the spellbook are local-only; cleanup is optional and uses the user's own LLM key. Windows and Linux have end-to-end push-to-talk hooks; macOS UI/tray/injection code exists, but `hark-hotkey` still returns `UnsupportedPlatform` there until the planned CGEventTap seam is implemented. (Pivoted away from on-device STT on 2026-07-15, then reintroduced it as an optional second engine in 0.18.0 — the cloud path remains primary. See `tasks/plan-repo.md`.)
+Hark is a single-user, **push-to-talk voice dictation desktop app** for Windows + macOS + Linux, written in **Rust**. Hold a key, speak, release; polished English text is injected at the cursor in any app. Transcription is **BYOK cloud by default** (the user's own STT provider key, multi-provider adapters) with an **opt-in on-device engine** alongside it; history, stats, and the spellbook are local-only; cleanup is optional and uses the user's own LLM key. Windows, macOS and Linux have native push-to-talk hooks. macOS uses CGEventTap and Core Audio process taps (meeting capture requires macOS 14.2+). (Pivoted away from on-device STT on 2026-07-15, then reintroduced it as an optional second engine in 0.18.0 — the cloud path remains primary. See `tasks/plan-repo.md`.)
 
 > This is a **native desktop app**. There is no web frontend, server, database service, auth service, or hosting platform. `.claude/references/infrastructure.md` now says exactly that at the point of use — the template's Northflank/Cloudflare/Better Auth stack was removed from it, not just disclaimed here.
 
@@ -10,7 +10,7 @@ Hark is a single-user, **push-to-talk voice dictation desktop app** for Windows 
 |---|---|
 | Language / process model | Rust; single process, **UI on main thread, pipeline on worker threads** |
 | Audio | `cpal` (device-rate mono ring buffer, pre-roll + tail, resampled to 16 kHz per clip) |
-| Push-to-talk | Native low-level hooks: **`WH_KEYBOARD_LL` (Windows), `evdev` on `/dev/input` (Linux)**; CGEventTap is the still-unimplemented macOS seam — NOT the `global-hotkey` crate, and NOT an X11 grab (invisible under Wayland) |
+| Push-to-talk | Native low-level hooks: **`WH_KEYBOARD_LL` (Windows), `CGEventTap` (macOS), `evdev` on `/dev/input` (Linux)** — NOT the `global-hotkey` crate, and NOT an X11 grab (invisible under Wayland) |
 | STT (cloud, primary) | **BYOK cloud via an `SttProvider` trait**: Deepgram; Whisper-family OpenAI-compatible endpoints; OpenAI `gpt-transcribe`; Gemini Live (`gemini-3.5-transcribe-live`) |
 | STT (on-device, optional) | `hark-local-stt`: sherpa-onnx Parakeet, behind the `engine` feature — **on by default** via `hark-app`'s `local-engine`. Off/Backup/Primary per `[local_stt] mode`. Never on the cloud hot path unless selected |
 | STT transport | Blocking `reqwest` + rustls on pipeline workers; Gemini Live owns a private `current_thread` Tokio/WebSocket runtime; **no global runtime** |

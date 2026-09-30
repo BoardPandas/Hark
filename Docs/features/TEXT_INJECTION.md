@@ -180,3 +180,7 @@ Sources: [lib.rs:73-88](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd7
 <!-- END:AUTOGEN hark_10_text_injection_edge -->
 
 ---
+
+## macOS permissions
+
+Before constructing the key-synthesis backend, Hark checks permission to post events. Missing Accessibility access produces a setup error instead of silently accepting text that cannot reach the target. macOS pastes with Command+V; its native hotkey listener ignores synthesized events. Grant access in Settings → General → Permissions, then retry ([keys](../../crates/hark-inject/src/keys.rs), [permission UI](../../crates/hark-app/src/macos.rs)).

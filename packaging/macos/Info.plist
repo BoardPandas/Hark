@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+  <key>CFBundleIdentifier</key><string>com.boardpandas.hark</string>
+  <key>CFBundleName</key><string>Hark</string>
+  <key>CFBundleDisplayName</key><string>Hark</string>
+  <key>CFBundleExecutable</key><string>hark-app</string>
+  <key>CFBundlePackageType</key><string>APPL</string>
+  <key>CFBundleShortVersionString</key><string>0.0.0</string>
+  <key>CFBundleVersion</key><string>0.0.0</string>
+  <key>CFBundleIconFile</key><string>Hark</string>
+  <key>LSMinimumSystemVersion</key><string>14.2</string>
+  <key>LSApplicationCategoryType</key><string>public.app-category.productivity</string>
+  <key>LSUIElement</key><true/>
+  <key>NSHighResolutionCapable</key><true/>
+  <key>NSMicrophoneUsageDescription</key><string>Hark uses your microphone for push-to-talk dictation and meeting transcription.</string>
+  <key>NSAudioCaptureUsageDescription</key><string>Hark captures meeting audio from other apps when you start recording a meeting.</string>
+</dict></plist>

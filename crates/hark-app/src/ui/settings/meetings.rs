@@ -86,7 +86,7 @@ impl MeetingsSettings {
                 }
             });
         });
-        ui.label(RichText::new("Windows: press once to start meeting notes, then again to stop. Leave blank to use the buttons. Use key names such as LCtrl, LAlt, LShift, F11, separated by +.").small().weak());
+        ui.label(RichText::new("Press once to start meeting notes, then again to stop. Leave blank to use the buttons. Use key names such as LCtrl, LAlt, LShift, F11, separated by +.").small().weak());
         if let Err(error) = draft.validate_meeting_shortcut() {
             ui.label(RichText::new(error.to_string()).color(theme::danger(ui.visuals())));
         } else if let Some(chord) = draft
@@ -122,22 +122,38 @@ impl MeetingsSettings {
         );
         ui.add_space(theme::GAP);
         ui.label(RichText::new("Microphone").strong());
-        let current = m
-            .mic_device
-            .clone()
-            .unwrap_or_else(|| "Windows communications default".to_string());
+        let current = m.mic_device.clone().unwrap_or_else(|| {
+            if cfg!(windows) {
+                "Windows communications default"
+            } else {
+                "System default microphone"
+            }
+            .to_string()
+        });
         egui::ComboBox::from_id_salt("meeting-mic")
             .selected_text(current)
             .show_ui(ui, |ui| {
-                ui.selectable_value(&mut m.mic_device, None, "Windows communications default");
+                ui.selectable_value(
+                    &mut m.mic_device,
+                    None,
+                    if cfg!(windows) {
+                        "Windows communications default"
+                    } else {
+                        "System default microphone"
+                    },
+                );
                 for name in mic_devices {
                     ui.selectable_value(&mut m.mic_device, Some(name.clone()), name);
                 }
             });
         ui.label(
-            RichText::new("The communications default is the microphone Teams and Zoom use.")
-                .small()
-                .weak(),
+            RichText::new(if cfg!(windows) {
+                "The communications default is the microphone Teams and Zoom use."
+            } else {
+                "Choose the same microphone your meeting app uses."
+            })
+            .small()
+            .weak(),
         );
         ui.checkbox(&mut m.echo_cancellation, "Reduce speaker echo")
             .on_hover_text(
@@ -146,6 +162,15 @@ impl MeetingsSettings {
                  if your voice sounds distorted.",
             );
         ui.add_space(theme::GAP);
+        #[cfg(target_os = "macos")]
+        {
+            ui.label("macOS asks for system audio access when you first start meeting notes. Browser call detection also needs Screen Recording access to read the call window title.");
+            crate::macos::settings_button(
+                ui,
+                "System audio & screen recording settings",
+                "Privacy_ScreenCapture",
+            );
+        }
         ui.label(RichText::new("Other people's audio").strong());
         ui.radio_value(&mut m.system_source, SystemSource::App, "Only the meeting app's audio")
             .on_hover_text("A detected meeting records just that app. A meeting you start yourself records everything except Hark.");
@@ -429,6 +454,13 @@ fn open_meetings_folder() {
     } else {
         #[cfg(windows)]
         open_in_explorer(&dir);
+        #[cfg(target_os = "macos")]
+        if let Err(error) = std::process::Command::new("/usr/bin/open")
+            .arg(&dir)
+            .spawn()
+        {
+            log::warn!("cannot open the meetings folder: {error}");
+        }
     }
 }
 

@@ -1,4 +1,4 @@
-//! Hand check for the detection probe (`src/probe_win.rs`) on real Windows:
+//! Hand check for the native detection probe on Windows or macOS 14.2+:
 //! polls every 2 s and prints which apps hold the mic, which own a meeting
 //! window, the detector's verdicts (Ask mode), and each detected app's
 //! loopback root PID. Prints app ids only; window titles are never shown.

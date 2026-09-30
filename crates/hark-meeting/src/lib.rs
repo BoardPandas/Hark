@@ -25,6 +25,8 @@ pub mod chunker;
 pub mod detect;
 pub mod export;
 pub mod merge;
+#[cfg(target_os = "macos")]
+pub mod probe_mac;
 pub mod probe_win;
 pub mod session;
 pub mod storage;

@@ -212,7 +212,7 @@ fn banner_action(
                 .add(theme::primary_button(&visuals, "Restart now"))
                 .clicked()
             {
-                updater.restart();
+                updater.restart(ui.ctx());
             }
         }
         _ => {

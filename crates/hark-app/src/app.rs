@@ -454,7 +454,7 @@ fn show_window(ctx: &egui::Context) {
 
 /// Bring the OS launch-at-login entry in line with the setting. Best-effort:
 /// a registry failure is logged (label only) and never blocks startup or a
-/// Save. No-op off Windows (`hark-autostart`).
+/// Save. Uses the native platform integration in `hark-autostart`.
 pub(crate) fn reconcile_autostart(enabled: bool) {
     if let Err(e) = hark_autostart::reconcile(enabled) {
         log::warn!("could not update launch-at-login (enabled={enabled}): {e}");

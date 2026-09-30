@@ -1,4 +1,4 @@
-//! Pure routing for the single Windows hook. The meeting chord only emits a
+//! Pure routing for the shared native keyboard hook. The meeting chord only emits a
 //! toggle on its physical engage edge; dictation keeps its full edge stream.
 
 use crate::{ChordTracker, PttChord, PttEvent, PttKeyCode};

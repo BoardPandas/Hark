@@ -22,7 +22,7 @@ The following files were used as evidence for this page:
 
 Hark ships on Windows as a signed Inno Setup installer, `Hark-<version>-windows-x64-setup.exe`, published as a GitHub release asset ([lib.rs:11](../../crates/hark-update/src/lib.rs#L11)). A separate crate, `hark-autostart`, registers Hark to launch hidden into the tray at login by writing directly to the Windows `Run` registry key ([lib.rs:1-5](../../crates/hark-autostart/src/lib.rs#L1-L5)).
 
-The update lifecycle has four stages, each blocking and run on a worker thread so the UI thread never stalls: check the GitHub Releases API against the running SemVer, download the signed installer next to the running exe, verify its Authenticode signature and publisher against the running exe, then start the installer and exit ([lib.rs:11-20](../../crates/hark-update/src/lib.rs#L11-L20)). On non-Windows targets, signature verification always refuses and the app falls back to opening the GitHub release page instead of self-installing ([verify.rs:18-23](../../crates/hark-update/src/verify.rs#L18-L23)).
+The update lifecycle has four stages, each blocking and run on a worker thread so the UI thread never stalls: check the GitHub Releases API against the running SemVer, download the signed installer next to the running exe, verify its Authenticode signature and publisher against the running exe, then start the installer and exit ([lib.rs:11-20](../../crates/hark-update/src/lib.rs#L11-L20)). Linux falls back to the release page; macOS selects a native DMG and verifies its app bundle before self-installing ([verify.rs:18-23](../../crates/hark-update/src/verify.rs#L18-L23)).
 
 **The last stage is an install, not a swap.** Earlier versions downloaded a portable `.exe` and replaced the running image with `self-replace`. That updated the binary while leaving Inno's uninstall record pinned at whatever version first installed Hark, so Add or remove programs and the running build disagreed after every update ([lib.rs:22-29](../../crates/hark-update/src/lib.rs#L22-L29)). `install` now starts the downloaded installer with `/SILENT /SUPPRESSMSGBOXES /NORESTART /relaunch=yes` and returns so the caller can exit ([lib.rs:74-79](../../crates/hark-update/src/lib.rs#L74-L79)), and the asset picker matches `-windows-x64-setup.exe` rather than the portable name ([lib.rs:67](../../crates/hark-update/src/lib.rs#L67)).
 
@@ -88,7 +88,7 @@ GitHub requires a `User-Agent` header on every API request or it returns 403, so
 | `version` | `String` | Normalized SemVer, e.g. `0.14.0` ([lib.rs:71-73](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/crates/hark-update/src/lib.rs#L71-L73)) |
 | `tag` | `String` | The raw git tag, e.g. `v0.14.0` ([lib.rs:74-75](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/crates/hark-update/src/lib.rs#L74-L75)) |
 | `notes` | `String` | Release notes body, may be empty ([lib.rs:76-77](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/crates/hark-update/src/lib.rs#L76-L77)) |
-| `html_url` | `String` | Release page URL, used for the "view release" / macOS fallback path ([lib.rs:78-79](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/crates/hark-update/src/lib.rs#L78-L79)) |
+| `html_url` | `String` | Release page URL, used for the "view release" fallback path ([lib.rs:78-79](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/crates/hark-update/src/lib.rs#L78-L79)) |
 | `asset_name` / `asset_url` | `String` | Windows asset filename and direct download URL, empty when the release has no Windows asset ([lib.rs:80-83](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/crates/hark-update/src/lib.rs#L80-L83)) |
 
 `ReleaseInfo::has_windows_asset()` reports whether `asset_url` is non-empty; the UI uses it to decide between self-install and opening the release page ([lib.rs:86-92](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/crates/hark-update/src/lib.rs#L86-L92)). Once a release passes the version check, `download` streams the Windows asset to `<dir-of-running-exe>/<asset_name>.download`, staging it on the same volume the running exe lives on, which the later in-place swap requires ([lib.rs:160-187](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/crates/hark-update/src/lib.rs#L160-L187)). Because a binary download can run far longer than the STT client's 15 s total timeout, the download request overrides it with a 600 s ceiling ([lib.rs:43-45](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/crates/hark-update/src/lib.rs#L43-L45), [lib.rs:175](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/crates/hark-update/src/lib.rs#L175)).
@@ -129,18 +129,9 @@ match std::env::current_exe().ok().and_then(|p| signer_subject(&p).ok()) {
 
 Sources: [verify.rs:25-49](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/crates/hark-update/src/verify.rs#L25-L49)
 
-The signer subject is read from the exe's embedded PKCS#7 signature via `CryptQueryObject` and `CryptMsgGetParam`, then resolved to a certificate in the query's store with `CertFindCertificateInStore` and rendered as a simple display name with `CertGetNameStringW` ([verify.rs:121-200](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/crates/hark-update/src/verify.rs#L121-L200), [verify.rs:203-220](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/crates/hark-update/src/verify.rs#L203-L220)). On non-Windows targets there is no published artifact to self-install, so `verify` is a stub that always returns `UpdateError::Verification` and the UI is expected to open the release page instead ([verify.rs:18-23](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/crates/hark-update/src/verify.rs#L18-L23)):
+The signer subject is read from the exe's embedded PKCS#7 signature via `CryptQueryObject` and `CryptMsgGetParam`, then resolved to a certificate in the query's store with `CertFindCertificateInStore` and rendered as a simple display name with `CertGetNameStringW` ([verify.rs:121-200](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/crates/hark-update/src/verify.rs#L121-L200), [verify.rs:203-220](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/crates/hark-update/src/verify.rs#L203-L220)).
 
-```rust
-#[cfg(not(windows))]
-pub fn verify(_staged: &Path) -> Result<(), UpdateError> {
-    Err(UpdateError::Verification(
-        "self-install is only supported on Windows".to_string(),
-    ))
-}
-```
-
-_TBD_, no macOS-specific signature verification path exists in `verify.rs`; the doc comment confirms self-install is Windows-only and macOS always falls back to the browser release page (`crates/hark-update/src/verify.rs:11-12`).
+macOS verifies the downloaded app with codesign and Gatekeeper, requires the same bundle identifier and Developer ID Team ID as the installed copy, and refuses an unsigned development build as an update trust anchor. A helper replaces the complete app bundle only after the outgoing process exits, preserving a backup for rollback and relaunching the replacement ([Mac update implementation](../../crates/hark-update/src/macos.rs)).
 
 | Gate | API | Failure mode | Source |
 |---|---|---|---|
@@ -171,13 +162,9 @@ Sources: [verify.rs:1-220](https://github.com/BoardPandas/Hark/blob/1c1738716fa4
 
 `start_check` and `start_install` each build a fresh `reqwest::blocking::Client` per operation via `hark_stt::shared_client()` rather than sharing the pipeline's hot-path client, since update checks are rare and off the latency-critical path ([update.rs:9-11](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/crates/hark-app/src/update.rs#L9-L11), [update.rs:112-136](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/crates/hark-app/src/update.rs#L112-L136), [update.rs:140-172](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/crates/hark-app/src/update.rs#L140-L172)). Both are no-ops while `is_busy()` is already true, which is `true` exactly during `Checking` or `Installing` ([update.rs:86-88](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/crates/hark-app/src/update.rs#L86-L88), [update.rs:113-115](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/crates/hark-app/src/update.rs#L113-L115), [update.rs:141-143](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/crates/hark-app/src/update.rs#L141-L143)).
 
-`can_self_install()` gates the UI's choice between an in-place install and linking out to the release page: it is only `true` on Windows when the current release phase carries a `ReleaseInfo` with a Windows asset, so macOS users always land on the "view release" path described in `ReleaseInfo::html_url` ([update.rs:90-94](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/crates/hark-app/src/update.rs#L90-L94)):
+`can_self_install()` requires an asset for the current platform and a supported installation. Signed, writable installed Mac bundles can self-update; development builds and read-only locations use “View release.” Windows uses the signed installer; Linux uses its package manager ([app integration](../../crates/hark-app/src/update.rs)).
 
-```rust
-pub fn can_self_install(&self) -> bool {
-    cfg!(windows) && self.release().is_some_and(|r| r.has_windows_asset())
-}
-```
+
 
 The startup banner and the Settings page share `banner_visible()`, which only raises the banner for `Available`, `Installing`, or `Ready`, and stays hidden once the user calls `dismiss_banner()` until the next successful check re-arms it ([update.rs:96-109](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/crates/hark-app/src/update.rs#L96-L109), [update.rs:207-210](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/crates/hark-app/src/update.rs#L207-L210)). `restart()` calls `hark_update::install` and then exits the process immediately; there is no relaunch step here, because Setup starts Hark again itself once it has replaced the files ([update.rs:183-193](../../crates/hark-app/src/update.rs#L183-L193)). Exiting is the contract rather than tidiness: Windows will not overwrite a running image, and lingering only means waiting to be closed by the Restart Manager. If the installer cannot be started at all, the phase lands back in `Failed` with the reason, and the running build is untouched ([update.rs:188-191](../../crates/hark-app/src/update.rs#L188-L191)).
 
@@ -213,22 +200,7 @@ The crate deliberately touches only the `Run` *value*, never the `StartupApprove
 | `remove_value` | Deletes the value if present; a missing subkey or value is treated as success | [lib.rs:106-120](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/crates/hark-autostart/src/lib.rs#L106-L120) |
 | `read_value` | Returns `None` when either the subkey or the value is absent, never errors on "not configured" | [lib.rs:122-136](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/crates/hark-autostart/src/lib.rs#L122-L136) |
 
-_TBD_, no macOS login-item implementation exists yet. The module doc explicitly calls out that non-Windows targets get no-op stubs so the desktop app compiles everywhere, and that the macOS login item (`SMAppService` / `LaunchAgent`) is a separate, unbuilt task (`crates/hark-autostart/src/lib.rs:20-21`, [lib.rs:178-189](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/crates/hark-autostart/src/lib.rs#L178-L189)):
-
-```rust
-#[cfg(not(windows))]
-mod imp {
-    use super::Error;
-
-    pub(super) fn reconcile(_enabled: bool) -> Result<(), Error> {
-        Ok(())
-    }
-
-    pub(super) fn is_enabled() -> Result<bool, Error> {
-        Ok(false)
-    }
-}
-```
+macOS registers the bundled app with `SMAppService.mainApp`. Settings controls registration; system approval requirements are reported with guidance to Login Items. A bare `cargo run` binary cannot register as a bundled login item ([autostart implementation](../../crates/hark-autostart/src/lib.rs)).
 
 Sources: [lib.rs:1-204](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/crates/hark-autostart/src/lib.rs#L1-L204)
 <!-- END:AUTOGEN hark_11_updates_autostart_autostart -->

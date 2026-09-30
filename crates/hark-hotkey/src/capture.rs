@@ -147,10 +147,10 @@ impl Rejected {
                  you write. Hold Ctrl, Alt or Win instead, or pick an F-key.",
                 key.label()
             ),
-            Rejected::CollidesWithInjection => "Ctrl+V is how Hark pastes your \
-                 transcript, so a shortcut built on it would fight its own typing. \
-                 Pick another key."
-                .to_string(),
+            Rejected::CollidesWithInjection => format!(
+                "{} is how Hark pastes your transcript, so a shortcut built on it would fight its own typing. Pick another key.",
+                if cfg!(target_os = "macos") { "Command+V" } else { "Ctrl+V" }
+            ),
         }
     }
 }

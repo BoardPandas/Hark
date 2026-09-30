@@ -21,7 +21,12 @@ pub(super) fn ask_path(file_name: &str, filter: &str, ext: &str) -> Option<PathB
         };
         dialog.save_file()
     }
-    #[cfg(not(windows))]
+    #[cfg(target_os = "macos")]
+    {
+        let _ = filter;
+        crate::macos::save_file(file_name, ext)
+    }
+    #[cfg(not(any(windows, target_os = "macos")))]
     {
         let _ = (file_name, filter, ext);
         None
@@ -142,7 +147,21 @@ pub(super) fn show_in_folder(dir: Option<PathBuf>) -> String {
             Err(e) => format!("Could not open the folder: {e}"),
         }
     }
-    #[cfg(not(windows))]
+    #[cfg(target_os = "macos")]
+    {
+        let mut command = std::process::Command::new("/usr/bin/open");
+        if let Some(file) = target {
+            command.arg("-R").arg(file);
+        } else {
+            command.arg(&dir);
+        }
+        match command.status() {
+            Ok(status) if status.success() => "Opened the meeting’s folder.".into(),
+            Ok(status) => format!("Could not open Finder ({status})."),
+            Err(error) => format!("Could not open Finder: {error}"),
+        }
+    }
+    #[cfg(not(any(windows, target_os = "macos")))]
     {
         let _ = target;
         format!("The audio is in {}.", dir.display())

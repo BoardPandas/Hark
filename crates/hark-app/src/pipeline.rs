@@ -188,6 +188,11 @@ impl PipelineController {
                 return;
             }
         };
+        #[cfg(target_os = "macos")]
+        if !crate::macos::microphone_ready() {
+            self.mark_stopped("Allow Microphone access in Settings → General → Permissions, then retry dictation.".into());
+            return;
+        }
         let (tx, rx) = mpsc::channel();
         match hark_pipeline::run_with_input(settings, api_key, tx, input) {
             Ok(handle) => {

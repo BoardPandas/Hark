@@ -4,7 +4,7 @@ version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
-description = "Hark in-app update checker and Windows self-update against GitHub Releases."
+description = "Hark in-app update checker and Windows/macOS self-update against GitHub Releases."
 
 [dependencies]
 # Same reqwest surface the STT crate pins (static rustls roots, no OS store);
@@ -34,3 +34,6 @@ windows = { version = "0.62.2", features = [
     "Win32_Security_WinTrust",
     "Win32_Security_Cryptography",
 ] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+tempfile = "3"

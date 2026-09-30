@@ -6,7 +6,7 @@
 //! ring lost to a stalled drain are replaced by silence of the same length,
 //! so a line's offset is its real time in the call and the two spools stay
 //! aligned for the stereo final pass. The mic is resampled from its device
-//! rate here; the loopback already arrives at 16 kHz.
+//! rate here; macOS loopback is also resampled from its negotiated tap rate.
 
 use super::echo::EchoReducer;
 use hark_audio::resample::StreamResampler;
@@ -154,13 +154,14 @@ impl Recorder {
         let them =
             match loopback.map(|target| hark_audio::start_process_loopback(target, RING_SECONDS)) {
                 Some(Ok((handle, consumer))) => {
+                    let rate = handle.sample_rate();
                     let spool = SpoolWriter::create(&dir.join(THEM_FILE))
                         .map_err(|e| format!("cannot create the system-audio recording: {e}"))?;
                     Some(Track::new(
                         Channel::Them,
                         Source::Loopback(handle),
                         consumer,
-                        hark_meeting::SAMPLE_RATE,
+                        rate,
                         spool,
                         chunker(),
                     )?)
@@ -373,10 +374,12 @@ impl Track {
             None => out.extend_from_slice(&device),
         }
         if !self.aligned {
-            // The first delivery: everything before it on the session clock
-            // is leading silence (the stream took this long to open).
+            // Align from captured input, not the output currently available:
+            // the streaming FFT holds a tail, which is latency rather than
+            // silence before the stream opened. It will arrive on later reads.
             let due = elapsed_ms * RATE / 1000;
-            let lead = due.saturating_sub(out.len() as u64) as usize;
+            let captured = total * RATE / u64::from(self.rate);
+            let lead = due.saturating_sub(captured) as usize;
             if lead > 0 {
                 let mut padded = vec![0.0; lead];
                 padded.extend_from_slice(&out);

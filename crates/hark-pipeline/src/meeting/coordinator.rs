@@ -206,11 +206,11 @@ impl Coordinator {
                     Ok(started) => {
                         watcher = Some(started);
                         watch_failed = false;
-                        log::info!("meeting detection: registry notifications active");
+                        log::info!("meeting detection: change notifications active");
                     }
                     Err(error) => {
                         if !watch_failed {
-                            log::warn!("meeting registry notifications unavailable ({error}); using polling");
+                            log::warn!("meeting detection notifications unavailable ({error}); using polling");
                         }
                         watch_failed = true;
                     }

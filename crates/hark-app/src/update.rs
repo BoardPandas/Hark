@@ -35,7 +35,7 @@ pub enum Phase {
     /// Verified and staged; a restart will finish the update.
     Ready {
         release: ReleaseInfo,
-        staged: PathBuf,
+        staged: StagedUpdate,
     },
     /// The last check or install failed; the message is user-facing.
     Failed(String),
@@ -43,9 +43,42 @@ pub enum Phase {
 
 /// Worker -> UI messages.
 enum Msg {
-    Checked(Result<Option<ReleaseInfo>, String>),
+    Checked {
+        release: Result<Option<ReleaseInfo>, String>,
+        install_supported: bool,
+    },
+    Restarted(Result<(), String>),
     /// download + verify finished; Ok carries the staged path.
-    Installed(Result<PathBuf, String>),
+    Installed(Result<StagedUpdate, String>),
+}
+
+/// Own the download through verification, UI cancellation and worker delivery.
+/// Windows Setup takes ownership once launched; the Mac helper has already
+/// copied the verified bundle before install returns, so its DMG can be removed.
+pub struct StagedUpdate {
+    path: PathBuf,
+    remove_on_drop: bool,
+}
+
+impl StagedUpdate {
+    fn new(path: PathBuf) -> Self {
+        Self {
+            path,
+            remove_on_drop: true,
+        }
+    }
+}
+
+impl Drop for StagedUpdate {
+    fn drop(&mut self) {
+        if self.remove_on_drop {
+            if let Err(error) = std::fs::remove_file(&self.path) {
+                if error.kind() != std::io::ErrorKind::NotFound {
+                    log::warn!("Could not remove staged update: {error}");
+                }
+            }
+        }
+    }
 }
 
 pub struct Updater {
@@ -54,6 +87,7 @@ pub struct Updater {
     /// The banner hides once the user dismisses it; the Settings section still
     /// shows the same state.
     banner_dismissed: bool,
+    install_supported: bool,
 }
 
 impl Updater {
@@ -62,6 +96,7 @@ impl Updater {
             phase: Phase::Idle,
             rx: None,
             banner_dismissed: false,
+            install_supported: false,
         }
     }
 
@@ -87,10 +122,10 @@ impl Updater {
         matches!(self.phase, Phase::Checking | Phase::Installing(_))
     }
 
-    /// Whether the newer release can be installed in place here (Windows with a
-    /// matching asset); otherwise the UI offers "View release" instead.
+    /// Whether a matching asset can be installed here. Capability is checked
+    /// on the update worker, so rendering never probes signatures or disk.
     pub fn can_self_install(&self) -> bool {
-        cfg!(windows) && self.release().is_some_and(|r| r.has_windows_asset())
+        self.install_supported && self.release().is_some_and(|r| r.has_installable_asset())
     }
 
     /// Show the banner when an update is pending and the user has not dismissed
@@ -127,7 +162,11 @@ impl Updater {
             .spawn(move || {
                 let result =
                     hark_update::check(&client, CURRENT_VERSION).map_err(|e| e.to_string());
-                let _ = tx.send(Msg::Checked(result));
+                let install_supported = hark_update::self_install_supported();
+                let _ = tx.send(Msg::Checked {
+                    release: result,
+                    install_supported,
+                });
                 crate::app::wake_ui(&ctx);
             })
             .expect("spawning the update-check thread cannot fail");
@@ -158,8 +197,8 @@ impl Updater {
             .name("hark-update-install".to_string())
             .spawn(move || {
                 let result = (|| {
-                    let staged = hark_update::download(&client, &job)?;
-                    hark_update::verify(&staged)?;
+                    let staged = StagedUpdate::new(hark_update::download(&client, &job)?);
+                    hark_update::verify(&staged.path)?;
                     Ok(staged)
                 })()
                 .map_err(|e: hark_update::UpdateError| e.to_string());
@@ -171,8 +210,8 @@ impl Updater {
         self.rx = Some(rx);
     }
 
-    /// Hand the staged installer to Setup and get out of its way. On success
-    /// the process exits and never returns; a failure lands back in `Failed`.
+    /// Prepare installation on a worker. Once it is ready to replace this
+    /// process, the UI exits on the completion message; failures stay visible.
     ///
     /// Exiting immediately is not tidiness, it is the contract: Setup replaces
     /// `Hark.exe`, and Windows will not overwrite a running image. `hark.iss`
@@ -180,16 +219,42 @@ impl Updater {
     /// anyway, but waiting to be killed turns a two-second update into a stall.
     /// Setup starts Hark again itself (`/relaunch=yes`), so nothing here needs
     /// to survive to do it.
-    pub fn restart(&mut self) {
-        let Phase::Ready { staged, .. } = &self.phase else {
-            return;
-        };
-        let staged = staged.clone();
-        if let Err(e) = hark_update::install(&staged) {
-            self.phase = Phase::Failed(format!("could not start the installer: {e}"));
+    pub fn restart(&mut self, ctx: &egui::Context) {
+        if !matches!(self.phase, Phase::Ready { .. }) {
             return;
         }
-        std::process::exit(0);
+        let Phase::Ready { staged, release } = std::mem::replace(&mut self.phase, Phase::Idle)
+        else {
+            unreachable!()
+        };
+        let (tx, rx) = mpsc::channel();
+        let ctx = ctx.clone();
+        match std::thread::Builder::new()
+            .name("hark-update-restart".into())
+            .spawn(move || {
+                // Mac staging mounts/copies/verifies a complete app bundle.
+                // Keep that work off the UI thread, including on retry.
+                let result = hark_update::install(&staged.path).map_err(|e| e.to_string());
+                #[cfg(windows)]
+                let staged = {
+                    let mut staged = staged;
+                    if result.is_ok() {
+                        staged.remove_on_drop = false;
+                    }
+                    staged
+                };
+                drop(staged);
+                let _ = tx.send(Msg::Restarted(result));
+                crate::app::wake_ui(&ctx);
+            }) {
+            Ok(_) => {
+                self.phase = Phase::Installing(release);
+                self.rx = Some(rx);
+            }
+            Err(error) => {
+                self.phase = Phase::Failed(format!("Could not start installation: {error}"))
+            }
+        }
     }
 
     /// Drain any finished background work. Called every frame from `App::logic`.
@@ -202,14 +267,31 @@ impl Updater {
             Err(_) => return,
         };
         self.rx = None;
+        if let Msg::Checked {
+            install_supported, ..
+        } = &msg
+        {
+            self.install_supported = *install_supported;
+        }
         match msg {
-            Msg::Checked(Ok(Some(release))) => {
+            Msg::Restarted(Ok(())) => std::process::exit(0),
+            Msg::Restarted(Err(error)) => {
+                self.phase = Phase::Failed(format!("Could not install update: {error}"))
+            }
+            Msg::Checked {
+                release: Ok(Some(release)),
+                ..
+            } => {
                 // A fresh check un-dismisses the banner for a real update.
                 self.banner_dismissed = false;
                 self.phase = Phase::Available(release);
             }
-            Msg::Checked(Ok(None)) => self.phase = Phase::UpToDate,
-            Msg::Checked(Err(e)) => self.phase = Phase::Failed(e),
+            Msg::Checked {
+                release: Ok(None), ..
+            } => self.phase = Phase::UpToDate,
+            Msg::Checked {
+                release: Err(e), ..
+            } => self.phase = Phase::Failed(e),
             Msg::Installed(Ok(staged)) => {
                 let release = match std::mem::replace(&mut self.phase, Phase::Idle) {
                     Phase::Installing(r) => r,
@@ -223,5 +305,48 @@ impl Updater {
             }
             Msg::Installed(Err(e)) => self.phase = Phase::Failed(e),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn download() -> (StagedUpdate, PathBuf) {
+        let file = tempfile::NamedTempFile::new().unwrap();
+        let (_, path) = file.keep().unwrap();
+        (StagedUpdate::new(path.clone()), path)
+    }
+
+    #[test]
+    fn closing_ui_before_worker_delivery_removes_the_download() {
+        let (staged, path) = download();
+        let (tx, rx) = mpsc::channel();
+        drop(rx);
+        assert!(tx.send(Msg::Installed(Ok(staged))).is_err());
+        assert!(!path.exists());
+    }
+
+    #[test]
+    fn replacing_or_dropping_ready_phase_removes_the_download() {
+        let (staged, path) = download();
+        let mut updater = Updater::new();
+        updater.phase = Phase::Ready {
+            release: ReleaseInfo {
+                version: "99.0.0".into(),
+                tag: "v99.0.0".into(),
+                notes: String::new(),
+                html_url: String::new(),
+                asset_name: String::new(),
+                asset_url: String::new(),
+            },
+            staged,
+        };
+        assert!(path.exists());
+        updater.phase = Phase::Checking;
+        assert!(!path.exists());
+        let (staged, path) = download();
+        drop(Msg::Installed(Ok(staged)));
+        assert!(!path.exists());
     }
 }

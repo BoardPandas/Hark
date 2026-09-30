@@ -19,10 +19,16 @@ pub(super) fn paint(
     super::shape_to_capsule();
     let state = feedback.state(recording.load(Ordering::Relaxed));
     if state == State::Hidden {
+        #[cfg(target_os = "macos")]
+        crate::macos::overlay_visible("Hark recording", false);
+        #[cfg(not(target_os = "macos"))]
         ctx.send_viewport_cmd(egui::ViewportCommand::Visible(false));
         return;
     }
     super::place(ctx, monitor);
+    #[cfg(target_os = "macos")]
+    crate::macos::overlay_visible("Hark recording", true);
+    #[cfg(not(target_os = "macos"))]
     ctx.send_viewport_cmd(egui::ViewportCommand::Visible(true));
     let animated = ui.style().animation_time > 0.0;
     let moving = matches!(

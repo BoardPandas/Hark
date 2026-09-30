@@ -3,9 +3,8 @@
 //! Left Win to record, release either to stop).
 //!
 //! The `spawn_listener` boundary is the platform seam: `hook_win.rs`
-//! (WH_KEYBOARD_LL) and `hook_linux.rs` (evdev) implement it today;
-//! `hook_mac.rs` (CGEventTap) slots in behind the same signature in
-//! checkpoint 7 without touching the pipeline.
+//! (WH_KEYBOARD_LL), `hook_linux.rs` (evdev), and `hook_mac.rs`
+//! (CGEventTap) implement the same chord-edge contract.
 
 pub mod capture;
 pub mod edges;
@@ -15,6 +14,15 @@ mod shortcuts;
 
 #[cfg(windows)]
 mod hook_win;
+
+#[cfg(target_os = "macos")]
+mod hook_mac;
+#[cfg(any(target_os = "macos", test))]
+mod known_mac;
+#[cfg(target_os = "macos")]
+mod mac_ffi;
+#[cfg(any(target_os = "macos", test))]
+mod mac_keycode;
 
 #[cfg(target_os = "linux")]
 mod hook_linux;
@@ -152,6 +160,8 @@ pub struct ListenerHandle {
     /// hook thread is stopped by posting WM_QUIT to `thread_id`.
     #[cfg(target_os = "linux")]
     stop: Option<hook_linux::Stopper>,
+    #[cfg(target_os = "macos")]
+    stop: Option<Arc<AtomicBool>>,
     /// Shared with the hook thread; `None` for a capture-only hook, which has
     /// nothing to tap.
     tap: Option<Arc<CaptureTap>>,
@@ -224,6 +234,10 @@ impl Drop for ListenerHandle {
         if let Some(stop) = &self.stop {
             stop.stop();
         }
+        #[cfg(target_os = "macos")]
+        if let Some(stop) = &self.stop {
+            stop.store(true, Ordering::Release);
+        }
         if let Some(t) = self.thread.take() {
             let _ = t.join();
         }
@@ -234,7 +248,7 @@ impl Drop for ListenerHandle {
 /// wherever [`spawn_capture`] would fail, so the settings UI can offer the
 /// typed fallback instead of a button that only ever reports an error.
 pub fn capture_supported() -> bool {
-    cfg!(any(windows, target_os = "linux"))
+    cfg!(any(windows, target_os = "linux", target_os = "macos"))
 }
 
 /// Start listening for the chord; edges arrive on `tx`. One listener per
@@ -259,9 +273,12 @@ pub fn spawn_listener(
     {
         hook_linux::spawn_listener(chord, swallow_locks, tx)
     }
-    #[cfg(not(any(windows, target_os = "linux")))]
+    #[cfg(target_os = "macos")]
     {
-        // CGEventTap arrives in checkpoint 7 (NEEDS MAC).
+        hook_mac::spawn_listener(chord, swallow_locks, tx)
+    }
+    #[cfg(not(any(windows, target_os = "linux", target_os = "macos")))]
+    {
         let _ = (chord, swallow_locks, tx);
         Err(HotkeyError::UnsupportedPlatform)
     }
@@ -269,7 +286,7 @@ pub fn spawn_listener(
 
 /// One native listener for dictation and the optional meeting toggle. The
 /// caller owns routing, so an unavailable dictation provider cannot disable
-/// meeting shortcuts. Meeting capture is Windows-only; other platforms keep
+/// meeting shortcuts. Meeting capture is supported on Windows and macOS; other platforms keep
 /// their existing dictation listener and never emit meeting toggles.
 pub fn spawn_shared_listener(
     chord: PttChord,
@@ -284,7 +301,11 @@ pub fn spawn_shared_listener(
     {
         hook_win::spawn_shared_listener(chord, swallow_locks, meeting, tx)
     }
-    #[cfg(not(windows))]
+    #[cfg(target_os = "macos")]
+    {
+        hook_mac::spawn_shared_listener(chord, swallow_locks, meeting, tx)
+    }
+    #[cfg(not(any(windows, target_os = "macos")))]
     {
         let _ = meeting;
         let (ptt_tx, ptt_rx) = std::sync::mpsc::channel();
@@ -317,10 +338,12 @@ pub fn spawn_capture(tx: Sender<CaptureEvent>) -> Result<ListenerHandle, HotkeyE
     {
         hook_linux::spawn_capture(tx)
     }
-    #[cfg(not(any(windows, target_os = "linux")))]
+    #[cfg(target_os = "macos")]
     {
-        // Recording rides the same platform hook, so it lands with the
-        // CGEventTap in checkpoint 7 (NEEDS MAC).
+        hook_mac::spawn_capture(tx)
+    }
+    #[cfg(not(any(windows, target_os = "linux", target_os = "macos")))]
+    {
         let _ = tx;
         Err(HotkeyError::UnsupportedPlatform)
     }

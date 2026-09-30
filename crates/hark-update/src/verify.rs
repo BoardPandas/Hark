@@ -8,14 +8,18 @@
 //!    still refused. This self-anchors to whoever signed the installed copy; no
 //!    certificate string is hardcoded.
 //!
-//! On non-Windows targets there is no published artifact to self-install, so
-//! this is a stub that refuses; the UI opens the release page instead.
+//! macOS delegates to bundle verification in `macos`; other targets refuse
+//! self-install and open the release page instead.
 
+#[cfg(not(target_os = "macos"))]
 use std::path::Path;
 
 use crate::UpdateError;
 
-#[cfg(not(windows))]
+#[cfg(target_os = "macos")]
+pub use crate::macos::verify;
+
+#[cfg(not(any(windows, target_os = "macos")))]
 pub fn verify(_staged: &Path) -> Result<(), UpdateError> {
     Err(UpdateError::Verification(
         "self-install is only supported on Windows".to_string(),

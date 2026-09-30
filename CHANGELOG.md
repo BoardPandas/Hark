@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.59.0] - 2026-09-29
+
+### Added
+
+- macOS native push-to-talk shortcuts, shortcut recording and meeting toggles, with permission setup and recovery controls.
+- Meeting capture and microphone-use detection on macOS 14.2+, using the shared transcript, speaker labels, notes, audio processing and retention features.
+- Mac save sheets, Word and audio exports, Finder reveal, system sharing, and monitor-aware recording/prompt windows.
+- Native Mac launch at login, verified app-bundle updates, architecture-specific app/DMG packaging and Mac CI coverage. Developer ID signing and notarization require configured Apple credentials.
+
 ## [0.58.0] - 2026-09-29
 
 ### Added

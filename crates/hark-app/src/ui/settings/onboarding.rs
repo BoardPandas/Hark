@@ -243,20 +243,7 @@ fn permission_guidance(ui: &mut Ui) {
             .open_url(egui::OpenUrl::new_tab("ms-settings:privacy-microphone"));
     }
     #[cfg(target_os = "macos")]
-    {
-        if ui.button("Open microphone settings").clicked() {
-            ui.ctx().open_url(egui::OpenUrl::new_tab(
-                "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone",
-            ));
-        }
-        ui.add_space(theme::ROW_GAP);
-        ui.label(RichText::new("Keyboard & text insertion").text_style(theme::subheading()));
-        if ui.button("Open Accessibility settings").clicked() {
-            ui.ctx().open_url(egui::OpenUrl::new_tab(
-                "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility",
-            ));
-        }
-    }
+    crate::macos::permission_controls(ui);
     #[cfg(target_os = "linux")]
     {
         ui.label(

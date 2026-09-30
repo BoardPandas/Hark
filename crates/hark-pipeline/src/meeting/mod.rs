@@ -153,28 +153,33 @@ pub enum MeetingEvent {
 /// A friendly name for a detected app id, for the prompt.
 pub fn app_display_name(app: &str) -> String {
     let name = match app {
-        "msteams_8wekyb3d8bbwe" | "teams.exe" | "ms-teams.exe" => "Teams",
-        "zoom.exe" => "Zoom",
-        "webex.exe" | "ciscocollabhost.exe" => "Webex",
-        "slack.exe" => "Slack",
-        "discord.exe" => "Discord",
-        "goto.exe" => "GoTo",
-        "ringcentral.exe" => "RingCentral",
+        "msteams_8wekyb3d8bbwe"
+        | "teams.exe"
+        | "ms-teams.exe"
+        | "com.microsoft.teams"
+        | "com.microsoft.teams2" => "Teams",
+        "zoom.exe" | "us.zoom.xos" => "Zoom",
+        "webex.exe" | "ciscocollabhost.exe" | "com.cisco.webexmeetingsapp" | "com.cisco.webex" => {
+            "Webex"
+        }
+        "slack.exe" | "com.tinyspeck.slackmacgap" => "Slack",
+        "discord.exe" | "com.hnc.discord" => "Discord",
+        "goto.exe" | "com.logmein.goto" => "GoTo",
+        "ringcentral.exe" | "com.ringcentral.glip" => "RingCentral",
         "elevate uc.exe" => "Elevate",
-        "chrome.exe" => "Chrome",
-        "msedge.exe" => "Edge",
-        "firefox.exe" => "Firefox",
-        "brave.exe" => "Brave",
+        "chrome.exe" | "com.google.chrome" => "Chrome",
+        "msedge.exe" | "com.microsoft.edgemac" => "Edge",
+        "firefox.exe" | "org.mozilla.firefox" => "Firefox",
+        "brave.exe" | "com.brave.browser" => "Brave",
+        "com.apple.safari" => "Safari",
         other => return other.trim_end_matches(".exe").to_string(),
     };
     name.to_string()
 }
 
-/// Whether meeting capture exists on this platform (D4: Windows first; the
-/// macOS process tap comes later; Linux is deferred). The UI hides Meetings
-/// where this is false.
+/// Whether this OS supports native meeting audio capture. macOS requires 14.2+.
 pub fn meetings_supported() -> bool {
-    cfg!(windows)
+    hark_audio::loopback_win::supported()
 }
 
 #[cfg(test)]

@@ -330,6 +330,9 @@ pages:
       - "crates/hark-audio/src/resample.rs"
       - "crates/hark-audio/src/capture_win.rs"
       - "crates/hark-audio/src/loopback_win.rs"
+      - "crates/hark-audio/src/core_audio_mac.rs"
+      - "crates/hark-audio/src/core_audio_mac.m"
+      - "crates/hark-audio/build.rs"
       - "crates/hark-audio/src/meeting_aec.rs"
       - "crates/hark-audio/src/spool.rs"
       - "crates/hark-audio/src/stereo.rs"
@@ -337,6 +340,9 @@ pages:
       - "crates/hark-audio/src/mp3/excerpt.rs"
       - "crates/hark-hotkey/src/lib.rs"
       - "crates/hark-hotkey/src/hook_win.rs"
+      - "crates/hark-hotkey/src/hook_mac.rs"
+      - "crates/hark-hotkey/src/mac_keycode.rs"
+      - "crates/hark-hotkey/src/mac_ffi.rs"
       - "crates/hark-hotkey/src/hook_linux.rs"
       - "crates/hark-hotkey/src/edges.rs"
       - "crates/hark-hotkey/src/shortcuts.rs"
@@ -371,6 +377,9 @@ pages:
         source_files:
           - "crates/hark-hotkey/src/lib.rs"
           - "crates/hark-hotkey/src/hook_win.rs"
+          - "crates/hark-hotkey/src/hook_mac.rs"
+          - "crates/hark-hotkey/src/mac_keycode.rs"
+          - "crates/hark-hotkey/src/mac_ffi.rs"
           - "crates/hark-hotkey/src/hook_linux.rs"
           - "crates/hark-hotkey/src/capture.rs"
           - "crates/hark-hotkey/src/keycode.rs"
@@ -389,6 +398,9 @@ pages:
         autogen: true
         source_files:
           - "crates/hark-audio/src/loopback_win.rs"
+          - "crates/hark-audio/src/core_audio_mac.rs"
+          - "crates/hark-audio/src/core_audio_mac.m"
+          - "crates/hark-audio/build.rs"
           - "crates/hark-audio/src/meeting_aec.rs"
           - "crates/hark-audio/src/spool.rs"
           - "crates/hark-audio/src/stereo.rs"
@@ -797,7 +809,10 @@ pages:
     source_files:
       - "crates/hark-update/src/lib.rs"
       - "crates/hark-update/src/verify.rs"
+      - "crates/hark-update/src/macos.rs"
+      - "crates/hark-update/src/macos-install.sh"
       - "crates/hark-autostart/src/lib.rs"
+      - "crates/hark-autostart/src/macos.rs"
       - "crates/hark-app/src/update.rs"
     sections:
       - id: hark_11_updates_autostart_overview
@@ -817,6 +832,8 @@ pages:
         autogen: true
         source_files:
           - "crates/hark-update/src/verify.rs"
+          - "crates/hark-update/src/macos.rs"
+          - "crates/hark-update/src/macos-install.sh"
         diagrams_needed: false
         diagram_types: []
       - id: hark_11_updates_autostart_appglue
@@ -831,6 +848,7 @@ pages:
         autogen: true
         source_files:
           - "crates/hark-autostart/src/lib.rs"
+          - "crates/hark-autostart/src/macos.rs"
         diagrams_needed: false
         diagram_types: []
     related_pages:
@@ -848,6 +866,8 @@ pages:
       - "crates/hark-app/src/tray/mod.rs"
       - "crates/hark-app/src/tray/icon.rs"
       - "crates/hark-app/src/overlay.rs"
+      - "crates/hark-app/src/macos.rs"
+      - "crates/hark-app/src/macos/native.m"
       - "crates/hark-app/src/theme.rs"
       - "crates/hark-app/src/ui/mod.rs"
       - "crates/hark-app/src/ui/shell.rs"
@@ -874,6 +894,8 @@ pages:
         autogen: true
         source_files:
           - "crates/hark-app/src/overlay.rs"
+          - "crates/hark-app/src/macos.rs"
+          - "crates/hark-app/src/macos/native.m"
         diagrams_needed: false
         diagram_types: []
       - id: hark_12_desktop_ui_window
@@ -918,6 +940,11 @@ pages:
       - "THIRD_PARTY_NOTICES.md"
       - "crates/hark-app/Cargo.toml"
       - "packaging/PKGBUILD"
+      - "packaging/macos/Info.plist"
+      - "packaging/macos/entitlements.plist"
+      - "packaging/macos/README.md"
+      - "scripts/package-macos.sh"
+      - "scripts/macos-icon.py"
       - ".github/workflows/release.yml"
       - ".github/RELEASING.md"
       - "package.json"
@@ -1065,6 +1092,9 @@ pages:
         autogen: true
         source_files:
           - "crates/hark-audio/src/loopback_win.rs"
+          - "crates/hark-audio/src/core_audio_mac.rs"
+          - "crates/hark-audio/src/core_audio_mac.m"
+          - "crates/hark-audio/build.rs"
           - "crates/hark-audio/src/spool.rs"
           - "crates/hark-pipeline/src/meeting/recorder.rs"
           - "crates/hark-pipeline/src/meeting/recorder_tests.rs"

@@ -193,3 +193,12 @@ local-engine = ["hark-local-stt/engine", "hark-pipeline/engine"]
 # with --no-default-features drops tokio and the WebSocket client; the provider
 # is then hidden from Settings rather than offered and failing at runtime.
 gemini-live = ["hark-stt/live", "hark-pipeline/live"]
+
+[build-dependencies]
+cc = "1"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+docx-rs = { version = "0.4.22", default-features = false }
+
+[dev-dependencies]
+tempfile = "3"

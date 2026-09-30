@@ -33,7 +33,7 @@ the default and the saved-recording re-run provider
 
 Hark is a single-user, system-wide push-to-talk dictation app for Windows, macOS, and Linux. The user holds a configured chord, speaks, releases it, and Hark injects polished English text at the cursor in the focused application ([README](../README.md#hark)).
 
-Windows and Linux currently implement the full push-to-talk path. macOS has native UI, tray, keychain, and injection work, but the CGEventTap hotkey hook remains an explicit platform seam, so it is not yet end-to-end ready ([README](../README.md#hark), [hark-hotkey/lib.rs](../crates/hark-hotkey/src/lib.rs)).
+Windows, macOS and Linux implement the push-to-talk path. macOS uses CGEventTap with Input Monitoring access and requires Accessibility for text insertion; its bundled distribution targets macOS 14.2+ ([README](../README.md#hark), [hark-hotkey/lib.rs](../crates/hark-hotkey/src/lib.rs)).
 
 Cloud transcription is bring-your-own-key, with Deepgram, OpenAI, Groq, OpenAI-compatible endpoints, and Gemini Live supported. An optional Parakeet engine can instead run locally as a cloud backup or the primary recognizer ([README: Tech stack](../README.md#tech-stack), [README: On-device transcription](../README.md#on-device-transcription)). History, stats, settings, the spellbook, and invocations are stored on the machine; provider requests can include transcript text and vocabulary. Hark operates no server, account system, hosted database, or browser frontend ([README: Privacy](../README.md#privacy)).
 
@@ -83,7 +83,7 @@ Hark is a desktop app with no web infrastructure: no server, database service, a
 |---|---|---|
 | Language / process model | Rust; single process, UI on main thread, pipeline on worker threads | ([README: Tech stack](../README.md#tech-stack), [CLAUDE.md:11](../CLAUDE.md#L11)) |
 | Audio | `cpal`; device-rate capture, ring buffer, and per-clip 16 kHz mono resampling | ([README.md](../README.md#tech-stack), [CLAUDE.md](../CLAUDE.md#stack)) |
-| Push-to-talk | `WH_KEYBOARD_LL` on Windows and evdev on Linux; CGEventTap is the pending macOS seam | ([README.md](../README.md#tech-stack), [hark-hotkey/lib.rs](../crates/hark-hotkey/src/lib.rs)) |
+| Push-to-talk | `WH_KEYBOARD_LL` on Windows, CGEventTap on macOS and evdev on Linux | ([README.md](../README.md#tech-stack), [hark-hotkey/lib.rs](../crates/hark-hotkey/src/lib.rs)) |
 | STT (cloud, primary) | Deepgram, Whisper-family OpenAI-compatible endpoints, OpenAI `gpt-transcribe`, and Gemini Live | ([README: Tech stack](../README.md#tech-stack), [CLAUDE.md:14](../CLAUDE.md#L14)) |
 | STT (on-device, optional) | `hark-local-stt`: sherpa-onnx Parakeet behind the `engine` feature, enabled by `hark-app`'s default `local-engine` feature. Opt-in at runtime via `[local_stt] mode` (Off / Backup / Primary) | ([hark-app/Cargo.toml](../crates/hark-app/Cargo.toml), [hark-local-stt/Cargo.toml:37](../crates/hark-local-stt/Cargo.toml#L37), [hark-config/src/local.rs:14](../crates/hark-config/src/local.rs#L14)) |
 | STT transport | Blocking `reqwest` batch adapters plus a private current-thread Tokio/WebSocket runtime inside Gemini Live | ([README: Tech stack](../README.md#tech-stack), [CLAUDE.md:16](../CLAUDE.md#L16)) |

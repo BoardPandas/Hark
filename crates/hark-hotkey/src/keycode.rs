@@ -449,12 +449,42 @@ impl PttKeyCode {
             K::RCtrl => "Right Ctrl",
             K::LShift => "Left Shift",
             K::RShift => "Right Shift",
-            K::LAlt => "Left Alt",
-            K::RAlt => "Right Alt",
-            K::LWin => "Left Win",
-            K::RWin => "Right Win",
+            K::LAlt => {
+                if cfg!(target_os = "macos") {
+                    "Left Option"
+                } else {
+                    "Left Alt"
+                }
+            }
+            K::RAlt => {
+                if cfg!(target_os = "macos") {
+                    "Right Option"
+                } else {
+                    "Right Alt"
+                }
+            }
+            K::LWin => {
+                if cfg!(target_os = "macos") {
+                    "Left Command"
+                } else {
+                    "Left Win"
+                }
+            }
+            K::RWin => {
+                if cfg!(target_os = "macos") {
+                    "Right Command"
+                } else {
+                    "Right Win"
+                }
+            }
             K::CapsLock => "Caps Lock",
-            K::NumLock => "Num Lock",
+            K::NumLock => {
+                if cfg!(target_os = "macos") {
+                    "Clear"
+                } else {
+                    "Num Lock"
+                }
+            }
             K::ScrollLock => "Scroll Lock",
             K::Apps => "Menu",
             K::F1 => "F1",
@@ -521,7 +551,13 @@ impl PttKeyCode {
             K::Right => "Right Arrow",
             K::Up => "Up Arrow",
             K::Down => "Down Arrow",
-            K::Insert => "Insert",
+            K::Insert => {
+                if cfg!(target_os = "macos") {
+                    "Help"
+                } else {
+                    "Insert"
+                }
+            }
             K::Delete => "Delete",
             K::Home => "Home",
             K::End => "End",
@@ -811,8 +847,10 @@ pub fn parse_key(name: &str) -> Option<PttKeyCode> {
         "lcontrol" => K::LCtrl,
         "rcontrol" => K::RCtrl,
         "altgr" => K::RAlt,
-        "lcmd" | "lsuper" => K::LWin,
-        "rcmd" | "rsuper" => K::RWin,
+        "loption" => K::LAlt,
+        "roption" => K::RAlt,
+        "lcmd" | "lcommand" | "lsuper" => K::LWin,
+        "rcmd" | "rcommand" | "rsuper" => K::RWin,
         "return" => K::Enter,
         "esc" | "escape" => return None, // Escape cancels recording; never bindable
         "pgup" => K::PageUp,

@@ -1,5 +1,5 @@
 //! Hand check for per-process loopback (`src/loopback_win.rs`) on real
-//! Windows: `cargo test` never opens an audio device. Captures for a few
+//! Windows or macOS 14.2+: `cargo test` never opens an audio device. Captures for a few
 //! seconds and prints, per second, the frames delivered and their level in
 //! dBFS. Never prints or saves samples.
 //!
@@ -8,8 +8,8 @@
 //! ```
 //!
 //! Default is exclude mode on this process (everything but the smoke binary),
-//! which is what a manual meeting start does. Expect ~16 000 frames every
-//! second even while nothing plays (continuous packets; endpoint loopback
+//! which is what a manual meeting start does. Expect sample_rate() frames every
+//! second (16 kHz on Windows, device rate on macOS), even while nothing plays (continuous packets; endpoint loopback
 //! would deliver none), and no discontinuities after the first.
 
 use hark_audio::window::{peak_window_rms, rms};
@@ -65,7 +65,7 @@ fn main() {
         );
     }
     println!(
-        "start QPC {}, discontinuities {}, stream errored {}",
+        "start host timestamp {}, discontinuities {}, stream errored {}",
         if handle.start_qpc_ns().is_some() {
             "recorded"
         } else {

@@ -11,6 +11,8 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod app;
+#[cfg(target_os = "macos")]
+mod macos;
 mod meeting;
 mod meeting_prompt;
 mod model_download;
@@ -39,6 +41,12 @@ const RELAUNCH_LOCK_POLL: Duration = Duration::from_millis(100);
 const LOG_MAX_BYTES: u64 = 2 * 1024 * 1024;
 
 fn main() -> eframe::Result {
+    // Packaging can validate the linked executable without acquiring the real
+    // singleton, opening the microphone/keychain, or prompting for permission.
+    if std::env::args().any(|arg| arg == "--version") {
+        println!("Hark {}", update::CURRENT_VERSION);
+        return Ok(());
+    }
     init_logging();
     install_panic_hook();
 

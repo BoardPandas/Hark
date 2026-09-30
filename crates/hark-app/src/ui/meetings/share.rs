@@ -21,7 +21,7 @@ mod excerpt;
 mod files;
 #[cfg(windows)]
 mod native;
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "macos"))]
 mod word;
 use files::{meeting_dir, save_audio, save_text, show_in_folder};
 
@@ -33,8 +33,10 @@ pub(super) enum ShareAction {
     SaveText,
     SaveSrt,
     SaveVtt,
-    #[cfg(windows)]
+    #[cfg(any(windows, target_os = "macos"))]
     SaveDocx,
+    #[cfg(target_os = "macos")]
+    MacShare,
     #[cfg(windows)]
     WindowsShare,
     SaveExcerpt,
@@ -60,11 +62,12 @@ pub(super) fn menu(ui: &mut egui::Ui, has_audio: bool) -> Option<ShareAction> {
         item(ui, "Save as text…", ShareAction::SaveText);
         item(ui, "Save subtitles as SRT…", ShareAction::SaveSrt);
         item(ui, "Save subtitles as VTT…", ShareAction::SaveVtt);
+        #[cfg(any(windows, target_os = "macos"))]
+        item(ui, "Save as Word document…", ShareAction::SaveDocx);
         #[cfg(windows)]
-        {
-            item(ui, "Save as Word document…", ShareAction::SaveDocx);
-            item(ui, "Share with Windows…", ShareAction::WindowsShare);
-        }
+        item(ui, "Share with Windows…", ShareAction::WindowsShare);
+        #[cfg(target_os = "macos")]
+        item(ui, "Share with macOS…", ShareAction::MacShare);
         if has_audio {
             ui.separator();
             item(ui, "Save an excerpt with audio…", ShareAction::SaveExcerpt);
@@ -238,7 +241,7 @@ impl Sharing {
                 };
                 self.spawn(ctx, move || save_text(name, body, filter, ext));
             }
-            #[cfg(windows)]
+            #[cfg(any(windows, target_os = "macos"))]
             ShareAction::SaveDocx => self.spawn(ctx, move || word::save(export)),
             #[cfg(windows)]
             ShareAction::WindowsShare => {
@@ -252,6 +255,15 @@ impl Sharing {
                         self.status = Some(format!("Could not open Windows Share: {error}"))
                     }
                 }
+            }
+            #[cfg(target_os = "macos")]
+            ShareAction::MacShare => {
+                self.status = Some(
+                    match crate::macos::share_text(&export::to_text(&export, opts)) {
+                        Ok(()) => "Choose an app in the share sheet.".into(),
+                        Err(error) => error.into(),
+                    },
+                );
             }
             ShareAction::SaveExcerpt => {
                 self.excerpt = Some(excerpt::ExcerptDialog::new(id, export))

@@ -123,6 +123,8 @@ fn result(ui: &mut Ui, updater: &mut Updater) {
                 // belong to dpkg/rpm/pacman (see hark-update's module docs).
                 #[cfg(target_os = "linux")]
                 ui.label("Install it with your package manager, or download it below.");
+                #[cfg(target_os = "macos")]
+                ui.label("Self-updates require a signed Hark app installed in a writable Applications folder. Development builds can download releases below.");
                 if ui.button("View release").clicked() {
                     ui.ctx().open_url(egui::OpenUrl::new_tab(html_url));
                 }
@@ -137,7 +139,7 @@ fn result(ui: &mut Ui, updater: &mut Updater) {
             );
             notes_view(ui, &notes);
             if ui.add(accent_button(ui, "Restart to finish")).clicked() {
-                updater.restart();
+                updater.restart(ui.ctx());
             }
         }
     }

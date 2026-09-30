@@ -1,5 +1,13 @@
 # Generation Metadata
 
+## macOS implementation parity — 2026-09-29
+
+- **Source reviewed:** `1c1384c` plus the current macOS native backend, app, export, permission, update, login-item and packaging changes. Existing Windows and Linux implementations are preserved behind their platform gates.
+- **Scope:** Mac CGEventTap and Core Audio process taps, real microphone-use detection, native AppKit dialogs/share/overlays, SMAppService, signed-bundle updates and both Mac architecture CI jobs. New native source files are included in the documentation map.
+- **Baseline policy:** global baseline `784272c` remains unchanged.
+- **Validation:** native Apple Silicon default-feature release build; 1,035 workspace tests pass, one existing local-model fixture test ignored because it requires the ~670 MB downloaded model; workspace Clippy with warnings denied; formatting; wiring; documentation drift and guard tests. Ad-hoc signed Hark.app and arm64 DMG built, signature structure and system-library closure verified, packaged executable `--version` succeeds, DMG checksum verified.
+- **Not yet validated:** interactive TCC approvals, actual microphone/system-audio capture, dictation insertion and focus/Spaces behavior, native login registration, Intel executable runtime, Developer ID notarization and a signed update/relaunch. Intel CI and signed release jobs are configured; those jobs were not run in this local session.
+
 ## Scoped Elevate call detection — 2026-09-29 (0.58.0)
 
 - **Source reviewed:** `cc37f47` (0.57.5) plus `crates/hark-meeting/src/detect.rs` (the "Elevate UC" browser title marker and `elevate uc.exe` in `DEFAULT_APPS`) and `crates/hark-pipeline/src/meeting/mod.rs` (the "Elevate" display name).

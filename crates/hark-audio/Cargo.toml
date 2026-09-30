@@ -70,3 +70,6 @@ windows-core = "0.62"
 # Spool and archive tests build synthetic tones and read files back inside a
 # temp dir.
 tempfile = "3"
+
+[build-dependencies]
+cc = "1"

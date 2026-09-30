@@ -214,7 +214,7 @@ impl HotkeyCapture {
             self.notice = Some(if cfg!(target_os = "linux") {
                 "Recording stopped: Hark lost its connection to the keyboard.".to_string()
             } else {
-                "Recording stopped: Windows dropped Hark's keyboard hook.".to_string()
+                "Recording stopped: the system disconnected Hark's keyboard hook.".to_string()
             });
             self.typing = true;
             let rec = self.recording.take().expect("checked just above");

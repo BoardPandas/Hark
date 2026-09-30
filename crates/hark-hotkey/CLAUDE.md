@@ -77,8 +77,8 @@
 - **Edge semantics live in `edges.rs` only** (pure, exhaustively tested):
   engage on last chord member down, disengage on first up, auto-repeat
   filtered, non-chord keys ignored.
-- **Platform seam:** `spawn_listener(chord, swallow_locks, tx)` retains the dictation-only entry point; the desktop app owns `spawn_shared_listener` to multiplex dictation and the optional meeting toggle through one Windows hook.
-  `hook_mac.rs` (CGEventTap, checkpoint 7, NEEDS MAC) must implement the same
+- **Platform seam:** `spawn_listener(chord, swallow_locks, tx)` retains the dictation-only entry point; the desktop app owns `spawn_shared_listener` to multiplex dictation and the optional meeting toggle through one native Windows or macOS hook.
+  `hook_mac.rs` (CGEventTap) implements the same
   signature and feed the same `edges.rs` tracker; the tap thread owns its own
   `CFRunLoop` and must not fight the egui/winit main loop.
 
@@ -124,3 +124,21 @@
   window and the user is the only one who can act on it. `has_unreadable_nodes`
   is what separates "no keyboard" from "no permission" — `evdev::enumerate`
   silently drops nodes it cannot open, so the two look identical without it.
+
+## macOS (`hook_mac.rs`, CGEventTap)
+
+- A listen-only session tap owns a dedicated Core Foundation run loop; never
+  attach it to the AppKit/winit main loop. Native resources stay on that thread.
+- Use the side-specific device flags for modifier changes: an aggregate Command
+  flag stays set while either side is held. Ignore software-source PIDs,
+  including Hark's own enigo events, before routing or recording keys.
+- Pump in bounded intervals for shutdown and release recovery. Never synthesize
+  presses from a poll. Clear stale holds when capture starts/stops or the OS
+  disables the tap; re-enable a disabled tap from its callback.
+- Caps Lock has toggle semantics in Quartz, so reject it for held shortcuts.
+  Scroll Lock, F21–F24 and Oem8 have no native mapping and fail with guidance.
+  Function keys may require Fn or the system's standard-function-key setting.
+- Config uses portable Win/Alt tokens; labels use Command/Option. Protect
+  Command+V from binding and consult native Mac shortcut warnings.
+- Input Monitoring controls the listener; Accessibility controls injection.
+  Both grants and live keyboard/secure-input behavior require hardware checks.

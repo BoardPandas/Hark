@@ -1,6 +1,6 @@
 # Hark
 
-A lean, system-wide, push-to-talk voice dictation tool for **Windows**, **macOS** and **Linux**. Hold a key, speak, release — polished English text is injected at your cursor in any app. Transcription is **bring-your-own-key cloud** by default (you supply your own speech-to-text provider key), with an **optional on-device model** that transcribes without the internet or a key at all; history, stats, the spellbook, and your invocations stay local on your machine; cleanup is optional and uses your own LLM key. Windows and Linux have end-to-end push-to-talk today; macOS has native UI/tray/keychain/injection paths, but its CGEventTap hotkey hook is still a planned seam.
+A lean, system-wide, push-to-talk voice dictation tool for **Windows**, **macOS** and **Linux**. Hold a key, speak, release — polished English text is injected at your cursor in any app. Transcription is **bring-your-own-key cloud** by default (you supply your own speech-to-text provider key), with an **optional on-device model** that transcribes without the internet or a key at all; history, stats, the spellbook, and your invocations stay local on your machine; cleanup is optional and uses your own LLM key. Windows, macOS and Linux implement the push-to-talk path. The Mac distribution targets macOS 14.2 or newer; grant Microphone, Input Monitoring and Accessibility access in Settings → General → Permissions.
 
 > Wispr Flow-style dictation, scoped to one user, English-only, and local-first.
 
@@ -9,7 +9,7 @@ A lean, system-wide, push-to-talk voice dictation tool for **Windows**, **macOS*
 - **Push-to-talk dictation:** hold a shortcut, speak, and release to type polished English in the focused app.
 - **Your providers or an on-device model:** bring your own cloud keys, or use Parakeet for local dictation.
 - **Spellbook and invocations:** correct your vocabulary and expand spoken phrases into text you wrote.
-- **Meetings (Windows):** record your microphone and meeting audio without a bot, follow a live Me/Them transcript, and get speaker labels and notes with your own provider keys. Start and stop with an optional Windows shortcut, search transcripts, rename speakers, re-run the final pass on retained recordings, and share text, Word, subtitle, or audio files, including selected excerpts. See [Meetings](Docs/features/MEETINGS.md) and the [privacy details](#privacy) below.
+- **Meetings (Windows and macOS):** record your microphone and meeting audio without a bot, follow a live Me/Them transcript, and get speaker labels and notes with your own provider keys. Start and stop with an optional global shortcut, search transcripts, rename speakers, re-run the final pass on retained recordings, and share text, Word, subtitle, or audio files, including selected excerpts. See [Meetings](Docs/features/MEETINGS.md) and the [privacy details](#privacy) below.
 
 ## Design principles
 
@@ -27,7 +27,7 @@ Desktop app — **no web infrastructure** (no server, database service, auth, or
 |---|---|
 | Language | Rust (UI on main thread, pipeline on worker threads) |
 | Audio | `cpal` (device-rate mono ring buffer, resampled to 16 kHz per clip) |
-| Push-to-talk | `WH_KEYBOARD_LL` (Windows) and `evdev` (Linux — X11 and Wayland); CGEventTap remains the planned macOS seam |
+| Push-to-talk | `WH_KEYBOARD_LL` (Windows), `CGEventTap` (macOS), and `evdev` (Linux — X11 and Wayland) |
 | STT | BYOK cloud via an `SttProvider` trait: Deepgram, Whisper-family OpenAI-compatible endpoints, OpenAI `gpt-transcribe`, and Gemini Live |
 | STT transport | Blocking `reqwest` adapters on worker threads plus a Gemini-only private current-thread Tokio/WebSocket runtime; no global runtime |
 | Spellbook | Phonetic post-correction (primary, provider-agnostic) + per-provider biasing (`prompt`, `keywords[]`, `keyterm`, or Gemini `customVocabulary`) |
@@ -68,6 +68,12 @@ key up  ─────▶ append ~150 ms tail; finish the live turn if one surv
 ```
 
 The tray daemon owns the hot path (hotkey, audio, STT, injection). The settings/history window opens on demand. On macOS the main thread owns the event loop (tray + window); the pipeline runs on worker threads. On Linux the tray is the one exception: libappindicator builds it out of GTK widgets, which need a GTK main loop that cannot share a thread with winit's, so it runs on a thread of its own.
+
+## macOS
+
+Use macOS 14.2 or later on Apple Silicon or Intel. Build and package with the [Mac instructions](packaging/macos/README.md). The default shortcut is Control + Command. Grant Microphone, Input Monitoring and Accessibility in Settings → General → Permissions, then retry dictation. Meetings requests separate system-audio permission; browser call detection may also need Screen Recording access to read window titles. Caps Lock and unmapped Windows keys cannot be used as held Mac shortcuts.
+
+Developer builds use an ad-hoc signature. Public distribution and self-updates require a Developer ID signed, notarized bundle.
 
 ## Prerequisites
 
@@ -161,7 +167,7 @@ Cargo workspace; single binary. See [`tasks/plan-repo.md`](tasks/plan-repo.md) �
 crates/
   hark-app/          # main-thread event loop, worker orchestration, single-instance
                      #   guard, and the egui settings/history/stats window (src/ui/)
-  hark-hotkey/       # Windows/Linux hooks + shared chord tracker; macOS seam pending
+  hark-hotkey/       # Windows/macOS/Linux hooks + shared chord tracker
   hark-audio/        # cpal ring buffer, pre-roll + tail
   hark-stt/          # cloud adapters, including Gemini Live streaming
   hark-local-stt/    # optional sherpa-onnx Parakeet engine

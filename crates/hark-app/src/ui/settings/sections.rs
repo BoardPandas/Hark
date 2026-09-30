@@ -73,7 +73,7 @@ impl SettingsPage {
     pub(super) fn navigation(&mut self, ui: &mut Ui, pipeline: &mut PipelineController) {
         let previous = self.section;
         for section in Section::ALL {
-            // Meetings exist on Windows only for now (D4): no dead section.
+            // Hide meetings where native capture is unavailable.
             if section == Section::Meetings && !hark_pipeline::meeting::meetings_supported() {
                 continue;
             }
@@ -108,6 +108,16 @@ impl SettingsPage {
                             theme::card(ui, |ui| {
                                 self.close_requested |=
                                     preferences::general_section(ui, &mut self.draft);
+                                #[cfg(target_os = "macos")]
+                                {
+                                    ui.separator();
+                                    ui.heading("Permissions");
+                                    crate::macos::permission_controls(ui);
+                                    if ui.button("Retry dictation after granting access").clicked()
+                                    {
+                                        pipeline.start(saved, ui.ctx());
+                                    }
+                                }
                             });
                         }
                         Section::Dictation => self.dictation_section(ui, saved, pipeline),

@@ -34,7 +34,7 @@ Hark uses native `eframe`/`egui` for its window and floating dictation feedback,
 
 The main thread owns egui and the Windows/macOS tray. On Linux, libappindicator owns GTK widgets on a dedicated thread with its own loop. Audio, hotkeys, transcription, cleanup, and insertion run on worker threads. The UI consumes state; it never delays insertion to render feedback.
 
-On Windows, the UI also exposes meeting transcription: a Meetings page, a tray entry to start or stop taking notes, and a non-modal prompt when a meeting app starts using the microphone. Meetings is hidden everywhere its capture is unsupported (currently macOS and Linux); nothing about it changes how push-to-talk dictation looks or behaves.
+On Windows and macOS 14.2+, the UI also exposes meeting transcription: a Meetings page, a tray entry to start or stop taking notes, and a non-modal prompt when a meeting app starts using the microphone. Meetings is hidden everywhere its capture is unsupported (currently Linux); nothing about it changes how push-to-talk dictation looks or behaves.
 <!-- END:AUTOGEN hark_12_desktop_ui_overview -->
 
 ---
@@ -55,7 +55,7 @@ The native menu groups voice choices under **Voice**, followed (where meetings e
 
 Tooltips name the state and shortcut. Quiet-audio hints preserve the ready icon and explain the issue in text. Updates reach the OS only when something changes, avoiding repeated icon writes and channel traffic.
 
-A recording meeting is shown on an otherwise-idle tray as the same red recording disc, with a tooltip naming the time notes started ("Hark: taking meeting notes since 14:30"); once a detected meeting's app hangs up, the tooltip switches to when the notes will stop ("Hark: the call ended; meeting notes stop at 14:52:07"), matching the Meetings page's notice and its **Stop now** button. A start or stop *time* is shown rather than a countdown so a hidden, idle window never has to wake each second to update it — the recording state has to stay visible for as long as a meeting runs, but a dictation's own recording, processing, or error state still takes priority while it lasts. Where meeting capture does not exist on the platform (macOS, Linux for now), the menu builds without the entry at all rather than shipping one that can never work; where it exists but is off or failed to start, the entry stays in the menu, disabled.
+A recording meeting is shown on an otherwise-idle tray as the same red recording disc, with a tooltip naming the time notes started ("Hark: taking meeting notes since 14:30"); once a detected meeting's app hangs up, the tooltip switches to when the notes will stop ("Hark: the call ended; meeting notes stop at 14:52:07"), matching the Meetings page's notice and its **Stop now** button. A start or stop *time* is shown rather than a countdown so a hidden, idle window never has to wake each second to update it — the recording state has to stay visible for as long as a meeting runs, but a dictation's own recording, processing, or error state still takes priority while it lasts. Where meeting capture does not exist on the platform (Linux), the menu builds without the entry at all rather than shipping one that can never work; where it exists but is off or failed to start, the entry stays in the menu, disabled.
 <!-- END:AUTOGEN hark_12_desktop_ui_tray -->
 
 ---
@@ -157,3 +157,7 @@ Headless egui layout checks cover the minimum-width navigation and card padding.
 <!-- END:AUTOGEN hark_12_desktop_ui_theme -->
 
 ---
+
+## macOS integration
+
+Setup and Settings → General show current Microphone, Input Monitoring and Accessibility status, with explicit permission requests and links to System Settings. Retry dictation after granting access; macOS may require restarting Hark. Meeting settings explain separate system-audio permission and browser-title access. The native recording pill uses the visible frame of the screen under the pointer; the meeting prompt uses the primary screen. Both respect the Dock and menu bar, remain above ordinary windows, and can appear across Spaces. Exports use an asynchronous native save sheet, Word export, Finder reveal and the macOS share sheet ([bridge](../../crates/hark-app/src/macos.rs), [AppKit implementation](../../crates/hark-app/src/macos/native.m)).
