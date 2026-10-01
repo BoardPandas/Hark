@@ -1,5 +1,11 @@
 # Generation Metadata
 
+## Windows dictation indicator stacking — 2026-10-01 (0.61.4)
+
+- **Source reviewed:** `8dea8ef` (0.61.3) plus the scoped overlay repair. Desktop UI now describes native topmost restoration on reveal and once per second while visible, without activation or extra idle repainting. The source map includes the overlay submodules; global baseline `784272c` is unchanged.
+- **Validation:** stable Rust 1.99.0; formatting, strict Linux all-targets Clippy, strict Windows GNU workspace/all-targets Clippy, and default-feature workspace tests pass (**1,153 passed, 0 failed, 1 ignored**). The two new cadence tests cover all visible feedback states, rate limiting, hidden inactivity, and immediate reappearance. The newly deprecated feedback atomic helper was replaced by an equivalent compare-exchange loop using APIs supported by the existing MSRV.
+- **Limits:** Windows compilation and pure timing tests do not establish native stacking or focus preservation. Interactive Windows verification and release publication remain pending. Linux builds used `BINDGEN_EXTRA_CLANG_ARGS=-resource-dir=/usr/lib/clang/22` to locate installed Clang headers; no repository build configuration changed.
+
 ## Linux release runtime dependency repair — 2026-09-30 (0.61.3)
 
 - **Source reviewed:** `b85740f` and failed release run `36771797308`, plus the release dependency correction.

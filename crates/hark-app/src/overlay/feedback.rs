@@ -98,11 +98,20 @@ impl Feedback {
     }
 
     fn publish_at(&self, state: State, now_ms: u64) {
-        let _ = self
-            .value
-            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |value| {
-                (value != DISABLED).then_some((now_ms << 8) | state as u64)
-            });
+        let mut value = self.value.load(Ordering::Relaxed);
+        // Preserve the disabled sentinel even if shutdown races publication.
+        // An explicit CAS loop also works on the workspace's older Rust MSRV.
+        while value != DISABLED {
+            match self.value.compare_exchange_weak(
+                value,
+                (now_ms << 8) | state as u64,
+                Ordering::Relaxed,
+                Ordering::Relaxed,
+            ) {
+                Ok(_) => return,
+                Err(current) => value = current,
+            }
+        }
     }
 
     fn state_at(&self, recording: bool, now_ms: u64) -> State {

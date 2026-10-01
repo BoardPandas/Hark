@@ -887,6 +887,7 @@ pages:
       - "crates/hark-app/src/tray/mod.rs"
       - "crates/hark-app/src/tray/icon.rs"
       - "crates/hark-app/src/overlay.rs"
+      - "crates/hark-app/src/overlay/*.rs"
       - "crates/hark-app/src/macos.rs"
       - "crates/hark-app/src/macos/native.m"
       - "crates/hark-app/src/theme.rs"
@@ -922,6 +923,7 @@ pages:
         autogen: true
         source_files:
           - "crates/hark-app/src/overlay.rs"
+          - "crates/hark-app/src/overlay/*.rs"
           - "crates/hark-app/src/macos.rs"
           - "crates/hark-app/src/macos/native.m"
         diagrams_needed: false

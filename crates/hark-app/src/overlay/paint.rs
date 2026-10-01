@@ -18,6 +18,8 @@ pub(super) fn paint(
     #[cfg(windows)]
     super::shape_to_capsule();
     let state = feedback.state(recording.load(Ordering::Relaxed));
+    #[cfg(windows)]
+    keep_on_top(ctx, state);
     if state == State::Hidden {
         #[cfg(target_os = "macos")]
         crate::macos::overlay_visible("Hark recording", false);
@@ -117,4 +119,110 @@ pub(super) fn paint(
         egui::FontId::proportional(theme::OVERLAY_FONT),
         theme::OVERLAY_TEXT,
     );
+}
+
+/// Reclaim the topmost band on reveal and once a second while showing. The
+/// existing animation/feedback ticks drive this; a hidden pill stays asleep.
+#[cfg(any(windows, test))]
+fn raise_due(ctx: &egui::Context, state: State, now: std::time::Instant) -> bool {
+    let id = egui::Id::new("hark_overlay_last_raise");
+    ctx.data_mut(|data| {
+        if state == State::Hidden {
+            data.remove::<std::time::Instant>(id);
+            return false;
+        }
+        if data
+            .get_temp::<std::time::Instant>(id)
+            .is_some_and(|last| now.duration_since(last) < Duration::from_secs(1))
+        {
+            return false;
+        }
+        data.insert_temp(id, now);
+        true
+    })
+}
+
+#[cfg(windows)]
+fn keep_on_top(ctx: &egui::Context, state: State) {
+    use windows::core::{w, PCWSTR};
+    use windows::Win32::UI::WindowsAndMessaging::{
+        FindWindowW, SetWindowPos, HWND_TOPMOST, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOOWNERZORDER,
+        SWP_NOSIZE,
+    };
+
+    if !raise_due(ctx, state, std::time::Instant::now()) {
+        return;
+    }
+    // The builder's always-on-top flag is cached by winit, so resending the
+    // same WindowLevel command cannot repair native z-order changes. Match
+    // the meeting prompt's direct Win32 raise, without activating the pill.
+    // SAFETY: the persistent pill has a unique title in our single instance.
+    let hwnd = match unsafe { FindWindowW(PCWSTR::null(), w!("Hark recording")) } {
+        Ok(hwnd) if !hwnd.is_invalid() => hwnd,
+        _ => return,
+    };
+    // SAFETY: a validated window handle, with geometry and keyboard focus
+    // preserved. No egui data guard is held: SetWindowPos sends synchronous
+    // window messages on this UI thread.
+    if let Err(error) = unsafe {
+        SetWindowPos(
+            hwnd,
+            Some(HWND_TOPMOST),
+            0,
+            0,
+            0,
+            0,
+            SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_NOOWNERZORDER,
+        )
+    } {
+        log::warn!("recording overlay: could not be kept on top ({error})");
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::Instant;
+
+    #[test]
+    fn all_visible_feedback_reclaims_topmost_without_raising_every_frame() {
+        for state in [
+            State::Listening,
+            State::Processing,
+            State::LoadingModel,
+            State::Inserted,
+            State::AudioError,
+            State::ProviderError,
+            State::InsertError,
+            State::Quiet,
+        ] {
+            let ctx = egui::Context::default();
+            let now = Instant::now();
+            assert!(raise_due(&ctx, state, now));
+            for millis in [0, 33, 100, 999] {
+                assert!(!raise_due(&ctx, state, now + Duration::from_millis(millis)));
+            }
+            assert!(raise_due(&ctx, state, now + Duration::from_secs(1)));
+            assert!(!raise_due(&ctx, state, now + Duration::from_millis(1_033)));
+            assert!(raise_due(&ctx, state, now + Duration::from_secs(2)));
+        }
+    }
+
+    #[test]
+    fn hidden_overlay_never_raises_and_next_dictation_raises_immediately() {
+        let ctx = egui::Context::default();
+        let now = Instant::now();
+        assert!(!raise_due(&ctx, State::Hidden, now));
+        assert!(raise_due(&ctx, State::Listening, now));
+        assert!(!raise_due(
+            &ctx,
+            State::Hidden,
+            now + Duration::from_millis(10)
+        ));
+        assert!(raise_due(
+            &ctx,
+            State::Listening,
+            now + Duration::from_millis(20)
+        ));
+    }
 }
