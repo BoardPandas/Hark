@@ -217,7 +217,10 @@ dictation provider/model and existing Deepgram default do not change. This choic
 applies after Stop; the saved-recording **Re-run final pass** action above still
 explicitly uploads to Deepgram.
 
-The worker decodes the recording into aligned PCM chunks and visits each track
+The worker decodes the recording into aligned PCM chunks (symphonia 0.6 with
+gapless trimming, so decoded audio starts at the recording's first sample
+rather than after the encoder delay)
+and visits each track
 separately in five-minute windows, including the final partial window. Microphone
 segments remain **Me**. Playback speakers are **Window N · Speaker M**: the same
 number in another window does not establish the same person. Speaker renames

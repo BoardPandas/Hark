@@ -52,7 +52,7 @@ jiff = "0.2"
 log = "0.4"
 # Tray icon + menu (muda arrives re-exported as `tray_icon::menu`). Created
 # on the main thread after the event loop starts (spec §3.8).
-tray-icon = "0.24.1"
+tray-icon = "0.26.0"
 
 # Same windows-rs pin as hark-hotkey / hark-single-instance. The recording
 # overlay needs real monitor geometry to place itself:
@@ -114,7 +114,7 @@ extended-description = """Hold a key, speak, release: Hark transcribes what you 
 Hark reads /dev/input to see the push-to-talk chord and writes /dev/uinput to paste, so it works identically on X11 and Wayland. Add yourself to the "input" group and log back in before first use."""
 section = "sound"
 priority = "optional"
-# $auto resolves the LINKED shared libraries (ALSA, GTK, X11, xdo) through
+# $auto resolves the LINKED shared libraries (ALSA, GTK, PipeWire) through
 # dpkg-shlibdeps, which is more accurate than any list written by hand.
 #
 # The appindicator library is named explicitly because $auto CANNOT find it:

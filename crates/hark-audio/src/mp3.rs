@@ -18,12 +18,11 @@ use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 
 use mp3lame_encoder::{Bitrate, DualPcm, Encoder as LameEncoder, FlushGap, Mode, MonoPcm, Quality};
-use symphonia::core::audio::SampleBuffer;
-use symphonia::core::codecs::{Decoder, DecoderOptions};
-use symphonia::core::formats::{FormatOptions, FormatReader};
+use symphonia::core::codecs::audio::{AudioDecoder, AudioDecoderOptions};
+use symphonia::core::formats::probe::Hint;
+use symphonia::core::formats::{FormatOptions, FormatReader, TrackType};
 use symphonia::core::io::MediaSourceStream;
 use symphonia::core::meta::MetadataOptions;
-use symphonia::core::probe::Hint;
 
 use crate::spool;
 use crate::stereo::{self, SpoolPairChunks};
@@ -408,7 +407,7 @@ impl MixSource {
 /// into both sides.
 struct ArchiveDecoder {
     format: Box<dyn FormatReader>,
-    decoder: Box<dyn Decoder>,
+    decoder: Box<dyn AudioDecoder>,
     track_id: u32,
     /// Decoded-but-not-yet-yielded samples, drained by `next_chunk`.
     pending_l: Vec<i16>,
@@ -422,34 +421,42 @@ impl ArchiveDecoder {
         let mss = MediaSourceStream::new(Box::new(file), Default::default());
         let mut hint = Hint::new();
         hint.with_extension("mp3");
-        let fmt_opts = FormatOptions {
-            enable_gapless: true,
-            ..Default::default()
-        };
-        let probed = symphonia::default::get_probe()
-            .format(&hint, mss, &fmt_opts, &MetadataOptions::default())
+        let format = symphonia::default::get_probe()
+            .probe(
+                &hint,
+                mss,
+                FormatOptions::default(),
+                MetadataOptions::default(),
+            )
             .map_err(|e| EncodeError::Decode(e.to_string()))?;
-        let format = probed.format;
         let track = format
-            .default_track()
+            .default_track(TrackType::Audio)
             .ok_or_else(|| EncodeError::Decode("no default audio track".into()))?;
         let track_id = track.id;
-        if track.codec_params.sample_rate != Some(spool::SPOOL_RATE) {
+        let params = track
+            .codec_params
+            .as_ref()
+            .and_then(|p| p.audio())
+            .ok_or_else(|| EncodeError::Decode("no audio codec parameters".into()))?;
+        if params.sample_rate != Some(spool::SPOOL_RATE) {
             return Err(EncodeError::Decode(
                 "meeting archives must use 16 kHz audio".into(),
             ));
         }
-        if track
-            .codec_params
+        if params
             .channels
+            .as_ref()
             .is_none_or(|channels| !matches!(channels.count(), 1 | 2))
         {
             return Err(EncodeError::Decode(
                 "meeting archives must have one or two channels".into(),
             ));
         }
+        // Gapless trimming (the LAME/Info tag's encoder delay and padding) is
+        // a decoder option since symphonia 0.6, on by default; the duration
+        // check in verify depends on it.
         let decoder = symphonia::default::get_codecs()
-            .make(&track.codec_params, &DecoderOptions::default())
+            .make_audio_decoder(params, &AudioDecoderOptions::default().gapless(true))
             .map_err(|e| EncodeError::Decode(e.to_string()))?;
         Ok(Self {
             format,
@@ -468,23 +475,26 @@ impl ArchiveDecoder {
     fn next_chunk(&mut self, want: usize) -> Result<Option<StereoChunk>, EncodeError> {
         while !self.finished && self.pending_l.len() < want {
             match self.format.next_packet() {
-                Ok(packet) => {
-                    if packet.track_id() != self.track_id {
+                Ok(Some(packet)) => {
+                    if packet.track_id != self.track_id {
                         continue;
                     }
                     let decoded = self
                         .decoder
                         .decode(&packet)
                         .map_err(|e| EncodeError::Decode(e.to_string()))?;
-                    let spec = *decoded.spec();
-                    let chans = spec.channels.count().max(1);
-                    let mut sb = SampleBuffer::<f32>::new(decoded.capacity() as u64, spec);
-                    sb.copy_interleaved_ref(decoded);
-                    for frame in sb.samples().chunks_exact(chans) {
+                    let chans = decoded.spec().channels().count().max(1);
+                    let mut samples = Vec::<f32>::new();
+                    decoded.copy_to_vec_interleaved(&mut samples);
+                    for frame in samples.chunks_exact(chans) {
                         self.pending_l.push(spool::f32_to_i16(frame[0]));
                         self.pending_r.push(spool::f32_to_i16(frame[chans - 1]));
                     }
                 }
+                Ok(None) => self.finished = true,
+                // A file cut off mid-frame (crash during write) still yields
+                // everything decoded before the cut, as it did on 0.5, where
+                // this was the only end-of-stream signal.
                 Err(symphonia::core::errors::Error::IoError(e))
                     if e.kind() == io::ErrorKind::UnexpectedEof =>
                 {

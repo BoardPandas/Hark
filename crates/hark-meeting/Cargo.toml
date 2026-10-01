@@ -17,7 +17,7 @@ log = "0.4"
 # for meeting-titled windows on X11 sessions — pure Rust, no libX11 link.
 [target.'cfg(target_os = "linux")'.dependencies]
 pipewire = { version = "0.10", features = ["v0_3_44"] }
-x11rb = "0.13"
+x11rb = "0.14"
 
 # The detection probe (probe/win.rs). winreg reads the ConsentStore in process
 # (already locked through hark-autostart); never shell out to reg.exe.

@@ -28,7 +28,10 @@ impl GeminiFiles {
         static CLIENT: OnceLock<Result<Client, String>> = OnceLock::new();
         let client = CLIENT
             .get_or_init(|| {
+                let roots = crate::static_trust_roots()
+                    .map_err(|_| "Cannot initialize Gemini transport.".to_string())?;
                 Client::builder()
+                    .tls_certs_only(roots)
                     .connect_timeout(Duration::from_secs(10))
                     .timeout(Duration::from_secs(180))
                     .redirect(reqwest::redirect::Policy::none())

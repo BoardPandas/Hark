@@ -1,5 +1,12 @@
 # Generation Metadata
 
+## Dependency refresh and static trust roots — 2026-10-01 (0.61.5)
+
+- **Source reviewed:** `678ace7` (0.61.4) plus the dependency refresh: reqwest 0.13.1 → 0.13.5 with static roots moved from the removed `webpki-roots` feature to `tls_certs_only` + `webpki-root-certs`, tray-icon 0.26 (muda 0.21, no libxdo), symphonia 0.6, x11rb 0.14, all semver-compatible lockfile updates, and Node 24 / v7 action pins in every workflow. Global baseline `784272c` is unchanged.
+- **Scope:** Overview, Getting Started, Glossary, Architecture, Audio Capture, Meetings, Transcription, Voice Cleanup, and Release and Packaging. AUTOGEN markers are preserved.
+- **Validation:** stable Rust 1.99.0; formatting, strict Linux and Windows GNU all-targets Clippy, and default-feature workspace tests pass (**1,154 passed, 0 failed, 1 ignored**). A temporary probe completed real TLS handshakes with the static roots against Deepgram, OpenAI, Gemini and GitHub. `objdump -p` on a linked `hark-app` shows no libxdo.
+- **Limits:** no macOS compilation (no Apple toolchain on this host); the tray, MP3 export and X11 probe were not exercised on a desktop. Linux builds used `BINDGEN_EXTRA_CLANG_ARGS=-I/usr/lib/clang/22/include`; no repository build configuration changed.
+
 ## Windows dictation indicator stacking — 2026-10-01 (0.61.4)
 
 - **Source reviewed:** `8dea8ef` (0.61.3) plus the scoped overlay repair. Desktop UI now describes native topmost restoration on reveal and once per second while visible, without activation or extra idle repainting. The source map includes the overlay submodules; global baseline `784272c` is unchanged.

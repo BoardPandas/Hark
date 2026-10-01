@@ -27,7 +27,6 @@ license=('MIT')
 # libraries the binary dlopens (which no tool can infer -- see below):
 #   alsa-lib              libasound.so.2, microphone capture via cpal
 #   gtk3                  libgtk-3/libgdk-3/libgdk_pixbuf/glib, the tray's toolkit
-#   xdotool               libxdo.so.4, DIRECTLY LINKED for muda's menu items
 #   libappindicator-gtk3  dlopened by libappindicator-sys for the tray icon
 #   libx11, libxkbcommon  dlopened by winit's x11-dl and xkbcommon-dl
 # The last three are the ones to be careful with: dlopened libraries never
@@ -35,7 +34,7 @@ license=('MIT')
 # cleanly and then fails at runtime -- silently for the tray, at startup for
 # the others. libxcb is deliberately absent: x11rb speaks the X protocol in
 # pure Rust and links no XCB.
-depends=('alsa-lib' 'gtk3' 'xdotool' 'libappindicator-gtk3' 'libx11' 'libxkbcommon' 'pipewire')
+depends=('alsa-lib' 'gtk3' 'libappindicator-gtk3' 'libx11' 'libxkbcommon' 'pipewire')
 # base-devel ships neither cmake nor clang, and a build dependency that comes
 # in through a -sys crate's build script is named nowhere pacman can see it, so
 # leaving them out fails an AUR build with a bare "cmake: command not found"

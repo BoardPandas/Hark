@@ -85,9 +85,9 @@ Developer builds use an ad-hoc signature. Public distribution and self-updates r
   ```bash
   # Debian / Ubuntu
   sudo apt install libasound2-dev libgtk-3-dev libayatana-appindicator3-dev \
-    libxdo-dev libxkbcommon-dev libx11-dev pkg-config cmake clang
+    libxkbcommon-dev libx11-dev pkg-config cmake clang
   # Arch
-  sudo pacman -S alsa-lib gtk3 libappindicator-gtk3 xdotool libxkbcommon cmake clang pkgconf
+  sudo pacman -S alsa-lib gtk3 libappindicator-gtk3 libxkbcommon cmake clang pkgconf
   ```
 
 ## Getting started

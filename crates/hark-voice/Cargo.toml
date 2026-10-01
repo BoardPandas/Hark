@@ -7,14 +7,12 @@ license.workspace = true
 description = "Hark BYOK voice layer: cleanup voices, prompt assembly, and the OpenAI-compatible chat-completions adapter."
 
 [dependencies]
-# reqwest 0.13 renamed the 0.12 TLS umbrella features: "rustls-tls-webpki-roots"
-# is now "rustls" + "webpki-roots" (no OS cert store, fully static trust roots).
-# Stanza copied verbatim from hark-stt (LL-G reqwest-013-tls-feature-rename).
+# Same reqwest surface as hark-stt; callers pass the process-wide client from
+# hark_stt::shared_client(), which pins the static trust roots.
 # No "multipart" feature: chat-completions is a plain buffered JSON POST.
 reqwest = { version = "0.13", default-features = false, features = [
     "blocking",
     "rustls",
-    "webpki-roots",
     "json",
 ] }
 log = "0.4"

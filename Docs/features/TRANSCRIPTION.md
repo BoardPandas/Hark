@@ -53,7 +53,7 @@ classDiagram
     LiveStt --> LiveSession
 ```
 
-The process shares one blocking HTTP client with 3-second connect and 15-second total request bounds. Gemini alone owns a private current-thread Tokio runtime for WebSocket I/O; it does not turn the rest of Hark into an async application ([lib.rs](../../crates/hark-stt/src/lib.rs), [gemini_live.rs:728-765](../../crates/hark-stt/src/gemini_live.rs#L728-L765)). The meeting final pass reuses the same shared client but its own, much longer timeout: `FINAL_PASS_TIMEOUT_MS` is 900,000 ms (15 min), because the request both uploads roughly 230 MB per recorded hour and waits on Deepgram's own processing, both far past a dictation's 15-second budget ([meeting.rs:23-25](../../crates/hark-stt/src/meeting.rs#L23-L25)).
+The process shares one blocking HTTP client with 3-second connect and 15-second total request bounds. Every Hark HTTP client trusts only Mozilla's root set compiled in from `webpki-root-certs` (`tls_certs_only`), never the OS certificate store, so a locally installed CA cannot intercept requests carrying the user's key. reqwest 0.13.2+ removed the `webpki-roots` feature that used to provide this, and requesting it silently held reqwest at 0.13.1 ([lib.rs](../../crates/hark-stt/src/lib.rs)). Gemini alone owns a private current-thread Tokio runtime for WebSocket I/O; it does not turn the rest of Hark into an async application ([lib.rs](../../crates/hark-stt/src/lib.rs), [gemini_live.rs:728-765](../../crates/hark-stt/src/gemini_live.rs#L728-L765)). The meeting final pass reuses the same shared client but its own, much longer timeout: `FINAL_PASS_TIMEOUT_MS` is 900,000 ms (15 min), because the request both uploads roughly 230 MB per recorded hour and waits on Deepgram's own processing, both far past a dictation's 15-second budget ([meeting.rs:23-25](../../crates/hark-stt/src/meeting.rs#L23-L25)).
 <!-- END:AUTOGEN hark_07_transcription_trait -->
 
 ---
@@ -135,7 +135,7 @@ returns an empty result; a disconnected meeting socket does not count as silence
 `hark-stt::meeting_gemini` is a blocking adapter for explicitly selected post-call
 processing. It uploads one mono window, requests a structured transcript, and
 attempts remote deletion on every result. It uses a reused client with redirects
-disabled, bounded response bodies, credential-free errors, and no global runtime.
+disabled, the same static trust roots as the shared client, bounded response bodies, credential-free errors, and no global runtime.
 Window-local speaker identity and conservative omission checks are described in
 [Meetings](MEETINGS.md#gemini-files-final-pass). It does not implement `SttProvider`
 or replace Gemini Live dictation

@@ -34,7 +34,7 @@ mp3lame-encoder = "0.2"
 # Decodes the MP3 archive back to PCM for the compress-then-verify step and
 # for exporting audio from an already-compressed meeting. Pure Rust
 # (MPL-2.0), no native codec dependency; only the mp3 feature is enabled.
-symphonia = { version = "0.5", default-features = false, features = ["mp3"] }
+symphonia = { version = "0.6", default-features = false, features = ["mp3"] }
 
 # cpal resolves the default capture device by the eConsole role only, but
 # Windows keeps a SECOND capture default for the eCommunications role -- the
@@ -63,7 +63,9 @@ windows = { version = "0.62.2", features = [
 ] }
 # `#[implement]` (the activation completion handler) expands to paths in
 # windows-core, so it must be a direct dependency. Same version the windows
-# crate already pulls in.
+# crate already pulls in. Do not follow crates.io to windows-core 0.100: that
+# is a new windows-rs line the windows crate (0.62.2) does not use, and a
+# second windows-core makes #[implement] target the wrong traits.
 windows-core = "0.62"
 
 # Meeting-mode system-audio loopback (loopback/linux.rs): the official Rust

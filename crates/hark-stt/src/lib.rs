@@ -160,11 +160,40 @@ pub fn shared_client() -> Result<reqwest::blocking::Client, SttError> {
 /// fallback that slow is worse than none, so the pipeline gives the cloud a
 /// shorter budget precisely when it has something to fall back to.
 pub fn client_with_timeout(total_ms: u64) -> Result<reqwest::blocking::Client, SttError> {
+    let map_err = |e: reqwest::Error| error_for_transport("client", total_ms, &e);
     reqwest::blocking::Client::builder()
+        .tls_certs_only(static_trust_roots().map_err(map_err)?)
         .connect_timeout(std::time::Duration::from_millis(
             CONNECT_TIMEOUT_MS.min(total_ms),
         ))
         .timeout(std::time::Duration::from_millis(total_ms))
         .build()
-        .map_err(|e| error_for_transport("client", total_ms, &e))
+        .map_err(map_err)
+}
+
+/// Mozilla's root set, compiled in, as the client's only trust roots.
+///
+/// reqwest's `rustls` feature otherwise verifies against the OS certificate
+/// store, which drifts per machine and lets a locally installed CA (corporate
+/// proxy, malware) intercept requests carrying the user's API key.
+/// `tls_certs_only` with this list keeps every Hark client on the same static
+/// roots on all three platforms.
+fn static_trust_roots() -> Result<Vec<reqwest::Certificate>, reqwest::Error> {
+    webpki_root_certs::TLS_SERVER_ROOT_CERTS
+        .iter()
+        .map(|der| reqwest::Certificate::from_der(der.as_ref()))
+        .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // An empty list would make tls_certs_only reject every server, so every
+    // cloud request would fail at the TLS handshake.
+    #[test]
+    fn static_trust_roots_are_present_and_build_a_client() {
+        assert!(static_trust_roots().unwrap().len() > 100);
+        assert!(shared_client().is_ok());
+    }
 }

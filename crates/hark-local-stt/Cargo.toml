@@ -14,7 +14,6 @@ description = "Hark opt-in on-device speech-to-text: model download manager and 
 reqwest = { version = "0.13", default-features = false, features = [
     "blocking",
     "rustls",
-    "webpki-roots",
 ] }
 hark-config = { path = "../hark-config" }
 log = "0.4"

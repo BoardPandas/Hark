@@ -7,16 +7,23 @@ license.workspace = true
 description = "Hark BYOK cloud speech-to-text: SttProvider trait with OpenAI-compatible, Deepgram and Gemini adapters."
 
 [dependencies]
-# reqwest 0.13 renamed the 0.12 TLS umbrella features: "rustls-tls-webpki-roots"
-# is now "rustls" + "webpki-roots" (no OS cert store, fully static trust roots).
+# Static trust roots, no OS cert store: reqwest 0.13.2+ removed its
+# "webpki-roots" feature and made rustls-platform-verifier (the OS store) the
+# default, so the roots now come from webpki-root-certs and every client is
+# built with tls_certs_only (see static_trust_roots in lib.rs). Requesting the
+# old feature does not error; cargo silently pins reqwest to 0.13.1 instead
+# (LL-G cargo-update-silent-holdback-on-feature-removal).
 # No "multipart" feature: reqwest streams multipart bodies, which masks
 # connect/timeout errors as opaque body errors; we assemble multipart by hand.
 reqwest = { version = "0.13", default-features = false, features = [
     "blocking",
     "rustls",
-    "webpki-roots",
     "json",
 ] }
+# Mozilla's root set as full DER certificates, which is what
+# reqwest::Certificate::from_der takes (webpki-roots ships trust anchors only).
+# Already in the tree under rustls-platform-verifier, so no new vendor surface.
+webpki-root-certs = "1"
 # Gemini takes inline audio as base64 in a JSON body (there is no multipart
 # path); already in the tree as a transitive dep, so no new vendor surface.
 base64 = "0.23"

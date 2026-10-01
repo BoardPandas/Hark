@@ -6,6 +6,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.61.5] - 2026-10-01
+
+### Fixed
+
+- Transcription, cleanup, model-download and update requests keep trusting only Hark's built-in certificate list, never certificates installed on the computer, now that the HTTP library has dropped the option Hark used for this. That removal had silently held Hark on an older release of the library; it is now current, with the same certificate behaviour.
+
+### Changed
+
+- Linux: Hark no longer uses `libxdo`. The Arch package no longer depends on `xdotool`, and building from source no longer needs `libxdo-dev`.
+- Updated the tray icon (tray-icon 0.26), MP3 decoding (symphonia 0.6), X11 (x11rb 0.14) and HTTP (reqwest 0.13.5) libraries, plus compatible updates across the dependency tree. Saved meeting audio still decodes to its exact original length.
+- CI workflows run on Node 24.
+
 ## [0.61.4] - 2026-10-01
 
 ### Fixed
