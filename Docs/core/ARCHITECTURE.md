@@ -25,9 +25,9 @@ The following files were used as evidence for this page:
 
 Meeting capture and provider processing use independent workers. A saved-recording
 worker can refine retained audio while a new call records; the storage worker
-atomically replaces the saved transcript and its search index. Registry events
-wake the detector, with independent debounce/auto-stop deadlines and a polling
-backstop. The optional Gemini worker processes bounded mono windows and requests
+atomically replaces the saved transcript and its search index. The detector is
+polled every two seconds on Windows and macOS and woken by PipeWire graph events
+on Linux, with independent debounce/auto-stop deadlines. The optional Gemini worker processes bounded mono windows and requests
 remote cleanup; a failed pass preserves the prior live transcript.
 
 > **Related Pages**: [Overview](../OVERVIEW.md), [Audio Capture](../features/AUDIO_CAPTURE.md), [Transcription](../features/TRANSCRIPTION.md), [Text Injection](../features/TEXT_INJECTION.md), [Meetings](../features/MEETINGS.md)

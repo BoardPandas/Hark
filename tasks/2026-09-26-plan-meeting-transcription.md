@@ -240,6 +240,12 @@ a per-OS `MicUsers` probe, so the logic is unit-tested on fixture snapshots with
   With the D1 revision, a match must also resolve the app's **root PID** (the process whose
   parent is not the same exe) as the per-process loopback target. For packaged Teams that
   means `ms-teams.exe`.
+  **Revised 2026-10-05 (0.61.6):** the ConsentStore values stopped changing on Windows 11
+  build 26300 after the 2026-10-03 updates (Hark's own open stream read as stopped), so a
+  real Teams call was missed. The probe now enumerates Core Audio capture sessions on every
+  active capture endpoint (`AudioSessionStateActive`) and names each process by package
+  family (`GetPackageFamilyName`) or exe path. The registry watcher is gone; Windows polls
+  every 2 s.
 - **macOS 14+ (macOS phase):** `kAudioHardwarePropertyProcessObjectList` + per-process `IsRunningInput`,
   **polled**, because per-process listeners are reported not to fire reliably.
 

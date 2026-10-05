@@ -1,8 +1,12 @@
 # hark-meeting rules
 
 - **Pure: no I/O, no threads, no clocks,** with two fenced exceptions:
-  `storage_fs.rs` (measure and delete meeting audio) and `probe_win.rs` with
-  its `probe_watch_win.rs` worker (read who holds the mic and notify changes).
+  `storage_fs.rs` (measure and delete meeting audio) and the `probe/` modules
+  (read who holds the mic: Core Audio capture sessions on Windows, PipeWire
+  plus its change watcher on Linux, Core Audio process objects on macOS).
+  Never go back to the ConsentStore registry on Windows: it is undocumented
+  and stopped updating on build 26300 (2026-10-03), which silently ended
+  Teams detection.
   Every decision lives in the pure modules and is tested
   on fixtures; time is a caller-supplied ms counter and offsets are 16 kHz
   sample counts, never wall-clock time.

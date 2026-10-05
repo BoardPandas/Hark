@@ -6,6 +6,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.61.6] - 2026-10-05
+
+### Fixed
+
+- Windows: Hark again offers to take notes when a Teams call (or Zoom, Meet, Discord and the other meeting apps) starts, and a meeting stops on its own once the call ends. A Windows update on 2026-10-03 stopped updating the record of which apps use the microphone that Hark relied on, so calls went unnoticed and a meeting started by hand recorded until stopped by hand. Hark now asks the Windows audio system directly which apps are recording from any microphone, including virtual ones such as Krisp's.
+- Meeting detection keeps working after the Windows audio service restarts (a driver update, a Bluetooth headset connecting); before, one failed check turned detection off until Hark was restarted.
+
+### Changed
+
+- Windows meeting detection checks every two seconds instead of waiting for registry change notifications, which no longer arrive. The five-second start delay and the auto-stop delay are unchanged.
+
 ## [0.61.5] - 2026-10-01
 
 ### Fixed

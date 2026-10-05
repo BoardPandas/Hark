@@ -14,7 +14,8 @@
 //!
 //! The exceptions to "pure" are small and fenced: [`storage_fs`] (measure
 //! and delete meeting audio, behind a path guard) and [`probe`] (read who
-//! holds the microphone: the ConsentStore on Windows, PipeWire on Linux).
+//! holds the microphone: Core Audio capture sessions on Windows, PipeWire on
+//! Linux, Core Audio process objects on macOS).
 //!
 //! Everything else is arithmetic: no I/O, no threads, no clocks. The
 //! session timeline is counted in 16 kHz samples from the session start, the

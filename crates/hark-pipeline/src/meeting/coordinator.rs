@@ -1,5 +1,6 @@
-//! The meeting coordinator thread: registry-driven detection with timed
-//! backstops, the active recording's capture drain, and commands from the UI.
+//! The meeting coordinator thread: detection (PipeWire-driven on Linux,
+//! polled on Windows and macOS) with timed deadlines, the active recording's
+//! capture drain, and commands from the UI.
 //! Nothing here waits on the network; the live transcriber and the finisher
 //! own that.
 
@@ -20,7 +21,7 @@ use std::time::{Duration, Instant};
 
 const DRAIN_EVERY: Duration = Duration::from_millis(100);
 const DETECT_FALLBACK: Duration = Duration::from_millis(detect::POLL_MS);
-/// Registry notifications do not cover browser window-title changes.
+/// Change notifications do not cover browser window-title changes.
 const DETECT_BACKSTOP: Duration = Duration::from_secs(10);
 const WATCH_RETRY: Duration = Duration::from_secs(30);
 /// Plan §4.9 rule 3: while recording, re-check the cap every 60 s.
@@ -90,7 +91,7 @@ impl MeetingHandle {
 
 impl Drop for MeetingHandle {
     fn drop(&mut self) {
-        // The registry watcher owns another sender. Explicit shutdown must
+        // A change watcher owns another sender. Explicit shutdown must
         // precede waiting: channel disconnection alone can no longer stop us.
         self.send(Command::Shutdown);
         self.tx.take();
@@ -140,6 +141,7 @@ pub fn run(settings: &Settings, events: Sender<MeetingEvent>) -> Result<MeetingH
                     prompted: None,
                     protected: Arc::new(Mutex::new(Vec::new())),
                     probe_failed: false,
+                    probe_failing: false,
                 };
                 coordinator.run(rx, watch_tx);
             }
@@ -174,8 +176,11 @@ struct Coordinator {
     prompted: Option<String>,
     /// Recording + finishing ids: the storage cap never evicts these.
     protected: Arc<Mutex<Vec<String>>>,
-    /// The mic probe failed once; stop polling it (logged once).
+    /// This platform has no mic probe; stop polling it (logged once).
     probe_failed: bool,
+    /// The last probe failed (logged once). Retried at each backstop poll,
+    /// never at a deadline, so a persistent fault cannot spin this thread.
+    probe_failing: bool,
 }
 
 impl Coordinator {
@@ -197,7 +202,7 @@ impl Coordinator {
                 let tx = watch_tx.clone();
                 let pending = notification_pending.clone();
                 match hark_meeting::probe::ChangeWatcher::start(move || {
-                    // Several registry writes can describe one mic transition.
+                    // Several graph events can describe one mic transition.
                     // At most one undrained wakeup is enough for a fresh snapshot.
                     if !pending.swap(true, Ordering::AcqRel) {
                         let _ = tx.send(Command::DetectionChanged);
@@ -210,9 +215,17 @@ impl Coordinator {
                     }
                     Err(error) => {
                         if !watch_failed {
-                            log::warn!(
-                                "meeting change notifications unavailable ({error}); using polling"
-                            );
+                            if error.kind() == std::io::ErrorKind::Unsupported {
+                                // Windows and macOS: polling is the design, not a fault.
+                                log::info!(
+                                    "meeting detection: polling every {} ms",
+                                    detect::POLL_MS
+                                );
+                            } else {
+                                log::warn!(
+                                    "meeting change notifications unavailable ({error}); using polling"
+                                );
+                            }
                         }
                         watch_failed = true;
                     }
@@ -260,8 +273,9 @@ impl Coordinator {
             }
         }
         // Retire the sender-holding watcher before closing capture and letting
-        // this coordinator's completion channel disconnect.
-        #[cfg(any(windows, target_os = "linux"))]
+        // this coordinator's completion channel disconnect. Only Linux has
+        // one; elsewhere the stub owns nothing.
+        #[cfg(target_os = "linux")]
         drop(watcher);
         // Quitting: keep what was recorded; the after-call work would outlive
         // the process, so it is skipped (the meeting keeps its live lines).
@@ -327,7 +341,7 @@ impl Coordinator {
         let watching =
             self.settings.meeting.enabled && self.settings.meeting.auto_detect != AutoDetect::Off;
         let auto_stopping = self.active.as_ref().is_some_and(|a| a.detected);
-        if self.probe_failed || !(watching || auto_stopping) {
+        if self.probe_failed || self.probe_failing || !(watching || auto_stopping) {
             return None;
         }
         self.detector.next_observation_in_ms(now_ms)
@@ -335,7 +349,7 @@ impl Coordinator {
 
     fn detect(&mut self) {
         // Probing only matters to offer a meeting or to auto-stop a detected
-        // one; with detection off and nothing detected, skip the registry read.
+        // one; with detection off and nothing detected, skip the probe.
         let watching =
             self.settings.meeting.enabled && self.settings.meeting.auto_detect != AutoDetect::Off;
         let auto_stopping = self.active.as_ref().is_some_and(|a| a.detected);
@@ -343,10 +357,24 @@ impl Coordinator {
             return;
         }
         let snapshot = match hark_meeting::probe::snapshot() {
-            Ok(s) => s,
-            Err(e) => {
+            Ok(s) => {
+                if std::mem::take(&mut self.probe_failing) {
+                    log::info!("meeting detection: probe working again");
+                }
+                s
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::Unsupported => {
                 log::warn!("meeting detection off for this session: {e}");
                 self.probe_failed = true;
+                return;
+            }
+            // Core Audio refuses while the Windows audio service restarts (a
+            // driver update, a Bluetooth headset): retry at the next poll.
+            Err(e) => {
+                if !self.probe_failing {
+                    log::warn!("meeting detection probe failed ({e}); retrying");
+                }
+                self.probe_failing = true;
                 return;
             }
         };
@@ -923,6 +951,7 @@ mod tests {
             prompted: None,
             protected: Arc::new(Mutex::new(Vec::new())),
             probe_failed: false,
+            probe_failing: false,
         };
         (coordinator, rx)
     }

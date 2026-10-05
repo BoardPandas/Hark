@@ -2,7 +2,7 @@
 //! now, which processes own a meeting-titled window, and the process list for
 //! resolving a loopback target. Glue only; the decisions are in `detect`.
 //!
-//! `win.rs` reads the ConsentStore registry and `EnumWindows`; `linux.rs`
+//! `win.rs` reads Core Audio capture sessions and `EnumWindows`; `linux.rs`
 //! reads PipeWire's graph and `/proc`; `mac.rs` reads Core Audio process
 //! objects. All are verified by hand with `examples/detect_smoke.rs`, never
 //! in `cargo test`.
@@ -11,16 +11,11 @@
 mod linux;
 #[cfg(target_os = "macos")]
 mod mac;
-// `win.rs` compiles on macOS too: its watcher (registry-free off Windows)
-// gives the coordinator the `Unsupported` start that keeps its polling
-// backstop alive there, exactly as before the module split.
-#[cfg(any(windows, target_os = "macos"))]
+#[cfg(windows)]
 mod win;
 
 #[cfg(target_os = "linux")]
 pub use linux::ChangeWatcher;
-#[cfg(any(windows, target_os = "macos"))]
-pub use win::ChangeWatcher;
 
 use crate::detect::{Proc, Snapshot};
 use std::io;
@@ -66,10 +61,48 @@ pub fn processes() -> io::Result<Vec<Proc>> {
     }
 }
 
+/// Change notification exists only on Linux (PipeWire graph events). Windows
+/// and macOS are polled: both report capture per audio session or per
+/// process, so a watcher would have to subscribe to each one as it appears,
+/// while one snapshot costs a few milliseconds. `start` returns `Unsupported`
+/// and the coordinator keeps its two-second polling fallback. Owns no worker.
+#[cfg(not(target_os = "linux"))]
+pub struct ChangeWatcher {
+    _private: (),
+}
+
+#[cfg(not(target_os = "linux"))]
+impl ChangeWatcher {
+    pub fn start(on_change: impl FnMut() + Send + 'static) -> io::Result<Self> {
+        let _ = on_change;
+        Err(io::Error::new(
+            io::ErrorKind::Unsupported,
+            "microphone change notifications are not available on this platform",
+        ))
+    }
+
+    pub fn is_alive(&self) -> bool {
+        false
+    }
+}
+
 #[cfg(not(any(windows, target_os = "linux", target_os = "macos")))]
 fn unsupported() -> io::Error {
     io::Error::new(
         io::ErrorKind::Unsupported,
         "meeting detection is not implemented on this platform",
     )
+}
+
+#[cfg(all(test, not(target_os = "linux")))]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn change_notifications_are_explicitly_unsupported_off_linux() {
+        match ChangeWatcher::start(|| panic!("unsupported watcher must not invoke its callback")) {
+            Err(error) => assert_eq!(error.kind(), io::ErrorKind::Unsupported),
+            Ok(_) => panic!("change watcher unexpectedly started"),
+        }
+    }
 }

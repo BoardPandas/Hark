@@ -33,7 +33,7 @@ the default and the saved-recording re-run provider
 
 Hark is a single-user, system-wide push-to-talk dictation app for Windows, macOS, and Linux. The user holds a configured chord, speaks, releases it, and Hark injects polished English text at the cursor in the focused application ([README](../README.md#hark)).
 
-Windows, macOS and Linux implement the push-to-talk path. macOS uses CGEventTap with Input Monitoring access and requires Accessibility for text insertion; its bundled distribution targets macOS 14.2+ on Apple Silicon (ARM64) only ([README](../README.md#hark), [hark-hotkey/lib.rs](../crates/hark-hotkey/src/lib.rs)). Meeting mode runs on all three as well; its platform seam per OS is WASAPI/ConsentStore on Windows, PipeWire on Linux, and Core Audio process taps on macOS ([Meetings](features/MEETINGS.md)).
+Windows, macOS and Linux implement the push-to-talk path. macOS uses CGEventTap with Input Monitoring access and requires Accessibility for text insertion; its bundled distribution targets macOS 14.2+ on Apple Silicon (ARM64) only ([README](../README.md#hark), [hark-hotkey/lib.rs](../crates/hark-hotkey/src/lib.rs)). Meeting mode runs on all three as well; its platform seam per OS is WASAPI and Core Audio capture sessions on Windows, PipeWire on Linux, and Core Audio process taps on macOS ([Meetings](features/MEETINGS.md)).
 
 Cloud transcription is bring-your-own-key, with Deepgram, OpenAI, Groq, OpenAI-compatible endpoints, and Gemini Live supported. An optional Parakeet engine can instead run locally as a cloud backup or the primary recognizer ([README: Tech stack](../README.md#tech-stack), [README: On-device transcription](../README.md#on-device-transcription)). History, stats, settings, the spellbook, and invocations are stored on the machine; provider requests can include transcript text and vocabulary. Hark operates no server, account system, hosted database, or browser frontend ([README: Privacy](../README.md#privacy)).
 
@@ -41,7 +41,7 @@ Cloud transcription is bring-your-own-key, with Deepgram, OpenAI, Groq, OpenAI-c
 
 An optional meeting toggle shares the existing keyboard hook with push-to-talk (the Windows low-level hook, Linux evdev loop and macOS CGEventTap) and remains available without dictation credentials ([meeting shortcut](features/MEETINGS.md#start--stop-shortcut)).
 
-Meeting detection uses registry change notifications on Windows, PipeWire graph events on Linux and a two-second Core Audio polling fallback on macOS, with timed checks for debounce, auto-stop, and browser title changes ([Meetings: Auto-Detection](features/MEETINGS.md#auto-detection)).
+Meeting detection polls Core Audio every two seconds on Windows and macOS and follows PipeWire graph events on Linux, with timed checks for debounce, auto-stop, and browser title changes ([Meetings: Auto-Detection](features/MEETINGS.md#auto-detection)).
 
 The optional **Reduce speaker echo** setting uses Rust AEC3 to filter meeting
 microphone audio against captured playback before recording and transcription.

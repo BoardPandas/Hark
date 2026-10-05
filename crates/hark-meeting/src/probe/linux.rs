@@ -6,7 +6,7 @@
 //!
 //! Microphone use comes from PipeWire's graph: an application holding the mic
 //! open is a `Stream/Input/Audio` node, and it exists exactly as long as the
-//! app keeps the mic — the same lifetime the ConsentStore's `LastUsedTimeStop`
+//! app keeps the mic — the same lifetime an active Core Audio capture session
 //! expresses on Windows. Apps reach PipeWire through the session manager
 //! (directly or via `pipewire-pulse`), and their nodes carry
 //! `application.process.binary` and `application.process.id` in the node's

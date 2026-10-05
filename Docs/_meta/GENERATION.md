@@ -1,5 +1,12 @@
 # Generation Metadata
 
+## Windows meeting detection via Core Audio — 2026-10-05 (0.61.6)
+
+- **Source reviewed:** `2ac7fd0` (0.61.5) plus the Windows probe rewrite: `probe/win.rs` enumerates Core Audio capture sessions instead of the ConsentStore, `probe/watch_win.rs` is deleted, Windows and macOS share an `Unsupported` watcher stub in `probe/mod.rs`, and the coordinator retries non-`Unsupported` probe errors. Global baseline `784272c` is unchanged.
+- **Scope:** Overview, Architecture, and Meetings (Auto-Detection, platform notes, hand checks, purity note). AUTOGEN markers are preserved.
+- **Evidence:** on the product owner's machine (Windows 11 build 26300.9550) every ConsentStore microphone value was last written on 2026-10-03, while Core Audio showed `Hark.exe` capturing; the 2026-10-05 Teams call logged no detection. All `ms-teams.exe` and Teams WebView2 processes resolve to package family `MSTeams_8wekyb3d8bbwe`. A release-build `detect_smoke` read costs ~3 ms.
+- **Limits:** no live Teams call was run against the new probe; no macOS compilation (no Apple toolchain on this host).
+
 ## Dependency refresh and static trust roots — 2026-10-01 (0.61.5)
 
 - **Source reviewed:** `678ace7` (0.61.4) plus the dependency refresh: reqwest 0.13.1 → 0.13.5 with static roots moved from the removed `webpki-roots` feature to `tls_certs_only` + `webpki-root-certs`, tray-icon 0.26 (muda 0.21, no libxdo), symphonia 0.6, x11rb 0.14, all semver-compatible lockfile updates, and Node 24 / v7 action pins in every workflow. Global baseline `784272c` is unchanged.

@@ -19,21 +19,24 @@ log = "0.4"
 pipewire = { version = "0.10", features = ["v0_3_44"] }
 x11rb = "0.14"
 
-# The detection probe (probe/win.rs). winreg reads the ConsentStore in process
-# (already locked through hark-autostart); never shell out to reg.exe.
+# The detection probe (probe/win.rs). Same windows version and Core Audio
+# features as hark-audio, so they unify into one build.
+# - Win32_Media_Audio + Win32_System_Com (+ StructuredStorage, Variant for
+#   IMMDevice::Activate): capture sessions, i.e. who is using a mic
+# - Win32_Storage_Packaging_Appx: GetPackageFamilyName (new Teams' identity)
 # - Win32_System_Diagnostics_ToolHelp: process list, for the loopback root PID
 # - Win32_System_Threading: OpenProcess / QueryFullProcessImageNameW
-# - Win32_System_Registry: recursive ConsentStore change notifications
-# - Win32_Security: event creation for notification and shutdown waits
 # - Win32_UI_WindowsAndMessaging: EnumWindows / GetWindowTextW (meeting titles)
 [target.'cfg(windows)'.dependencies]
-winreg = "0.56"
 windows = { version = "0.62.2", features = [
     "Win32_Foundation",
-    "Win32_Security",
+    "Win32_Media_Audio",
+    "Win32_Storage_Packaging_Appx",
+    "Win32_System_Com",
+    "Win32_System_Com_StructuredStorage",
     "Win32_System_Diagnostics_ToolHelp",
-    "Win32_System_Registry",
     "Win32_System_Threading",
+    "Win32_System_Variant",
     "Win32_UI_WindowsAndMessaging",
 ] }
 

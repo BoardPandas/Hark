@@ -12,7 +12,8 @@
 //!
 //! Time is a caller-supplied millisecond counter, so tests use plain numbers.
 
-/// How often the detector thread polls. The ConsentStore read costs ~0.6 ms.
+/// How often detection polls where no change notification exists (Windows
+/// and macOS). A Windows snapshot of the capture sessions costs ~3 ms.
 pub const POLL_MS: u64 = 2_000;
 
 /// An app must hold the mic this long before it counts: a device test or a
@@ -21,8 +22,8 @@ pub const DEBOUNCE_MS: u64 = 5_000;
 
 /// Built-in `detect_apps`: packaged-app family names and desktop exe names,
 /// compared case-insensitively. Zoom, Webex, GoTo and RingCentral exe names
-/// are from vendor documentation, not yet seen in a live-call ConsentStore
-/// dump (CP0 row 5); the list is user-editable for exactly that reason.
+/// are from vendor documentation, not yet seen holding the mic on a live call
+/// (CP0 row 5); the list is user-editable for exactly that reason.
 ///
 /// The Linux entries are the binary names apps carry on their PipeWire
 /// stream nodes (`firefox`, `chromium`, `zoom`, ...), including the wrapper
@@ -114,22 +115,17 @@ pub fn title_has_meeting_marker(title: &str) -> bool {
     MEETING_MARKERS.iter().any(|m| title.contains(m))
 }
 
-/// A ConsentStore microphone entry's app.
+/// An app holding the microphone, as the probe names it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum MicApp {
-    /// A packaged app, by package family name (`MSTeams_8wekyb3d8bbwe`).
+    /// A packaged app by package family name (`MSTeams_8wekyb3d8bbwe`), or a
+    /// macOS bundle identifier: a stable name with no path or version in it.
     Packaged(String),
-    /// A desktop app, by full exe path.
+    /// A desktop app, by full exe path (Windows) or binary name (Linux).
     Desktop(String),
 }
 
 impl MicApp {
-    /// A desktop entry from its `NonPackaged` subkey name, which is the exe
-    /// path with `#` in place of `\`.
-    pub fn from_nonpackaged_key(key: &str) -> MicApp {
-        MicApp::Desktop(key.replace('#', "\\"))
-    }
-
     /// The identifier `detect_apps` matches against, lowercase: the package
     /// family, or the exe file name. Desktop paths carry version folders
     /// (`Discord\app-1.0.9259\Discord.exe`), so the path itself cannot be it.
@@ -153,7 +149,7 @@ impl MicApp {
 #[derive(Debug, Clone)]
 pub struct MicUse {
     pub app: MicApp,
-    /// `LastUsedTimeStart > 0 && LastUsedTimeStop == 0`.
+    /// One of this app's capture streams is running right now.
     pub in_use: bool,
 }
 
@@ -538,16 +534,16 @@ mod tests {
         }
     }
 
-    fn desktop(key: &str, in_use: bool) -> MicUse {
+    fn desktop(path: &str, in_use: bool) -> MicUse {
         MicUse {
-            app: MicApp::from_nonpackaged_key(key),
+            app: MicApp::Desktop(path.to_string()),
             in_use,
         }
     }
 
     /// Hark always reads as in use: its pre-roll stream never closes.
     fn hark() -> MicUse {
-        desktop(&HARK.replace('\\', "#"), true)
+        desktop(HARK, true)
     }
 
     fn snap(users: Vec<MicUse>) -> Snapshot {
@@ -698,23 +694,20 @@ mod tests {
         let mut d = Detector::new(config(DetectMode::Auto));
         let zoom = snap(vec![
             hark(),
-            desktop(r"C:#Users#me#AppData#Roaming#Zoom#bin#Zoom.exe", true),
+            desktop(r"C:\Users\me\AppData\Roaming\Zoom\bin\Zoom.exe", true),
         ]);
         assert_eq!(
             poll(&mut d, &zoom, 0, 10_000),
             vec![(6_000, Verdict::Start("zoom.exe".to_string()))]
         );
         assert_eq!(
-            MicApp::from_nonpackaged_key(
-                r"C:#Users#me#AppData#Local#Discord#app-1.0.9259#Discord.exe"
-            )
-            .id(),
+            MicApp::Desktop(r"C:\Users\me\AppData\Local\Discord\app-1.0.9259\Discord.exe".into())
+                .id(),
             "discord.exe"
         );
-        let elevate = MicApp::from_nonpackaged_key(
-            r"C:#Users#me#AppData#Local#Programs#Elevate UC#Elevate UC.exe",
-        )
-        .id();
+        let elevate =
+            MicApp::Desktop(r"C:\Users\me\AppData\Local\Programs\Elevate UC\Elevate UC.exe".into())
+                .id();
         assert_eq!(elevate, "elevate uc.exe");
         assert!(DEFAULT_APPS
             .iter()
@@ -724,7 +717,7 @@ mod tests {
     #[test]
     fn apps_not_on_the_list_are_ignored() {
         let mut d = Detector::new(config(DetectMode::Auto));
-        let recorder = snap(vec![desktop(r"C:#Tools#audacity.exe", true)]);
+        let recorder = snap(vec![desktop(r"C:\Tools\audacity.exe", true)]);
         assert!(poll(&mut d, &recorder, 0, 60_000).is_empty());
     }
 
@@ -751,7 +744,7 @@ mod tests {
     fn a_browser_counts_only_with_a_meeting_window() {
         let mut d = Detector::new(config(DetectMode::Ask));
         let mut chrome = snap(vec![desktop(
-            r"C:#Program Files#Google#Chrome#Application#chrome.exe",
+            r"C:\Program Files\Google\Chrome\Application\chrome.exe",
             true,
         )]);
         assert!(

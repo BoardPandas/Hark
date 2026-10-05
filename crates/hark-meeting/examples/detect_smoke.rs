@@ -36,16 +36,16 @@ fn main() {
     });
 
     // The change watcher, so the hand check covers how detection actually
-    // wakes: registry events on Windows, graph events on Linux.
+    // wakes: graph events on Linux; Windows and macOS only poll.
     let wakes = std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0));
     let counter = wakes.clone();
     let watcher = match probe::ChangeWatcher::start(move || {
         counter.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     }) {
-        Ok(w) => w,
+        Ok(w) => Some(w),
         Err(e) => {
             eprintln!("change watcher unavailable ({e}); polling only");
-            return;
+            None
         }
     };
 
@@ -87,8 +87,8 @@ fn main() {
         std::thread::sleep(Duration::from_millis(POLL_MS));
     }
     println!(
-        "watcher alive: {}, graph change notifications: {}",
-        watcher.is_alive(),
+        "watcher alive: {}, change notifications: {}",
+        watcher.as_ref().is_some_and(probe::ChangeWatcher::is_alive),
         wakes.load(std::sync::atomic::Ordering::Relaxed)
     );
 }
