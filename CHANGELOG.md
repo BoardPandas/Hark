@@ -6,6 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.61.7] - 2026-10-14
+
+### Fixed
+
+- Development tooling: commits made by Claude Code sessions in a git worktree are no longer refused with "CHANGELOG.md is not staged" when the changelog is staged. The commit hooks run in the main checkout, so they were reading its staged files instead of the worktree's; they now check the repository the commit actually lands in, using the session directory the hook is given plus any `cd DIR &&` or `git -C DIR` in the command. A worktree commit without a staged changelog is still refused even when the main checkout has one staged, and the refusal names the repository it checked.
+- Development tooling: the commit hooks keep backslashes inside double-quoted paths (`cd "C:\repos\Hark"`) and no longer forget a `cd` that came before a subshell.
+
 ## [0.61.6] - 2026-10-05
 
 ### Fixed

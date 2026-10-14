@@ -22,11 +22,19 @@ read_hook_input
 # substitutions, so re-check here before doing anything.
 is_git_commit || exit 0
 
+# Judge the repo the commit lands in, not the one this process started in: in a
+# worktree session that is the main checkout, whose index says nothing about the
+# worktree's staged files. (LL-G kb/claude-code/hook-cwd-is-not-the-commit-target-repo.md)
+anchor_to_repo_root || exit 0
+
 is_changelog_exempt && exit 0
 changelog_is_handled && exit 0
 
 {
   echo "BLOCKED: CHANGELOG.md is not staged. Update the changelog and version before committing."
+  echo ""
+  # Named so a refusal about the wrong repository is visible as such.
+  echo "  Repository checked: $(pwd)"
   echo ""
   echo "  1. Review staged changes:  git diff --cached --stat"
   echo "  2. Add entries under [Unreleased] in CHANGELOG.md"

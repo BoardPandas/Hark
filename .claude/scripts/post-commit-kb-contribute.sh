@@ -15,6 +15,11 @@ read_hook_input
 # (LL-G kb/bash/hook-scans-tool-output-false-record.md)
 is_git_commit || exit 0
 
+# Summarise the repo that was committed to, not the one this process started in.
+# A summary of the wrong repo is worse than none, so an unresolvable target says
+# nothing.
+anchor_to_repo_root || exit 0
+
 echo "=== KNOWLEDGE BASE CONTRIBUTION CHECK ==="
 echo ""
 echo "Committed changes summary:"

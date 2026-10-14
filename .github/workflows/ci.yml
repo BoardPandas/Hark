@@ -61,6 +61,12 @@ jobs:
       - name: Claude wiring guard (rule scoping + hook matchers)
         run: npm run check:claude
 
+      # The commit hooks must judge the repo a commit lands in, not the hook
+      # process's own cwd: a worktree session starts hooks in the main checkout.
+      # Both legs matter -- on Windows the payload's cwd carries C:\ paths.
+      - name: Commit hook tests (worktree and cross-repo targeting)
+        run: node --test scripts/commit-hooks.test.mjs
+
   # Source-to-page drift is silent: generated prose can keep rendering cleanly
   # while describing code that no longer exists. This guard checks the TOC's
   # source mappings against the last documented commit and requires every

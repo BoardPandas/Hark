@@ -15,6 +15,7 @@
 # Reads the hook's JSON payload from stdin and sets:
 #   HOOK_INPUT    raw payload (kept for callers that need the unparsed text)
 #   HOOK_COMMAND  tool_input.command only
+#   HOOK_CWD      the payload's cwd, i.e. where the command is about to run
 #
 # Scanning tool_input.command rather than the whole payload matters: a PostToolUse
 # payload also carries tool_response, so a command whose OUTPUT merely mentions
@@ -41,6 +42,55 @@ read_hook_input() {
   if [ -z "$HOOK_COMMAND" ]; then
     HOOK_COMMAND=$(json_field_greedy "$HOOK_INPUT" command)
   fi
+
+  # The hook PROCESS does not run where the command will. In a worktree session
+  # the harness starts it in the main checkout (verified 2026-10-14: pwd and
+  # $CLAUDE_PROJECT_DIR were C:/repos/Hark, the payload's cwd was the worktree),
+  # so `git diff --cached` read the main checkout's index and refused correctly
+  # staged worktree commits. The payload's cwd is the session's directory.
+  # Falling back to $PWD is right for a directly-invoked script and for a
+  # payload written by an older harness.
+  HOOK_CWD=$(json_field "$HOOK_INPUT" cwd)
+  [ -n "$HOOK_CWD" ] && [ -d "$HOOK_CWD" ] || HOOK_CWD=$PWD
+}
+
+# ---------------------------------------------------------------------------
+# Two views of the command, and they are not interchangeable:
+#
+#   normalize_command  collapses every quoted region to one opaque token. Right
+#                      for "what sits at a command position", wrong for anything
+#                      that needs a VALUE back out.
+#   tokenize_command   preserves the contents of quoted regions, so `cd "/a b"`
+#                      yields the path. Correspondingly more expensive: it is a
+#                      character walk, so callers reach for it only when the
+#                      cheap view says there is something to resolve.
+# ---------------------------------------------------------------------------
+
+# Quoted regions collapse to ONE opaque token rather than being deleted.
+# Deleting them looks equivalent and is not: `git -C "/path with space" commit`
+# would become `git -C  commit`, and the -C would then swallow the word
+# `commit` as its own value -- a commit that reports itself as not a commit.
+#
+# Newlines become separators, so the second line of a two-line script is still
+# a command position.
+normalize_command() {
+  printf '%s' "$HOOK_COMMAND" \
+    | sed -e "s/'[^']*'/__CCQ__/g" -e 's/"[^"]*"/__CCQ__/g' \
+    | tr '\n' ';' \
+    | sed -e 's/[;&|()][;&|()]*/ ; /g'
+}
+
+# Unquoted word splitting over a token stream would otherwise glob-expand a token
+# like `*` against the working directory. Paired: every push needs a pop.
+noglob_push() {
+  case $- in
+    *f*) NOGLOB_RESTORE=0 ;;
+    *)   NOGLOB_RESTORE=1; set -f ;;
+  esac
+}
+noglob_pop() {
+  [ "${NOGLOB_RESTORE:-0}" = 1 ] && set +f
+  return 0
 }
 
 # True when HOOK_COMMAND actually invokes `git commit`.
@@ -63,27 +113,10 @@ read_hook_input() {
 # git's argv actually looks like.
 # (LL-G kb/claude-code/hook-git-commit-filter-needs-argv-walk.md)
 is_git_commit() {
-  local normalized tok state result restore_glob
+  local normalized tok state result
 
-  # Quoted regions collapse to ONE opaque token rather than being deleted.
-  # Deleting them looks equivalent and is not: `git -C "/path with space" commit`
-  # would become `git -C  commit`, and the -C would then swallow the word
-  # `commit` as its own value -- a commit that reports itself as not a commit.
-  #
-  # Newlines become separators, so the second line of a two-line script is still
-  # a command position.
-  normalized=$(printf '%s' "$HOOK_COMMAND" \
-    | sed -e "s/'[^']*'/__CCQ__/g" -e 's/"[^"]*"/__CCQ__/g' \
-    | tr '\n' ';' \
-    | sed -e 's/[;&|()][;&|()]*/ ; /g')
-
-  # Unquoted word splitting below would otherwise glob-expand a token like `*`
-  # against the working directory.
-  restore_glob=0
-  case $- in
-    *f*) ;;
-    *)   restore_glob=1; set -f ;;
-  esac
+  normalized=$(normalize_command)
+  noglob_push
 
   # cmd   -- next token starts a command
   # flags -- inside git's global flags, still looking for the subcommand
@@ -116,11 +149,176 @@ is_git_commit() {
     esac
   done
 
-  [ "$restore_glob" = 1 ] && set +f
+  noglob_pop
   return "$result"
 }
 
-# Commits that legitimately carry no changelog entry.
+# Splits HOOK_COMMAND into the TOKENS array, keeping the CONTENTS of quoted
+# regions (that is the whole difference from normalize_command). Shell separators
+# become a bare ";" token; parens stay "(" and ")" so the walker can discard a
+# subshell's `cd`, which does not outlive it.
+tokenize_command() {
+  local cmd=$1 i=0 n ch q='' tok='' started=0
+  TOKENS=()
+  n=${#cmd}
+  while [ "$i" -lt "$n" ]; do
+    ch=${cmd:i:1}
+    i=$((i + 1))
+    if [ -n "$q" ]; then
+      if [ "$ch" = "$q" ]; then
+        q=''
+      elif [ "$q" = '"' ] && [ "$ch" = '\' ] && [ "$i" -lt "$n" ]; then
+        # Inside double quotes a backslash escapes only these; before anything
+        # else it is a literal character. Dropping it unconditionally turned
+        # `cd "C:\repos\Hark"` into C:reposHark, and the gate then allowed.
+        case "${cmd:i:1}" in
+          '$'|'`'|'"'|'\'|$'\n') tok+=${cmd:i:1}; i=$((i + 1)) ;;
+          *)                     tok+=$ch ;;
+        esac
+      else
+        tok+=$ch
+      fi
+      continue
+    fi
+    case "$ch" in
+      "'"|'"') q=$ch; started=1 ;;
+      '\')     if [ "$i" -lt "$n" ]; then tok+=${cmd:i:1}; i=$((i + 1)); fi ;;
+      ' '|$'\t')
+        if [ -n "$tok" ] || [ "$started" = 1 ]; then TOKENS+=("$tok"); tok=''; started=0; fi ;;
+      ';'|'&'|'|'|'('|')'|$'\n')
+        if [ -n "$tok" ] || [ "$started" = 1 ]; then TOKENS+=("$tok"); tok=''; started=0; fi
+        case "$ch" in
+          '('|')') TOKENS+=("$ch") ;;
+          *)       TOKENS+=(";") ;;
+        esac ;;
+      *) tok+=$ch ;;
+    esac
+  done
+  if [ -n "$tok" ] || [ "$started" = 1 ]; then TOKENS+=("$tok"); fi
+}
+
+# Resolves $2 as a directory relative to $1. Fails on anything whose value this
+# process cannot know -- a substitution, `cd -`, a bare `cd` -- because a guessed
+# directory is worse than no directory: see commit_target_dir.
+#
+# `C:\...` and `C:/...` are absolute too. The payload's cwd arrives in that form
+# on Windows, and so does any path copied out of it into a `cd`.
+resolve_dir() {
+  case "$2" in
+    ''|-|--) return 1 ;;
+    *'$'*|*'`'*) return 1 ;;
+    /*|[A-Za-z]:*) printf '%s' "$2" ;;
+    '~') printf '%s' "$HOME" ;;
+    '~/'*) printf '%s%s' "$HOME" "${2#\~}" ;;
+    *)   printf '%s/%s' "$1" "$2" ;;
+  esac
+}
+
+# The directory the `git commit` in HOOK_COMMAND will actually run in: the
+# payload's cwd, moved by a `cd`/`pushd` earlier in the command and by git's own
+# -C. Fails when that cannot be determined.
+#
+# Neither the hook process's $PWD nor the payload's cwd alone is enough. `cd
+# /other/repo && git commit` and `git -C /other/repo commit` retarget the command
+# without moving either, and used to be judged against the session's CHANGELOG.md
+# instead -- blocking a clean cross-repo commit and waving through a dirty one.
+# (LL-G kb/claude-code/hook-cwd-is-not-the-commit-target-repo.md)
+#
+# Failure means ALLOW, not block. A gate that refuses commits in repos it cannot
+# even see gets bypassed wholesale, and it takes the changelog check with it.
+commit_target_dir() {
+  local base=${HOOK_CWD:-$PWD} tok state curdir gitdir found depth
+  local -a saved
+
+  # Cheap view first: with no directory-changing token anywhere outside quotes,
+  # the command runs in the payload's cwd and there is nothing to walk.
+  noglob_push
+  found=0
+  for tok in $(normalize_command); do
+    case "$tok" in
+      cd|pushd|-C|--git-dir|--git-dir=*|--work-tree|--work-tree=*) found=1; break ;;
+    esac
+  done
+  noglob_pop
+  if [ "$found" = 0 ]; then printf '%s' "$base"; return 0; fi
+
+  tokenize_command "$HOOK_COMMAND"
+  state=cmd
+  curdir=$base
+  gitdir=$base
+  saved=()
+  for tok in "${TOKENS[@]}"; do
+    # A separator where a value was expected means the command is not what it
+    # looked like; do not guess at the target.
+    case "$state" in
+      cdarg|cflag) case "$tok" in ';'|'('|')') return 1 ;; esac ;;
+      *)
+        # A subshell's cd does not survive it, but one made BEFORE it does:
+        # `cd /a; (cd b && git add .); git commit` commits in /a, not the base.
+        # Indexed by hand rather than [-1], which macOS's bash 3.2 lacks.
+        case "$tok" in
+          ';') state=cmd; continue ;;
+          '(') saved+=("$curdir"); state=cmd; continue ;;
+          ')')
+            depth=${#saved[@]}
+            if [ "$depth" -gt 0 ]; then
+              curdir=${saved[$((depth - 1))]}
+              unset "saved[$((depth - 1))]"
+            fi
+            state=cmd; continue ;;
+        esac ;;
+    esac
+    case "$state" in
+      cmd)
+        case "$tok" in
+          cd|pushd)                    state=cdarg ;;
+          git|git.exe|*/git|*/git.exe) state=flags; gitdir=$curdir ;;
+          *=*)                         ;;  # env assignment prefix; still a command position
+          *)                           state=args ;;
+        esac ;;
+      cdarg)
+        curdir=$(resolve_dir "$curdir" "$tok") || return 1
+        state=args ;;
+      flags)
+        case "$tok" in
+          -C)                             state=cflag ;;
+          -c|--namespace)                 state=skip ;;
+          # An explicit git dir retargets the repo without moving the cwd, and
+          # the tree it names may not be a working tree at all. Out of scope.
+          --git-dir*|--work-tree*)        return 1 ;;
+          commit)                         printf '%s' "$gitdir"; return 0 ;;
+          -*)                             ;;
+          *)                              state=args ;;
+        esac ;;
+      cflag)
+        gitdir=$(resolve_dir "$gitdir" "$tok") || return 1
+        state=flags ;;
+      skip)
+        state=flags ;;
+    esac
+  done
+  return 1
+}
+
+# Moves this hook process to the root of the repo the COMMAND targets, so every
+# git query after it -- and every relative read of CHANGELOG.md -- runs against
+# the tree the commit will actually land in. One `cd` rather than `git -C` on each
+# call: a query added later without its -C would silently read the hook's own
+# repo again, and nothing would say so.
+#
+# Call it after is_git_commit and before any git query. Callers treat failure as
+# allow (see commit_target_dir).
+anchor_to_repo_root() {
+  local target root
+  target=$(commit_target_dir) || return 1
+  [ -d "$target" ] || return 1
+  cd "$target" || return 1
+  root=$(git rev-parse --show-toplevel 2>/dev/null) || return 1
+  cd "$root" || return 1
+}
+
+# Commits that legitimately carry no changelog entry. Reads MERGE_HEAD of the
+# CURRENT directory, so call anchor_to_repo_root first.
 is_changelog_exempt() {
   # Merge commits: the merged branches carry their own entries.
   if git rev-parse -q --verify MERGE_HEAD >/dev/null 2>&1; then
@@ -136,6 +334,8 @@ is_changelog_exempt() {
 # True when CHANGELOG.md is already staged, or when this very command stages it.
 # The hook fires BEFORE the command runs, so a compound
 # "git add CHANGELOG.md && git commit ..." has not staged it yet.
+#
+# Reads the index of the CURRENT directory, so call anchor_to_repo_root first.
 changelog_is_handled() {
   if printf '%s' "$HOOK_COMMAND" | grep -qE 'git add [^&|;]*CHANGELOG\.md'; then
     return 0

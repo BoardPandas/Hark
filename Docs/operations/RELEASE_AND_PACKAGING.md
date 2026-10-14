@@ -113,7 +113,7 @@ Sources: [hark.iss:1-98](../../installer/hark.iss#L1-L98), [THIRD_PARTY_NOTICES.
 <!-- BEGIN:AUTOGEN hark_13_release_packaging_workflow -->
 ## Release Workflow
 
-Ordinary pushes and pull requests run the separate CI workflow before release: Claude wiring, documentation source-map drift, formatting, dependency audit, and the multi-platform Rust matrix. The documentation job fetches full history and runs `npm run check:docs`; this enforces source/page co-change, but does not claim the prose is semantically complete ([ci.yml:1-102](../../.github/workflows/ci.yml#L1-L102)).
+Ordinary pushes and pull requests run the separate CI workflow before release: Claude wiring, documentation source-map drift, formatting, dependency audit, and the multi-platform Rust matrix. The documentation job fetches full history and runs `npm run check:docs`; this enforces source/page co-change, but does not claim the prose is semantically complete ([ci.yml:1-102](../../.github/workflows/ci.yml#L1-L102)). Since 0.61.7 the wiring job, on both Ubuntu and Windows, also runs `scripts/commit-hooks.test.mjs`: it builds a throwaway repository with a worktree and asserts the `git commit` hooks judge the repository the commit lands in (the payload's `cwd`, a `cd DIR &&`, or `git -C DIR`), not the main checkout the hook process starts in ([ci.yml:45-68](../../.github/workflows/ci.yml#L45-L68)).
 
 Four jobs run under `contents: write` permission, which the release object and its asset uploads need ([release.yml:65-67](../../.github/workflows/release.yml#L65-L67)). The `version` gate runs first on `ubuntu-latest`; the three build jobs hang off it and only ever append ([release.yml:84-86](../../.github/workflows/release.yml#L84-L86)).
 

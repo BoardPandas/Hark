@@ -11,8 +11,10 @@ read_hook_input
 # substitutions, so re-check here before doing anything.
 is_git_commit || exit 0
 
-# Same exemptions as check-changelog-staged.sh, from the same helper -- the two
-# must agree or the reminder fires for commits the blocker then lets through.
+# Same repo and same exemptions as check-changelog-staged.sh, from the same
+# helper -- the two must agree or the reminder fires for commits the blocker
+# then lets through.
+anchor_to_repo_root || exit 0
 is_changelog_exempt && exit 0
 changelog_is_handled && exit 0
 
