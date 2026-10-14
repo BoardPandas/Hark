@@ -402,9 +402,9 @@ Guardrails cover: component patterns, styling conventions, accessibility require
 The template includes hooks in `.claude/settings.json`:
 
 - **SessionStart:** Surfaces the LL-G / BP knowledge-base reminder once per session.
-- **PreToolUse (git commit):** Blocks PowerShell here-string syntax, reminds about the changelog/version bump, and blocks commits that do not stage `CHANGELOG.md` (merge commits and `SKIP_CHANGELOG=1` are exempt).
+- **PreToolUse (git commit):** Blocks PowerShell here-string syntax, reminds about the changelog/version bump, and blocks a commit unless CHANGELOG.md changed, package.json's version was bumped, and CHANGELOG.md has a section for that version. Judged in the repo the commit lands in (worktree, `cd DIR &&`, `git -C DIR`). Merges, `--amend`, the initial commit and a `SKIP_CHANGELOG=1 git commit ...` prefix are exempt.
 - **PreToolUse (EnterPlanMode):** Prompts a knowledge-base check before planning.
-- **PostToolUse (git commit):** Prompts evaluation of whether the committed work should be contributed back to LL-G or BP.
+- **PostToolUse (git commit):** Prompts evaluation of whether the committed work should be contributed back to LL-G or BP. Both advisory commit hooks reach Claude as JSON `additionalContext`; plain stdout on tool events goes only to the debug log.
 - **Stop:** Bell sound when Claude finishes a task (useful with multiple sessions).
 - **Notification:** Bell sound when Claude needs attention.
 

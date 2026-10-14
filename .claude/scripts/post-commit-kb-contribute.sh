@@ -1,8 +1,12 @@
 #!/usr/bin/env bash
 # Post-commit hook: remind Claude to evaluate if committed work should be contributed to LLG or BP
-# Always exits 0 (advisory) -- outputs the diff summary and reminder for Claude to evaluate
+# Always exits 0 (advisory). The diff summary and reminder reach Claude only as
+# JSON additionalContext, via _hook-context.sh: plain PostToolUse stdout goes to
+# the debug log, so the echo-and-exit form this used to be was never read.
+# (LL-G kb/claude-code/advisory-tool-hook-plain-stdout-inert.md)
 
 . "$(dirname "$0")/_git-commit-filter.sh"
+. "$(dirname "$0")/_hook-context.sh"
 
 read_hook_input
 
@@ -20,14 +24,23 @@ is_git_commit || exit 0
 # nothing.
 anchor_to_repo_root || exit 0
 
-echo "=== KNOWLEDGE BASE CONTRIBUTION CHECK ==="
-echo ""
-echo "Committed changes summary:"
-git log -1 --pretty=format:"  %s" 2>/dev/null
-echo ""
-git diff HEAD~1 --stat 2>/dev/null | head -20
-echo ""
-cat <<'EOF'
+# HEAD~1 HEAD, not a bare HEAD~1: single-rev `git diff` compares against the
+# working tree, so uncommitted and staged edits would be reported as committed.
+# A root commit has no HEAD~1; git show covers it.
+# (LL-G kb/claude-code/post-commit-diff-head1-includes-working-tree.md)
+#
+# The heredoc sits in a function rather than inline in $(...) because macOS's
+# bash 3.2 cannot parse an apostrophe in a heredoc nested directly inside $(...).
+# (LL-G kb/bash/bash32-heredoc-in-command-substitution.md)
+summary_text() {
+  echo "=== KNOWLEDGE BASE CONTRIBUTION CHECK ==="
+  echo ""
+  echo "Committed changes summary:"
+  git log -1 --pretty=format:"  %s" 2>/dev/null
+  echo ""
+  { git diff --stat HEAD~1 HEAD 2>/dev/null || git show --stat --format= HEAD 2>/dev/null; } | head -20
+  echo ""
+  cat <<'EOF'
 Review the work you just committed and evaluate:
 
 1. LL-G (Lessons Learned / Gotchas) -- BoardPandas/LL-G
@@ -44,3 +57,7 @@ If nothing is worth contributing, say nothing -- do not clutter the output.
 Only surface this if you genuinely identified something valuable.
 ===
 EOF
+}
+
+emit_context PostToolUse "$(summary_text)"
+exit 0

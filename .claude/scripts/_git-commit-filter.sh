@@ -93,12 +93,34 @@ noglob_pop() {
   return 0
 }
 
+# Words that leave the NEXT word at a command position: shell keywords and
+# grouping (`{ git commit; }`, `if git commit; then`, `! git commit`) and the
+# plain precommand wrappers (`time git commit`, `env X=1 git commit`).
+#
+# Every walker below that tracks a command position asks this one question, so
+# they cannot disagree about it. They did: none of them knew these words, so
+# `{ git commit -m x; }` was not a commit at all to is_git_commit and the gate
+# silently never fired -- the unsafe direction. Teaching only one walker is no
+# better: the gate then fires, and judges the target repo or the opt-out from a
+# different reading of the same command.
+#
+# A wrapper's own flags (`env -i`, `time -p`, `exec -a name`) are not modelled.
+# The walk reads them as arguments and misses that commit rather than guess.
+is_command_prefix() {
+  case "$1" in
+    '{'|'}'|'!'|if|then|else|elif|do|while|until|time|command|exec|nohup|env) return 0 ;;
+  esac
+  return 1
+}
+
 # True when HOOK_COMMAND actually invokes `git commit`.
 #
 #   git commit -m "mentions git commit"     -> is a commit
 #   git add CHANGELOG.md && git commit      -> is a commit
 #   git -C /other/repo commit               -> is a commit
 #   GIT_AUTHOR_NAME=x git commit            -> is a commit
+#   { git commit -m x; }                    -> is a commit
+#   if git commit -m x; then ...; fi        -> is a commit
 #   grep -r 'git commit' docs/              -> not a commit
 #   git config --get commit.gpgsign         -> not a commit
 #   echo git commit                         -> not a commit
@@ -129,6 +151,7 @@ is_git_commit() {
     if [ "$tok" = ";" ]; then state=cmd; continue; fi
     case "$state" in
       cmd)
+        is_command_prefix "$tok" && continue
         case "$tok" in
           *=*)                         ;;  # env assignment prefix; still at a command position
           git|git.exe|*/git|*/git.exe) state=flags ;;
@@ -270,6 +293,7 @@ commit_target_dir() {
     esac
     case "$state" in
       cmd)
+        is_command_prefix "$tok" && continue
         case "$tok" in
           cd|pushd)                    state=cdarg ;;
           git|git.exe|*/git|*/git.exe) state=flags; gitdir=$curdir ;;
@@ -317,28 +341,117 @@ anchor_to_repo_root() {
   cd "$root" || return 1
 }
 
-# Commits that legitimately carry no changelog entry. Reads MERGE_HEAD of the
-# CURRENT directory, so call anchor_to_repo_root first.
+# Everything below reads the CURRENT directory's repo, so call
+# anchor_to_repo_root first.
+
+# Commits that legitimately carry no changelog entry.
 is_changelog_exempt() {
   # Merge commits: the merged branches carry their own entries.
   if git rev-parse -q --verify MERGE_HEAD >/dev/null 2>&1; then
     return 0
   fi
+  # --amend rewrites a commit that already carried its entry.
+  if printf '%s' "$HOOK_COMMAND" | grep -qE 'git[[:space:]]+commit[^&|;]*--amend'; then
+    return 0
+  fi
+  # The initial commit has no HEAD to diff against.
+  if ! git rev-parse -q --verify HEAD >/dev/null 2>&1; then
+    return 0
+  fi
   # Explicit opt-out for reverts, hotfixes, genuinely trivial commits.
-  if [ "${SKIP_CHANGELOG:-}" = "1" ]; then
+  if [ "${SKIP_CHANGELOG:-}" = "1" ] || command_sets_skip_changelog; then
     return 0
   fi
   return 1
 }
 
-# True when CHANGELOG.md is already staged, or when this very command stages it.
-# The hook fires BEFORE the command runs, so a compound
-# "git add CHANGELOG.md && git commit ..." has not staged it yet.
+# True when the COMMAND TEXT carries the opt-out at a command position:
 #
-# Reads the index of the CURRENT directory, so call anchor_to_repo_root first.
-changelog_is_handled() {
-  if printf '%s' "$HOOK_COMMAND" | grep -qE 'git add [^&|;]*CHANGELOG\.md'; then
-    return 0
-  fi
-  git diff --cached --name-only 2>/dev/null | grep -q '^CHANGELOG\.md$'
+#   SKIP_CHANGELOG=1 git commit -m x          -> exempt
+#   export SKIP_CHANGELOG=1 && git commit     -> exempt
+#   { SKIP_CHANGELOG=1 git commit -m x; }     -> exempt
+#   git commit -m "SKIP_CHANGELOG=1 someday"  -> NOT exempt (quoted, so not a command)
+#
+# Reading only the hook process's own $SKIP_CHANGELOG is not enough, and that is
+# not a nicety: the harness spawns the hook itself, so a variable set on the Bash
+# tool's command line never reaches it. The documented bypass -- the one the
+# block message tells the user to reach for -- did nothing at all, and the commit
+# stayed blocked with no way out short of deleting the hook.
+# (LL-G kb/claude-code/hook-does-not-inherit-command-env.md)
+command_sets_skip_changelog() {
+  local tok state result
+
+  noglob_push
+  state=cmd
+  result=1
+  for tok in $(normalize_command); do
+    if [ "$tok" = ";" ]; then state=cmd; continue; fi
+    # `env` has its own arm below: the assignments after it are still prefixes.
+    if [ "$state" = cmd ] && [ "$tok" != env ] && is_command_prefix "$tok"; then continue; fi
+    case "$state" in
+      cmd|env)
+        case "$tok" in
+          SKIP_CHANGELOG=1) result=0; break ;;
+          export|env)       state=env ;;
+          *=*)              ;;  # some other assignment prefix; still a command position
+          *)                state=args ;;
+        esac
+        ;;
+    esac
+  done
+  noglob_pop
+  return "$result"
+}
+
+# Reads the "version" field out of package.json content on stdin.
+read_version() {
+  sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -1
+}
+
+# The version this commit is shipping, per the working tree. Empty when the repo
+# has no package.json -- the template is cloned into non-Node repos too, and a
+# gate that blocks every commit there is a gate people rip out.
+current_version() {
+  [ -f package.json ] || return 0
+  read_version < package.json
+}
+
+# ---------------------------------------------------------------------------
+# The three checks below test STATE and CONSEQUENCE, never the command's text.
+#
+# A PreToolUse hook fires BEFORE the command runs, so the tempting shortcut is to
+# accept any command that *says* it stages the changelog. That is a gate on
+# intent, and intent is satisfiable without doing the thing: `git add CHANGELOG.md`
+# stages nothing when the file is unmodified, so the exemption fires for exactly
+# the commits it exists to stop. This file carried that bug until 0.61.8.
+# (LL-G kb/claude-code/hook-validates-text-not-state.md)
+#
+# Diffing against HEAD instead of the index is what removes the need for any text
+# exemption: it sees the edit whether or not it has been staged yet. The tradeoff
+# is real and belongs in the block message -- the changelog edit must be its own
+# step, before the commit call.
+# ---------------------------------------------------------------------------
+
+# True when CHANGELOG.md differs from HEAD (staged or merely edited).
+changelog_was_edited() {
+  ! git diff --quiet HEAD -- CHANGELOG.md 2>/dev/null
+}
+
+# True when package.json's version differs from HEAD's.
+version_was_bumped() {
+  [ -f package.json ] || return 0
+  local now before
+  now=$(current_version)
+  before=$(git show HEAD:package.json 2>/dev/null | read_version)
+  [ -n "$now" ] && [ "$now" != "$before" ]
+}
+
+# True when CHANGELOG.md actually names the version being shipped. "The file
+# changed" is weak; "the file documents this release" is the invariant, and it is
+# the one that catches an edit that silently landed in the wrong section.
+changelog_names_version() {
+  local v
+  v=$(current_version)
+  [ -n "$v" ] || return 0
+  grep -qF "## [$v]" CHANGELOG.md 2>/dev/null
 }
