@@ -145,12 +145,127 @@ impl MicApp {
     }
 }
 
+/// An audio device as Core Audio lists it. Windows only; the other probes
+/// leave every endpoint field empty.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Endpoint {
+    /// The endpoint id (`{0.0.0.00000000}.{guid}`), which endpoint loopback
+    /// opens.
+    pub id: String,
+    /// `PKEY_Device_FriendlyName` ("Microphone (Shure MV7+)"): the name cpal
+    /// shows, so a microphone opens by it.
+    pub name: String,
+}
+
 /// One app's microphone use in a snapshot.
 #[derive(Debug, Clone)]
 pub struct MicUse {
     pub app: MicApp,
     /// One of this app's capture streams is running right now.
     pub in_use: bool,
+    /// The input endpoints those running streams record from. Teams has its
+    /// own device setting, so this is often not the communications default.
+    pub capture_endpoints: Vec<Endpoint>,
+}
+
+/// The input endpoint `app_id` (a [`MicApp::id`]) is recording from right
+/// now, the first in probe order when there are several.
+pub fn capture_endpoint<'a>(snapshot: &'a Snapshot, app_id: &str) -> Option<&'a Endpoint> {
+    snapshot
+        .users
+        .iter()
+        .filter(|u| u.in_use && u.app.id() == app_id)
+        .find_map(|u| u.capture_endpoints.first())
+}
+
+/// One process's audio session on an output endpoint.
+#[derive(Debug, Clone)]
+pub struct RenderSession {
+    pub pid: u32,
+    pub endpoint: Endpoint,
+    /// A stream is playing (`AudioSessionStateActive`), not merely open.
+    pub active: bool,
+}
+
+/// Where the machine plays audio right now. Empty off Windows.
+#[derive(Debug, Clone, Default)]
+pub struct RenderSnapshot {
+    pub sessions: Vec<RenderSession>,
+    /// The default output for the console role: the one Sound settings shows.
+    pub console_default: Option<Endpoint>,
+    /// The default output for the communications role, where call apps play
+    /// unless told otherwise.
+    pub communications_default: Option<Endpoint>,
+}
+
+/// Where to capture a meeting app's audio from.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ThemSource {
+    /// Per-process loopback of the app's tree.
+    ProcessTree,
+    /// Loopback of this whole output endpoint.
+    Endpoint(Endpoint),
+}
+
+/// The rule for "Them": loopback of the endpoint the app is playing to when
+/// that is not the console default, else per-process loopback.
+///
+/// Microsoft documents process loopback as endpoint-independent, but on
+/// Windows 11 26300 (2026-10-14) it heard nothing (-96.7 dBFS) from a Teams
+/// call playing to the communications endpoint, while endpoint loopback of
+/// that device peaked at -5 dBFS. Process loopback stays the default where it
+/// works because it keeps other apps' sounds out. With several non-default
+/// endpoints, the communications default wins: calls play there.
+pub fn them_source(render: &RenderSnapshot, procs: &[Proc], root: u32) -> ThemSource {
+    let Some(console) = &render.console_default else {
+        return ThemSource::ProcessTree;
+    };
+    let elsewhere: Vec<&Endpoint> = tree_sessions(render, procs, root)
+        .into_iter()
+        .filter(|s| s.active && s.endpoint.id != console.id)
+        .map(|s| &s.endpoint)
+        .collect();
+    let comms = render.communications_default.as_ref();
+    match elsewhere
+        .iter()
+        .find(|e| comms.is_some_and(|c| c.id == e.id))
+        .or(elsewhere.first())
+    {
+        Some(endpoint) => ThemSource::Endpoint((*endpoint).clone()),
+        None => ThemSource::ProcessTree,
+    }
+}
+
+/// The render sessions of `root` and its descendants.
+pub fn tree_sessions<'a>(
+    render: &'a RenderSnapshot,
+    procs: &[Proc],
+    root: u32,
+) -> Vec<&'a RenderSession> {
+    let tree = process_tree(procs, root);
+    render
+        .sessions
+        .iter()
+        .filter(|s| tree.contains(&s.pid))
+        .collect()
+}
+
+/// `root` and every process descended from it. Windows reuses PIDs, so a
+/// stale parent link can point anywhere, even into a cycle: each PID is
+/// visited once.
+pub fn process_tree(procs: &[Proc], root: u32) -> Vec<u32> {
+    let mut tree = vec![root];
+    let mut next = 0;
+    while next < tree.len() {
+        let parent = tree[next];
+        next += 1;
+        for p in procs {
+            if p.parent == parent && p.pid != parent && !tree.contains(&p.pid) {
+                tree.push(p.pid);
+            }
+        }
+    }
+    tree
 }
 
 /// One poll's view of the machine.
@@ -531,6 +646,7 @@ mod tests {
         MicUse {
             app: MicApp::Packaged(family.to_string()),
             in_use,
+            capture_endpoints: Vec::new(),
         }
     }
 
@@ -538,6 +654,7 @@ mod tests {
         MicUse {
             app: MicApp::Desktop(path.to_string()),
             in_use,
+            capture_endpoints: Vec::new(),
         }
     }
 
@@ -727,6 +844,7 @@ mod tests {
         let mut snapshot = snap(vec![MicUse {
             app: MicApp::Packaged("com.google.chrome".into()),
             in_use: false,
+            capture_endpoints: Vec::new(),
         }]);
         snapshot.meeting_windows.push("com.google.chrome".into());
         assert!(poll(&mut detector, &snapshot, 0, 10_000).is_empty());
@@ -1008,5 +1126,135 @@ mod tests {
             },
         ];
         assert_eq!(root_pid(&procs, "chrome.exe"), Some(2500));
+    }
+
+    fn endpoint(id: &str, name: &str) -> Endpoint {
+        Endpoint {
+            id: id.into(),
+            name: name.into(),
+        }
+    }
+
+    fn proc(pid: u32, parent: u32, exe: &str) -> Proc {
+        Proc {
+            pid,
+            parent,
+            exe: exe.into(),
+        }
+    }
+
+    /// The machine diagnosed on 2026-10-14: Teams (root 22700) plays the call
+    /// from child 25124 to the Audeze Chat endpoint, which is the
+    /// communications default; the console default is Realtek.
+    fn teams_machine() -> (Vec<Proc>, RenderSnapshot) {
+        let procs = vec![
+            proc(900, 800, "explorer.exe"),
+            proc(22700, 900, "ms-teams.exe"),
+            proc(25124, 22700, "ms-teams.exe"),
+            proc(26000, 25124, "msedgewebview2.exe"),
+            proc(30000, 900, "spotify.exe"),
+        ];
+        let realtek = endpoint("{realtek}", "Realtek Digital Output");
+        let chat = endpoint("{chat}", "Speakers (Chat-Audeze Maxwell2 ANC)");
+        let render = RenderSnapshot {
+            sessions: vec![
+                RenderSession {
+                    pid: 25124,
+                    endpoint: chat.clone(),
+                    active: true,
+                },
+                RenderSession {
+                    pid: 30000,
+                    endpoint: realtek.clone(),
+                    active: true,
+                },
+            ],
+            console_default: Some(realtek),
+            communications_default: Some(chat),
+        };
+        (procs, render)
+    }
+
+    #[test]
+    fn a_call_on_the_communications_endpoint_is_captured_from_that_endpoint() {
+        let (procs, render) = teams_machine();
+        assert_eq!(
+            them_source(&render, &procs, 22700),
+            ThemSource::Endpoint(endpoint("{chat}", "Speakers (Chat-Audeze Maxwell2 ANC)"))
+        );
+    }
+
+    #[test]
+    fn a_call_on_the_console_default_keeps_process_loopback() {
+        let (procs, mut render) = teams_machine();
+        render.sessions[0].endpoint = endpoint("{realtek}", "Realtek Digital Output");
+        assert_eq!(them_source(&render, &procs, 22700), ThemSource::ProcessTree);
+    }
+
+    #[test]
+    fn idle_sessions_and_other_apps_never_move_the_capture() {
+        let (procs, mut render) = teams_machine();
+        render.sessions[0].active = false;
+        // Spotify plays elsewhere, but it is not in Teams' tree.
+        render.sessions[1].endpoint = endpoint("{usb}", "USB Speakers");
+        assert_eq!(them_source(&render, &procs, 22700), ThemSource::ProcessTree);
+        // Without a known console default there is nothing to compare.
+        let (procs, mut render) = teams_machine();
+        render.console_default = None;
+        assert_eq!(them_source(&render, &procs, 22700), ThemSource::ProcessTree);
+    }
+
+    #[test]
+    fn several_non_default_endpoints_prefer_the_communications_default() {
+        let (procs, mut render) = teams_machine();
+        render.sessions.insert(
+            0,
+            RenderSession {
+                pid: 26000,
+                endpoint: endpoint("{hdmi}", "Monitor"),
+                active: true,
+            },
+        );
+        assert_eq!(
+            them_source(&render, &procs, 22700),
+            ThemSource::Endpoint(endpoint("{chat}", "Speakers (Chat-Audeze Maxwell2 ANC)"))
+        );
+        render.communications_default = None;
+        assert_eq!(
+            them_source(&render, &procs, 22700),
+            ThemSource::Endpoint(endpoint("{hdmi}", "Monitor"))
+        );
+    }
+
+    #[test]
+    fn the_process_tree_covers_grandchildren_and_survives_a_pid_cycle() {
+        let (procs, render) = teams_machine();
+        let mut tree = process_tree(&procs, 22700);
+        tree.sort_unstable();
+        assert_eq!(tree, [22700, 25124, 26000]);
+        assert_eq!(tree_sessions(&render, &procs, 22700).len(), 1);
+        // A reused PID makes 1 and 2 each other's parent.
+        let cycle = [
+            proc(1, 2, "a.exe"),
+            proc(2, 1, "b.exe"),
+            proc(3, 3, "c.exe"),
+        ];
+        assert_eq!(process_tree(&cycle, 1), [1, 2]);
+        assert_eq!(process_tree(&cycle, 3), [3]);
+    }
+
+    #[test]
+    fn the_mic_endpoint_is_the_one_the_meeting_app_records_from() {
+        let shure = endpoint("{shure}", "Microphone (Shure MV7+)");
+        let mut teams = packaged("MSTeams_8wekyb3d8bbwe", true);
+        teams.capture_endpoints = vec![shure.clone()];
+        let mut hark = hark();
+        hark.capture_endpoints = vec![endpoint("{chat-mic}", "Headset (Audeze Chat)")];
+        let snapshot = snap(vec![hark, teams]);
+        assert_eq!(capture_endpoint(&snapshot, TEAMS), Some(&shure));
+        assert_eq!(capture_endpoint(&snapshot, "zoom.exe"), None);
+        let mut released = snapshot.clone();
+        released.users[1].in_use = false;
+        assert_eq!(capture_endpoint(&released, TEAMS), None);
     }
 }

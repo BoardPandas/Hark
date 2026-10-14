@@ -6,6 +6,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.62.0] - 2026-10-14
+
+### Fixed
+
+- Windows meeting notes record your voice from the microphone your call app is actually using. Hark used the Windows communications-default microphone, which can be a different device from the one Teams is set to, even a muted one: six Teams meetings in October recorded only silence that way. An explicitly chosen meeting microphone still wins.
+- Windows meeting notes record the other people on a call that plays to an output other than the Windows default, such as a headset's separate "Chat" device. Hark's per-app capture heard nothing there; Hark now records that output device itself for the call, keeping both sides in time through pauses when nothing plays.
+
+### Added
+
+- Meeting notes warn during the call when Hark hears nothing: after 45 seconds of silence from your microphone (naming the microphone your call app uses when it is a different one), and after 2 minutes of silence from the call while the call app is playing audio. Before, a silent recording was only discovered after the call.
+
+### Changed
+
+- Settings > Meetings > Microphone: the default entry is now "Automatic: the mic your call app is using", replacing the hint that the communications default is the microphone Teams and Zoom use, which was not true on every computer.
+
 ## [0.61.7] - 2026-10-14
 
 ### Fixed

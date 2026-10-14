@@ -29,6 +29,7 @@ mod gemini_final;
 mod live;
 mod recorder;
 mod rerun;
+mod watchdog;
 
 pub use coordinator::{run, MeetingHandle};
 pub use finish::DEEPGRAM_ACCOUNT;

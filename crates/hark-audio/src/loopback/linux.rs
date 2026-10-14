@@ -264,7 +264,8 @@ fn capture_thread(
             monitor_wanted: matches!(target, LoopbackTarget::ExcludeTree(_)),
             include_root: match target {
                 LoopbackTarget::IncludeTree(pid) => Some(pid),
-                LoopbackTarget::ExcludeTree(_) => None,
+                // Endpoint never gets here: `start_process_loopback` refuses it.
+                LoopbackTarget::ExcludeTree(_) | LoopbackTarget::Endpoint { .. } => None,
             },
             fell_back: false,
         },

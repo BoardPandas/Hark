@@ -49,6 +49,9 @@ symphonia = { version = "0.6", default-features = false, features = ["mp3"] }
 # - Win32_System_Com_StructuredStorage + Win32_System_Variant: the VT_BLOB
 #   PROPVARIANT carrying AUDIOCLIENT_ACTIVATION_PARAMS
 # - Win32_System_Threading + Win32_Security: CreateEventW / WaitForSingleObject
+# Endpoint loopback (loopback/win.rs + gaps.rs) adds:
+# - Win32_System_Performance: QueryPerformanceCounter, the clock its packet
+#   timestamps are on, for placing silence while no packets arrive
 [target.'cfg(windows)'.dependencies]
 windows = { version = "0.62.2", features = [
     "Win32_Foundation",
@@ -56,6 +59,7 @@ windows = { version = "0.62.2", features = [
     "Win32_Security",
     "Win32_System_Com",
     "Win32_System_Com_StructuredStorage",
+    "Win32_System_Performance",
     "Win32_System_Threading",
     "Win32_System_Variant",
     "Win32_Devices_FunctionDiscovery",

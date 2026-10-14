@@ -7,8 +7,12 @@
 //! so a line's offset is its real time in the call and the two spools stay
 //! aligned for the stereo final pass. The mic is resampled from its device
 //! rate here; macOS loopback is also resampled from its negotiated tap rate.
+//!
+//! Each track also runs a silence watchdog (`watchdog.rs`) on what it places;
+//! the coordinator turns a long silence into a notice.
 
 use super::echo::EchoReducer;
+use super::watchdog::{SilenceWatch, ME_LIMIT, THEM_LIMIT};
 use hark_audio::resample::StreamResampler;
 use hark_audio::ring::{Consumer, RangeError};
 use hark_audio::spool::{SpoolWriter, ME_FILE, THEM_FILE};
@@ -115,6 +119,9 @@ struct Track {
     lost: u64,
     discontinuous: bool,
     capture_discontinuities: u64,
+    silence: SilenceWatch,
+    /// The watchdog fired and the coordinator has not been told yet.
+    silent_due: bool,
     /// Declared last: fields drop in order, so the spool and chunker are done
     /// with before the capture thread is joined.
     source: Source,
@@ -303,6 +310,16 @@ impl Recorder {
         Ok(lost)
     }
 
+    /// Tracks whose silence reached another whole watchdog limit since the
+    /// last call: 45 s for Me, 120 s for Them.
+    pub fn take_silences(&mut self) -> Vec<Channel> {
+        [&mut self.me, &mut self.them]
+            .into_iter()
+            .flatten()
+            .filter_map(|track| std::mem::take(&mut track.silent_due).then_some(track.channel))
+            .collect()
+    }
+
     /// No track is left recording.
     pub fn is_empty(&self) -> bool {
         self.me.is_none() && self.them.is_none()
@@ -366,6 +383,11 @@ impl Track {
             lost: 0,
             discontinuous: false,
             capture_discontinuities: 0,
+            silence: SilenceWatch::new(match channel {
+                Channel::Me => ME_LIMIT,
+                Channel::Them => THEM_LIMIT,
+            }),
+            silent_due: false,
             source,
         })
     }
@@ -448,6 +470,9 @@ impl Track {
     fn place(&mut self, samples: &[f32], live: Option<&Sender<LiveJob>>) -> io::Result<()> {
         if samples.is_empty() {
             return Ok(());
+        }
+        if self.silence.observe(samples) {
+            self.silent_due = true;
         }
         self.spool.append_f32(samples)?;
         if let Some(chunker) = &mut self.chunker {

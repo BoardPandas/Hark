@@ -135,9 +135,15 @@ pub(crate) fn start(
         discontinuities.clone(),
         start_qpc_ns.clone(),
     );
+    let (root, exclude) = match target {
+        LoopbackTarget::IncludeTree(p) => (p, false),
+        LoopbackTarget::ExcludeTree(p) => (p, true),
+        LoopbackTarget::Endpoint { .. } => {
+            return Err(LoopbackError::Unsupported("endpoint loopback"))
+        }
+    };
     let (tx, rx) = mpsc::sync_channel(1);
     let thread = std::thread::Builder::new().name("hark-audio-loopback".into()).spawn(move || {
-        let (root, exclude) = match target { LoopbackTarget::IncludeTree(p) => (p, false), LoopbackTarget::ExcludeTree(p) => (p, true) };
         let mut rate = 0;
         let mut status = 0;
         // SAFETY: native code writes only to the provided out parameters.

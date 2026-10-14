@@ -25,6 +25,7 @@ pub fn snapshot() -> io::Result<Snapshot> {
             // a Windows package family; Hark's PID was excluded by the native probe.
             app: MicApp::Packaged(p.app_id),
             in_use: true,
+            capture_endpoints: Vec::new(),
         })
         .collect();
     Ok(snapshot)

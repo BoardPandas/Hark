@@ -1,27 +1,33 @@
-//! The Windows half of the loopback seam: WASAPI process loopback. The
+//! The Windows half of the loopback seam: WASAPI process loopback, and
+//! endpoint loopback for a call playing where process loopback is deaf. The
 //! shared contract and both platforms' docs live in `super`.
 
+use super::gaps::{GapFiller, TICKS_PER_SECOND};
 use super::*;
 use crate::ring::{ring, Producer};
 use std::mem::ManuallyDrop;
 use std::sync::mpsc;
-use windows::core::{implement, Interface, Ref, Result as WinResult, HRESULT};
+use windows::core::{implement, Interface, Ref, Result as WinResult, HRESULT, PCWSTR};
 use windows::Win32::Foundation::{CloseHandle, HANDLE, WAIT_OBJECT_0, WAIT_TIMEOUT};
 use windows::Win32::Media::Audio::{
     ActivateAudioInterfaceAsync, IActivateAudioInterfaceAsyncOperation,
     IActivateAudioInterfaceCompletionHandler, IActivateAudioInterfaceCompletionHandler_Impl,
-    IAudioCaptureClient, IAudioClient, AUDCLNT_BUFFERFLAGS_DATA_DISCONTINUITY,
-    AUDCLNT_BUFFERFLAGS_SILENT, AUDCLNT_BUFFERFLAGS_TIMESTAMP_ERROR, AUDCLNT_SHAREMODE_SHARED,
+    IAudioCaptureClient, IAudioClient, IMMDeviceEnumerator, MMDeviceEnumerator,
+    AUDCLNT_BUFFERFLAGS_DATA_DISCONTINUITY, AUDCLNT_BUFFERFLAGS_SILENT,
+    AUDCLNT_BUFFERFLAGS_TIMESTAMP_ERROR, AUDCLNT_SHAREMODE_SHARED,
     AUDCLNT_STREAMFLAGS_AUTOCONVERTPCM, AUDCLNT_STREAMFLAGS_EVENTCALLBACK,
     AUDCLNT_STREAMFLAGS_LOOPBACK, AUDCLNT_STREAMFLAGS_SRC_DEFAULT_QUALITY,
     AUDIOCLIENT_ACTIVATION_PARAMS, AUDIOCLIENT_ACTIVATION_PARAMS_0,
     AUDIOCLIENT_ACTIVATION_TYPE_PROCESS_LOOPBACK, AUDIOCLIENT_PROCESS_LOOPBACK_PARAMS,
-    PROCESS_LOOPBACK_MODE_EXCLUDE_TARGET_PROCESS_TREE,
+    PROCESS_LOOPBACK_MODE, PROCESS_LOOPBACK_MODE_EXCLUDE_TARGET_PROCESS_TREE,
     PROCESS_LOOPBACK_MODE_INCLUDE_TARGET_PROCESS_TREE, VIRTUAL_AUDIO_DEVICE_PROCESS_LOOPBACK,
     WAVEFORMATEX, WAVE_FORMAT_PCM,
 };
 use windows::Win32::System::Com::StructuredStorage::PROPVARIANT;
-use windows::Win32::System::Com::{CoInitializeEx, CoUninitialize, BLOB, COINIT_MULTITHREADED};
+use windows::Win32::System::Com::{
+    CoCreateInstance, CoInitializeEx, CoUninitialize, BLOB, CLSCTX_ALL, COINIT_MULTITHREADED,
+};
+use windows::Win32::System::Performance::{QueryPerformanceCounter, QueryPerformanceFrequency};
 use windows::Win32::System::Threading::{CreateEventW, SetEvent, WaitForSingleObject};
 use windows::Win32::System::Variant::VT_BLOB;
 
@@ -60,6 +66,7 @@ pub(super) fn start(
         shared.discontinuities.clone(),
         shared.start_qpc_ns.clone(),
     );
+    let endpoint = matches!(target, LoopbackTarget::Endpoint { .. });
     let (producer, consumer) = ring(ring_seconds as usize * LOOPBACK_RATE as usize);
     let (result_tx, result_rx) = mpsc::sync_channel::<Result<(), LoopbackError>>(1);
     let thread = std::thread::Builder::new()
@@ -75,6 +82,7 @@ pub(super) fn start(
                 stream_error,
                 discontinuities,
                 start_qpc_ns,
+                timeline_from_clock: endpoint,
                 thread: Some(thread),
             },
             consumer,
@@ -156,16 +164,34 @@ fn capture_thread(
             return;
         }
     };
-    let stream = match open(target) {
+    let stream = match open(&target) {
         Ok(s) => s,
         Err(e) => {
             let _ = result_tx.send(Err(e));
             return;
         }
     };
-    log::info!("loopback open: {target:?}, {LOOPBACK_RATE} Hz mono i16 (process loopback)");
+    // Endpoint loopback goes quiet in silence, so its timeline runs on the
+    // clock its packets are stamped with, from now. Stored before the start
+    // is reported: the recorder aligns by it on its first read.
+    let gaps = match &target {
+        LoopbackTarget::Endpoint { .. } => {
+            let origin = qpc_ticks();
+            shared
+                .start_qpc_ns
+                .store((origin * 100).max(1), Ordering::Release);
+            log::info!(
+                "loopback open: {target:?}, {LOOPBACK_RATE} Hz mono i16 (endpoint loopback)"
+            );
+            Some(GapFiller::new(origin, LOOPBACK_RATE))
+        }
+        _ => {
+            log::info!("loopback open: {target:?}, {LOOPBACK_RATE} Hz mono i16 (process loopback)");
+            None
+        }
+    };
     let _ = result_tx.send(Ok(()));
-    if let Err(e) = pump(&stream, &producer, &shared) {
+    if let Err(e) = pump(&stream, &producer, &shared, gaps) {
         shared.stream_error.store(true, Ordering::Relaxed);
         log::error!("loopback stream error: {e}");
     }
@@ -183,11 +209,20 @@ struct Stream {
     ready: Event,
 }
 
-fn open(target: LoopbackTarget) -> Result<Stream, LoopbackError> {
-    let client = activate(target)?;
+fn open(target: &LoopbackTarget) -> Result<Stream, LoopbackError> {
+    let client = match target {
+        LoopbackTarget::IncludeTree(pid) => {
+            activate(*pid, PROCESS_LOOPBACK_MODE_INCLUDE_TARGET_PROCESS_TREE)?
+        }
+        LoopbackTarget::ExcludeTree(pid) => {
+            activate(*pid, PROCESS_LOOPBACK_MODE_EXCLUDE_TARGET_PROCESS_TREE)?
+        }
+        LoopbackTarget::Endpoint { id } => activate_endpoint(id)?,
+    };
     let start = |e: windows::core::Error| LoopbackError::Start(e.to_string());
     // GetMixFormat is unsupported on the process-loopback virtual device:
-    // ask for 16 kHz mono i16 and let AUTOCONVERTPCM convert.
+    // ask for 16 kHz mono i16 and let AUTOCONVERTPCM convert. A real
+    // endpoint has a mix format, but the same request keeps one path.
     let format = WAVEFORMATEX {
         wFormatTag: WAVE_FORMAT_PCM as u16,
         nChannels: 1,
@@ -225,16 +260,26 @@ fn open(target: LoopbackTarget) -> Result<Stream, LoopbackError> {
     }
 }
 
-fn activate(target: LoopbackTarget) -> Result<IAudioClient, LoopbackError> {
+/// A render endpoint's own client, by Core Audio endpoint id. No
+/// activation PROPVARIANT is involved, unlike process loopback.
+fn activate_endpoint(id: &str) -> Result<IAudioClient, LoopbackError> {
+    let failed = |e: windows::core::Error| LoopbackError::Activate(format!("endpoint {id}: {e}"));
+    let wide: Vec<u16> = id.encode_utf16().chain(std::iter::once(0)).collect();
+    // SAFETY: COM calls in this thread's apartment; `wide` is NUL-terminated
+    // and outlives GetDevice, which copies it.
+    unsafe {
+        let enumerator: IMMDeviceEnumerator =
+            CoCreateInstance(&MMDeviceEnumerator, None, CLSCTX_ALL).map_err(failed)?;
+        enumerator
+            .GetDevice(PCWSTR(wide.as_ptr()))
+            .map_err(failed)?
+            .Activate::<IAudioClient>(CLSCTX_ALL, None)
+            .map_err(failed)
+    }
+}
+
+fn activate(pid: u32, mode: PROCESS_LOOPBACK_MODE) -> Result<IAudioClient, LoopbackError> {
     let failed = |e: windows::core::Error| LoopbackError::Activate(e.to_string());
-    let (pid, mode) = match target {
-        LoopbackTarget::IncludeTree(pid) => {
-            (pid, PROCESS_LOOPBACK_MODE_INCLUDE_TARGET_PROCESS_TREE)
-        }
-        LoopbackTarget::ExcludeTree(pid) => {
-            (pid, PROCESS_LOOPBACK_MODE_EXCLUDE_TARGET_PROCESS_TREE)
-        }
-    };
     // Lives on this stack until activation has completed below.
     let params = AUDIOCLIENT_ACTIVATION_PARAMS {
         ActivationType: AUDIOCLIENT_ACTIVATION_TYPE_PROCESS_LOOPBACK,
@@ -291,21 +336,60 @@ fn activate(target: LoopbackTarget) -> Result<IAudioClient, LoopbackError> {
     }
 }
 
-/// Deliver packets to the ring until shutdown or a stream error.
-fn pump(stream: &Stream, producer: &Producer, shared: &Shared) -> WinResult<()> {
+/// Deliver packets to the ring until shutdown or a stream error. Endpoint
+/// loopback (`gaps`) also places the silence while no packets come.
+fn pump(
+    stream: &Stream,
+    producer: &Producer,
+    shared: &Shared,
+    mut gaps: Option<GapFiller>,
+) -> WinResult<()> {
     let mut pushed: u64 = 0;
     while !shared.shutdown.load(Ordering::Relaxed) {
         // SAFETY: waiting on an event this thread owns.
         let woke = unsafe { WaitForSingleObject(stream.ready.0, WAIT_MS) };
-        if woke == WAIT_TIMEOUT {
-            continue;
-        }
-        if woke != WAIT_OBJECT_0 {
+        if woke != WAIT_OBJECT_0 && woke != WAIT_TIMEOUT {
             return Err(windows::core::Error::from_thread());
         }
-        drain_packets(stream, producer, shared, &mut pushed)?;
+        // Drained after a timeout too, so packets never wait on an event
+        // that loopback might not signal; without packets it is one call.
+        drain_packets(stream, producer, shared, &mut pushed, gaps.as_mut())?;
+        if let Some(gaps) = gaps.as_mut() {
+            let silence = gaps.idle(qpc_ticks());
+            push_zeros(producer, silence);
+            pushed += silence;
+        }
     }
     Ok(())
+}
+
+/// The QPC clock in the 100 ns ticks WASAPI stamps its packets with.
+fn qpc_ticks() -> u64 {
+    let (mut count, mut frequency) = (0i64, 0i64);
+    // SAFETY: plain reads into locals; both calls always succeed on any
+    // Windows Hark runs on.
+    unsafe {
+        let _ = QueryPerformanceCounter(&mut count);
+        let _ = QueryPerformanceFrequency(&mut frequency);
+    }
+    (count.max(0) as u128 * u128::from(TICKS_PER_SECOND) / frequency.max(1) as u128) as u64
+}
+
+/// Frames of endpoint loopback's timeline due by now, from its start in
+/// nanoseconds: what it has captured, including silence still inside
+/// [`GapFiller`]'s margin.
+pub(super) fn frames_due(start_ns: u64) -> u64 {
+    let elapsed = u128::from((qpc_ticks() * 100).saturating_sub(start_ns));
+    (elapsed * u128::from(LOOPBACK_RATE) / 1_000_000_000) as u64
+}
+
+fn push_zeros(producer: &Producer, mut frames: u64) {
+    let zeros = [0f32; PUSH_BATCH];
+    while frames > 0 {
+        let n = frames.min(PUSH_BATCH as u64) as usize;
+        producer.push(&zeros[..n]);
+        frames -= n as u64;
+    }
 }
 
 fn drain_packets(
@@ -313,6 +397,7 @@ fn drain_packets(
     producer: &Producer,
     shared: &Shared,
     pushed: &mut u64,
+    mut gaps: Option<&mut GapFiller>,
 ) -> WinResult<()> {
     let mut batch = [0f32; PUSH_BATCH];
     loop {
@@ -332,25 +417,33 @@ fn drain_packets(
                 None,
                 Some(&raw mut qpc),
             )?;
-            if flags & AUDCLNT_BUFFERFLAGS_DATA_DISCONTINUITY.0 as u32 != 0 {
+            let timestamped = flags & AUDCLNT_BUFFERFLAGS_TIMESTAMP_ERROR.0 as u32 == 0;
+            // Endpoint loopback: the silence since the last packet first.
+            // The packet that resumes after it is flagged discontinuous, but
+            // nothing was lost: the silence is on the timeline.
+            let mut resumed = false;
+            if let Some(gaps) = gaps.as_deref_mut() {
+                let silence = if timestamped {
+                    gaps.before_packet(qpc, u64::from(frames))
+                } else {
+                    gaps.contiguous(u64::from(frames));
+                    0
+                };
+                push_zeros(producer, silence);
+                *pushed += silence;
+                resumed = silence > 0;
+            }
+            if flags & AUDCLNT_BUFFERFLAGS_DATA_DISCONTINUITY.0 as u32 != 0 && !resumed {
                 shared.discontinuities.fetch_add(1, Ordering::Relaxed);
             }
-            if flags & AUDCLNT_BUFFERFLAGS_TIMESTAMP_ERROR.0 as u32 == 0
-                && shared.start_qpc_ns.load(Ordering::Relaxed) == 0
-            {
+            if timestamped && shared.start_qpc_ns.load(Ordering::Relaxed) == 0 {
                 // QPC is in 100 ns units; back-date to ring sample 0.
                 let ns = (qpc * 100).saturating_sub(*pushed * 1_000_000_000 / LOOPBACK_RATE as u64);
                 shared.start_qpc_ns.store(ns.max(1), Ordering::Release);
             }
             // A SILENT packet's buffer contents are undefined: push zeros.
             if flags & AUDCLNT_BUFFERFLAGS_SILENT.0 as u32 != 0 || data.is_null() {
-                let zeros = [0f32; PUSH_BATCH];
-                let mut left = frames as usize;
-                while left > 0 {
-                    let n = left.min(PUSH_BATCH);
-                    producer.push(&zeros[..n]);
-                    left -= n;
-                }
+                push_zeros(producer, u64::from(frames));
             } else {
                 let pcm = std::slice::from_raw_parts(data as *const i16, frames as usize);
                 for part in pcm.chunks(PUSH_BATCH) {

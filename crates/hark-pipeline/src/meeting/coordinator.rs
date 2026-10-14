@@ -10,8 +10,8 @@ use super::recorder::Recorder;
 use super::{app_display_name, meetings_supported, Answer, MeetingEvent, StartedMeeting, Trigger};
 use hark_audio::LoopbackTarget;
 use hark_config::{AutoDetect, Settings, SystemSource};
-use hark_meeting::detect::{self, DetectConfig, DetectMode, Detector, Verdict};
-use hark_meeting::{advance, Action, ChunkParams, Event, SessionState, Transcript};
+use hark_meeting::detect::{self, DetectConfig, DetectMode, Detector, ThemSource, Verdict};
+use hark_meeting::{advance, Action, Channel, ChunkParams, Event, SessionState, Transcript};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
@@ -159,8 +159,15 @@ struct Active {
     session: SessionState,
     live: Option<live::Live>,
     detected: bool,
+    /// The call app's id (detected, or adopted by a manual start), for the
+    /// silence notices.
+    app: Option<String>,
     /// The detected app's display name, for the pending-stop notice.
     app_name: Option<String>,
+    /// The microphone asked for; `None` is the system default.
+    mic: Option<String>,
+    /// A silence notice was shown, per track (Me, Them): one each.
+    silence_noticed: [bool; 2],
     /// An auto-stop has been announced to the UI (and not cancelled).
     stop_announced: bool,
 }
@@ -442,9 +449,6 @@ impl Coordinator {
         if self.active.is_some() {
             return;
         }
-        // Whose audio "Them" is follows the trigger (a manual start records
-        // everything except Hark), decided before a manual start adopts a call.
-        let loopback = Some(self.loopback_target(app.as_deref()));
         let app = if trigger == Trigger::Manual {
             let (verdict, adopted) = self.detector.started_manually();
             if verdict == Verdict::Retract {
@@ -460,6 +464,10 @@ impl Coordinator {
         } else {
             app
         };
+        // Both devices are chosen here only: a running meeting never swaps,
+        // even if the call app changes device mid-call.
+        let loopback = Some(self.loopback_target(trigger, app.as_deref()));
+        let mic_device = self.mic_device(app.as_deref());
         let (session, action) = advance(SessionState::Idle, Event::Start);
         debug_assert_eq!(action, Action::StartCapture);
 
@@ -481,17 +489,11 @@ impl Coordinator {
             }
             None => None,
         };
-        let mic_device = self
-            .settings
-            .meeting
-            .mic_device
-            .clone()
-            .or_else(hark_audio::communications_default_device);
         let jobs = live.as_ref().map(|l| l.jobs.clone());
         match Recorder::start(
             id.clone(),
             dir,
-            mic_device,
+            mic_device.clone(),
             loopback,
             self.settings.meeting.echo_cancellation,
             jobs,
@@ -530,6 +532,9 @@ impl Coordinator {
                     live,
                     detected: app.is_some(),
                     app_name: app.as_deref().map(app_display_name),
+                    app,
+                    mic: mic_device,
+                    silence_noticed: [false; 2],
                     stop_announced: false,
                 });
             }
@@ -580,28 +585,105 @@ impl Coordinator {
         }
     }
 
-    /// Whose audio "Them" is: the detected app's process tree when the
-    /// setting asks for it and the app can be found, else everything except
-    /// Hark (a manual start always).
-    fn loopback_target(&self, app: Option<&str>) -> LoopbackTarget {
+    /// Whose audio "Them" is. A call app (detected, or adopted by a manual
+    /// start) playing to an output other than the console default is
+    /// recorded from that endpoint, since process loopback was measured deaf
+    /// there (`detect::them_source`). Otherwise as before: the detected
+    /// app's process tree when the setting asks for it, else everything
+    /// except Hark (a manual start always).
+    fn loopback_target(&self, trigger: Trigger, app: Option<&str>) -> LoopbackTarget {
         let everything_but_hark = LoopbackTarget::ExcludeTree(std::process::id());
         let Some(app) = app else {
+            log::info!("meeting Them: everything except Hark (no call app)");
             return everything_but_hark;
         };
-        if self.settings.meeting.system_source != SystemSource::App {
+        let exe = detect::target_exe(app);
+        let found = hark_meeting::probe::processes()
+            .ok()
+            .and_then(|procs| detect::root_pid(&procs, &exe).map(|root| (procs, root)));
+        let Some((procs, root)) = found else {
+            log::warn!("meeting app {exe} has no running process; capturing all system audio");
+            return everything_but_hark;
+        };
+        match hark_meeting::probe::render_snapshot() {
+            Ok(render) => {
+                if let ThemSource::Endpoint(endpoint) = detect::them_source(&render, &procs, root) {
+                    log::info!(
+                        "meeting Them: endpoint loopback of {:?}, where {app} plays (not the console default)",
+                        endpoint.name
+                    );
+                    return LoopbackTarget::Endpoint { id: endpoint.id };
+                }
+            }
+            Err(e) => log::warn!("meeting Them: output sessions unreadable ({e})"),
+        }
+        if trigger == Trigger::Manual || self.settings.meeting.system_source != SystemSource::App {
+            log::info!(
+                "meeting Them: everything except Hark ({} start, system source {:?})",
+                trigger.label(),
+                self.settings.meeting.system_source
+            );
             return everything_but_hark;
         }
-        let exe = detect::target_exe(app);
-        match hark_meeting::probe::processes()
-            .ok()
-            .and_then(|procs| detect::root_pid(&procs, &exe))
-        {
-            Some(pid) => LoopbackTarget::IncludeTree(pid),
-            None => {
-                log::warn!("meeting app {exe} has no running process; capturing all system audio");
-                everything_but_hark
-            }
+        log::info!("meeting Them: process loopback of {exe} (pid {root})");
+        LoopbackTarget::IncludeTree(root)
+    }
+
+    /// The microphone for "Me" (see [`choose_mic`]), logged with its reason.
+    fn mic_device(&self, app: Option<&str>) -> Option<String> {
+        let (mic, reason) = choose_mic(
+            self.settings.meeting.mic_device.clone(),
+            || app.and_then(app_mic),
+            hark_audio::communications_default_device,
+        );
+        log::info!(
+            "meeting Me: {} ({reason})",
+            mic.as_deref().unwrap_or("the system default microphone")
+        );
+        mic
+    }
+
+    /// A track went silent past its watchdog limit. Say so once per track,
+    /// naming the right device when the probe knows it. Them is only worth a
+    /// notice while the call app is playing something; otherwise the count
+    /// goes on and is checked again at the next limit.
+    fn silence(&mut self, channel: Channel) {
+        let Some(active) = &self.active else {
+            return;
+        };
+        let slot = match channel {
+            Channel::Me => 0,
+            Channel::Them => 1,
+        };
+        if active.silence_noticed[slot] {
+            return;
         }
+        let id = active.recorder.id.clone();
+        let app_name = active.app_name.clone();
+        let text = match channel {
+            Channel::Me => {
+                let in_app = active.app.as_deref().and_then(app_mic);
+                Some(me_silence_text(
+                    active.mic.as_deref(),
+                    app_name.as_deref(),
+                    in_app.as_deref(),
+                ))
+            }
+            Channel::Them => active
+                .app
+                .as_deref()
+                .and_then(playing_endpoint)
+                .map(|endpoint| them_silence_text(app_name.as_deref(), &endpoint)),
+        };
+        let Some(text) = text else {
+            log::info!("meeting {id}: {channel:?} silent, but no call app is playing; no notice");
+            return;
+        };
+        log::warn!("meeting {id}: {channel:?} track silent past its limit; telling the user");
+        if let Some(active) = self.active.as_mut() {
+            active.silence_noticed[slot] = true;
+        }
+        self.notice(Some(&id), text);
     }
 
     fn pump(&mut self) {
@@ -612,9 +694,13 @@ impl Coordinator {
             Ok(lost) => {
                 let id = active.recorder.id.clone();
                 let empty = active.recorder.is_empty();
+                let silent = active.recorder.take_silences();
                 for track in lost {
                     log::warn!("meeting {id}: {:?} track lost", track.channel);
                     self.notice(Some(&id), track.detail);
+                }
+                for channel in silent {
+                    self.silence(channel);
                 }
                 if empty {
                     if let Some(active) = self.active.take() {
@@ -807,6 +893,73 @@ fn recover_label(action: &hark_audio::RecoverAction) -> &'static str {
     }
 }
 
+/// The microphone for "Me", and why. Order: the explicit Meetings setting;
+/// the endpoint the call app is recording from (Teams has its own device
+/// setting, so the communications default can be another, even muted, mic:
+/// the cause of six silent meetings in October 2026); the communications
+/// default; else the system default (`None`). Lookups run only when needed.
+fn choose_mic(
+    explicit: Option<String>,
+    app_mic: impl FnOnce() -> Option<String>,
+    communications_default: impl FnOnce() -> Option<String>,
+) -> (Option<String>, &'static str) {
+    if let Some(name) = explicit {
+        return (Some(name), "the Meetings microphone setting");
+    }
+    if let Some(name) = app_mic() {
+        return (Some(name), "the microphone the call app is recording from");
+    }
+    match communications_default() {
+        Some(name) => (Some(name), "the communications default"),
+        None => (None, "no communications default"),
+    }
+}
+
+/// The microphone `app` is recording from right now, by name.
+fn app_mic(app: &str) -> Option<String> {
+    match hark_meeting::probe::snapshot() {
+        Ok(snapshot) => detect::capture_endpoint(&snapshot, app).map(|e| e.name.clone()),
+        Err(e) => {
+            log::warn!("meeting: cannot see which mic {app} uses ({e})");
+            None
+        }
+    }
+}
+
+/// The output `app`'s process tree is playing to right now, by name; `None`
+/// when it plays nothing or cannot be found.
+fn playing_endpoint(app: &str) -> Option<String> {
+    let procs = hark_meeting::probe::processes().ok()?;
+    let root = detect::root_pid(&procs, &detect::target_exe(app))?;
+    let render = hark_meeting::probe::render_snapshot().ok()?;
+    detect::tree_sessions(&render, &procs, root)
+        .into_iter()
+        .find(|s| s.active)
+        .map(|s| s.endpoint.name.clone())
+}
+
+fn me_silence_text(mic: Option<&str>, app_name: Option<&str>, app_mic: Option<&str>) -> String {
+    let mic = mic.unwrap_or("your default microphone");
+    match app_mic {
+        Some(other) if other != mic => format!(
+            "Hark hears nothing from {mic}. {} is using {other}; switch in Settings > Meetings.",
+            app_name.unwrap_or("Your call app")
+        ),
+        _ => format!(
+            "Hark hears nothing from {mic}. Check that it is not muted, or choose another \
+             microphone in Settings > Meetings."
+        ),
+    }
+}
+
+fn them_silence_text(app_name: Option<&str>, endpoint: &str) -> String {
+    format!(
+        "Hark has heard nothing from the call for 2 minutes, although {} is playing to \
+         {endpoint}. Other people may be missing from these notes.",
+        app_name.unwrap_or("the call app")
+    )
+}
+
 fn detect_config(settings: &Settings, self_exe: &str) -> DetectConfig {
     let m = &settings.meeting;
     DetectConfig {
@@ -987,6 +1140,40 @@ mod tests {
             std::thread::sleep(Duration::from_millis(10));
         }
         assert!(!meeting.join(FINISHING_MARKER).exists());
+    }
+
+    #[test]
+    fn the_mic_is_the_setting_then_the_call_apps_then_the_communications_default() {
+        let unused = || -> Option<String> { panic!("looked up after a choice was made") };
+        let shure = || Some("Microphone (Shure MV7+)".to_string());
+        let chat = || Some("Microphone (Chat-Audeze Maxwell2 ANC)".to_string());
+        assert_eq!(
+            choose_mic(Some("Mic X".into()), unused, unused)
+                .0
+                .as_deref(),
+            Some("Mic X")
+        );
+        // 2026-10-14: Teams on the Shure, the communications default muted.
+        assert_eq!(choose_mic(None, shure, unused).0, shure());
+        assert_eq!(choose_mic(None, || None, chat).0, chat());
+        assert_eq!(choose_mic(None, || None, || None).0, None);
+    }
+
+    #[test]
+    fn a_silent_mic_notice_names_the_mic_the_call_app_uses() {
+        assert_eq!(
+            me_silence_text(
+                Some("Microphone (Chat-Audeze Maxwell2 ANC)"),
+                Some("Microsoft Teams"),
+                Some("Microphone (Shure MV7+)")
+            ),
+            "Hark hears nothing from Microphone (Chat-Audeze Maxwell2 ANC). Microsoft Teams is \
+             using Microphone (Shure MV7+); switch in Settings > Meetings."
+        );
+        let same = me_silence_text(Some("Mic"), Some("Zoom"), Some("Mic"));
+        assert!(same.contains("not muted"), "{same}");
+        let unknown = me_silence_text(None, None, None);
+        assert!(unknown.starts_with("Hark hears nothing from your default microphone."));
     }
 
     #[test]

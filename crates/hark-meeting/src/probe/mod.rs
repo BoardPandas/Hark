@@ -2,7 +2,7 @@
 //! now, which processes own a meeting-titled window, and the process list for
 //! resolving a loopback target. Glue only; the decisions are in `detect`.
 //!
-//! `win.rs` reads Core Audio capture sessions and `EnumWindows`; `linux.rs`
+//! `win.rs` reads Core Audio capture and render sessions and `EnumWindows`; `linux.rs`
 //! reads PipeWire's graph and `/proc`; `mac.rs` reads Core Audio process
 //! objects. All are verified by hand with `examples/detect_smoke.rs`, never
 //! in `cargo test`.
@@ -17,7 +17,7 @@ mod win;
 #[cfg(target_os = "linux")]
 pub use linux::ChangeWatcher;
 
-use crate::detect::{Proc, Snapshot};
+use crate::detect::{Proc, RenderSnapshot, Snapshot};
 use std::io;
 
 /// Take one detector snapshot. Window titles are only scanned when a browser
@@ -38,6 +38,20 @@ pub fn snapshot() -> io::Result<Snapshot> {
     #[cfg(not(any(windows, target_os = "linux", target_os = "macos")))]
     {
         Err(unsupported())
+    }
+}
+
+/// Every app's audio sessions on every active output endpoint, plus the
+/// default outputs, for [`crate::detect::them_source`]. Windows only: Linux
+/// and macOS return an empty snapshot, which keeps process loopback.
+pub fn render_snapshot() -> io::Result<RenderSnapshot> {
+    #[cfg(windows)]
+    {
+        win::render_snapshot()
+    }
+    #[cfg(not(windows))]
+    {
+        Ok(RenderSnapshot::default())
     }
 }
 

@@ -236,3 +236,41 @@ fn initial_alignment_does_not_treat_resampler_buffering_as_startup_silence() {
         assert_eq!(&actual[800..], expected);
     }
 }
+
+#[test]
+fn a_track_silent_past_its_watchdog_limit_is_reported_and_sound_restarts_it() {
+    let dir = tempfile::tempdir().unwrap();
+    let (mic, me) = track(dir.path(), Channel::Me, 16_000);
+    let (render, them) = track(dir.path(), Channel::Them, 16_000);
+    let mut recording = recorder(dir.path(), me, them, false);
+    // A muted mic, and process loopback idling on 1-LSB noise (-95 dBFS).
+    let muted = vec![0.0; 16_000];
+    let idle: Vec<f32> = (0..16_000)
+        .map(|i| if i % 3 == 0 { 1.0 / 32_768.0 } else { 0.0 })
+        .collect();
+    let mut reported = Vec::new();
+    for second in 1..=120 {
+        mic.push(&muted);
+        render.push(&idle);
+        recording.pump().unwrap();
+        for channel in recording.take_silences() {
+            reported.push((second, channel));
+        }
+    }
+    assert_eq!(
+        reported,
+        [(45, Channel::Me), (90, Channel::Me), (120, Channel::Them)]
+    );
+    // One spoken second restarts the mic's count: no report 45 s on from 90.
+    let speech: Vec<f32> = (0..16_000).map(|i| (i as f32 * 0.05).sin() * 0.1).collect();
+    reported.clear();
+    for second in 121..=180 {
+        mic.push(if second == 121 { &speech } else { &muted });
+        render.push(&idle);
+        recording.pump().unwrap();
+        for channel in recording.take_silences() {
+            reported.push((second, channel));
+        }
+    }
+    assert_eq!(reported, [(166, Channel::Me)]);
+}
