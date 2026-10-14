@@ -457,3 +457,66 @@ fn migration_004_applies_to_a_003_era_database_with_data_intact() {
     assert_eq!(list.len(), 1);
     assert_eq!(list[0].segment_count, 1);
 }
+
+#[test]
+fn migration_006_adds_a_null_transcript_status_to_existing_meetings() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let db_path = dir.path().join("hark.db");
+
+    // A database exactly as migration 005 left it, with a meeting in it.
+    {
+        let conn = rusqlite::Connection::open(&db_path).expect("raw open");
+        for sql in [
+            include_str!("../migrations/001_init.sql"),
+            include_str!("../migrations/002_stats_total_ms.sql"),
+            include_str!("../migrations/003_entries_invocation.sql"),
+            include_str!("../migrations/004_meetings.sql"),
+            include_str!("../migrations/005_insight_events.sql"),
+        ] {
+            conn.execute_batch(sql).expect("apply");
+        }
+        conn.pragma_update(None, "user_version", 5).expect("stamp");
+        conn.execute(
+            "INSERT INTO meetings (id, started_ms, trigger, stt_provider, refined) \
+             VALUES ('old', 1_000, 'manual', 'deepgram', 1)",
+            [],
+        )
+        .expect("seed meeting");
+    }
+
+    let mut store = Store::open(&db_path).expect("open runs migration 006");
+    let old = store.meeting("old").expect("read").expect("kept");
+    assert!(old.summary.refined, "005-era columns survive the upgrade");
+    assert_eq!(old.summary.transcript_status, None);
+    assert_eq!(old.stt_provider, "deepgram");
+
+    store
+        .set_meeting_transcript_status("old", Some("pending:1700000000000"))
+        .expect("set");
+    let listed = store.meetings(None).expect("list");
+    assert_eq!(
+        listed[0].transcript_status.as_deref(),
+        Some("pending:1700000000000")
+    );
+    store
+        .set_meeting_transcript_status("old", None)
+        .expect("clear");
+    assert_eq!(
+        store
+            .meeting("old")
+            .unwrap()
+            .unwrap()
+            .summary
+            .transcript_status,
+        None
+    );
+    // An unknown id is a no-op, like the other meeting setters.
+    store
+        .set_meeting_transcript_status("missing", Some("failed:silent"))
+        .expect("no-op");
+    drop(store);
+
+    // Reopening does not run 006 twice (ADD COLUMN would fail if it did).
+    let reopened = Store::open(&db_path).expect("reopen");
+    assert!(reopened.meeting("old").unwrap().is_some());
+}

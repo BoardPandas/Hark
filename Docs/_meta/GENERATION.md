@@ -1,5 +1,13 @@
 # Generation Metadata
 
+## Meeting capture and slow-network resilience — 2026-10-14 (0.62.0)
+
+- **Source reviewed:** the merge of `60ec43a` (meeting capture follows the call app: per-app capture endpoint, `LoopbackTarget::Endpoint` with QPC gap padding, live silence watchdog) and `a621917` (MP3 upload before the final pass, silent-recording precheck, `.transcript-pending` retries mirrored to `meetings.transcript_status`, 15 s final-pass connect bound, live chunk back-off, Transcribe recording) onto `5fd7015` (0.61.7). Dirty tree during the merge, so citations reflect the merged working tree. Global baseline `784272c` is unchanged.
+- **Scope:** Data Storage (schema, migration 006), Audio Capture (Them source, endpoint loopback, hand checks), Transcription (final-pass client, MP3 upload, `FailureKind`), Voice Cleanup (client note), Glossary (final pass, loopback, re-run, silence watchdog, transcript status), and Meetings (live back-off, final pass, retries, re-run). Meetings capture bullets and the Configuration `mic_device` row were updated with `60ec43a`. AUTOGEN markers are preserved.
+- **Evidence:** on the owner's machine (Windows 11 26300, new Teams) Hark recorded the muted communications-default mic at -120 dBFS while Teams used another, and process loopback of the Teams tree read -96.7 dBFS while endpoint loopback of the headset's Chat output read -5 dBFS. Hardware row 1 of the plan (both tracks have audio on a real Teams call) passed on 2026-10-14.
+- **Validation:** stable Rust 1.99.0 on Windows GNU; formatting and strict all-targets Clippy pass; tests for the changed crates pass (hark-pipeline, hark-meeting, hark-audio, hark-store, hark-stt, hark-config: 664 passed, 0 failed; hark-app without the local engine: 138 passed). `check:claude` passes; `check:docs` flags only `Docs/OVERVIEW.md` for a pre-existing, uncommitted `AGENTS.md`/`agents.md` case-collision artifact in this checkout.
+- **Limits:** hardware rows 2-6 (all-default devices, Slack/Chrome, watchdog notice, dropped Wi-Fi retry, relaunch while pending) not yet run; no macOS compilation (no Apple toolchain on this host).
+
 ## Windows meeting detection via Core Audio — 2026-10-05 (0.61.6)
 
 - **Source reviewed:** `2ac7fd0` (0.61.5) plus the Windows probe rewrite: `probe/win.rs` enumerates Core Audio capture sessions instead of the ConsentStore, `probe/watch_win.rs` is deleted, Windows and macOS share an `Unsupported` watcher stub in `probe/mod.rs`, and the coordinator retries non-`Unsupported` probe errors. Global baseline `784272c` is unchanged.

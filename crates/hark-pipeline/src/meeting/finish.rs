@@ -1,13 +1,22 @@
-//! After the call: let the live transcriber finish, then the Deepgram final
-//! pass (speaker labels), the notes, and the MP3 archive. One thread per
+//! After the call: let the live transcriber finish, archive the recording,
+//! then the Deepgram final pass (speaker labels) and the notes. One thread per
 //! meeting, so a new meeting can record while an older one finishes.
+//!
+//! The archive comes first because the final pass uploads it: a 40-minute
+//! call is 19 MB of MP3 against 155 MB of WAV, which matters on a cellular
+//! uplink. With compression off, the pass uploads the WAVs as before.
 //!
 //! Every step degrades instead of failing the meeting (plan D2, §4.2): no
 //! Deepgram key or a failed pass keeps the live Me/Them transcript; no text
 //! provider or a failed summary keeps the transcript without notes; a failed
-//! archive keeps the WAVs. Each of those says why in a notice.
+//! archive keeps the WAVs. Each of those says why in a notice, and the final
+//! pass's outcome is also kept as the meeting's transcript status. A pass
+//! that could not reach Deepgram is handed to the retry scheduler
+//! (`pending.rs`) rather than given up.
 
+use super::pending::{self, Pending};
 use super::recorder::Recorded;
+use super::status::{Failure, TranscriptStatus};
 use super::{LiveSegment, MeetingEvent};
 use hark_config::{CleanupKeySource, CleanupResolution, FinalPass, Settings, VoiceName};
 use hark_meeting::{advance, export, Channel, Event, SessionState, Transcript};
@@ -22,12 +31,15 @@ pub(super) const DEEPGRAM_ENV_OVERRIDE: &str = "HARK_DEEPGRAM_KEY";
 /// The keychain account the Deepgram key lives under (plan D2), shared with a
 /// Deepgram dictation setup on purpose: one key, one place.
 pub const DEEPGRAM_ACCOUNT: &str = "deepgram";
-const DEEPGRAM_BASE_URL: &str = "https://api.deepgram.com";
 /// Written into a meeting's folder when it starts, removed only once its
 /// after-call work is done. A folder that still has it at startup belongs to
 /// a meeting whose finishing was cut short (Hark quit or crashed mid-call or
 /// mid-finish), and is finished again then: nothing about a meeting may
 /// depend on the app staying open for the 15 minutes a final pass can take.
+///
+/// The finisher writes the recording's length into it (`audio_ms=<n>`):
+/// once the archive has replaced the WAVs, the spools can no longer say how
+/// long the meeting was.
 pub(super) const FINISHING_MARKER: &str = ".finishing";
 
 pub(super) struct FinishJob {
@@ -40,6 +52,8 @@ pub(super) struct FinishJob {
     pub protected: Arc<Mutex<Vec<String>>>,
     /// Where the meeting is in its lifecycle (Finalizing on arrival).
     pub session: SessionState,
+    /// Where a pass that could not reach Deepgram goes to be retried.
+    pub retries: pending::Queue,
 }
 
 pub(super) fn spawn(job: FinishJob) -> Option<JoinHandle<()>> {
@@ -48,6 +62,16 @@ pub(super) fn spawn(job: FinishJob) -> Option<JoinHandle<()>> {
         .spawn(move || finish(job))
         .map_err(|e| log::error!("cannot start the meeting finisher: {e}"))
         .ok()
+}
+
+/// What the final pass left the meeting with.
+enum Pass {
+    Refined(Vec<LiveSegment>),
+    /// No refined transcript (none configured, or it failed for good): the
+    /// live one stays.
+    Kept,
+    /// Deepgram could not be reached: the live transcript stays for now.
+    Retry,
 }
 
 fn finish(job: FinishJob) {
@@ -59,6 +83,7 @@ fn finish(job: FinishJob) {
         events,
         protected,
         mut session,
+        retries,
     } = job;
     let id = recorded.id.clone();
     let mut step = |event: Event| {
@@ -72,6 +97,12 @@ fn finish(job: FinishJob) {
             text,
         });
     };
+    let status = |status: Option<TranscriptStatus>| {
+        let _ = events.send(MeetingEvent::TranscriptStatus {
+            id: id.clone(),
+            status,
+        });
+    };
 
     // The last chunks were queued at stop; their lines belong in the notes.
     if let Some(live) = live {
@@ -79,43 +110,69 @@ fn finish(job: FinishJob) {
     }
     let audio_ms =
         recorded.me_samples.max(recorded.them_samples) * 1000 / hark_meeting::SAMPLE_RATE as u64;
+    mark_audio_ms(&recorded.dir, audio_ms);
+
+    if settings.meeting.compress_audio && settings.meeting.audio_cap_mb > 0 {
+        match hark_audio::compress_meeting_dir(&recorded.dir) {
+            Ok(outcome) => log::info!("meeting {id}: archive {}", compress_label(&outcome)),
+            // The WAVs are untouched on failure; they are still the audio,
+            // and the final pass uploads them instead.
+            Err(e) => log::warn!("meeting {id}: compression failed ({e}); keeping the WAV files"),
+        }
+    }
 
     let mut lines = live_lines(&transcript);
+    let mut retry = false;
     if audio_ms > 0 {
-        if let Some(refined) = final_pass(&recorded.dir, audio_ms, &settings, &notice) {
-            lines = refined
-                .iter()
-                .map(|s| line(s.start_ms, s.channel, s.speaker, &s.text))
-                .collect();
-            let _ = events.send(MeetingEvent::Refined {
-                id: id.clone(),
-                segments: refined,
-            });
+        match final_pass(&recorded.dir, &id, audio_ms, &settings, &notice, &status) {
+            Pass::Refined(refined) => {
+                lines = refined
+                    .iter()
+                    .map(|s| line(s.start_ms, s.channel, s.speaker, &s.text))
+                    .collect();
+                let _ = events.send(MeetingEvent::Refined {
+                    id: id.clone(),
+                    segments: refined,
+                });
+            }
+            Pass::Kept => {}
+            Pass::Retry => retry = true,
         }
     }
     // Refined or not, the transcript is now settled (plan D2).
     step(Event::Finalized);
 
-    if settings.meeting.summary && !lines.is_empty() {
-        match summarize(&settings, &lines.join("\n")) {
-            Ok(notes) => {
-                let _ = events.send(MeetingEvent::Notes {
-                    id: id.clone(),
-                    title: notes.title.clone(),
-                    notes_json: notes.to_json(),
-                });
-            }
-            Err(detail) => notice(format!("No notes for this meeting: {detail}")),
-        }
-    }
+    let notes = settings.meeting.summary
+        && !lines.is_empty()
+        && send_notes(&settings, &id, &lines, &events);
     // Notes saved, or none to make: either way the meeting is complete.
     step(Event::Summarized);
 
-    if settings.meeting.compress_audio && settings.meeting.audio_cap_mb > 0 {
-        match hark_audio::compress_meeting_dir(&recorded.dir) {
-            Ok(outcome) => log::info!("meeting {id}: archive {}", compress_label(&outcome)),
-            // The WAVs are untouched on failure; they are still the audio.
-            Err(e) => log::warn!("meeting {id}: compression failed ({e}); keeping the WAV files"),
+    if retry {
+        let schedule = Pending::first(
+            pending::unix_now_ms(),
+            audio_ms,
+            settings.meeting.summary && !notes,
+        );
+        match pending::write(&recorded.dir, schedule) {
+            Ok(()) => {
+                status(Some(schedule.status()));
+                retries.schedule(&id);
+                notice(
+                    "Deepgram could not be reached. Hark kept the recording and will try \
+                     again in a minute; until then this meeting keeps its live transcript."
+                        .to_string(),
+                );
+            }
+            Err(e) => {
+                log::warn!("meeting {id}: retry not scheduled ({e})");
+                let failure = Failure::Stt(hark_stt::meeting::FailureKind::Network);
+                status(Some(TranscriptStatus::Failed(failure)));
+                notice(format!(
+                    "{} Open the meeting and choose Transcribe recording to try again.",
+                    failure.message()
+                ));
+            }
         }
     }
 
@@ -141,6 +198,29 @@ fn finish(job: FinishJob) {
     let _ = events.send(MeetingEvent::EnforceAudioCap {
         protected: remaining,
     });
+}
+
+/// Record the length in the finishing marker, only while there is one.
+fn mark_audio_ms(dir: &Path, audio_ms: u64) {
+    let marker = dir.join(FINISHING_MARKER);
+    if marker.exists() {
+        if let Err(e) = std::fs::write(&marker, format!("audio_ms={audio_ms}\n")) {
+            log::warn!("meeting length not recorded in {} ({e})", marker.display());
+        }
+    }
+}
+
+/// The length a finisher recorded in the finishing marker, as samples (0
+/// when it recorded none).
+pub(super) fn marked_samples(dir: &Path) -> u64 {
+    std::fs::read_to_string(dir.join(FINISHING_MARKER))
+        .ok()
+        .and_then(|text| {
+            text.lines()
+                .find_map(|l| l.strip_prefix("audio_ms="))
+                .and_then(|ms| ms.trim().parse::<u64>().ok())
+        })
+        .map_or(0, |ms| ms * hark_meeting::SAMPLE_RATE as u64 / 1000)
 }
 
 fn compress_label(outcome: &hark_audio::CompressOutcome) -> String {
@@ -172,7 +252,7 @@ fn live_lines(transcript: &Mutex<Transcript>) -> Vec<String> {
 }
 
 /// `[mm:ss] Label: text`, the transcript shape the summary prompt expects.
-fn line(start_ms: u64, channel: u8, speaker: Option<u32>, text: &str) -> String {
+pub(super) fn line(start_ms: u64, channel: u8, speaker: Option<u32>, text: &str) -> String {
     let channel = if channel == 0 {
         Channel::Me
     } else {
@@ -186,78 +266,97 @@ fn line(start_ms: u64, channel: u8, speaker: Option<u32>, text: &str) -> String 
     )
 }
 
-/// The Deepgram pass, or `None` (with a notice) when it cannot or did not run.
+/// The final pass, with its outcome as a notice and a transcript status.
 fn final_pass(
     dir: &Path,
+    id: &str,
     audio_ms: u64,
     settings: &Settings,
     notice: &dyn Fn(String),
-) -> Option<Vec<LiveSegment>> {
-    if settings.meeting.final_pass == FinalPass::Gemini {
-        return match super::gemini_final::run(dir, settings) {
-            Ok(segments) => Some(segments),
-            Err(error) => {
-                notice(format!("Gemini final pass unavailable: {error}"));
-                None
+    status: &dyn Fn(Option<TranscriptStatus>),
+) -> Pass {
+    let silent = || {
+        notice(Failure::Silent.message().to_string());
+        status(Some(TranscriptStatus::Failed(Failure::Silent)));
+        Pass::Kept
+    };
+    match settings.meeting.final_pass {
+        FinalPass::None => return Pass::Kept,
+        FinalPass::Gemini => {
+            if super::silence::recording_is_silent(dir) {
+                return silent();
             }
-        };
+            return match super::gemini_final::run(dir, settings) {
+                Ok(segments) => Pass::Refined(segments),
+                Err(error) => {
+                    notice(format!("Gemini final pass unavailable: {error}"));
+                    Pass::Kept
+                }
+            };
+        }
+        FinalPass::Deepgram => {}
     }
-    if settings.meeting.final_pass != FinalPass::Deepgram {
-        return None;
-    }
-    let key = match hark_keychain::resolve_key_for(DEEPGRAM_ENV_OVERRIDE, DEEPGRAM_ACCOUNT) {
-        Ok(key) => key,
-        Err(_) => {
+    let Some(root) = dir.parent() else {
+        return Pass::Kept;
+    };
+    match super::rerun::deepgram_pass(root, id, audio_ms, settings) {
+        Ok(segments) => {
+            // A refinish can succeed where an earlier pass did not.
+            pending::remove(dir);
+            status(None);
+            Pass::Refined(segments)
+        }
+        Err(failure) if failure.retryable() => Pass::Retry,
+        Err(Failure::Silent) => silent(),
+        Err(Failure::NoKey) => {
             notice(
                 "Add a Deepgram key in Settings > Meetings to label each speaker. \
                  This meeting keeps its Me/Them transcript."
                     .to_string(),
             );
-            return None;
+            status(Some(TranscriptStatus::Failed(Failure::NoKey)));
+            Pass::Kept
         }
-    };
-    let run = || -> Result<Vec<hark_stt::meeting::FinalSegment>, String> {
-        let (body, len) = hark_audio::stereo_wav_reader(
-            &dir.join(hark_audio::spool::ME_FILE),
-            &dir.join(hark_audio::spool::THEM_FILE),
-        )
-        .map_err(|e| format!("cannot read the recording: {e}"))?;
-        let client = hark_stt::shared_client().map_err(|e| e.to_string())?;
-        hark_stt::meeting::deepgram_final_pass(
-            &client,
-            DEEPGRAM_BASE_URL,
-            &key,
-            body,
-            len,
-            &settings.spellbook.terms(),
-            audio_ms,
-        )
-        .map_err(|e| e.to_string())
-    };
-    // Plan §4.2: the spellbook's phonetic fixes apply to meeting lines too,
-    // the refined ones as much as the live ones.
-    let corrector = hark_spellbook::Corrector::new(&settings.spellbook.corrector_entries());
-    match run() {
-        Ok(segments) if !segments.is_empty() => Some(
-            segments
-                .into_iter()
-                .map(|s| LiveSegment {
-                    channel: s.channel.min(1),
-                    speaker: s.speaker,
-                    start_ms: s.start_ms,
-                    end_ms: s.end_ms,
-                    text: corrector.correct(&s.text).0,
-                })
-                .collect(),
-        ),
         // Nothing heard: keep whatever the live pass found.
-        Ok(_) => None,
-        Err(detail) => {
+        Err(Failure::Empty) => {
+            status(Some(TranscriptStatus::Failed(Failure::Empty)));
+            Pass::Kept
+        }
+        Err(failure) => {
             notice(format!(
-                "Speaker labels are unavailable for this meeting ({detail}). \
-                 It keeps its Me/Them transcript."
+                "Speaker labels are unavailable for this meeting: {} \
+                 It keeps its Me/Them transcript.",
+                failure.message()
             ));
-            None
+            status(Some(TranscriptStatus::Failed(failure)));
+            Pass::Kept
+        }
+    }
+}
+
+/// Make notes from `lines` and send them; a failure becomes a notice. True
+/// when notes were sent.
+pub(super) fn send_notes(
+    settings: &Settings,
+    id: &str,
+    lines: &[String],
+    events: &Sender<MeetingEvent>,
+) -> bool {
+    match summarize(settings, &lines.join("\n")) {
+        Ok(notes) => {
+            let _ = events.send(MeetingEvent::Notes {
+                id: id.to_string(),
+                title: notes.title.clone(),
+                notes_json: notes.to_json(),
+            });
+            true
+        }
+        Err(detail) => {
+            let _ = events.send(MeetingEvent::Notice {
+                id: Some(id.to_string()),
+                text: format!("No notes for this meeting: {detail}"),
+            });
+            false
         }
     }
 }
@@ -312,4 +411,23 @@ fn dir_bytes(dir: &Path) -> u64 {
                 .sum()
         })
         .unwrap_or(0)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_finishing_marker_remembers_the_length_once_the_wavs_are_gone() {
+        let dir = tempfile::tempdir().unwrap();
+        // No marker: nothing recorded, and none is created.
+        mark_audio_ms(dir.path(), 5_000);
+        assert!(!dir.path().join(FINISHING_MARKER).exists());
+        assert_eq!(marked_samples(dir.path()), 0);
+        // The coordinator's empty marker reads as nothing recorded too.
+        std::fs::write(dir.path().join(FINISHING_MARKER), b"").unwrap();
+        assert_eq!(marked_samples(dir.path()), 0);
+        mark_audio_ms(dir.path(), 2_434_000);
+        assert_eq!(marked_samples(dir.path()), 2_434_000 * 16);
+    }
 }

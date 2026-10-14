@@ -1,8 +1,13 @@
-//! Explicit refinement of a retained recording. Never changes notes or audio.
+//! The Deepgram pass every final pass shares (the finisher's first one, the
+//! scheduled retries, and the user's explicit re-run), plus that re-run's
+//! worker. Never changes audio, and never changes notes a meeting has: the
+//! one exception is making them for a meeting still waiting on a retry
+//! whose finisher had no transcript to make them from.
 use super::finish::{DEEPGRAM_ACCOUNT, DEEPGRAM_ENV_OVERRIDE};
-use super::{LiveSegment, MeetingEvent};
+use super::status::{Failure, TranscriptStatus};
+use super::{pending, silence, LiveSegment, MeetingEvent};
 use hark_config::Settings;
-use hark_stt::meeting::{deepgram_final_pass_encoded, MeetingEncoding};
+use hark_stt::meeting::{deepgram_final_pass_encoded, FailureKind, MeetingEncoding};
 use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::sync::{mpsc::Sender, Arc, Mutex};
@@ -23,17 +28,38 @@ pub(super) fn spawn(job: Job) {
     if std::thread::Builder::new()
         .name("hark-meeting-rerun".into())
         .spawn(move || {
-            let result = run(&job);
+            let result = deepgram_pass(&job.root, &job.id, job.audio_ms, &job.settings);
+            let needs_notes = valid_id(&job.id)
+                && pending::read(&job.root.join(&job.id)).is_some_and(|p| p.needs_notes);
+            let status = settle(&job.root, &job.id, result.as_ref().err().copied());
             let error = match result {
                 Ok(segments) => {
+                    let lines: Vec<String> = segments
+                        .iter()
+                        .map(|s| super::finish::line(s.start_ms, s.channel, s.speaker, &s.text))
+                        .collect();
+                    // Before the status: the pump commits the replacement
+                    // first, so a failed save is still reported below.
                     let _ = job.events.send(MeetingEvent::Reprocessed {
                         id: job.id.clone(),
                         segments,
                     });
+                    if needs_notes && job.settings.meeting.summary {
+                        super::finish::send_notes(&job.settings, &job.id, &lines, &job.events);
+                    }
                     None
                 }
-                Err(error) => Some(error),
+                Err(failure) => Some(format!(
+                    "{} Your previous transcript is unchanged.",
+                    failure.message()
+                )),
             };
+            if let Some(status) = status {
+                let _ = job.events.send(MeetingEvent::TranscriptStatus {
+                    id: job.id.clone(),
+                    status,
+                });
+            }
             complete(&job.events, &job.protected, &job.id, error);
         })
         .is_err()
@@ -44,6 +70,29 @@ pub(super) fn spawn(job: Job) {
             &id,
             Some("Cannot start the final-pass worker.".into()),
         );
+    }
+}
+
+/// The status an explicit re-run leaves behind (`None`: leave it alone). A
+/// success or a failure no retry can fix ends any schedule; a network
+/// failure while retries are scheduled keeps them going.
+fn settle(root: &Path, id: &str, failure: Option<Failure>) -> Option<Option<TranscriptStatus>> {
+    if !valid_id(id) {
+        return None;
+    }
+    let dir = root.join(id);
+    match failure {
+        None => {
+            pending::remove(&dir);
+            Some(None)
+        }
+        Some(failure) => match pending::read(&dir) {
+            Some(scheduled) if failure.retryable() => Some(Some(scheduled.status())),
+            _ => {
+                pending::remove(&dir);
+                Some(Some(TranscriptStatus::Failed(failure)))
+            }
+        },
     }
 }
 
@@ -65,49 +114,65 @@ fn complete(
     }
 }
 
-fn run(job: &Job) -> Result<Vec<LiveSegment>, String> {
-    let key =
-        hark_keychain::resolve_key_for(DEEPGRAM_ENV_OVERRIDE, DEEPGRAM_ACCOUNT).map_err(|_| {
-            "Add a Deepgram key in Settings > Meetings before re-running the final pass."
-                .to_string()
-        })?;
-    if job.audio_ms == 0 {
-        return Err("This recording has no duration.".into());
+/// One Deepgram final pass over a retained recording: the archive when there
+/// is one (8x smaller than the WAVs on a slow uplink), else the WAVs. Checks
+/// for silence before anything is uploaded. Blocking; worker threads only.
+pub(super) fn deepgram_pass(
+    root: &Path,
+    id: &str,
+    audio_ms: u64,
+    settings: &Settings,
+) -> Result<Vec<LiveSegment>, Failure> {
+    let audio = open_audio(root, id).map_err(|_| Failure::NoAudio)?;
+    if audio_ms == 0 {
+        return Err(Failure::NoAudio);
     }
-    let client =
-        hark_stt::shared_client().map_err(|_| "Cannot initialize transcription.".to_string())?;
-    let audio = open_audio(&job.root, &job.id)
-        .map_err(|_| "The retained recording is missing, unsafe, or unreadable.".to_string())?;
+    if silence::recording_is_silent(&root.join(id)) {
+        log::info!("meeting {id}: recording is silent; nothing uploaded");
+        return Err(Failure::Silent);
+    }
+    let key = hark_keychain::resolve_key_for(DEEPGRAM_ENV_OVERRIDE, DEEPGRAM_ACCOUNT)
+        .map_err(|_| Failure::NoKey)?;
+    let client = hark_stt::meeting::final_pass_client().map_err(|_| Failure::Setup)?;
+    log::info!(
+        "meeting {id}: final pass uploading {} bytes ({:?})",
+        audio.len,
+        audio.encoding
+    );
     let segments = deepgram_final_pass_encoded(
         &client,
         "https://api.deepgram.com",
         &key,
         audio.reader,
         audio.len,
-        &job.settings.spellbook.terms(),
-        job.audio_ms,
+        &settings.spellbook.terms(),
+        audio_ms,
         audio.encoding,
     )
-    .map_err(|_| {
-        "Deepgram could not complete the final pass. Your previous transcript is unchanged."
-            .to_string()
+    .map_err(|e| {
+        // Safe to log: no SttError variant carries a key, a body or audio.
+        log::warn!("meeting {id}: final pass failed ({e})");
+        Failure::Stt(FailureKind::of(&e))
     })?;
     if segments.is_empty() {
-        return Err(
-            "Deepgram returned no transcript. Your previous transcript is unchanged.".into(),
-        );
+        return Err(Failure::Empty);
     }
-    let corrector = hark_spellbook::Corrector::new(&job.settings.spellbook.corrector_entries());
+    let corrector = hark_spellbook::Corrector::new(&settings.spellbook.corrector_entries());
     Ok(segments
         .into_iter()
         .map(|s| LiveSegment {
-            channel: s.channel,
+            channel: s.channel.min(1),
             speaker: s.speaker,
             start_ms: s.start_ms,
             end_ms: s.end_ms,
             text: corrector.correct(&s.text).0,
         })
         .collect())
+}
+
+/// A bare folder name: no separators, drive prefixes or dot entries.
+fn valid_id(id: &str) -> bool {
+    !(id.is_empty() || id == "." || id == ".." || id.contains(['/', '\\', ':', '\0']))
 }
 
 struct AudioBody {
@@ -124,7 +189,7 @@ fn open_audio(root: &Path, id: &str) -> std::io::Result<AudioBody> {
             "invalid recording path",
         )
     };
-    if id.is_empty() || id == "." || id == ".." || id.contains(['/', '\\', ':', '\0']) {
+    if !valid_id(id) {
         return Err(invalid());
     }
     let root = root.canonicalize()?;
@@ -202,6 +267,61 @@ mod tests {
             matches!(rx.recv().unwrap(), MeetingEvent::EnforceAudioCap { protected } if protected == ["recording"])
         );
     }
+    #[test]
+    fn a_silent_recording_is_never_uploaded() {
+        // Silence is decided before the key or the network are touched, so
+        // this needs neither.
+        let root = tempfile::tempdir().unwrap();
+        let dir = root.path().join("meeting");
+        std::fs::create_dir(&dir).unwrap();
+        for file in [hark_audio::spool::ME_FILE, hark_audio::spool::THEM_FILE] {
+            let mut spool = hark_audio::spool::SpoolWriter::create(&dir.join(file)).unwrap();
+            spool.append(&vec![0i16; 32_000]).unwrap();
+            spool.close().unwrap();
+        }
+        let result = deepgram_pass(root.path(), "meeting", 2_000, &Settings::default());
+        assert!(matches!(result, Err(Failure::Silent)));
+        assert!(matches!(
+            deepgram_pass(root.path(), "../meeting", 2_000, &Settings::default()),
+            Err(Failure::NoAudio)
+        ));
+    }
+
+    #[test]
+    fn a_rerun_ends_the_schedule_unless_the_network_is_still_down() {
+        let root = tempfile::tempdir().unwrap();
+        let dir = root.path().join("m");
+        std::fs::create_dir(&dir).unwrap();
+        let scheduled = pending::Pending::first(0, 1_000, false);
+        let network = Failure::Stt(FailureKind::Network);
+
+        pending::write(&dir, scheduled).unwrap();
+        assert_eq!(
+            settle(root.path(), "m", Some(network)),
+            Some(Some(scheduled.status())),
+            "still offline: the schedule carries on"
+        );
+        assert!(pending::read(&dir).is_some());
+
+        let auth = Failure::Stt(FailureKind::Auth);
+        assert_eq!(
+            settle(root.path(), "m", Some(auth)),
+            Some(Some(TranscriptStatus::Failed(auth)))
+        );
+        assert!(pending::read(&dir).is_none(), "a 4xx ends the schedule");
+
+        pending::write(&dir, scheduled).unwrap();
+        assert_eq!(settle(root.path(), "m", None), Some(None));
+        assert!(pending::read(&dir).is_none(), "success ends the schedule");
+
+        assert_eq!(
+            settle(root.path(), "m", Some(network)),
+            Some(Some(TranscriptStatus::Failed(network))),
+            "no schedule: an explicit re-run reports, it does not start one"
+        );
+        assert_eq!(settle(root.path(), "../m", None), None);
+    }
+
     #[test]
     fn missing_and_empty_recordings_are_rejected() {
         let root = tempfile::tempdir().unwrap();

@@ -37,6 +37,7 @@ const MIGRATIONS: &[&str] = &[
     include_str!("../migrations/003_entries_invocation.sql"),
     include_str!("../migrations/004_meetings.sql"),
     include_str!("../migrations/005_insight_events.sql"),
+    include_str!("../migrations/006_meeting_transcript_status.sql"),
 ];
 
 const BUSY_TIMEOUT: Duration = Duration::from_secs(5);

@@ -54,6 +54,11 @@ pub enum MeetingCmd {
         id: String,
         audio_bytes: u64,
     },
+    /// The final pass's status (`meetings.transcript_status`); `None` clears it.
+    TranscriptStatus {
+        id: String,
+        status: Option<String>,
+    },
     /// The meeting's row and its audio.
     Delete {
         id: String,
@@ -117,6 +122,9 @@ pub fn apply(store: &mut Store, dir: &Path, cmd: MeetingCmd) -> Result<bool, Sto
             .map(|_| true),
         MeetingCmd::Finished { id, audio_bytes } => store
             .set_meeting_audio_bytes(&id, audio_bytes as i64)
+            .map(|_| true),
+        MeetingCmd::TranscriptStatus { id, status } => store
+            .set_meeting_transcript_status(&id, status.as_deref())
             .map(|_| true),
         MeetingCmd::Delete { id, reply } => {
             let result = delete(store, dir, &id);

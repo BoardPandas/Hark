@@ -1,6 +1,6 @@
 //! Meetings, their transcript segments, renamed speakers and notes
 //! (migration 004; plan `tasks/2026-09-26-plan-meeting-transcription.md`
-//! §4.5).
+//! §4.5), plus the final-pass transcript status (migration 006).
 //!
 //! - Search is FTS5 over segment text OR a case-insensitive title substring.
 //!   FTS5 is compiled into the bundled SQLite Hark ships (asserted in
@@ -52,6 +52,9 @@ pub struct MeetingSummary {
     pub has_notes: bool,
     pub refined: bool,
     pub segment_count: i64,
+    /// Migration 006: `pending[:<unix ms>]`, `failed:<reason>`, or `None`.
+    /// A label, never content; `hark-pipeline` owns the vocabulary.
+    pub transcript_status: Option<String>,
 }
 
 /// Full detail view: summary plus transcript, notes and speaker names.
@@ -65,7 +68,8 @@ pub struct MeetingDetail {
 
 const SUMMARY_COLS: &str = "m.id, m.started_ms, m.ended_ms, m.title, m.app_hint, m.trigger, \
                              m.audio_bytes, m.audio_evicted_ms, m.notes_json, m.refined, \
-                             (SELECT COUNT(*) FROM meeting_segments s WHERE s.meeting_id = m.id)";
+                             (SELECT COUNT(*) FROM meeting_segments s WHERE s.meeting_id = m.id), \
+                             m.transcript_status";
 
 fn map_summary(r: &rusqlite::Row<'_>) -> rusqlite::Result<MeetingSummary> {
     let notes_json: Option<String> = r.get(8)?;
@@ -81,6 +85,7 @@ fn map_summary(r: &rusqlite::Row<'_>) -> rusqlite::Result<MeetingSummary> {
         has_notes: notes_json.is_some(),
         refined: r.get::<_, i64>(9)? != 0,
         segment_count: r.get(10)?,
+        transcript_status: r.get(11)?,
     })
 }
 
@@ -210,6 +215,20 @@ impl Store {
         Ok(())
     }
 
+    /// Set or clear (`None`) the final-pass transcript status. A no-op (not an
+    /// error) if `id` does not exist.
+    pub fn set_meeting_transcript_status(
+        &mut self,
+        id: &str,
+        status: Option<&str>,
+    ) -> Result<(), StoreError> {
+        self.conn.execute(
+            "UPDATE meetings SET transcript_status = ?1 WHERE id = ?2",
+            params![status, id],
+        )?;
+        Ok(())
+    }
+
     /// Record the audio-on-disk size for the storage-cap planner.
     pub fn set_meeting_audio_bytes(&mut self, id: &str, bytes: i64) -> Result<(), StoreError> {
         self.conn.execute(
@@ -311,8 +330,8 @@ impl Store {
             |r| {
                 Ok((
                     map_summary(r)?,
-                    r.get::<_, String>(11)?,
-                    r.get::<_, Option<String>>(12)?,
+                    r.get::<_, String>(12)?,
+                    r.get::<_, Option<String>>(13)?,
                 ))
             },
         );

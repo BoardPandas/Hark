@@ -1,10 +1,6 @@
 # Meetings: stop recording silence, survive slow networks
 
-Status: **capture half implemented** (Foundation, Core: capture, Settings hint; the
-`Docs/features/MEETINGS.md` capture bullets and the `mic_device` row in
-`Docs/core/CONFIGURATION.md` were corrected with it), released as 0.62.0. Hardware row 1
-passed on the owner's Teams call (2026-10-14: both tracks had audio); rows 2-4 are still to
-run. Slow networks and the detail page belong to a parallel session.
+Status: **both halves implemented and released together as 0.62.0** (capture: `claude/wizardly-bohr-a55445`; slow networks and detail page: `claude/strange-visvesvaraya-86c20e`). Hardware row 1 passed on the owner's Teams call (2026-10-14: both tracks had audio); rows 2-6 are still to run.
 Baseline `8ab1abc` (0.61.6). Written 2026-10-14.
 Target release: 0.62.0 (Minor: new behaviour plus fixes; one additive DB column).
 
@@ -89,22 +85,22 @@ Silent recordings cannot be recovered. Six past meetings have no usable audio.
 
 ## Core: slow networks
 
-- [ ] **Smaller upload**: in `finish.rs`, compress to MP3 *before* the final pass and
+- [x] **Smaller upload**: in `finish.rs`, compress to MP3 *before* the final pass and
   upload the archive, as `rerun.rs::open_audio` already does. A 40-minute call drops from
   155 MB to 19 MB, 8× less on cellular. Keep the WAV path when `compress_audio` is off.
-- [ ] **Silent-recording precheck** before any upload, in both finish and rerun: if both
+- [x] **Silent-recording precheck** before any upload, in both finish and rerun: if both
   channels stay under the floor, skip the request and say "This recording is silent; Hark
   captured no audio from either side." Never let it read as "Deepgram returned no
   transcript" again.
-- [ ] **Pending transcript survives failure** (`hark-store`, additive migration).
+- [x] **Pending transcript survives failure** (`hark-store`, additive migration).
   - Add `transcript_status TEXT NULL` (`pending` | `failed:<reason>` | NULL).
   - On a network or timeout failure, mark it `pending` and retry with backoff
     (1, 5, 15, 60 min, then daily, max 6) from a worker. Also retry on app start, reusing
     the `refinish` / `recover()` path.
   - Classify errors through the io source chain (`meeting.rs:189-236`); never retry 4xx.
-- [ ] **Connect timeout**: the final pass uses its own client with a 15 s connect timeout.
+- [x] **Connect timeout**: the final pass uses its own client with a 15 s connect timeout.
   `shared_client` has 3 s, too short for a cellular TLS handshake. The 900 s total stays.
-- [ ] **Live chunks back off** (`live.rs`).
+- [x] **Live chunks back off** (`live.rs`).
   - After 3 consecutive failures, pause live uploads for 2 min, so Hark stops competing
     with the call for a weak uplink.
   - Hold up to 5 min of failed chunks and resend them after the next success.
@@ -113,7 +109,7 @@ Silent recordings cannot be recovered. Six past meetings have no usable audio.
 
 ## Polish
 
-- [ ] **Detail page** (`ui/meetings/detail.rs`).
+- [x] **Detail page** (`ui/meetings/detail.rs`).
   - With no transcript, the primary button is **Transcribe recording**; with one, it stays
     **Re-run final pass**.
   - Show the persisted status ("Waiting for a connection, retrying at 4:35 PM", "Silent
@@ -170,3 +166,21 @@ Silent recordings cannot be recovered. Six past meetings have no usable audio.
   the only trace was an INFO log line. Any capture path needs a live level watchdog.
 - **"Provider returned nothing" usually means "we sent nothing."** Check the audio before
   blaming the provider or the network.
+- **Compressing before the final pass removes the spools a refinish read the length
+  from.** A quit mid-upload left only `audio.mp3`, so the next start measured 0 samples
+  and skipped the pass. The finisher now writes `audio_ms=<n>` into `.finishing`.
+- **A busy `protected` slot answered nothing.** A re-run the user started while a
+  scheduled retry held the meeting was dropped silently, and the page waited forever.
+  The coordinator now replies with `ReprocessFinished { error }`.
+- **A streamed upload can still hide its cause** (LL-G HIGH "reqwest multipart masks
+  transport errors"). An opaque body-sender error with no `io::Error` underneath is
+  classified as a network failure and retried; the six-retry cap bounds the rare early
+  4xx it could mask. Builder errors are classified as provider errors, never retried.
+
+## Slow-network half: implementation notes (2026-10-14)
+
+- Retry state lives in `<meeting>/.transcript-pending` (`pending.rs`); the database
+  column only mirrors it for the UI, so the coordinator never reads the database.
+- Known gaps, not fixed here: the storage cap can still evict a pending meeting's audio
+  (the retry then ends as `failed:no-audio`); a Gemini final pass that fails on the
+  network is not scheduled for retry.

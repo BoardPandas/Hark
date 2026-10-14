@@ -8,18 +8,26 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [0.62.0] - 2026-10-14
 
-### Fixed
-
-- Windows meeting notes record your voice from the microphone your call app is actually using. Hark used the Windows communications-default microphone, which can be a different device from the one Teams is set to, even a muted one: six Teams meetings in October recorded only silence that way. An explicitly chosen meeting microphone still wins.
-- Windows meeting notes record the other people on a call that plays to an output other than the Windows default, such as a headset's separate "Chat" device. Hark's per-app capture heard nothing there; Hark now records that output device itself for the call, keeping both sides in time through pauses when nothing plays.
-
 ### Added
 
 - Meeting notes warn during the call when Hark hears nothing: after 45 seconds of silence from your microphone (naming the microphone your call app uses when it is a different one), and after 2 minutes of silence from the call while the call app is playing audio. Before, a silent recording was only discovered after the call.
+- Meetings keep a final pass that could not reach Deepgram and retry it on their own: after 1, 5, 15 and 60 minutes, then daily, six tries in all, and again when Hark next starts. The meeting page shows "Waiting for a connection, retrying at 4:35 PM" until the transcript arrives, and notes are made then if the call ended without any.
+- A meeting with no transcript offers **Transcribe recording** instead of Re-run final pass.
 
 ### Changed
 
 - Settings > Meetings > Microphone: the default entry is now "Automatic: the mic your call app is using", replacing the hint that the communications default is the microphone Teams and Zoom use, which was not true on every computer.
+- The final pass uploads the compressed MP3 archive instead of the WAV files, about 8x less data (a 40-minute call drops from 155 MB to 19 MB). With audio compression off it still uploads the WAVs.
+- The final pass waits up to 15 seconds to connect instead of 3, so a slow cellular handshake no longer fails it.
+- On a weak connection the live transcript pauses for two minutes after three failed lines, then sends the held audio (up to five minutes) once a request gets through. A notice says the full transcript is still made after the call.
+- The meeting page shows why a meeting has no transcript (waiting to retry, silent recording, no Deepgram key, key refused) and keeps it after a restart, instead of a message that vanished.
+
+### Fixed
+
+- Windows meeting notes record your voice from the microphone your call app is actually using. Hark used the Windows communications-default microphone, which can be a different device from the one Teams is set to, even a muted one: six Teams meetings in October recorded only silence that way. An explicitly chosen meeting microphone still wins.
+- Windows meeting notes record the other people on a call that plays to an output other than the Windows default, such as a headset's separate "Chat" device. Hark's per-app capture heard nothing there; Hark now records that output device itself for the call, keeping both sides in time through pauses when nothing plays.
+- A silent recording is no longer uploaded and reported as "Deepgram returned no transcript". Hark now says "This recording is silent; Hark captured no audio from either side."
+- Re-running the final pass while Hark was already transcribing that meeting no longer left the page waiting forever.
 
 ## [0.61.7] - 2026-10-14
 

@@ -160,12 +160,17 @@ pub fn shared_client() -> Result<reqwest::blocking::Client, SttError> {
 /// fallback that slow is worse than none, so the pipeline gives the cloud a
 /// shorter budget precisely when it has something to fall back to.
 pub fn client_with_timeout(total_ms: u64) -> Result<reqwest::blocking::Client, SttError> {
+    build_client(CONNECT_TIMEOUT_MS.min(total_ms), total_ms)
+}
+
+/// A client on the static roots with the given connect and total bounds.
+/// Private so every caller goes through a named budget (dictation or
+/// [`meeting::final_pass_client`]).
+fn build_client(connect_ms: u64, total_ms: u64) -> Result<reqwest::blocking::Client, SttError> {
     let map_err = |e: reqwest::Error| error_for_transport("client", total_ms, &e);
     reqwest::blocking::Client::builder()
         .tls_certs_only(static_trust_roots().map_err(map_err)?)
-        .connect_timeout(std::time::Duration::from_millis(
-            CONNECT_TIMEOUT_MS.min(total_ms),
-        ))
+        .connect_timeout(std::time::Duration::from_millis(connect_ms))
         .timeout(std::time::Duration::from_millis(total_ms))
         .build()
         .map_err(map_err)
@@ -195,5 +200,6 @@ mod tests {
     fn static_trust_roots_are_present_and_build_a_client() {
         assert!(static_trust_roots().unwrap().len() > 100);
         assert!(shared_client().is_ok());
+        assert!(meeting::final_pass_client().is_ok());
     }
 }

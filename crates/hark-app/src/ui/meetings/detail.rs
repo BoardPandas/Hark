@@ -144,25 +144,32 @@ impl DetailView {
         ui.add_space(theme::GAP);
 
         let mut action = None;
-        let mut busy = meetings.finishing().iter().any(|i| i == id)
-            || detail.summary.ended_ms.is_none()
-            || self.deleting.is_some();
+        let running = meetings.finishing().iter().any(|i| i == id);
+        let mut busy = running || detail.summary.ended_ms.is_none() || self.deleting.is_some();
+        let pass = FinalPassAction::for_meeting(detail);
         ui.horizontal(|ui| {
             action = share::menu(ui, !busy && detail.summary.audio_evicted_ms.is_none());
-            if ui.add_enabled(!busy && meetings.is_available() && detail.summary.audio_evicted_ms.is_none() && detail.summary.audio_bytes > 0,
-                egui::Button::new("Re-run final pass")).clicked() {
-                self.confirm_rerun = Some(widgets::Confirm::new(
-                    "Re-run the final pass with Deepgram?",
-                    "Uploads this recording to Deepgram using your key. On success, it replaces the transcript and resets speaker names. Notes and audio stay. Provider usage charges apply.",
-                    "Re-run final pass",
-                ));
+            if ui
+                .add_enabled(
+                    !busy
+                        && meetings.is_available()
+                        && detail.summary.audio_evicted_ms.is_none()
+                        && detail.summary.audio_bytes > 0,
+                    egui::Button::new(pass.label),
+                )
+                .clicked()
+            {
+                self.confirm_rerun = Some(widgets::Confirm::new(pass.title, pass.body, pass.label));
             }
             if ui
-                .add_enabled(!busy, egui::Button::new(theme::icon_label_job(
-                    ui.style(),
-                    theme::icons::TRASH,
-                    "Delete",
-                )))
+                .add_enabled(
+                    !busy,
+                    egui::Button::new(theme::icon_label_job(
+                        ui.style(),
+                        theme::icons::TRASH,
+                        "Delete",
+                    )),
+                )
                 .clicked()
             {
                 self.confirm = Some(widgets::Confirm::new(
@@ -172,8 +179,25 @@ impl DetailView {
                 ));
             }
         });
-        if let Some(status) = meetings.rerun_status(id) {
-            ui.label(RichText::new(status).small());
+        // In flight: this session's progress line. Otherwise what the
+        // database says, which survives a restart; this session's one-shot
+        // result (a success, or a save that failed) only when it says nothing.
+        let persisted = status_line(
+            detail.summary.transcript_status.as_deref(),
+            jiff::Timestamp::now().as_millisecond(),
+            tz,
+        );
+        match (running, meetings.rerun_status(id), persisted) {
+            (true, Some(progress), _) => {
+                ui.label(RichText::new(progress).small());
+            }
+            (_, _, Some((icon, text))) => {
+                ui.label(theme::icon_label_job(ui.style(), icon, &text));
+            }
+            (_, Some(result), None) => {
+                ui.label(RichText::new(result).small());
+            }
+            _ => {}
         }
         if let Some(confirm) = &mut self.confirm_rerun {
             match confirm.show(ui, "meeting-rerun") {
@@ -393,6 +417,65 @@ fn transcript(ui: &mut Ui, detail: &MeetingDetail) {
     }
 }
 
+/// The final-pass button: with no transcript to replace, the job is to make
+/// one, and the button says so.
+struct FinalPassAction {
+    label: &'static str,
+    title: &'static str,
+    body: &'static str,
+}
+
+impl FinalPassAction {
+    fn for_meeting(detail: &MeetingDetail) -> Self {
+        if detail.segments.is_empty() {
+            FinalPassAction {
+                label: "Transcribe recording",
+                title: "Transcribe this recording with Deepgram?",
+                body: "Uploads this recording to Deepgram using your key and saves the transcript it returns. Notes and audio stay. Provider usage charges apply.",
+            }
+        } else {
+            FinalPassAction {
+                label: "Re-run final pass",
+                title: "Re-run the final pass with Deepgram?",
+                body: "Uploads this recording to Deepgram using your key. On success, it replaces the transcript and resets speaker names. Notes and audio stay. Provider usage charges apply.",
+            }
+        }
+    }
+}
+
+/// The persisted final-pass status (`meetings.transcript_status`) as an
+/// icon and a sentence. `None` when nothing is outstanding or the text is
+/// from a newer Hark.
+fn status_line(stored: Option<&str>, now_ms: i64, tz: &TimeZone) -> Option<(&'static str, String)> {
+    use hark_pipeline::meeting::{Failure, FailureKind, TranscriptStatus};
+    Some(match TranscriptStatus::parse(stored?)? {
+        TranscriptStatus::Pending {
+            retry_at_ms: Some(at),
+        } if at > now_ms => (
+            theme::icons::CLOCK,
+            format!(
+                "Waiting for a connection, retrying at {}.",
+                format::clock_time(at, now_ms, tz)
+            ),
+        ),
+        TranscriptStatus::Pending { .. } => (
+            theme::icons::CLOCK,
+            "Waiting for a connection, retrying shortly.".to_string(),
+        ),
+        TranscriptStatus::Failed(Failure::NoKey) => {
+            (theme::icons::KEY, Failure::NoKey.message().to_string())
+        }
+        TranscriptStatus::Failed(Failure::Stt(FailureKind::Network)) => (
+            theme::icons::WARNING,
+            "Deepgram could not be reached after several tries. Choose Transcribe recording to try again."
+                .to_string(),
+        ),
+        TranscriptStatus::Failed(failure) => {
+            (theme::icons::WARNING, failure.message().to_string())
+        }
+    })
+}
+
 fn meta(detail: &MeetingDetail, tz: &TimeZone) -> String {
     let s = &detail.summary;
     let mut parts = vec![format::full_timestamp(s.started_ms, tz)];
@@ -440,6 +523,39 @@ mod tests {
         reply.send(Ok(())).unwrap();
         view.poll();
         assert_eq!(view.deleted.as_deref(), Some("m1"));
+    }
+
+    #[test]
+    fn the_persisted_status_reads_as_a_sentence() {
+        let tz = TimeZone::fixed(jiff::tz::offset(-5));
+        let now = jiff::civil::date(2026, 10, 14)
+            .at(16, 30, 0, 0)
+            .to_zoned(tz.clone())
+            .unwrap()
+            .timestamp()
+            .as_millisecond();
+        let line = |s: &str| status_line(Some(s), now, &tz).map(|(_, text)| text);
+        assert_eq!(
+            line(&format!("pending:{}", now + 5 * 60_000)).as_deref(),
+            Some("Waiting for a connection, retrying at 4:35 PM.")
+        );
+        assert_eq!(
+            line(&format!("pending:{}", now - 1)).as_deref(),
+            Some("Waiting for a connection, retrying shortly.")
+        );
+        assert_eq!(
+            line("failed:silent").as_deref(),
+            Some("This recording is silent; Hark captured no audio from either side.")
+        );
+        assert!(line("failed:no-key")
+            .unwrap()
+            .starts_with("No Deepgram key."));
+        assert!(line("failed:network")
+            .unwrap()
+            .contains("Transcribe recording"));
+        assert!(line("failed:auth").unwrap().contains("refused the key"));
+        assert_eq!(line("failed:from-the-future"), None);
+        assert_eq!(status_line(None, now, &tz), None);
     }
 
     #[test]
