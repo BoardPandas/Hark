@@ -1,18 +1,22 @@
 //! System-audio loopback for meeting mode: the "Them" channel. The contract
-//! (types, handle, start) lives here; `win.rs` (WASAPI process loopback),
-//! `linux.rs` (PipeWire), and `core_audio_mac` (the macOS process tap)
-//! implement it.
+//! (types, handle, start) lives here; `win.rs` (WASAPI process and endpoint
+//! loopback), `linux.rs` (PipeWire), and `core_audio_mac` (the macOS process
+//! tap) implement it.
 //!
 //! Windows and Linux deliver 16 kHz mono into the same f32
 //! [`ring`](crate::ring) the microphone uses, converted by the audio server
 //! itself (Windows: `AUTOCONVERTPCM`; PipeWire: the stream's audioconvert
 //! adapter), and both deliver audio continuously through silence, so the
-//! channel's timeline is simply its sample count. macOS delivers the tap
+//! channel's timeline is simply its sample count. Windows endpoint loopback
+//! is the exception: it sends nothing while nothing plays, and `gaps.rs`
+//! restores the silence from packet timestamps. macOS delivers the tap
 //! device's own rate and the recorder resamples. Each implementation is glue
 //! on one dedicated thread. Linux first mixes timestamped packets from all
 //! selected sources onto one bounded timeline; see the platform module for
 //! how targeting differs.
 
+#[cfg(any(windows, test))]
+mod gaps;
 #[cfg(target_os = "linux")]
 mod linux;
 #[cfg(windows)]
@@ -27,7 +31,7 @@ use thiserror::Error;
 pub const LOOPBACK_RATE: u32 = crate::TARGET_RATE;
 
 /// Whose audio to capture.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum LoopbackTarget {
     /// Only this process and its descendants: a detected meeting app, by root
     /// PID (the tree covers WebView2 and browser audio child processes).
@@ -35,12 +39,19 @@ pub enum LoopbackTarget {
     /// Everything except this process and its descendants: a manual start,
     /// excluding Hark's own PID so its sounds are never transcribed.
     ExcludeTree(u32),
+    /// Everything one output endpoint plays, by Core Audio endpoint id.
+    /// Windows only. For a call playing to an endpoint process loopback
+    /// was measured deaf to (`hark_meeting::detect::them_source`); it also
+    /// carries any other app playing there.
+    Endpoint { id: String },
 }
 
 #[derive(Debug, Error)]
 pub enum LoopbackError {
     #[error("system-audio capture is not implemented on this platform")]
     UnsupportedPlatform,
+    #[error("{0} is not available on this platform")]
+    Unsupported(&'static str),
     /// Includes Windows builds before 19041, which have no process loopback:
     /// the caller's cue to fall back to endpoint loopback.
     #[error("cannot activate process loopback: {0}")]
@@ -65,6 +76,10 @@ pub struct LoopbackHandle {
     /// Input timeline extent, including packets still awaiting other sources.
     #[cfg(target_os = "linux")]
     pub(crate) captured_frames: Arc<AtomicU64>,
+    /// Endpoint loopback: the timeline is the QPC clock since
+    /// `start_qpc_ns`, and its silence is placed a margin behind it.
+    #[cfg(windows)]
+    pub(crate) timeline_from_clock: bool,
     pub(crate) thread: Option<std::thread::JoinHandle<()>>,
 }
 
@@ -78,15 +93,23 @@ impl LoopbackHandle {
         }
     }
 
-    /// Timeline input frames before Linux's bounded mixer delay. Use this for
-    /// initial alignment so retained packets are not mistaken for a late start.
-    /// Other backends write each packet directly and need no separate count.
+    /// Timeline input frames before Linux's bounded mixer delay, or before
+    /// Windows endpoint loopback's silence margin. Use this for initial
+    /// alignment so held-back audio is not mistaken for a late start. Other
+    /// backends write each packet directly and need no separate count.
     pub fn captured_frames(&self) -> Option<u64> {
         #[cfg(target_os = "linux")]
         {
             Some(self.captured_frames.load(Ordering::Acquire))
         }
-        #[cfg(not(target_os = "linux"))]
+        #[cfg(windows)]
+        {
+            match self.start_qpc_ns.load(Ordering::Acquire) {
+                ns if self.timeline_from_clock && ns != 0 => Some(win::frames_due(ns)),
+                _ => None,
+            }
+        }
+        #[cfg(not(any(windows, target_os = "linux")))]
         {
             None
         }
@@ -141,6 +164,12 @@ pub fn start_process_loopback(
     target: LoopbackTarget,
     ring_seconds: u32,
 ) -> Result<(LoopbackHandle, Consumer), LoopbackError> {
+    #[cfg(not(windows))]
+    {
+        if let LoopbackTarget::Endpoint { .. } = target {
+            return Err(LoopbackError::Unsupported("endpoint loopback"));
+        }
+    }
     #[cfg(windows)]
     {
         win::start(target, ring_seconds)
@@ -197,6 +226,8 @@ mod tests {
             start_qpc_ns: Arc::new(AtomicU64::new(0)),
             #[cfg(target_os = "linux")]
             captured_frames: Arc::new(AtomicU64::new(0)),
+            #[cfg(windows)]
+            timeline_from_clock: false,
             thread: Some(thread),
         };
         handle.stop();

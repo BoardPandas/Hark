@@ -64,9 +64,11 @@ pub struct Meeting {
     /// detected starts unchanged; it must not overlap the dictation chord.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub toggle_key: Option<String>,
-    /// Which microphone to record "Me" from, by cpal device name. `None`
-    /// falls back to the Windows communications-default microphone, which is
-    /// the device Windows already treats as the one calls/meetings use.
+    /// Which microphone to record "Me" from, by cpal device name. `None` is
+    /// automatic: on Windows, the microphone the call app is recording from
+    /// when the meeting starts, else the communications default. Teams has
+    /// its own device setting, so the communications default is not
+    /// necessarily its mic.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub mic_device: Option<String>,
     pub system_source: SystemSource,

@@ -122,33 +122,29 @@ impl MeetingsSettings {
         );
         ui.add_space(theme::GAP);
         ui.label(RichText::new("Microphone").strong());
-        let current = m.mic_device.clone().unwrap_or_else(|| {
-            if cfg!(windows) {
-                "Windows communications default"
-            } else {
-                "System default microphone"
-            }
-            .to_string()
-        });
+        // Only Windows can see which mic a call app records from.
+        let automatic = if cfg!(windows) {
+            "Automatic: the mic your call app is using"
+        } else {
+            "System default microphone"
+        };
+        let current = m
+            .mic_device
+            .clone()
+            .unwrap_or_else(|| automatic.to_string());
         egui::ComboBox::from_id_salt("meeting-mic")
             .selected_text(current)
             .show_ui(ui, |ui| {
-                ui.selectable_value(
-                    &mut m.mic_device,
-                    None,
-                    if cfg!(windows) {
-                        "Windows communications default"
-                    } else {
-                        "System default microphone"
-                    },
-                );
+                ui.selectable_value(&mut m.mic_device, None, automatic);
                 for name in mic_devices {
                     ui.selectable_value(&mut m.mic_device, Some(name.clone()), name);
                 }
             });
         ui.label(
             RichText::new(if cfg!(windows) {
-                "The communications default is the microphone Teams and Zoom use."
+                "Automatic records the microphone Teams, Zoom or your browser is using \
+                 when the meeting starts. Without a call, it uses the Windows \
+                 communications default."
             } else {
                 "Choose the same microphone your meeting app uses."
             })

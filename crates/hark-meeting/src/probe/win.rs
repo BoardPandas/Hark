@@ -9,7 +9,13 @@
 //! process is reported by package family (`MSTeams_8wekyb3d8bbwe`, which its
 //! WebView2 children share), anything else by exe path. Endpoints, not only
 //! the default mic, because a meeting app may capture from another device or
-//! from a virtual one (Krisp) that sits in front of the real mic.
+//! from a virtual one (Krisp) that sits in front of the real mic. Each app
+//! keeps the endpoints it records from: Teams has its own device setting, and
+//! the communications default was the wrong (muted) mic on 2026-10-14.
+//!
+//! The render side lists every session on every active output endpoint with
+//! the default outputs, so the coordinator can tell when a call plays to an
+//! endpoint per-process loopback does not hear (`detect::them_source`).
 //!
 //! This replaced the undocumented ConsentStore registry
 //! (`CapabilityAccessManager\ConsentStore\microphone`, `LastUsedTimeStart` /
@@ -24,19 +30,25 @@
 //! The `probe` facade dispatches to this on Windows, `linux.rs` on Linux,
 //! and `mac.rs` on macOS.
 
-use crate::detect::{title_has_meeting_marker, MicApp, MicUse, Proc, Snapshot, BROWSERS};
+use crate::detect::{
+    title_has_meeting_marker, Endpoint, MicApp, MicUse, Proc, RenderSession, RenderSnapshot,
+    Snapshot, BROWSERS,
+};
 use std::io;
 use windows::core::{Interface, BOOL, PWSTR};
+use windows::Win32::Devices::FunctionDiscovery::PKEY_Device_FriendlyName;
 use windows::Win32::Foundation::{
     CloseHandle, ERROR_SUCCESS, HANDLE, HWND, LPARAM, RPC_E_CHANGED_MODE,
 };
 use windows::Win32::Media::Audio::{
-    eCapture, AudioSessionStateActive, IAudioSessionControl2, IAudioSessionManager2,
-    IMMDeviceCollection, IMMDeviceEnumerator, MMDeviceEnumerator, DEVICE_STATE_ACTIVE,
+    eCapture, eCommunications, eConsole, eRender, AudioSessionStateActive, EDataFlow, ERole,
+    IAudioSessionControl2, IAudioSessionManager2, IMMDevice, IMMDeviceEnumerator,
+    MMDeviceEnumerator, DEVICE_STATE_ACTIVE,
 };
 use windows::Win32::Storage::Packaging::Appx::GetPackageFamilyName;
 use windows::Win32::System::Com::{
-    CoCreateInstance, CoInitializeEx, CoUninitialize, CLSCTX_ALL, COINIT_MULTITHREADED,
+    CoCreateInstance, CoInitializeEx, CoTaskMemFree, CoUninitialize, CLSCTX_ALL,
+    COINIT_MULTITHREADED, STGM_READ,
 };
 use windows::Win32::System::Diagnostics::ToolHelp::{
     CreateToolhelp32Snapshot, Process32FirstW, Process32NextW, PROCESSENTRY32W, TH32CS_SNAPPROCESS,
@@ -107,65 +119,149 @@ pub fn snapshot() -> io::Result<Snapshot> {
     })
 }
 
-/// Every app with a running capture stream on any active input endpoint.
+/// Every app with a running capture stream on any active input endpoint,
+/// with the endpoints those streams record from.
 fn mic_users() -> io::Result<Vec<MicUse>> {
     let _com = Apartment::enter()?;
-    // SAFETY: COM is initialized for this thread by `_com`, which outlives
-    // every interface created here.
-    let endpoints = unsafe {
-        let enumerator: IMMDeviceEnumerator =
-            CoCreateInstance(&MMDeviceEnumerator, None, CLSCTX_ALL).map_err(io::Error::other)?;
-        enumerator
-            .EnumAudioEndpoints(eCapture, DEVICE_STATE_ACTIVE)
-            .map_err(io::Error::other)?
-    };
-    // SAFETY: as above.
-    let count = unsafe { endpoints.GetCount() }.map_err(io::Error::other)?;
-    let mut pids: Vec<u32> = Vec::new();
-    for index in 0..count {
-        // A device can vanish mid-poll (a headset unplugged): skip it rather
-        // than fail the poll and miss the apps on every other device.
-        match capturing_pids(&endpoints, index) {
-            Ok(found) => pids.extend(found),
-            Err(e) => log::debug!("meeting probe: capture endpoint {index} skipped ({e})"),
-        }
+    let enumerator = enumerator()?;
+    let mut pids: Vec<(u32, Endpoint)> = Vec::new();
+    for (endpoint, sessions) in endpoint_sessions(&enumerator, eCapture, true)? {
+        pids.extend(sessions.into_iter().map(|(pid, _)| (pid, endpoint.clone())));
     }
-    pids.sort_unstable();
-    pids.dedup();
+    // Stable: one PID's endpoints keep their probe order.
+    pids.sort_by_key(|(pid, _)| *pid);
     let mut users: Vec<MicUse> = Vec::new();
-    for app in pids.into_iter().filter_map(app_of) {
-        if !users.iter().any(|u| u.app == app) {
-            users.push(MicUse { app, in_use: true });
+    for (pid, endpoint) in pids {
+        let Some(app) = app_of(pid) else {
+            continue;
+        };
+        match users.iter_mut().find(|u| u.app == app) {
+            Some(user) => {
+                if !user.capture_endpoints.contains(&endpoint) {
+                    user.capture_endpoints.push(endpoint);
+                }
+            }
+            None => users.push(MicUse {
+                app,
+                in_use: true,
+                capture_endpoints: vec![endpoint],
+            }),
         }
     }
     Ok(users)
 }
 
-/// PIDs of the sessions on one endpoint that are capturing right now.
-fn capturing_pids(endpoints: &IMMDeviceCollection, index: u32) -> windows::core::Result<Vec<u32>> {
+/// Every session on every active output endpoint, and the default outputs
+/// for the console and communications roles.
+pub fn render_snapshot() -> io::Result<RenderSnapshot> {
+    let _com = Apartment::enter()?;
+    let enumerator = enumerator()?;
+    let mut sessions = Vec::new();
+    for (endpoint, found) in endpoint_sessions(&enumerator, eRender, false)? {
+        sessions.extend(found.into_iter().map(|(pid, active)| RenderSession {
+            pid,
+            endpoint: endpoint.clone(),
+            active,
+        }));
+    }
+    let default = |role: ERole| {
+        // SAFETY: a Core Audio query inside `_com`'s apartment. No default
+        // for a role (no output device at all) is a normal state.
+        unsafe { enumerator.GetDefaultAudioEndpoint(eRender, role) }
+            .and_then(|device| endpoint_of(&device))
+            .ok()
+    };
+    Ok(RenderSnapshot {
+        console_default: default(eConsole),
+        communications_default: default(eCommunications),
+        sessions,
+    })
+}
+
+fn enumerator() -> io::Result<IMMDeviceEnumerator> {
+    // SAFETY: the caller holds a COM apartment that outlives the result.
+    unsafe { CoCreateInstance(&MMDeviceEnumerator, None, CLSCTX_ALL) }.map_err(io::Error::other)
+}
+
+/// One endpoint's sessions as `(pid, running)`.
+type Sessions = Vec<(u32, bool)>;
+
+/// Each active endpoint of `flow` that has sessions (only running ones with
+/// `active_only`), named, with its sessions.
+fn endpoint_sessions(
+    enumerator: &IMMDeviceEnumerator,
+    flow: EDataFlow,
+    active_only: bool,
+) -> io::Result<Vec<(Endpoint, Sessions)>> {
+    // SAFETY: plain Core Audio queries inside the caller's COM apartment.
+    let endpoints = unsafe { enumerator.EnumAudioEndpoints(flow, DEVICE_STATE_ACTIVE) }
+        .map_err(io::Error::other)?;
+    // SAFETY: as above.
+    let count = unsafe { endpoints.GetCount() }.map_err(io::Error::other)?;
+    let mut found = Vec::new();
+    for index in 0..count {
+        // A device can vanish mid-poll (a headset unplugged): skip it rather
+        // than fail the poll and miss the apps on every other device.
+        // SAFETY: as above.
+        let listed = unsafe { endpoints.Item(index) }.and_then(|device| {
+            let mut sessions = sessions_of(&device)?;
+            if active_only {
+                sessions.retain(|(_, active)| *active);
+            }
+            if sessions.is_empty() {
+                return Ok(None);
+            }
+            Ok(Some((endpoint_of(&device)?, sessions)))
+        });
+        match listed {
+            Ok(Some(entry)) => found.push(entry),
+            Ok(None) => {}
+            Err(e) => log::debug!("meeting probe: endpoint {index} skipped ({e})"),
+        }
+    }
+    Ok(found)
+}
+
+/// One endpoint's sessions. PID 0 is the system-sounds session, never an app.
+fn sessions_of(device: &IMMDevice) -> windows::core::Result<Sessions> {
     // SAFETY: plain Core Audio queries on interfaces owned by this frame,
     // inside the caller's COM apartment.
     unsafe {
-        let manager: IAudioSessionManager2 = endpoints.Item(index)?.Activate(CLSCTX_ALL, None)?;
+        let manager: IAudioSessionManager2 = device.Activate(CLSCTX_ALL, None)?;
         let sessions = manager.GetSessionEnumerator()?;
-        let mut pids = Vec::new();
+        let mut found = Vec::new();
         for i in 0..sessions.GetCount()? {
             let Ok(session) = sessions.GetSession(i) else {
                 continue;
             };
-            if !matches!(session.GetState(), Ok(state) if state == AudioSessionStateActive) {
-                continue;
-            }
-            // PID 0 is the system-sounds session, never an app.
+            let active =
+                matches!(session.GetState(), Ok(state) if state == AudioSessionStateActive);
             match session
                 .cast::<IAudioSessionControl2>()
                 .and_then(|s| s.GetProcessId())
             {
-                Ok(pid) if pid != 0 => pids.push(pid),
+                Ok(pid) if pid != 0 => found.push((pid, active)),
                 _ => {}
             }
         }
-        Ok(pids)
+        Ok(found)
+    }
+}
+
+/// An endpoint's id and friendly name, the pattern
+/// `hark_audio::capture_win::query_communications_default` uses.
+fn endpoint_of(device: &IMMDevice) -> windows::core::Result<Endpoint> {
+    // SAFETY: Core Audio queries inside the caller's COM apartment. GetId's
+    // string is ours to free, and is copied out before it is.
+    unsafe {
+        let raw = device.GetId()?;
+        let id = String::from_utf16_lossy(raw.as_wide());
+        CoTaskMemFree(Some(raw.0 as *const _));
+        let name = device
+            .OpenPropertyStore(STGM_READ)?
+            .GetValue(&PKEY_Device_FriendlyName)?
+            .to_string();
+        Ok(Endpoint { id, name })
     }
 }
 

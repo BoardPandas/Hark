@@ -129,7 +129,11 @@ fn mic_users() -> io::Result<Vec<MicUse>> {
                         }
                         let app = MicApp::Desktop(binary);
                         if !users.borrow().iter().any(|u| u.app.id() == app.id()) {
-                            users.borrow_mut().push(MicUse { app, in_use: true });
+                            users.borrow_mut().push(MicUse {
+                                app,
+                                in_use: true,
+                                capture_endpoints: Vec::new(),
+                            });
                         }
                     } else {
                         // No binary prop (rare, protocol-native clients):
@@ -139,7 +143,11 @@ fn mic_users() -> io::Result<Vec<MicUse>> {
                         if !name.is_empty() {
                             let app = MicApp::Desktop(name);
                             if !users.borrow().iter().any(|u| u.app.id() == app.id()) {
-                                users.borrow_mut().push(MicUse { app, in_use: true });
+                                users.borrow_mut().push(MicUse {
+                                    app,
+                                    in_use: true,
+                                    capture_endpoints: Vec::new(),
+                                });
                             }
                         }
                     }
