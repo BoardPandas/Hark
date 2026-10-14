@@ -6,6 +6,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.62.1] - 2026-10-14
+
+### Changed
+
+- Development tooling: the commit gate now checks that CHANGELOG.md changed, that package.json's version was bumped, and that CHANGELOG.md has a section for that exact version. Before, it only checked that CHANGELOG.md was staged, and a command that merely said `git add CHANGELOG.md` passed even when nothing had changed.
+
+### Fixed
+
+- Development tooling: the `SKIP_CHANGELOG=1` opt-out offered by the commit gate now works when written in front of the commit command (`SKIP_CHANGELOG=1 git commit ...`); before, the gate could never see it. `--amend`, the first commit in a repository, and commits wrapped in `{ ...; }`, `if` or `time` are handled correctly.
+- Development tooling: the changelog reminder and the post-commit knowledge-base prompt now reach Claude; they were printed where only the debug log saw them. The post-commit summary lists only what was committed, not uncommitted edits.
+- Development tooling: the here-string warning no longer suggests a commit-message file under `.git/`, which cannot be created in a worktree.
+
 ## [0.62.0] - 2026-10-14
 
 ### Fixed

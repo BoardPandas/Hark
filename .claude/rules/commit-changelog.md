@@ -8,7 +8,7 @@ Before every `git commit`, you MUST:
 
 ## 1. Update CHANGELOG.md
 
-- Move relevant items from `[Unreleased]` into a new versioned section if releasing, or add new entries under `[Unreleased]`.
+- Add a `## [x.y.z] - YYYY-MM-DD` section at the top (below `[Unreleased]`) for the version you bump to in step 2, moving any `[Unreleased]` items into it. Entries left only under `[Unreleased]` do not pass the gate.
 - Categorize changes using [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) sections:
   - **Added** — new features or capabilities
   - **Changed** — changes to existing functionality
@@ -49,3 +49,5 @@ git add CHANGELOG.md package.json
 3. Bump version in package.json
 4. `git add CHANGELOG.md package.json`
 5. Proceed with the commit
+
+The gate (`.claude/scripts/check-changelog-staged.sh`) checks state, not the command text: CHANGELOG.md differs from HEAD, package.json's version differs from HEAD's, and CHANGELOG.md has a `## [<that version>]` section. It runs before the command, so the edits must be an earlier step. Exempt: merges, `--amend`, the initial commit, and a `SKIP_CHANGELOG=1 git commit ...` prefix on the commit command itself (an `export` in an earlier command is invisible to the hook).
