@@ -6,6 +6,7 @@
 
 use super::finish::{self, FinishJob, FINISHING_MARKER};
 use super::live::{self, Engine};
+use super::pending::{self, Retries};
 use super::recorder::Recorder;
 use super::{app_display_name, meetings_supported, Answer, MeetingEvent, StartedMeeting, Trigger};
 use hark_audio::LoopbackTarget;
@@ -131,6 +132,13 @@ pub fn run(settings: &Settings, events: Sender<MeetingEvent>) -> Result<MeetingH
                 let _done = done_tx;
                 // The recorder's AEC graph is thread-local (!Send). Construct
                 // its owner here, so it never crosses a thread boundary.
+                let protected = Arc::new(Mutex::new(Vec::new()));
+                let retries = Retries::spawn(
+                    meetings_dir.clone(),
+                    settings.clone(),
+                    events.clone(),
+                    protected.clone(),
+                );
                 let coordinator = Coordinator {
                     detector: Detector::new(detect_config(&settings, &self_exe)),
                     settings,
@@ -139,7 +147,8 @@ pub fn run(settings: &Settings, events: Sender<MeetingEvent>) -> Result<MeetingH
                     meetings_dir,
                     active: None,
                     prompted: None,
-                    protected: Arc::new(Mutex::new(Vec::new())),
+                    protected,
+                    retries,
                     probe_failed: false,
                     probe_failing: false,
                 };
@@ -176,6 +185,8 @@ struct Coordinator {
     prompted: Option<String>,
     /// Recording + finishing ids: the storage cap never evicts these.
     protected: Arc<Mutex<Vec<String>>>,
+    /// Final passes waiting for a connection.
+    retries: Retries,
     /// This platform has no mic probe; stop polling it (logged once).
     probe_failed: bool,
     /// The last probe failed (logged once). Retried at each backstop poll,
@@ -282,6 +293,7 @@ impl Coordinator {
         if let Some(active) = self.active.take() {
             self.close(active, false);
         }
+        self.retries.shutdown();
     }
 
     fn command(&mut self, cmd: Command) {
@@ -300,6 +312,17 @@ impl Coordinator {
                     return;
                 };
                 if protected.contains(&id) {
+                    drop(protected);
+                    // A scheduled retry or a startup refinish holds it: the
+                    // page did not know, and is waiting for an answer.
+                    let _ = self.events.send(MeetingEvent::ReprocessFinished {
+                        id,
+                        error: Some(
+                            "Hark is already transcribing this recording. The transcript \
+                             appears here when it is done."
+                                .into(),
+                        ),
+                    });
                     return;
                 }
                 protected.push(id.clone());
@@ -332,6 +355,7 @@ impl Coordinator {
             Command::Settings(settings) => {
                 self.detector
                     .set_config(detect_config(&settings, &self.self_exe));
+                self.retries.update_settings(&settings);
                 self.settings = *settings;
             }
         }
@@ -693,6 +717,7 @@ impl Coordinator {
             events: self.events.clone(),
             protected: self.protected.clone(),
             session,
+            retries: self.retries.queue(),
         });
     }
 
@@ -748,6 +773,9 @@ impl Coordinator {
                     ),
                 }
                 self.refinish(&entry.path());
+                if entry.path().join(pending::MARKER).exists() {
+                    self.retries.resume(&entry.file_name().to_string_lossy());
+                }
             }
         }
         self.enforce_cap();
@@ -770,7 +798,10 @@ impl Coordinator {
         }
         finish::spawn(FinishJob {
             recorded: super::recorder::Recorded {
-                me_samples: super::recorder::spool_samples(&dir.join(hark_audio::spool::ME_FILE)),
+                // The archive may already have replaced the spools: the
+                // finisher recorded the length in the marker for that case.
+                me_samples: super::recorder::spool_samples(&dir.join(hark_audio::spool::ME_FILE))
+                    .max(finish::marked_samples(dir)),
                 them_samples: super::recorder::spool_samples(
                     &dir.join(hark_audio::spool::THEM_FILE),
                 ),
@@ -783,6 +814,7 @@ impl Coordinator {
             events: self.events.clone(),
             protected: self.protected.clone(),
             session: SessionState::Finalizing,
+            retries: self.retries.queue(),
         });
     }
 }
@@ -950,6 +982,7 @@ mod tests {
             active: None,
             prompted: None,
             protected: Arc::new(Mutex::new(Vec::new())),
+            retries: Retries::disabled(),
             probe_failed: false,
             probe_failing: false,
         };

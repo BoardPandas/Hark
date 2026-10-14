@@ -6,6 +6,23 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+
+- Meetings keep a final pass that could not reach Deepgram and retry it on their own: after 1, 5, 15 and 60 minutes, then daily, six tries in all, and again when Hark next starts. The meeting page shows "Waiting for a connection, retrying at 4:35 PM" until the transcript arrives, and notes are made then if the call ended without any.
+- A meeting with no transcript offers **Transcribe recording** instead of Re-run final pass.
+
+### Changed
+
+- The final pass uploads the compressed MP3 archive instead of the WAV files, about 8x less data (a 40-minute call drops from 155 MB to 19 MB). With audio compression off it still uploads the WAVs.
+- The final pass waits up to 15 seconds to connect instead of 3, so a slow cellular handshake no longer fails it.
+- On a weak connection the live transcript pauses for two minutes after three failed lines, then sends the held audio (up to five minutes) once a request gets through. A notice says the full transcript is still made after the call.
+- The meeting page shows why a meeting has no transcript (waiting to retry, silent recording, no Deepgram key, key refused) and keeps it after a restart, instead of a message that vanished.
+
+### Fixed
+
+- A silent recording is no longer uploaded and reported as "Deepgram returned no transcript". Hark now says "This recording is silent; Hark captured no audio from either side."
+- Re-running the final pass while Hark was already transcribing that meeting no longer left the page waiting forever.
+
 ## [0.61.6] - 2026-10-05
 
 ### Fixed

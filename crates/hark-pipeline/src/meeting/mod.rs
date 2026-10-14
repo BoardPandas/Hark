@@ -11,8 +11,10 @@
 //!   the dictation provider, FIFO across both channels (so each channel stays
 //!   sequential), and never blocks capture.
 //! - one **finisher** per meeting (`finish.rs`) does the slow after-call work:
-//!   the Deepgram final pass, the summary, the MP3 archive. A new meeting can
+//!   the MP3 archive, the Deepgram final pass, the summary. A new meeting can
 //!   start while an older one is still finishing.
+//! - one **retry scheduler** per coordinator (`pending.rs`) sleeps until a
+//!   final pass that could not reach Deepgram is due to be tried again.
 //!
 //! Meeting mode never touches the push-to-talk pipeline: its own capture
 //! streams, its own state machine, its own threads. Dictation keeps working
@@ -27,12 +29,17 @@ mod echo;
 mod finish;
 mod gemini_final;
 mod live;
+mod pending;
 mod recorder;
 mod rerun;
+mod silence;
+mod status;
 
 pub use coordinator::{run, MeetingHandle};
 pub use finish::DEEPGRAM_ACCOUNT;
 pub use hark_meeting::Answer;
+pub use hark_stt::meeting::FailureKind;
+pub use status::{Failure, TranscriptStatus};
 
 /// How a meeting started. Stored with the meeting.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -121,6 +128,11 @@ pub enum MeetingEvent {
     ReprocessFinished {
         id: String,
         error: Option<String>,
+    },
+    /// The final pass's persisted status changed; `None` clears it.
+    TranscriptStatus {
+        id: String,
+        status: Option<TranscriptStatus>,
     },
     /// Notes JSON (`hark_voice::MeetingNotes`) and the suggested title.
     Notes {

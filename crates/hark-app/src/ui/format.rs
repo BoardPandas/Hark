@@ -75,18 +75,47 @@ pub fn full_timestamp(ts_ms: i64, tz: &TimeZone) -> String {
     };
     let zoned = ts.to_zoned(tz.clone());
     let month = MONTHS[(zoned.month() as usize).saturating_sub(1).min(11)];
+    format!(
+        "{month} {}, {}, {}",
+        zoned.day(),
+        zoned.year(),
+        twelve_hour(&zoned)
+    )
+}
+
+/// When something will happen: "4:35 PM" today, "October 15, 4:35 PM" on
+/// another day of this year, with the year otherwise.
+pub fn clock_time(ts_ms: i64, now_ms: i64, tz: &TimeZone) -> String {
+    let (Ok(ts), Some(today)) = (Timestamp::from_millisecond(ts_ms), local_date(now_ms, tz)) else {
+        return "an unknown time".to_string();
+    };
+    let zoned = ts.to_zoned(tz.clone());
+    let date = zoned.date();
+    if date == today {
+        return twelve_hour(&zoned);
+    }
+    let month = MONTHS[(date.month() as usize).saturating_sub(1).min(11)];
+    if date.year() == today.year() {
+        format!("{month} {}, {}", date.day(), twelve_hour(&zoned))
+    } else {
+        format!(
+            "{month} {}, {}, {}",
+            date.day(),
+            date.year(),
+            twelve_hour(&zoned)
+        )
+    }
+}
+
+/// "2:34 PM", "12:07 AM".
+fn twelve_hour(zoned: &jiff::Zoned) -> String {
     let (hour, meridiem) = match zoned.hour() {
         0 => (12, "AM"),
         h @ 1..=11 => (h, "AM"),
         12 => (12, "PM"),
         h => (h - 12, "PM"),
     };
-    format!(
-        "{month} {}, {}, {hour}:{:02} {meridiem}",
-        zoned.day(),
-        zoned.year(),
-        zoned.minute()
-    )
+    format!("{hour}:{:02} {meridiem}", zoned.minute())
 }
 
 /// Compact duration for stat cards and the time-saved line: "42 s",
@@ -197,6 +226,20 @@ mod tests {
         assert_eq!(full_timestamp(midnight, &tz()), "January 5, 2026, 12:07 AM");
         let noon = ms_at(date(2026, 1, 5).at(12, 0, 0, 0));
         assert_eq!(full_timestamp(noon, &tz()), "January 5, 2026, 12:00 PM");
+    }
+
+    #[test]
+    fn clock_time_drops_the_date_only_for_today() {
+        let now = ms_at(date(2026, 10, 14).at(16, 30, 0, 0));
+        let later = ms_at(date(2026, 10, 14).at(16, 35, 0, 0));
+        assert_eq!(clock_time(later, now, &tz()), "4:35 PM");
+        let tomorrow = ms_at(date(2026, 10, 15).at(9, 5, 0, 0));
+        assert_eq!(clock_time(tomorrow, now, &tz()), "October 15, 9:05 AM");
+        let next_year = ms_at(date(2027, 1, 2).at(0, 0, 0, 0));
+        assert_eq!(
+            clock_time(next_year, now, &tz()),
+            "January 2, 2027, 12:00 AM"
+        );
     }
 
     #[test]

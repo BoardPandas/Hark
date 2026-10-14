@@ -10,7 +10,7 @@
 use crate::storage::meetings::MeetingCmd;
 use crate::storage::StorageCmd;
 use hark_config::Settings;
-use hark_pipeline::meeting::{self, LiveSegment, MeetingEvent, MeetingHandle};
+use hark_pipeline::meeting::{self, LiveSegment, MeetingEvent, MeetingHandle, TranscriptStatus};
 use hark_store::{MeetingSegment, NewMeeting};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::{self, Receiver, Sender};
@@ -214,7 +214,7 @@ impl MeetingController {
             self.finishing.push(id.into());
             self.rerun_status = Some((
                 id.into(),
-                "Re-running the final pass… Your current transcript stays until this succeeds."
+                "Sending the recording to Deepgram… Any current transcript stays until this succeeds."
                     .into(),
             ));
             handle.rerun(id, audio_ms);
@@ -295,6 +295,7 @@ impl MeetingController {
             MeetingEvent::Refined { .. }
             | MeetingEvent::Reprocessed { .. }
             | MeetingEvent::Notes { .. }
+            | MeetingEvent::TranscriptStatus { .. }
             | MeetingEvent::EnforceAudioCap { .. } => {}
         }
     }
@@ -417,6 +418,10 @@ fn storage_cmd(event: &MeetingEvent, cap_bytes: &AtomicU64) -> Option<MeetingCmd
         MeetingEvent::Finished { id, audio_bytes } => MeetingCmd::Finished {
             id: id.clone(),
             audio_bytes: *audio_bytes,
+        },
+        MeetingEvent::TranscriptStatus { id, status } => MeetingCmd::TranscriptStatus {
+            id: id.clone(),
+            status: status.map(TranscriptStatus::to_db),
         },
         MeetingEvent::EnforceAudioCap { protected } => MeetingCmd::EnforceCap {
             cap_bytes: cap_bytes.load(Ordering::Relaxed),

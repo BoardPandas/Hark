@@ -23,6 +23,63 @@ use std::time::Duration;
 /// Deepgram's own processing limit is 10 min; this budget also has to cover
 /// uploading ~230 MB/h of stereo 16 kHz PCM16, so it is well past that.
 pub const FINAL_PASS_TIMEOUT_MS: u64 = 900_000;
+/// The dictation client's 3 s connect bound is sized for latency, and a TLS
+/// handshake on a weak cellular link can take longer than that. Nothing is
+/// waiting on the final pass, so it can afford to wait for the connection.
+pub const FINAL_PASS_CONNECT_TIMEOUT_MS: u64 = 15_000;
+
+/// The final pass's own client: [`FINAL_PASS_CONNECT_TIMEOUT_MS`] to connect,
+/// [`FINAL_PASS_TIMEOUT_MS`] in total, the same static trust roots as every
+/// other Hark client. Build one per pass; it is not on any hot path.
+pub fn final_pass_client() -> Result<Client, SttError> {
+    crate::build_client(FINAL_PASS_CONNECT_TIMEOUT_MS, FINAL_PASS_TIMEOUT_MS)
+}
+
+/// What a failed final pass means for trying it again.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FailureKind {
+    /// The provider was never reached, the connection dropped, or the request
+    /// ran out of time: the only kind a later retry can fix.
+    Network,
+    /// 401/403: the key was refused.
+    Auth,
+    /// 429. A 4xx, so never retried automatically.
+    RateLimited,
+    /// Any other answer: another status, or a response Hark cannot use.
+    Provider,
+    /// The recording itself could not be sent.
+    BadAudio,
+}
+
+impl FailureKind {
+    pub fn of(error: &SttError) -> Self {
+        match error {
+            // Both come only from the transport side, after the source-chain
+            // walk below; a status code never maps to either.
+            SttError::Http { .. } | SttError::Timeout { .. } => FailureKind::Network,
+            SttError::Auth { .. } => FailureKind::Auth,
+            SttError::RateLimited { .. } => FailureKind::RateLimited,
+            SttError::Provider { .. } => FailureKind::Provider,
+            SttError::BadAudio(_) => FailureKind::BadAudio,
+        }
+    }
+
+    /// Never true for a provider answer, so a 4xx is never retried.
+    pub fn retryable(self) -> bool {
+        self == FailureKind::Network
+    }
+
+    /// A short, stable label for storage and the UI.
+    pub fn slug(self) -> &'static str {
+        match self {
+            FailureKind::Network => "network",
+            FailureKind::Auth => "auth",
+            FailureKind::RateLimited => "rate-limited",
+            FailureKind::Provider => "provider",
+            FailureKind::BadAudio => "bad-audio",
+        }
+    }
+}
 
 /// Container format for a complete stereo meeting, never a mono share export.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -227,7 +284,27 @@ fn classify_io_error_in_source_chain(
 /// can surface as an opaque body-sender error with both flags false (see the
 /// module doc). Fall back to [`classify_io_error_in_source_chain`] before
 /// giving up on a generic transport error.
+///
+/// Two departures from [`error_for_transport`], both so [`FailureKind::of`]
+/// reads true: a connect timeout names this client's own connect bound, and
+/// a builder error (a request Hark built wrong, which no retry fixes) is a
+/// `Provider` error rather than an `Http` one. An opaque body-sender error
+/// with no `io::Error` underneath stays `Http`, so it is retried: on a dead
+/// link that is the common case, and the retry count bounds the rare
+/// rejection it can hide.
 fn classify_final_pass_error(label: &str, timeout_ms: u64, err: &reqwest::Error) -> SttError {
+    if err.is_timeout() && err.is_connect() {
+        return SttError::Timeout {
+            provider: label.to_string(),
+            configured_ms: FINAL_PASS_CONNECT_TIMEOUT_MS,
+        };
+    }
+    if err.is_builder() {
+        return SttError::Provider {
+            provider: label.to_string(),
+            detail: "request configuration is invalid".to_string(),
+        };
+    }
     if err.is_timeout() || err.is_connect() {
         return error_for_transport(label, timeout_ms, err);
     }
@@ -545,6 +622,67 @@ mod tests {
             assert!(!detail.contains("private_meeting_transcript"));
             assert!(detail.contains(&format!("{kind:?}")));
         }
+    }
+
+    #[test]
+    fn only_transport_failures_are_retryable_and_no_4xx_ever_is() {
+        for status in [400, 401, 403, 404, 413, 422, 429] {
+            let error = crate::error_for_status("deepgram", status, None, "{}");
+            assert!(
+                !FailureKind::of(&error).retryable(),
+                "HTTP {status} must not be retried"
+            );
+        }
+        assert_eq!(
+            FailureKind::of(&crate::error_for_status("deepgram", 401, None, "")),
+            FailureKind::Auth
+        );
+        assert_eq!(
+            FailureKind::of(&crate::error_for_status("deepgram", 429, Some(3), "")),
+            FailureKind::RateLimited
+        );
+        assert_eq!(
+            FailureKind::of(&crate::error_for_status("deepgram", 503, None, "")),
+            FailureKind::Provider
+        );
+        assert!(!FailureKind::of(&SttError::BadAudio("empty".into())).retryable());
+        let timeout = SttError::Timeout {
+            provider: "deepgram".into(),
+            configured_ms: FINAL_PASS_TIMEOUT_MS,
+        };
+        assert!(FailureKind::of(&timeout).retryable());
+    }
+
+    #[test]
+    fn a_dropped_upload_found_in_the_source_chain_is_retryable() {
+        for kind in [
+            std::io::ErrorKind::TimedOut,
+            std::io::ErrorKind::ConnectionReset,
+            std::io::ErrorKind::ConnectionAborted,
+            std::io::ErrorKind::BrokenPipe,
+            std::io::ErrorKind::Other,
+        ] {
+            let wrapped = FakeStreamedBodyError(std::io::Error::new(kind, "x"));
+            let mapped =
+                classify_io_error_in_source_chain("deepgram", FINAL_PASS_TIMEOUT_MS, &wrapped)
+                    .unwrap();
+            assert_eq!(FailureKind::of(&mapped), FailureKind::Network, "{kind:?}");
+        }
+    }
+
+    #[test]
+    fn failure_slugs_are_stable_storage_labels() {
+        let all = [
+            FailureKind::Network,
+            FailureKind::Auth,
+            FailureKind::RateLimited,
+            FailureKind::Provider,
+            FailureKind::BadAudio,
+        ];
+        assert_eq!(
+            all.map(FailureKind::slug),
+            ["network", "auth", "rate-limited", "provider", "bad-audio"]
+        );
     }
 
     #[test]
