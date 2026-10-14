@@ -94,6 +94,19 @@ mod tests {
     }
 
     #[test]
+    fn untimestamped_packets_still_move_the_timeline_on() {
+        let mut gaps = GapFiller::new(ORIGIN, RATE);
+        assert_eq!(gaps.before_packet(ORIGIN, FRAMES), 0);
+        // 30 ms of packets with unreliable timestamps: past the tolerance,
+        // so forgetting them would pad the next stamped packet with silence.
+        for _ in 0..3 {
+            gaps.contiguous(FRAMES);
+        }
+        assert_eq!(gaps.before_packet(ORIGIN + 4 * PERIOD, FRAMES), 0);
+        assert_eq!(gaps.placed, 5 * FRAMES);
+    }
+
+    #[test]
     fn a_silence_between_packets_becomes_exactly_that_many_frames() {
         let mut gaps = GapFiller::new(ORIGIN, RATE);
         assert_eq!(gaps.before_packet(ORIGIN, FRAMES), 0);

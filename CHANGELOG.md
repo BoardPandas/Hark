@@ -6,6 +6,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.62.2] - 2026-10-14
+
+### Security
+
+- Updated rustls to 0.23.46 for four TLS advisories published this week (RUSTSEC-2026-0346 to 0349): TLS session secrets exposed through `Debug` output, buffered data sent to the outer server after an ECH rejection, unbounded Brotli certificate decompression before authentication, and a ServerHello downgrade to classical key exchange. Hark's connections to Deepgram, OpenAI, Gemini and GitHub all use rustls.
+
+### Fixed
+
+- Linux and macOS builds of 0.62.1 failed the strict lint gate: part of the Windows-only meeting audio gap filler was unused on those platforms. It is now covered by a test on every platform, so the build passes without silencing the lint.
+
 ## [0.62.1] - 2026-10-14
 
 ### Changed
