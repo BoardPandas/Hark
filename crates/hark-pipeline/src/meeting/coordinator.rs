@@ -610,11 +610,11 @@ impl Coordinator {
     }
 
     /// Whose audio "Them" is. A call app (detected, or adopted by a manual
-    /// start) playing to an output other than the console default is
-    /// recorded from that endpoint, since process loopback was measured deaf
-    /// there (`detect::them_source`). Otherwise as before: the detected
-    /// app's process tree when the setting asks for it, else everything
-    /// except Hark (a manual start always).
+    /// start) seen playing is recorded from the output it plays to, since
+    /// process loopback was measured deaf to Teams on any endpoint
+    /// (`detect::them_source`). Otherwise as before: the detected app's
+    /// process tree when the setting asks for it, else everything except
+    /// Hark (a manual start always).
     fn loopback_target(&self, trigger: Trigger, app: Option<&str>) -> LoopbackTarget {
         let everything_but_hark = LoopbackTarget::ExcludeTree(std::process::id());
         let Some(app) = app else {
@@ -633,7 +633,7 @@ impl Coordinator {
             Ok(render) => {
                 if let ThemSource::Endpoint(endpoint) = detect::them_source(&render, &procs, root) {
                     log::info!(
-                        "meeting Them: endpoint loopback of {:?}, where {app} plays (not the console default)",
+                        "meeting Them: endpoint loopback of {:?}, where {app} plays",
                         endpoint.name
                     );
                     return LoopbackTarget::Endpoint { id: endpoint.id };

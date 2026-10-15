@@ -11,7 +11,7 @@
 //!
 //! Run it during a call. Expect "Me" to be the microphone the call app uses
 //! (not necessarily the communications default), and "Them" to be endpoint
-//! loopback when the call plays to an output other than the console default.
+//! loopback of the output the call plays to whenever the app is playing.
 //! With a call running, the chosen paths should read well above -85 dBFS
 //! while people talk; process loopback is printed beside endpoint loopback
 //! so a deaf one shows (about -96 dBFS is idle).

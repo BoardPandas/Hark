@@ -207,30 +207,33 @@ pub enum ThemSource {
     Endpoint(Endpoint),
 }
 
-/// The rule for "Them": loopback of the endpoint the app is playing to when
-/// that is not the console default, else per-process loopback.
+/// The rule for "Them": loopback of the endpoint the app is playing to, else
+/// per-process loopback.
 ///
-/// Microsoft documents process loopback as endpoint-independent, but on
-/// Windows 11 26300 (2026-10-14) it heard nothing (-96.7 dBFS) from a Teams
-/// call playing to the communications endpoint, while endpoint loopback of
-/// that device peaked at -5 dBFS. Process loopback stays the default where it
-/// works because it keeps other apps' sounds out. With several non-default
-/// endpoints, the communications default wins: calls play there.
+/// Microsoft documents process loopback as endpoint-independent, but new
+/// Teams was measured invisible to it on Windows 11 26300: -96.7 dBFS playing
+/// to the communications endpoint (2026-10-14) and -96.3 dBFS playing to the
+/// console default (2026-10-15), while endpoint loopback of the same device
+/// heard the call at -5 and -15 dBFS. So an app seen playing is recorded from
+/// that endpoint, at the cost of also hearing anything else playing there.
+/// Process loopback remains for an app not playing yet when the meeting
+/// starts. With several endpoints the communications default wins (calls
+/// play there), then the console default.
 pub fn them_source(render: &RenderSnapshot, procs: &[Proc], root: u32) -> ThemSource {
-    let Some(console) = &render.console_default else {
-        return ThemSource::ProcessTree;
-    };
-    let elsewhere: Vec<&Endpoint> = tree_sessions(render, procs, root)
+    let playing: Vec<&Endpoint> = tree_sessions(render, procs, root)
         .into_iter()
-        .filter(|s| s.active && s.endpoint.id != console.id)
+        .filter(|s| s.active)
         .map(|s| &s.endpoint)
         .collect();
-    let comms = render.communications_default.as_ref();
-    match elsewhere
+    let defaults = [&render.communications_default, &render.console_default];
+    let chosen = defaults
         .iter()
-        .find(|e| comms.is_some_and(|c| c.id == e.id))
-        .or(elsewhere.first())
-    {
+        .find_map(|d| {
+            d.as_ref()
+                .and_then(|d| playing.iter().find(|e| e.id == d.id))
+        })
+        .or(playing.first());
+    match chosen {
         Some(endpoint) => ThemSource::Endpoint((*endpoint).clone()),
         None => ThemSource::ProcessTree,
     }
@@ -1185,10 +1188,22 @@ mod tests {
     }
 
     #[test]
-    fn a_call_on_the_console_default_keeps_process_loopback() {
+    fn a_call_on_the_console_default_is_captured_from_that_endpoint_too() {
+        // 2026-10-15: the Audeze Chat speakers were both defaults, and
+        // process loopback of Teams still read -96.3 dBFS.
+        let (procs, mut render) = teams_machine();
+        render.console_default = render.communications_default.clone();
+        assert_eq!(
+            them_source(&render, &procs, 22700),
+            ThemSource::Endpoint(endpoint("{chat}", "Speakers (Chat-Audeze Maxwell2 ANC)"))
+        );
+        // Playing to the console default while calls default elsewhere.
         let (procs, mut render) = teams_machine();
         render.sessions[0].endpoint = endpoint("{realtek}", "Realtek Digital Output");
-        assert_eq!(them_source(&render, &procs, 22700), ThemSource::ProcessTree);
+        assert_eq!(
+            them_source(&render, &procs, 22700),
+            ThemSource::Endpoint(endpoint("{realtek}", "Realtek Digital Output"))
+        );
     }
 
     #[test]
@@ -1198,14 +1213,18 @@ mod tests {
         // Spotify plays elsewhere, but it is not in Teams' tree.
         render.sessions[1].endpoint = endpoint("{usb}", "USB Speakers");
         assert_eq!(them_source(&render, &procs, 22700), ThemSource::ProcessTree);
-        // Without a known console default there is nothing to compare.
+        // Unknown defaults still record where the app plays.
         let (procs, mut render) = teams_machine();
         render.console_default = None;
-        assert_eq!(them_source(&render, &procs, 22700), ThemSource::ProcessTree);
+        render.communications_default = None;
+        assert_eq!(
+            them_source(&render, &procs, 22700),
+            ThemSource::Endpoint(endpoint("{chat}", "Speakers (Chat-Audeze Maxwell2 ANC)"))
+        );
     }
 
     #[test]
-    fn several_non_default_endpoints_prefer_the_communications_default() {
+    fn several_endpoints_prefer_the_communications_default() {
         let (procs, mut render) = teams_machine();
         render.sessions.insert(
             0,

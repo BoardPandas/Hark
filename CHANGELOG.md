@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.62.3] - 2026-10-15
+
+### Fixed
+
+- Windows meeting notes record the other people on a Teams call when Teams plays to your default output. 0.62.0 switched to recording the output device only when the call played somewhere other than the Windows default, but Teams turned out to be inaudible to Hark's per-app capture on the default output too, so the other side recorded silence. Hark now records the output a call app is playing to whenever it sees one playing; anything else playing to that same output is recorded with it.
+
 ## [0.62.2] - 2026-10-14
 
 ### Security

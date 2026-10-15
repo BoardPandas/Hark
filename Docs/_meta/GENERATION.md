@@ -1,5 +1,11 @@
 # Generation Metadata
 
+## Them follows the call's output on any endpoint — 2026-10-15 (0.62.3)
+
+- **Source reviewed:** `75aff0c` (0.62.2) plus the `detect::them_source` rule change: endpoint loopback whenever the call app's tree has an active render session (communications default, then console default, then first), process loopback only when none is playing. Global baseline `784272c` is unchanged.
+- **Scope:** Meetings (Capture), Audio Capture (Them bullet), Glossary (per-process loopback). AUTOGEN markers are preserved.
+- **Evidence:** on 2026-10-15 the Audeze Chat speakers were both Windows defaults; Teams played there, process loopback of its tree read -96.3 dBFS and endpoint loopback of the device -13.7 to -19 dBFS during a live call (`meeting_devices`, `loopback_smoke --endpoint`).
+
 ## Meeting capture and slow-network resilience — 2026-10-14 (0.62.0)
 
 - **Source reviewed:** the merge of `60ec43a` (meeting capture follows the call app: per-app capture endpoint, `LoopbackTarget::Endpoint` with QPC gap padding, live silence watchdog) and `a621917` (MP3 upload before the final pass, silent-recording precheck, `.transcript-pending` retries mirrored to `meetings.transcript_status`, 15 s final-pass connect bound, live chunk back-off, Transcribe recording) onto `5fd7015` (0.61.7). Dirty tree during the merge, so citations reflect the merged working tree. Global baseline `784272c` is unchanged.
