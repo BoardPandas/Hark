@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.62.5] - 2026-10-15
+
+### Fixed
+
+- Release builds: the macOS release no longer fails when Apple's servers briefly drop the connection while Hark's build downloads the notarization ticket. Apple had already approved the 0.62.4 disk image, but the one download attempt was cut off, so the Mac build failed with nothing wrong in it. The build now retries that download up to four times, about 90 seconds in total, without resubmitting anything to Apple.
+
 ## [0.62.4] - 2026-10-15
 
 ### Fixed

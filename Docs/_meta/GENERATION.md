@@ -1,5 +1,11 @@
 # Generation Metadata
 
+## macOS staple retry — 2026-10-15 (0.62.5)
+
+- **Source reviewed:** `7574551` (0.62.4) plus `staple()` in `scripts/package-macos.sh`. Global baseline `784272c` is unchanged.
+- **Scope:** Release and Packaging (macOS package paragraph). AUTOGEN markers are preserved.
+- **Evidence:** release run 38830617447 for v0.62.4 had the DMG notarization Accepted, then `stapler staple` failed with `NSURLErrorDomain -1005` against `api.apple-cloudkit.com` (error 68). Windows and Linux jobs in the same run passed.
+
 ## Gemini Smart refusals replay in Verbatim — 2026-10-15 (0.62.4)
 
 - **Source reviewed:** `ad71b9a` (0.62.3) plus `gemini_live::checked_text`/`is_canned_refusal`, the Voice-picker Smart warning (`form.rs`), and the History "GEMINI SMART TEXT · NOT VERBATIM" heading (`row.rs`). Global baseline `784272c` is unchanged.
