@@ -6,6 +6,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.62.4] - 2026-10-15
+
+### Fixed
+
+- Gemini's Smart transcript no longer types "I'm just a language model and can't help with that." in place of what you said. Smart runs your speech through a language model, and a dictation that sounds like a request (such as "Add the following MCP server") could come back as Gemini's canned refusal. Hark now recognises that reply and re-transcribes the same recording in Verbatim, so your actual words are typed.
+
+### Changed
+
+- The Voice picker now warns when Gemini's Smart transcript is on. Smart replaces your cleanup voice entirely, so choosing the Verbatim voice did not stop Smart from dropping openers like "So basically," or carrying out instructions like "Drop all the other bullet points." instead of typing them. The warning points to Speech to text → Transcript → Verbatim, which does. The Smart option's tooltip now spells out the same behaviour.
+- History no longer labels Smart text as a "Raw transcript". Smart returns only its tidied text, so expanded Smart rows are headed "Gemini Smart text · not verbatim".
+
 ## [0.62.3] - 2026-10-15
 
 ### Fixed

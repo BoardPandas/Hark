@@ -174,6 +174,14 @@ pub enum TranscribeMode {
     /// `generationComplete`, ever. Verified against the real API on
     /// 2026-09-24; the same clip in VERBATIM transcribes in under a second.
     /// Hence the pipeline never replays a failed stream in this mode.
+    ///
+    /// **It also answers dictations instead of transcribing them.** A
+    /// dictation that sounds like a request ("Add the following MCP server")
+    /// came back as Gemini's canned "I'm just a language model and can't help
+    /// with that." — reported 2026-10-15, alongside a dropped opener ("So
+    /// basically,") and an obeyed instruction ("Drop all the other bullet
+    /// points."). The last two are SMART doing its job and cannot be told
+    /// apart from good cleanup; the refusal can, see [`checked_text`].
     Smart,
 }
 
@@ -436,6 +444,58 @@ pub fn join_segments(segments: &[String]) -> String {
         out.push_str(segment);
     }
     out
+}
+
+/// Whether `text` is Gemini declining a request rather than anyone's words.
+///
+/// Needs both halves — the model describing itself and the model declining —
+/// and only a short utterance: a long dictation that mentions language models
+/// is somebody talking about them, not the canned reply.
+pub fn is_canned_refusal(text: &str) -> bool {
+    /// The longest canned refusal seen is 24 words.
+    const MAX_WORDS: usize = 40;
+    const SELF: &[&str] = &[
+        "language model",
+        "text-based ai",
+        "as an ai",
+        "i'm an ai",
+        "i am an ai",
+        "generate text",
+    ];
+    const DECLINE: &[&str] = &[
+        "can't help",
+        "cannot help",
+        "can't assist",
+        "cannot assist",
+        "unable to help",
+        "unable to assist",
+        "not able to help",
+        "not able to assist",
+        "don't have the capacity",
+        "don't have the ability",
+    ];
+    if text.split_whitespace().count() > MAX_WORDS {
+        return false;
+    }
+    let lower = text.to_lowercase().replace('\u{2019}', "'");
+    SELF.iter().any(|p| lower.contains(p)) && DECLINE.iter().any(|p| lower.contains(p))
+}
+
+/// The session's text, or an error when SMART answered instead of transcribing.
+///
+/// An error rather than text because the pipeline answers a failed stream by
+/// replaying the clip in VERBATIM, which returns what was actually said. That
+/// makes a false match cheap — one replay, and the same words come back —
+/// while a missed one injects a sentence the user never spoke. VERBATIM text is
+/// never second-guessed: there it is someone dictating that sentence.
+pub fn checked_text(mode: TranscribeMode, text: String) -> Result<String, SttError> {
+    if mode == TranscribeMode::Smart && is_canned_refusal(&text) {
+        log::warn!("gemini live: SMART answered the dictation instead of transcribing it");
+        return Err(fail(
+            "SMART mode answered the dictation instead of transcribing it".to_string(),
+        ));
+    }
+    Ok(text)
 }
 
 /// Build the [`Transcript`] for a finished session.
@@ -1026,6 +1086,7 @@ impl SttProvider for GeminiLive {
         let text =
             self.runtime
                 .block_on(session::run(url, setup, pcm, self.mode, self.finalize))?;
+        let text = checked_text(self.mode, text)?;
         Ok(transcript_for(
             self.mode,
             text,
@@ -1101,6 +1162,7 @@ impl crate::LiveSession for GeminiLiveSession {
                 session::finish(&mut socket, mode, segments, Finalize::STREAM).await
             })?
         };
+        let text = checked_text(mode, text)?;
         log::info!(
             "gemini live session: {} ms of audio streamed during the hold",
             self.pushed as u64 * 1_000 / 16_000
@@ -1441,6 +1503,60 @@ mod tests {
         let t = transcript_for(TranscribeMode::Smart, "Hello.".to_string(), 42);
         assert_eq!(t.text, "Hello.");
         assert_eq!(t.cleaned.as_deref(), Some("Hello."));
+    }
+
+    #[test]
+    fn gemini_canned_refusals_are_recognised() {
+        for refusal in [
+            "I'm just a language model and can't help with that.",
+            "I\u{2019}m just a language model, so I can\u{2019}t help you with that.",
+            "I'm a text-based AI and can't assist with that.",
+            "As a language model, I'm not able to assist you with that.",
+            "I'm unable to help, as I am only a language model and don't have the \
+             ability to process and understand that.",
+            "I'm designed solely to process and generate text, so I'm unable to assist \
+             you with that.",
+        ] {
+            assert!(is_canned_refusal(refusal), "{refusal}");
+        }
+    }
+
+    #[test]
+    fn ordinary_dictations_are_not_refusals() {
+        for said in [
+            "Add the following MCP server.",
+            "I can't help with that today, I'm out of the office.",
+            "Users are trying to send emails to other Reddoor addresses from Gmail.",
+            // Talking about language models at length is not the canned reply.
+            "So the issue is that the language model can't help but repeat itself \
+             whenever the context window fills up, which means we need to trim the \
+             history before every call and keep the system prompt short enough that \
+             it never gets pushed out of the window by a long transcript.",
+        ] {
+            assert!(!is_canned_refusal(said), "{said}");
+        }
+    }
+
+    #[test]
+    fn a_smart_refusal_becomes_an_error_so_the_clip_replays_verbatim() {
+        let refusal = "I'm just a language model and can't help with that.";
+        let err = checked_text(TranscribeMode::Smart, refusal.to_string()).unwrap_err();
+        // The error is a log line; the refusal is transcript content.
+        assert!(!err.to_string().contains("language model"), "{err}");
+        assert_eq!(
+            checked_text(TranscribeMode::Smart, "Hello there.".to_string()).unwrap(),
+            "Hello there."
+        );
+    }
+
+    #[test]
+    fn verbatim_text_is_never_second_guessed() {
+        // In VERBATIM, this sentence is what the user said.
+        let said = "I'm just a language model and can't help with that.";
+        assert_eq!(
+            checked_text(TranscribeMode::Verbatim, said.to_string()).unwrap(),
+            said
+        );
     }
 
     #[test]

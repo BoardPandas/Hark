@@ -186,7 +186,7 @@ fn details(ui: &mut Ui, entry: &Entry, tz: &TimeZone, selection: &mut Option<Sel
             ui.add_space(2.0);
         }
         ui.label(
-            RichText::new("RAW TRANSCRIPT")
+            RichText::new(raw_heading(entry))
                 .size(theme::META_SIZE)
                 .weak(),
         );
@@ -247,6 +247,17 @@ fn preview(text: &str) -> String {
     match flat.char_indices().nth(PREVIEW_CHARS) {
         Some((byte, _)) => format!("{}…", flat[..byte].trim_end()),
         None => flat,
+    }
+}
+
+/// Gemini's SMART mode returns only its tidied text, so that is all `raw_text`
+/// can hold. Calling it a raw transcript sent a user looking for words that
+/// had never been recorded.
+fn raw_heading(entry: &Entry) -> &'static str {
+    if entry.voice == "smart" {
+        "GEMINI SMART TEXT · NOT VERBATIM"
+    } else {
+        "RAW TRANSCRIPT"
     }
 }
 
@@ -318,6 +329,14 @@ mod tests {
         assert!(badged.contains("Invocation"));
         // The badge is additive: the usual segments still read the same.
         assert!(badged.ends_with(&caption_plain), "{badged}");
+    }
+
+    #[test]
+    fn smart_rows_do_not_claim_a_raw_transcript() {
+        assert_eq!(raw_heading(&entry(true)), "RAW TRANSCRIPT");
+        let mut smart = entry(false);
+        smart.voice = "smart".to_string();
+        assert!(raw_heading(&smart).contains("NOT VERBATIM"));
     }
 
     #[test]

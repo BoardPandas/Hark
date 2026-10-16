@@ -1,5 +1,11 @@
 # Generation Metadata
 
+## Gemini Smart refusals replay in Verbatim — 2026-10-15 (0.62.4)
+
+- **Source reviewed:** `ad71b9a` (0.62.3) plus `gemini_live::checked_text`/`is_canned_refusal`, the Voice-picker Smart warning (`form.rs`), and the History "GEMINI SMART TEXT · NOT VERBATIM" heading (`row.rs`). Global baseline `784272c` is unchanged.
+- **Scope:** Transcription (Gemini Live modes, replay paragraph corrected to say a failed Smart stream replays in Verbatim, new gotcha), Voice Cleanup (Smart paragraph), Invocations (refusal is never matched; stale `409-380` citation fixed), Spellbook (shifted `setup_message` citations). AUTOGEN markers are preserved.
+- **Evidence:** a user's history on 2026-10-15 showed Smart dropping "So basically," and "Drop all the other bullet points." and returning "I'm just a language model and can't help with that." for "Add the following MCP server", with the cleanup voice set to Verbatim. `npm run check:docs` passes for every mapped page except `Docs/OVERVIEW.md`, which tracks an unrelated uncommitted `AGENTS.md` edit.
+
 ## Them follows the call's output on any endpoint — 2026-10-15 (0.62.3)
 
 - **Source reviewed:** `75aff0c` (0.62.2) plus the `detect::them_source` rule change: endpoint loopback whenever the call app's tree has an active render session (communications default, then console default, then first), process loopback only when none is playing. Global baseline `784272c` is unchanged.

@@ -16,7 +16,7 @@ The following files were used as evidence for this page:
 - [crates/hark-stt/src/openai_compatible.rs:47-80](../../crates/hark-stt/src/openai_compatible.rs#L47-L80)
 - [crates/hark-stt/src/openai_transcribe.rs:53-75](../../crates/hark-stt/src/openai_transcribe.rs#L53-L75)
 - [crates/hark-stt/src/deepgram.rs:29-47](../../crates/hark-stt/src/deepgram.rs#L29-L47)
-- [crates/hark-stt/src/gemini_live.rs:224-254](../../crates/hark-stt/src/gemini_live.rs#L224-L254)
+- [crates/hark-stt/src/gemini_live.rs:232-271](../../crates/hark-stt/src/gemini_live.rs#L232-L271)
 - [crates/hark-app/src/ui/spellbook/mod.rs:1-132](../../crates/hark-app/src/ui/spellbook/mod.rs#L1-L132)
 - [crates/hark-pipeline/src/meeting/live.rs:52-97](../../crates/hark-pipeline/src/meeting/live.rs#L52-L97)
 - [crates/hark-pipeline/src/meeting/finish.rs](../../crates/hark-pipeline/src/meeting/finish.rs)
@@ -127,7 +127,7 @@ Only canonical terms become provider hints; aliases are known-wrong forms and re
 | Whisper-family OpenAI-compatible | One comma-separated multipart `prompt` | Keeps entry order until an approximate 200-token/800-character budget is reached ([openai_compatible.rs:52-80](../../crates/hark-stt/src/openai_compatible.rs#L52-L80)) |
 | `gpt-transcribe` | One multipart `keywords[]` field per term | No Hark-side term cap or prompt packing ([openai_transcribe.rs:53-75](../../crates/hark-stt/src/openai_transcribe.rs#L53-L75)) |
 | Deepgram Nova | One URL query `keyterm` per term | URL-encoded, repeated, and unbounded by Hark ([deepgram.rs:29-47](../../crates/hark-stt/src/deepgram.rs#L29-L47)) |
-| Gemini Live | `inputAudioTranscription.customVocabulary` array | Omitted when empty and capped at the API's 1,000-phrase limit ([gemini_live.rs:224-254](../../crates/hark-stt/src/gemini_live.rs#L224-L254)) |
+| Gemini Live | `inputAudioTranscription.customVocabulary` array | Omitted when empty and capped at the API's 1,000-phrase limit ([gemini_live.rs:232-271](../../crates/hark-stt/src/gemini_live.rs#L232-L271)) |
 
 The model selects the two OpenAI multipart contracts: `gpt-transcribe` routes to discrete `keywords[]`, while Whisper-family models and compatible endpoints retain the glossary prompt. Gemini Live is a separate WebSocket adapter and sends the vocabulary in its setup message ([lib.rs](../../crates/hark-pipeline/src/lib.rs)).
 
@@ -137,7 +137,7 @@ Provider diagnostics retain fixed categories and structural JSON locations, neve
 
 The meeting final pass also takes a vocabulary hint, but through Deepgram's dictation contract directly rather than through this biasing layer: `deepgram_final_pass` forwards `settings.spellbook.terms()` as the same repeated `keyterm` query parameter the batch Deepgram adapter uses ([Transcription](TRANSCRIPTION.md#deepgram-and-gemini-live)).
 
-Sources: [crates/hark-config/src/lib.rs](../../crates/hark-config/src/lib.rs), [crates/hark-pipeline/src/lib.rs](../../crates/hark-pipeline/src/lib.rs), [crates/hark-stt/src/openai_compatible.rs:52-80](../../crates/hark-stt/src/openai_compatible.rs#L52-L80), [crates/hark-stt/src/openai_transcribe.rs:53-75](../../crates/hark-stt/src/openai_transcribe.rs#L53-L75), [crates/hark-stt/src/deepgram.rs:29-47](../../crates/hark-stt/src/deepgram.rs#L29-L47), [crates/hark-stt/src/gemini_live.rs:224-254](../../crates/hark-stt/src/gemini_live.rs#L224-L254)
+Sources: [crates/hark-config/src/lib.rs](../../crates/hark-config/src/lib.rs), [crates/hark-pipeline/src/lib.rs](../../crates/hark-pipeline/src/lib.rs), [crates/hark-stt/src/openai_compatible.rs:52-80](../../crates/hark-stt/src/openai_compatible.rs#L52-L80), [crates/hark-stt/src/openai_transcribe.rs:53-75](../../crates/hark-stt/src/openai_transcribe.rs#L53-L75), [crates/hark-stt/src/deepgram.rs:29-47](../../crates/hark-stt/src/deepgram.rs#L29-L47), [crates/hark-stt/src/gemini_live.rs:232-271](../../crates/hark-stt/src/gemini_live.rs#L232-L271)
 <!-- END:AUTOGEN hark_08_spellbook_biasing -->
 
 ---

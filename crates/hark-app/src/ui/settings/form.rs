@@ -97,8 +97,11 @@ fn live_mode_row(ui: &mut Ui, draft: &mut Settings) {
             .on_hover_text(
                 "Gemini tidies the text inside the transcription call — one round trip instead of \
                  two, so it is faster. Your cleanup voice does NOT run: Gemini applies its own \
-                 generic cleanup, not your prompt. History stores the tidied text rather than \
-                 what you said, and invocation triggers match against it.",
+                 generic cleanup, not your prompt. It drops openers like \"so basically\", \
+                 carries out spoken edits like \"drop the other bullet points\" instead of \
+                 typing them, and can answer a dictation that sounds like a request. Use \
+                 Verbatim when you dictate prompts or instructions. History stores the tidied \
+                 text rather than what you said, and invocation triggers match against it.",
             );
     });
 }
@@ -387,6 +390,23 @@ pub fn voice_section(ui: &mut Ui, draft: &mut Settings, secret_clicks: &mut u32)
             inline_error(ui, "The custom voice needs a prompt.");
         }
     }
+    // Picking Verbatim here does nothing while Smart is on, and that is
+    // exactly the setting someone reaches for when Smart rewrites their words.
+    if smart_replaces_voice(draft) {
+        inline_error(
+            ui,
+            "Gemini's Smart transcript is on, so this voice does not run and Gemini rewrites \
+             your words itself. For your words as spoken, set Speech to text \u{2192} \
+             Transcript to Verbatim.",
+        );
+    }
+}
+
+/// Whether Gemini Live's SMART mode will clean the text in place of the voice.
+fn smart_replaces_voice(draft: &Settings) -> bool {
+    draft.provider.kind == ProviderKind::Gemini
+        && draft.provider.live_mode == LiveMode::Smart
+        && draft.local_stt.mode != hark_config::LocalMode::Primary
 }
 
 pub(crate) fn voice_display(name: VoiceName) -> &'static str {
@@ -422,6 +442,23 @@ mod tests {
         // It is the escape hatch, not a peer of the named presets.
         let choices = provider_choices();
         assert_eq!(choices.last().unwrap().0, ProviderKind::OpenaiCompatible);
+    }
+
+    #[test]
+    fn the_voice_warns_only_when_smart_will_actually_replace_it() {
+        let smart = |extra: &str| {
+            Settings::from_toml(&format!(
+                "[provider]\nkind = \"gemini\"\nlive_mode = \"smart\"\n{extra}"
+            ))
+            .unwrap()
+        };
+        assert!(smart_replaces_voice(&smart("")));
+        // On-device primary never opens a Gemini session, so the voice runs.
+        assert!(!smart_replaces_voice(&smart(
+            "[local_stt]\nmode = \"primary\""
+        )));
+        let verbatim = Settings::from_toml("[provider]\nkind = \"gemini\"").unwrap();
+        assert!(!smart_replaces_voice(&verbatim));
     }
 
     #[test]
