@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.62.6] - 2026-10-15
+
+### Fixed
+
+- Release builds: the macOS build now also retries the check that the notarization ticket was attached. When the 0.62.4 Mac build was re-run, attaching the ticket worked, but the follow-up check lost its connection to Apple in the same way, and 0.62.5 only retried the attach step. Both steps now retry up to four times. 0.62.4 shipped without a Mac download because of this; this release is the first with one since 0.62.3.
+
 ## [0.62.5] - 2026-10-15
 
 ### Fixed

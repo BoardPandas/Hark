@@ -46,19 +46,21 @@ done < <(printf '%s\n' "$linked" | tail -n +2 | awk '{print $1}')
     echo "Executable does not contain the required arm64 architecture" >&2; exit 1;
 }
 /usr/bin/plutil -lint "$app/Contents/Info.plist" "$root/packaging/macos/entitlements.plist"
-# Stapling downloads the ticket Apple just issued from CloudKit, a different
-# service from notarytool. For 0.62.4 that download dropped mid-request
-# (NSURLErrorDomain -1005, stapler error 68) after Apple had already accepted
-# the DMG, failing a release with nothing wrong in it. A fresh ticket can also
-# take a moment to become fetchable. Retry the download only, never resubmit.
-staple() {
+# Both `stapler staple` and `stapler validate` look the ticket up in Apple's
+# CloudKit, a different service from notarytool. For 0.62.4 that lookup
+# dropped mid-request (NSURLErrorDomain -1005, stapler error 68) after Apple
+# had already accepted the DMG: once in staple, and on the re-run in validate,
+# straight after a staple that had worked. Nothing was wrong with the package
+# either time. A fresh ticket can also take a moment to become fetchable.
+# Retry the lookup only, never resubmit.
+stapler_retry() {
     local attempt
     for attempt in 1 2 3 4; do
-        if /usr/bin/xcrun stapler staple "$1"; then
+        if /usr/bin/xcrun stapler "$1" "$2"; then
             return 0
         fi
         [[ $attempt -lt 4 ]] || break
-        echo "stapler staple failed (attempt $attempt of 4); retrying in $((attempt * 15)) s" >&2
+        echo "stapler $1 failed (attempt $attempt of 4); retrying in $((attempt * 15)) s" >&2
         sleep $((attempt * 15))
     done
     return 1
@@ -70,8 +72,8 @@ sign_args=(--force --sign "$identity" --options runtime --entitlements "$root/pa
 if [[ "${HARK_RELEASE:-0}" == 1 ]]; then
     /usr/bin/ditto -c -k --keepParent "$app" "$work/Hark.zip"
     /usr/bin/xcrun notarytool submit "$work/Hark.zip" "${notary_args[@]}" --wait
-    staple "$app"
-    /usr/bin/xcrun stapler validate "$app"
+    stapler_retry staple "$app"
+    stapler_retry validate "$app"
     /usr/sbin/spctl --assess --type execute "$app"
 fi
 ln -s /Applications "$work/image/Applications"
@@ -81,8 +83,8 @@ asset="$work/$name"
 if [[ "${HARK_RELEASE:-0}" == 1 ]]; then
     /usr/bin/codesign --force --sign "$identity" --timestamp "$asset"
     /usr/bin/xcrun notarytool submit "$asset" "${notary_args[@]}" --wait
-    staple "$asset"
-    /usr/bin/xcrun stapler validate "$asset"
+    stapler_retry staple "$asset"
+    stapler_retry validate "$asset"
 fi
 # Keep the bundle available for local launch/inspection as well as the DMG.
 # Remove a previous output first: ditto would retain stale sealed resources.

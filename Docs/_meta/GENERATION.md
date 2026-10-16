@@ -1,5 +1,11 @@
 # Generation Metadata
 
+## macOS stapler validate retry — 2026-10-15 (0.62.6)
+
+- **Source reviewed:** `7b3d214` (0.62.5) plus `stapler_retry` replacing `staple` in `scripts/package-macos.sh`, now wrapping both staple and validate for the app and the DMG. Global baseline `784272c` is unchanged.
+- **Scope:** Release and Packaging (macOS package paragraph, including that a re-run or dispatch rebuilds the tag's commit). AUTOGEN markers are preserved.
+- **Evidence:** the v0.62.4 macOS re-run (job 116755766887) stapled the DMG successfully, then `stapler validate` failed with the same `NSURLErrorDomain -1005` against `api.apple-cloudkit.com`, error 68.
+
 ## macOS staple retry — 2026-10-15 (0.62.5)
 
 - **Source reviewed:** `7574551` (0.62.4) plus `staple()` in `scripts/package-macos.sh`. Global baseline `784272c` is unchanged.
