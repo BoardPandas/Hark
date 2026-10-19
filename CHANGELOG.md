@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.62.7] - 2026-10-19
+
+### Changed
+
+- `/add-lesson` and `/add-practice` now publish through Roundtable's `kb_propose` instead of committing to LL-G or BP `main` with `gh`. LL-G and BP are public, and the direct path skipped every check: Roundtable refuses credentials, email addresses and IPs, refuses a duplicate entry, caps each agent at 10 proposals a day, and indexes an entry only once that repository's CI passes. Both skills also have a step to strip client names, internal hostnames and other details no scan can recognise.
+- `gh` is used only to start a new LL-G shelf or BP concern, which `kb_propose` cannot create. That path writes the entry, its new index and the master index line as one commit with `.claude/scripts/kb-commit.mjs`, added in this release.
+- Without Roundtable the skills stop and say how to set it up. They no longer fall back to `gh`.
+- Eval case 17 (`add-lesson-trigger`) no longer counts a direct GitHub-API write to LL-G as equivalent to `/add-lesson`.
+
 ## [0.62.6] - 2026-10-15
 
 ### Fixed

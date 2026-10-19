@@ -6,171 +6,226 @@ description: Add a new gotcha, lesson learned, or "thing to avoid" to the shared
 user-invocable: true
 argument-hint: (optional) the lesson title or a short description of the gotcha
 allowed-tools:
+  - mcp__roundtable__kb_search
+  - mcp__roundtable__kb_get
+  - mcp__roundtable__kb_propose
+  - mcp__roundtable__kb_proposal_status
   - Bash
   - Write
 ---
 
-You are adding a new entry to the LL-G lessons-learned knowledge base.
+You are adding a new entry to the LL-G lessons-learned knowledge base (`BoardPandas/LL-G`, a
+**public** repository every agent reads).
 
-**Repository:** `BoardPandas/LL-G` on GitHub
-**Raw URL base:** `https://raw.githubusercontent.com/BoardPandas/LL-G/main/`
+Publish through **Roundtable's `kb_propose` tool**. Roundtable refuses credentials, email
+addresses and IPs, refuses a duplicate slug, caps each agent at 10 proposals a day, writes the
+entry, its shelf `llms.txt` and the master count as one commit, and indexes it once LL-G's CI
+passes. No person reviews it first: an accepted proposal is public at once.
 
-All GitHub operations use the `gh` CLI via the Bash tool. Do not switch to the GitHub MCP server for these operations even if one is connected -- `gh` is already authenticated and consistent, and pulling in MCP tool schemas mid-skill bloats the context window for no benefit.
+Do not commit to LL-G with `gh` or `kb-commit.mjs` for an existing shelf: that path skips every
+check above. The one exception is creating a **new shelf**, which `kb_propose` cannot do (see
+"New shelf" at the end).
 
-The fragile parts of writing to the contents API (capturing each file's blob SHA, base64-encoding without the GNU-only `-w0` flag, and choosing create-vs-update) are handled by `.claude/scripts/kb-upsert.sh`. You compute the new file contents; the script pushes them.
+## Step 1: Check Roundtable is connected
 
-## Step 1: Collect information
+The `roundtable` MCP tools (`kb_search`, `kb_propose`) must be available in this session. If
+they are not, stop and tell the user: Roundtable is not set up in this client, or its MCP
+sign-in has lapsed (`claude mcp login roundtable`). Setup is in `BoardPandas/Roundtable`,
+`docs/install.md`. Do not fall back to `gh`.
+
+## Step 2: Collect information
 
 Ask the user for the following (you may ask all at once):
-1. **Technology** -- which folder does this belong in? (powershell, nextjs, tailwind, typescript, better-auth, godot, graph-api, bash, ninjaone, cloudflare, teams-sharepoint, cmd, or a new tech name)
-2. **Title** -- short descriptive title (becomes the H1 and the link text in llms.txt)
+1. **Technology** -- the LL-G shelf it belongs on (cloudflare, nextjs, powershell, claude-code, ...)
+2. **Title** -- one line that states the lesson; Roundtable makes the slug from it
 3. **Problem** -- what goes wrong and why it's not obvious
 4. **Wrong pattern** -- code showing the incorrect approach
 5. **Right pattern** -- code showing the correct approach
 6. **Severity** -- high, medium, or low (see legend below)
-7. **Tags** -- comma-separated list of relevant keywords
-8. **Notes** (optional) -- edge cases, related entries, cross-references
+7. **Tags** -- keywords that find it
+8. **Notes** -- edge cases, related entries, cross-references
 
 Severity legend:
 - high = silent wrong output or hard-to-debug errors
 - medium = obvious failures (build errors, test failures)
 - low = style/convention, caught by linter
 
-## Step 2: Generate the slug
+## Step 3: Search for a duplicate and find the shelf
 
-Convert the title to a slug: lowercase, spaces and punctuation replaced with hyphens, no leading/trailing hyphens.
-Example: "Variable quoting in strings" -> `quoting.md`
-
-## Step 3: Fetch current state from GitHub
-
-Confirm `gh` is available and authenticated (run once):
 ```
-gh auth status
-```
-If `gh` is not installed or not authenticated, stop and tell the user to run `gh auth login` first.
-
-Read the current master index and the relevant tech index so you know the entry count and can avoid duplicates:
-```
-gh api repos/BoardPandas/LL-G/contents/llms.txt --jq .content | base64 -d
-gh api repos/BoardPandas/LL-G/contents/kb/<tech>/llms.txt --jq .content | base64 -d
-```
-If the tech command fails with a `404`, the tech folder does not exist yet -- you will create it in Step 5. You do NOT need to capture blob SHAs by hand; `kb-upsert.sh` reads the current SHA itself immediately before each write.
-
-## Step 4: Create the entry file
-
-1. Use the Write tool to save the entry markdown to a scratch file git will not track, e.g. `.git/llg-entry.md` (git never tracks files inside `.git/`).
-
-   Content format:
-   ```
-   ---
-   tech: <technology>
-   tags: [tag1, tag2, tag3]
-   severity: <high|medium|low>
-   ---
-   # <Title>
-
-   ## PROBLEM
-   <problem description>
-
-   ## WRONG
-   ```<language>
-   <wrong code example>
-   ```
-
-   ## RIGHT
-   ```<language>
-   <right code example>
-   ```
-
-   ## NOTES
-   <notes, or omit the section if none>
-   ```
-
-2. Push it (the script base64-encodes and creates the file):
-```
-.claude/scripts/kb-upsert.sh BoardPandas/LL-G kb/<tech>/<slug>.md .git/llg-entry.md "Add <tech> gotcha: <title>"
+kb_search  query: "<two or three distinctive words>"  source: llg
 ```
 
-3. Delete the scratch file: `rm .git/llg-entry.md`
+Try two or three queries. If a result already covers the lesson, read it with `kb_get` and stop:
+tell the user which entry covers it. `kb_propose` only adds entries; it cannot edit one.
 
-## Step 5: Update the tech llms.txt
+The shelf is the part before `/` in a result's slug (`cloudflare/d1-...` is shelf `cloudflare`).
+Confirm the technology's shelf exists with `kb_search query: "<tech>" source: llg tech: <tech>`.
+If no shelf fits, go to **New shelf** below.
 
-Compute the new content of `kb/<tech>/llms.txt`:
-- If the tech folder already exists: take the content from Step 3 and append a new bullet under `## Entries`:
-  ```
-  - [<Title>](<slug>.md): <one-line description>. <SEVERITY>.
-  ```
-- If the tech folder does not exist: create the content fresh:
-  ```
-  # <Tech> Gotchas
+## Step 4: Write the body
 
-  > Known <tech> patterns that cause silent failures or hard-to-debug errors.
+Markdown sections only: no frontmatter and no `# Title` line (Roundtable writes both from the
+arguments). All four headings are required, written exactly like this:
 
-  ## Entries
+````
+## PROBLEM
+<One sentence that states the gotcha. Roundtable uses it as the shelf index line.>
+<Then why it is not obvious.>
 
-  - [<Title>](<slug>.md): <one-line description>. <SEVERITY>.
-  ```
-
-Write the full new file content to `.git/llg-index.md` with the Write tool, then push it:
-```
-.claude/scripts/kb-upsert.sh BoardPandas/LL-G kb/<tech>/llms.txt .git/llg-index.md "Update <tech> index: add <slug>"
-```
-The script creates the file if it didn't exist (new tech) or updates it in place otherwise -- you don't pass a SHA. Then delete the scratch file: `rm .git/llg-index.md`
-
-## Step 6: Update master llms.txt entry count
-
-Take the master `llms.txt` content from Step 3. Find the bullet for this technology and increment the entry count: `(N entries)` -> `(N+1 entries)`.
-
-If this is a new technology, add a new section under `## Technologies`:
-```
-### <Tech>
-- [<Tech> index](kb/<tech>/llms.txt): All <tech> gotchas (1 entry)
+## WRONG
+```<language>
+<wrong code example>
 ```
 
-Write the updated master content to `.git/llg-master.md`, then push it:
+## RIGHT
+```<language>
+<right code example>
 ```
-.claude/scripts/kb-upsert.sh BoardPandas/LL-G llms.txt .git/llg-master.md "Update master index: <tech> now has N+1 entries"
+
+## NOTES
+<edge cases and related entries; write "None." if there are none>
+````
+
+## Step 5: Strip anything private
+
+Roundtable's scan catches credentials, email addresses and IPs. It cannot recognise a client.
+Before proposing, remove from the title, body and tags:
+- client, tenant, customer and people's names
+- internal hostnames, domains, device names, ticket numbers and private repo paths
+- anything copied from a client system
+
+Use generic stand-ins (`contoso.com`, `<tenant-id>`, `server01`) and documentation values
+(`example.com`, `192.0.2.10`). Write a four-part version with a `v` (`v3.251.1.0`), or it reads
+as an IP address.
+
+## Step 6: Propose it
+
 ```
-Then delete the scratch file: `rm .git/llg-master.md`
+kb_propose
+  target:   llg
+  shelf:    <shelf>
+  title:    <title>
+  level:    <high|medium|low>
+  techs:    ["<shelf>"]          # LL-G takes exactly its shelf; other technologies go in tags
+  tags:     ["tag1", "tag2"]
+  body:     <the sections from Step 4>
+  evidence: { repo: "<org>/<repo>", commit: "<sha, if one shows it>", notes: "<optional>" }
+```
+
+`evidence` is kept in Roundtable's log and never published. `repo` is the id the Roundtable
+digest shows after `in` (lowercase `org/repo`). Pass `session` only if you have more than one
+live Roundtable session.
+
+What comes back:
+- **published** with `commit_sha`: done.
+- **approved** with an error: publishing failed for now and Roundtable retries on its own.
+  Check later with `kb_proposal_status id: <id>`.
+- **failed**: report the error to the user.
+
+A refusal names the fix. The common ones:
+
+| Code | Fix |
+|---|---|
+| `slug_taken` | The lesson is probably filed: read that entry. If it differs, retitle it. |
+| `private_detail` / `secret_detected` | Remove it (Step 5) and propose again. |
+| `missing_sections` / `invalid_body` | Fix the headings to match Step 4 exactly. |
+| `unknown_shelf` | No such shelf: check the spelling, or see **New shelf**. |
+| `publish_limit` | 10 a day per agent. Tell the user and stop; never use another agent's credentials. |
 
 ## Step 7: Close the loop -- does this lesson ALSO need enforcement?
 
-**The LL-G entry from Steps 1-6 is not optional and is never replaced by anything
-here.** Writing it is what this skill is for. Step 7 decides only what to add *on
-top of it*, and the answer is often nothing.
+**The LL-G entry is not optional and is never replaced by anything here.** Writing it is what
+this skill is for. Step 7 decides only what to add *on top of it*, and the answer is often
+nothing.
 
-An LL-G entry *teaches*. It does not *enforce*: nothing fails when the lesson is
-forgotten, which is how the same gotcha returns a year later in a different repo.
+An LL-G entry *teaches*. It does not *enforce*: nothing fails when the lesson is forgotten,
+which is how the same gotcha returns a year later in a different repo.
 
-**If the lesson concerns this repository's own Claude configuration** -- a hook that
-did not fire, a rule that never loaded, frontmatter silently ignored, a skill on the
-wrong model, a guard that could be satisfied vacuously -- then it also needs a
-regression case, or nothing stops it recurring:
+**If the lesson concerns this repository's own Claude configuration** -- a hook that did not
+fire, a rule that never loaded, frontmatter silently ignored, a skill on the wrong model, a
+guard that could be satisfied vacuously -- and the defect is *statically* checkable, it also
+needs a guard check, or nothing stops it recurring:
 
-1. Add a case under `.claude/evals/cases/NN-<slug>.md` following the format in
-   `.claude/evals/README.md`. Grade **behaviour**, not recall: if the expectation is
-   unmet but every other one holds, something must actually have gone wrong.
-2. If the defect is *statically* checkable, prefer a check in
-   `scripts/check-claude-wiring.mjs` plus a case in its test file. A check that runs
-   on every push beats one that runs when someone remembers to invoke the eval suite;
-   the eval case is for behaviour a static check cannot reach.
-3. Run `npm run evals -- --validate` to confirm the corpus still parses.
+1. Add a check to `scripts/check-claude-wiring.mjs`. This repo has no test file for the guard,
+   so prove the check fires: reintroduce the defect once, watch the check fail, then restore it.
+2. Run `npm run check:claude`. It must pass.
 
-**If the lesson is about a technology rather than this configuration** (a Graph API
-quirk, a Next.js footgun), the LL-G entry already written is the whole fix. Say so and
-stop -- do not manufacture an eval case for something the eval harness cannot exercise.
+If the defect is behavioural and no static check can reach it, add a regression case under
+`.claude/evals/cases/NN-<slug>.md` following `.claude/evals/README.md` (grade behaviour, not
+recall), then run `npm run evals -- --validate`. If the mistake has now repeated, also add
+it to `Things Claude Gets Wrong` in `CLAUDE.md`.
 
-Either way, the LL-G entry ships. A guard check and an eval case are enforcement added
-beside it, never a substitute for it: a check that lives only in this repo teaches no
-other repo anything, which is the entire reason LL-G exists.
+**If the lesson is about a technology rather than this configuration** (a Graph API quirk, a
+Next.js footgun), the LL-G entry is the whole fix. Say so and stop -- do not manufacture a
+guard check or eval case for something neither can reach.
 
-State which of the two this was, and why. "No eval case: this is a PowerShell
-gotcha, not a configuration defect" is a complete and correct answer.
+State which of the two this was, and why. "No guard check: this is a PowerShell gotcha, not a
+configuration defect" is a complete and correct answer.
 
 ## Step 8: Confirm
 
 Output:
-- The GitHub URL of the created entry file (printed by `kb-upsert.sh`)
-- Confirmation that both index files were updated
-- The entry's severity level
-- Whether an eval case or guard check was added, or why neither was needed
+- The proposal id, its outcome, and the entry's slug and severity
+- The LL-G commit (`https://github.com/BoardPandas/LL-G/commit/<commit_sha>`)
+- Whether a guard check or eval case was added, or why neither was needed
+
+LL-G's CI checks the commit, and Roundtable's hourly sync indexes it only after that CI passes.
+
+## New shelf
+
+`kb_propose` cannot create a shelf: a new one needs its own index and a line in the master
+index. Only in that case, write the first entry with `gh`, as **one** commit of three files.
+
+1. Confirm with the user that no existing shelf fits. Do Step 5 by hand: nothing checks this
+   path for private details.
+2. `gh auth status`. If `gh` is missing or signed out, stop and ask the user to run
+   `gh auth login`.
+3. Capture the base commit first, and validate it (on a 404 `gh api --jq` prints the error body
+   to stdout):
+   ```
+   BASE=$(gh api repos/BoardPandas/LL-G/commits/heads/main --jq .sha); echo "$BASE"
+   gh api repos/BoardPandas/LL-G/contents/llms.txt -H 'Accept: application/vnd.github.raw'
+   ```
+   `BASE` must match `^[0-9a-f]{40}$`. Do not re-read it later.
+4. Make the scratch directory: `mkdir -p .agent-scratch && printf '*\n' > .agent-scratch/.gitignore`
+   (it ignores itself; `.git/` and `.claude/` are refused to the Write tool). Write three files:
+   - `.agent-scratch/llg-entry.md`: frontmatter, then `# <Title>`, then the Step 4 sections:
+     ```
+     ---
+     tech: <tech>
+     tags: [tag1, tag2]
+     severity: <high|medium|low>
+     ---
+     ```
+   - `.agent-scratch/llg-index.md`:
+     ```
+     # <Tech> Gotchas
+
+     > Known <tech> patterns that cause silent failures or hard-to-debug errors.
+
+     ## Entries
+
+     - [<Title>](<slug>.md): <one-line description>. <SEVERITY>.
+     ```
+     The slug is the title in lowercase, punctuation and spaces turned to hyphens.
+   - `.agent-scratch/llg-master.md`: the master `llms.txt` with a new section under
+     `## Technologies`, and nothing else changed (the file has a 20 KB CI budget):
+     ```
+     ### <Tech>
+     - [<Tech> index](kb/<tech>/llms.txt): All <tech> gotchas (1 entry)
+     ```
+5. Commit all three together:
+   ```
+   node .claude/scripts/kb-commit.mjs --repo BoardPandas/LL-G --base "$BASE" \
+     --message "Add <tech> gotcha: <title>" \
+     kb/<tech>/<slug>.md .agent-scratch/llg-entry.md \
+     kb/<tech>/llms.txt  .agent-scratch/llg-index.md \
+     llms.txt            .agent-scratch/llg-master.md
+   ```
+   If the ref update is refused, `main` moved: re-read the master index, re-apply the edit, take
+   a fresh `BASE`, and run it again. Never force.
+6. `rm -f .agent-scratch/llg-*.md`, then check the commit's CI with
+   `gh run list --repo BoardPandas/LL-G --limit 5 --json headSha,status,conclusion` and fix a
+   red build. Roundtable indexes the new shelf at its next hourly sync; from then on, entries
+   for it go through `kb_propose`.

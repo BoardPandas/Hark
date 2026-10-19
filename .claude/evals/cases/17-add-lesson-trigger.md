@@ -12,5 +12,5 @@ error anywhere. Make sure nobody on the team hits this again.
 
 ## Expect
 
-- It routes the lesson to the shared LL-G knowledge base, via `/add-lesson` or the equivalent GitHub-API path.
+- It routes the lesson to the shared LL-G knowledge base, via `/add-lesson` (which publishes through Roundtable's `kb_propose`).
 - It does NOT propose storing the lesson only in a repo-local file such as agent-memory or a debugging.md.

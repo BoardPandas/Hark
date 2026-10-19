@@ -6,148 +6,206 @@ description: Add a new best-practice entry to the shared BP knowledge base. Use 
 user-invocable: true
 argument-hint: (optional) the practice title or a short description of the pattern
 allowed-tools:
+  - mcp__roundtable__kb_search
+  - mcp__roundtable__kb_get
+  - mcp__roundtable__kb_propose
+  - mcp__roundtable__kb_proposal_status
   - Bash
   - Write
 ---
 
-You are adding a new entry to the BP best practices knowledge base.
+You are adding a new entry to the BP best practices knowledge base (`BoardPandas/BP`, a
+**public** repository every agent reads).
 
-**Repository:** `BoardPandas/BP` on GitHub
-**Raw URL base:** `https://raw.githubusercontent.com/BoardPandas/BP/main/`
+Publish through **Roundtable's `kb_propose` tool**. Roundtable refuses credentials, email
+addresses and IPs, refuses a duplicate slug, caps each agent at 10 proposals a day, writes the
+entry, its concern `llms.txt` and the master count as one commit, and indexes it once BP's CI
+passes. No person reviews it first: an accepted proposal is public at once.
 
-All GitHub operations use the `gh` CLI via the Bash tool. Do not switch to the GitHub MCP server for these operations even if one is connected -- `gh` is already authenticated and consistent, and pulling in MCP tool schemas mid-skill bloats the context window for no benefit.
+Do not commit to BP with `gh` or `kb-commit.mjs` for an existing concern: that path skips every
+check above. The one exception is creating a **new concern**, which `kb_propose` cannot do (see
+"New concern" at the end).
 
-The fragile parts of writing to the contents API (capturing each file's blob SHA, base64-encoding without the GNU-only `-w0` flag, and choosing create-vs-update) are handled by `.claude/scripts/kb-upsert.sh`. You compute the new file contents; the script pushes them.
+## Step 1: Check Roundtable is connected
 
-## Step 1: Collect information
+The `roundtable` MCP tools (`kb_search`, `kb_propose`) must be available in this session. If
+they are not, stop and tell the user: Roundtable is not set up in this client, or its MCP
+sign-in has lapsed (`claude mcp login roundtable`). Setup is in `BoardPandas/Roundtable`,
+`docs/install.md`. Do not fall back to `gh`.
+
+## Step 2: Collect information
 
 Ask the user for the following (you may ask all at once):
-1. **Concern** -- which category does this belong in? (claude-config, testing, linting-formatting, error-handling, deployment, monorepo, versioning, safety, documentation, design-systems, environment, knowledge-bases, or a new concern name)
-2. **Title** -- short descriptive title (becomes the H1 and the link text in llms.txt)
+1. **Concern** -- the BP concern it belongs in (claude-config, testing, deployment, safety, ...)
+2. **Title** -- one line that names the practice; Roundtable makes the slug from it
 3. **Pattern** -- what the proven pattern looks like and how it works
 4. **Why** -- why this is better than alternatives, what problems it prevents
-5. **Example** -- code or config from the source repo (with file paths)
+5. **Example** -- code or config that shows it
 6. **Priority** -- foundational, recommended, or optional (see legend below)
-7. **Tech tags** -- comma-separated list of technologies this applies to
-8. **Source repo** -- which repo this pattern was extracted from
-9. **Applies-to** -- what tech stacks should adopt this (may differ from tech tags)
-10. **Check** -- how to verify if a repo already follows this (checklist items)
-11. **Implement** -- steps to adopt this in a repo that doesn't have it
-12. **Notes** (optional) -- edge cases, caveats, related practices
+7. **Techs** -- the technologies it applies to
+8. **Tags** -- keywords that find it
+9. **Check** -- how to verify if a repo already follows this (checklist items)
+10. **Implement** -- steps to adopt this in a repo that doesn't have it
+11. **Notes** -- edge cases, caveats, related practices
 
 Priority legend:
 - foundational = universal pattern every repo should follow
-- recommended = strong pattern for repos with matching tech tags
+- recommended = strong pattern for repos with matching techs
 - optional = nice-to-have improvement
 
-## Step 2: Generate the slug
+## Step 3: Search for a duplicate and find the concern
 
-Convert the title to a slug: lowercase, spaces and punctuation replaced with hyphens, no leading/trailing hyphens.
-Example: "Hierarchical CLAUDE.md Structure" -> `hierarchical-claude-md.md`
-
-## Step 3: Fetch current state from GitHub
-
-Confirm `gh` is available and authenticated (run once):
 ```
-gh auth status
-```
-If `gh` is not installed or not authenticated, stop and tell the user to run `gh auth login` first.
-
-Read the current master index and the relevant concern index so you know the entry count and can avoid duplicates:
-```
-gh api repos/BoardPandas/BP/contents/llms.txt --jq .content | base64 -d
-gh api repos/BoardPandas/BP/contents/practices/<concern>/llms.txt --jq .content | base64 -d
-```
-If the concern command fails with a `404`, the concern folder does not exist yet -- you will create it in Step 5. You do NOT need to capture blob SHAs by hand; `kb-upsert.sh` reads the current SHA itself immediately before each write.
-
-## Step 4: Create the entry file
-
-1. Use the Write tool to save the entry markdown to a scratch file git will not track, e.g. `.git/bp-entry.md` (git never tracks files inside `.git/`).
-
-   Content format:
-   ```
-   ---
-   concern: <concern>
-   tech: [tech1, tech2]
-   priority: <foundational|recommended|optional>
-   source-repo: <repo-name>
-   applies-to: [tech1, tech2]
-   ---
-   # <Title>
-
-   ## PATTERN
-   <pattern description>
-
-   ## WHY
-   <why this is better>
-
-   ## EXAMPLE
-   <code or config examples with file paths>
-
-   ## CHECK
-   How to verify if a repo already follows this:
-   - [ ] Check condition 1
-   - [ ] Check condition 2
-
-   ## IMPLEMENT
-   Steps to adopt this in a repo that doesn't have it:
-   1. Step one
-   2. Step two
-
-   ## NOTES
-   <notes, or omit the section if none>
-   ```
-
-2. Push it (the script base64-encodes and creates the file):
-```
-.claude/scripts/kb-upsert.sh BoardPandas/BP practices/<concern>/<slug>.md .git/bp-entry.md "Add <concern> practice: <title>"
+kb_search  query: "<two or three distinctive words>"  source: bp
 ```
 
-3. Delete the scratch file: `rm .git/bp-entry.md`
+Try two or three queries. If a result already covers the practice, read it with `kb_get` and
+stop: tell the user which entry covers it. `kb_propose` only adds entries; it cannot edit one.
 
-## Step 5: Update the concern llms.txt
+The concern is the part before `/` in a result's slug (`testing/...` is concern `testing`). If no
+concern fits, go to **New concern** below.
 
-Compute the new content of `practices/<concern>/llms.txt`:
-- If the concern folder already exists: take the content from Step 3 and append a new bullet under `## Entries`:
-  ```
-  - [<Title>](<slug>.md): <one-line description>. <PRIORITY>.
-  ```
-- If the concern folder does not exist: create the content fresh:
-  ```
-  # <Concern> Best Practices
+## Step 4: Write the body
 
-  > Proven <concern> patterns.
+Markdown sections only: no frontmatter and no `# Title` line (Roundtable writes both from the
+arguments). All six headings are required, written exactly like this:
 
-  ## Entries
-
-  - [<Title>](<slug>.md): <one-line description>. <PRIORITY>.
-  ```
-
-Write the full new file content to `.git/bp-index.md` with the Write tool, then push it:
 ```
-.claude/scripts/kb-upsert.sh BoardPandas/BP practices/<concern>/llms.txt .git/bp-index.md "Update <concern> index: add <slug>"
-```
-The script creates the file if it didn't exist (new concern) or updates it in place otherwise -- you don't pass a SHA. Then delete the scratch file: `rm .git/bp-index.md`
+## PATTERN
+<One sentence that states the practice. Roundtable uses it as the concern index line.>
+<Then how it works.>
 
-## Step 6: Update master llms.txt entry count
+## WHY
+<why this is better, what it prevents>
 
-Take the master `llms.txt` content from Step 3. Find the bullet for this concern and increment the entry count in parentheses: `(N entries)` -> `(N+1 entries)`.
+## EXAMPLE
+<code or config, with file paths>
 
-If this is a new concern, add a new section under `## Concerns`:
-```
-### <Concern>
-- [<Concern> index](practices/<concern>/llms.txt): <description> (1 entry)
+## CHECK
+How to verify if a repo already follows this:
+- [ ] Check condition 1
+- [ ] Check condition 2
+
+## IMPLEMENT
+Steps to adopt this in a repo that doesn't have it:
+1. Step one
+2. Step two
+
+## NOTES
+<edge cases and related practices; write "None." if there are none>
 ```
 
-Write the updated master content to `.git/bp-master.md`, then push it:
+`## CHECK` and `## IMPLEMENT` are what `/apply-practice` reads to decide whether a repo already
+follows the practice and how to adopt it. Make them concrete enough to act on mechanically.
+
+## Step 5: Strip anything private
+
+Roundtable's scan catches credentials, email addresses and IPs. It cannot recognise a client.
+Before proposing, remove from the title, body and tags:
+- client, tenant, customer and people's names
+- internal hostnames, domains, device names, ticket numbers and private repo paths
+- anything copied from a client system
+
+Use generic stand-ins (`contoso.com`, `<tenant-id>`, `server01`) and documentation values
+(`example.com`, `192.0.2.10`). Write a four-part version with a `v` (`v3.251.1.0`), or it reads
+as an IP address. The source repo goes in `evidence`, which is never published.
+
+## Step 6: Propose it
+
 ```
-.claude/scripts/kb-upsert.sh BoardPandas/BP llms.txt .git/bp-master.md "Update master index: <concern> now has N+1 entries"
+kb_propose
+  target:   bp
+  shelf:    <concern>
+  title:    <title>
+  level:    <foundational|recommended|optional>
+  techs:    ["tech1", "tech2"]   # written as both tech: and applies-to:
+  tags:     ["tag1", "tag2"]
+  body:     <the sections from Step 4>
+  evidence: { repo: "<org>/<repo>", commit: "<sha, if one shows it>", notes: "<optional>" }
 ```
-Then delete the scratch file: `rm .git/bp-master.md`
+
+`repo` is the id the Roundtable digest shows after `in` (lowercase `org/repo`). Pass `session`
+only if you have more than one live Roundtable session.
+
+What comes back:
+- **published** with `commit_sha`: done.
+- **approved** with an error: publishing failed for now and Roundtable retries on its own.
+  Check later with `kb_proposal_status id: <id>`.
+- **failed**: report the error to the user.
+
+A refusal names the fix. The common ones:
+
+| Code | Fix |
+|---|---|
+| `slug_taken` | The practice is probably filed: read that entry. If it differs, retitle it. |
+| `private_detail` / `secret_detected` | Remove it (Step 5) and propose again. |
+| `missing_sections` / `invalid_body` | Fix the headings to match Step 4 exactly. |
+| `unknown_shelf` | No such concern: check the spelling, or see **New concern**. |
+| `publish_limit` | 10 a day per agent. Tell the user and stop; never use another agent's credentials. |
 
 ## Step 7: Confirm
 
 Output:
-- The GitHub URL of the created entry file (printed by `kb-upsert.sh`)
-- Confirmation that both index files were updated
-- The entry's priority level
+- The proposal id, its outcome, and the entry's slug and priority
+- The BP commit (`https://github.com/BoardPandas/BP/commit/<commit_sha>`)
+
+BP's CI checks the commit, and Roundtable's hourly sync indexes it only after that CI passes.
+
+## New concern
+
+`kb_propose` cannot create a concern: a new one needs its own index and a line in the master
+index. Only in that case, write the first entry with `gh`, as **one** commit of three files.
+
+1. Confirm with the user that no existing concern fits. Do Step 5 by hand: nothing checks this
+   path for private details.
+2. `gh auth status`. If `gh` is missing or signed out, stop and ask the user to run
+   `gh auth login`.
+3. Capture the base commit first, and validate it (on a 404 `gh api --jq` prints the error body
+   to stdout):
+   ```
+   BASE=$(gh api repos/BoardPandas/BP/commits/heads/main --jq .sha); echo "$BASE"
+   gh api repos/BoardPandas/BP/contents/llms.txt -H 'Accept: application/vnd.github.raw'
+   ```
+   `BASE` must match `^[0-9a-f]{40}$`. Do not re-read it later.
+4. Make the scratch directory: `mkdir -p .agent-scratch && printf '*\n' > .agent-scratch/.gitignore`
+   (it ignores itself; `.git/` and `.claude/` are refused to the Write tool). Write three files:
+   - `.agent-scratch/bp-entry.md`: frontmatter, then `# <Title>`, then the Step 4 sections:
+     ```
+     ---
+     concern: <concern>
+     tech: [tech1, tech2]
+     priority: <foundational|recommended|optional>
+     applies-to: [tech1, tech2]
+     ---
+     ```
+   - `.agent-scratch/bp-index.md`:
+     ```
+     # <Concern> Best Practices
+
+     > Proven <concern> patterns.
+
+     ## Entries
+
+     - [<Title>](<slug>.md): <one-line description>. <PRIORITY>.
+     ```
+     The slug is the title in lowercase, punctuation and spaces turned to hyphens.
+   - `.agent-scratch/bp-master.md`: the master `llms.txt` with a new section under
+     `## Concerns`, and nothing else changed (the file has a 12 KB CI budget):
+     ```
+     ### <Concern>
+     - [<Concern> index](practices/<concern>/llms.txt): <one clause> (1 entry)
+     ```
+5. Commit all three together:
+   ```
+   node .claude/scripts/kb-commit.mjs --repo BoardPandas/BP --base "$BASE" \
+     --message "Add <concern> practice: <title>" \
+     practices/<concern>/<slug>.md .agent-scratch/bp-entry.md \
+     practices/<concern>/llms.txt  .agent-scratch/bp-index.md \
+     llms.txt                      .agent-scratch/bp-master.md
+   ```
+   If the ref update is refused, `main` moved: re-read the master index, re-apply the edit, take
+   a fresh `BASE`, and run it again. Never force.
+6. `rm -f .agent-scratch/bp-*.md`, then check the commit's CI with
+   `gh run list --repo BoardPandas/BP --limit 5 --json headSha,status,conclusion` and fix a red
+   build. Roundtable indexes the new concern at its next hourly sync; from then on, entries for
+   it go through `kb_propose`.
