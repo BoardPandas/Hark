@@ -61,9 +61,12 @@ tray-icon = "0.26.0"
 # - Win32_UI_HiDpi: GetDpiForMonitor, for that monitor's own scale factor
 # - Win32_UI_WindowsAndMessaging: GetForegroundWindow (the app being dictated
 #   into, i.e. the monitor the user is looking at)
+# - Win32_Graphics_Dwm: DwmSetWindowAttribute, the meeting prompt's Windows 11
+#   rounded corners and accent border
 [target.'cfg(windows)'.dependencies]
 windows = { version = "0.62.2", features = [
     "Win32_Foundation",
+    "Win32_Graphics_Dwm",
     "Win32_Graphics_Gdi",
     "Win32_UI_HiDpi",
     "Win32_UI_WindowsAndMessaging",

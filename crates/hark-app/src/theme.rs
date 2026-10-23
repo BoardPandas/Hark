@@ -75,6 +75,12 @@ pub const OVERLAY_WAVE_GAP: f32 = 3.0;
 pub const OVERLAY_WAVE_HEIGHT: f32 = 22.0;
 pub const OVERLAY_INSET: f32 = 24.0;
 pub const OVERLAY_LABEL_OFFSET: f32 = 36.0;
+/// The meeting prompt is this wide; its height is measured from its content.
+pub const PROMPT_WIDTH: f32 = 380.0;
+pub const PROMPT_TITLE_SIZE: f32 = 17.0;
+pub const PROMPT_HEADER_MARGIN: Margin = Margin::symmetric(CARD_PADDING, 10);
+pub const PROMPT_COUNTDOWN_HEIGHT: f32 = 3.0;
+pub const PROMPT_BORDER: f32 = 1.0;
 pub const FOOTER_HEIGHT: f32 = 38.0;
 pub const CONTENT_WIDTH: f32 = 1020.0;
 pub const SIDEBAR_WIDTH: f32 = 184.0;
@@ -141,6 +147,10 @@ pub fn warning(v: &Visuals) -> Color32 {
 pub fn on_accent(v: &Visuals) -> Color32 {
     palette(v).on_accent
 }
+/// The meeting prompt's countdown, drawn over `accent_fill`.
+pub fn countdown(v: &Visuals) -> Color32 {
+    on_accent(v).gamma_multiply(0.6)
+}
 pub fn tint(v: &Visuals) -> Color32 {
     palette(v).tint
 }
@@ -160,6 +170,9 @@ pub fn serif() -> FontFamily {
 }
 pub fn hero_font() -> FontId {
     FontId::new(HERO_SIZE, serif())
+}
+pub fn prompt_title_font() -> FontId {
+    FontId::new(PROMPT_TITLE_SIZE, semibold())
 }
 pub fn edge(v: &Visuals) -> Color32 {
     Color32::from_white_alpha(if v.dark_mode { 18 } else { 220 })

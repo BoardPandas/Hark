@@ -6,6 +6,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.63.0] - 2026-10-23
+
+### Changed
+
+- **The "Take meeting notes?" prompt is easier to notice.** It now has a colored header that says it comes from Hark, a larger "Teams is using your mic." headline, and a colored outline. The header also counts down to when the prompt closes on its own ("Closes in 24 s"), with a bar that shrinks as time runs out. On Windows 11 it has rounded corners like the system's own notifications.
+
+### Fixed
+
+- The meeting prompt no longer cuts off its buttons and bottom edge. Its window was a fixed size that was too short for its contents on every display. It now sizes itself to what it shows, so a long app name wraps onto a second line and the prompt grows to fit.
+
 ## [0.62.7] - 2026-10-19
 
 ### Changed
