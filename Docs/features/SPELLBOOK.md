@@ -18,7 +18,9 @@ The following files were used as evidence for this page:
 - [crates/hark-stt/src/deepgram.rs:29-47](../../crates/hark-stt/src/deepgram.rs#L29-L47)
 - [crates/hark-stt/src/gemini_live.rs:233-272](../../crates/hark-stt/src/gemini_live.rs#L233-L272)
 - [crates/hark-stt/src/openai_live.rs](../../crates/hark-stt/src/openai_live.rs)
-- [crates/hark-app/src/ui/spellbook/mod.rs:1-132](../../crates/hark-app/src/ui/spellbook/mod.rs#L1-L132)
+- [crates/hark-app/src/ui/spellbook/mod.rs:1-171](../../crates/hark-app/src/ui/spellbook/mod.rs#L1-L171)
+- [crates/hark-app/src/ui/spellbook/book.rs:1-173](../../crates/hark-app/src/ui/spellbook/book.rs#L1-L173)
+- [crates/hark-app/src/ui/book.rs:1-76](../../crates/hark-app/src/ui/book.rs#L1-L76)
 - [crates/hark-pipeline/src/meeting/live.rs:52-97](../../crates/hark-pipeline/src/meeting/live.rs#L52-L97)
 - [crates/hark-pipeline/src/meeting/finish.rs](../../crates/hark-pipeline/src/meeting/finish.rs)
 
@@ -139,7 +141,7 @@ Provider diagnostics retain fixed categories and structural JSON locations, neve
 
 The meeting final pass also takes a vocabulary hint, but through Deepgram's dictation contract directly rather than through this biasing layer: `deepgram_final_pass` forwards `settings.spellbook.terms()` as the same repeated `keyterm` query parameter the batch Deepgram adapter uses ([Transcription](TRANSCRIPTION.md#deepgram-and-gemini-live)).
 
-Sources: [crates/hark-config/src/lib.rs](../../crates/hark-config/src/lib.rs), [crates/hark-pipeline/src/lib.rs](../../crates/hark-pipeline/src/lib.rs), [crates/hark-stt/src/openai_compatible.rs:52-80](../../crates/hark-stt/src/openai_compatible.rs#L52-L80), [crates/hark-stt/src/openai_transcribe.rs:53-75](../../crates/hark-stt/src/openai_transcribe.rs#L53-L75), [crates/hark-stt/src/deepgram.rs:29-47](../../crates/hark-stt/src/deepgram.rs#L29-L47), [crates/hark-stt/src/gemini_live.rs:232-271](../../crates/hark-stt/src/gemini_live.rs#L232-L271)
+Sources: [crates/hark-config/src/lib.rs](../../crates/hark-config/src/lib.rs), [crates/hark-pipeline/src/lib.rs](../../crates/hark-pipeline/src/lib.rs), [crates/hark-stt/src/openai_compatible.rs:52-80](../../crates/hark-stt/src/openai_compatible.rs#L52-L80), [crates/hark-stt/src/openai_transcribe.rs:53-75](../../crates/hark-stt/src/openai_transcribe.rs#L53-L75), [crates/hark-stt/src/deepgram.rs:29-47](../../crates/hark-stt/src/deepgram.rs#L29-L47), [crates/hark-stt/src/gemini_live.rs:233-272](../../crates/hark-stt/src/gemini_live.rs#L233-L272)
 <!-- END:AUTOGEN hark_08_spellbook_biasing -->
 
 ---
@@ -177,9 +179,13 @@ Sources: [crates/hark-spellbook/src/lib.rs:18-167](../../crates/hark-spellbook/s
 | Legacy `terms` / `bias_terms` config | Schema 2 migrates values into `[[spellbook.entries]]`, preserves existing entries, and stamps the current version ([lib.rs](../../crates/hark-config/src/lib.rs), [lib.rs](../../crates/hark-config/src/lib.rs)) |
 | Common-word alias | Allowed, but the editor warns because an exact alias made entirely of common words can fire frequently; the warning does not block the user's choice ([edit.rs:102-134](../../crates/hark-app/src/ui/spellbook/edit.rs#L102-L134)) |
 
-The editor saves automatically and restarts the pipeline after a change because corrector entries are baked at pipeline construction. A History selection becomes an alias while the user supplies the canonical term, preserving both what the provider heard and what should be injected ([mod.rs:1-17](../../crates/hark-app/src/ui/spellbook/mod.rs#L1-L17), [mod.rs:67-90](../../crates/hark-app/src/ui/spellbook/mod.rs#L67-L90)).
+The editor saves automatically and restarts the pipeline after a change because corrector entries are baked at pipeline construction. A History selection becomes an alias while the user supplies the canonical term, preserving both what the provider heard and what should be injected ([mod.rs:1-17](../../crates/hark-app/src/ui/spellbook/mod.rs#L1-L17), [mod.rs:80-96](../../crates/hark-app/src/ui/spellbook/mod.rs#L80-L96)).
 
-Sources: [crates/hark-spellbook/src/lib.rs:67-167](../../crates/hark-spellbook/src/lib.rs#L67-L167), [crates/hark-spellbook/src/matcher.rs:29-75](../../crates/hark-spellbook/src/matcher.rs#L29-L75), [crates/hark-config/src/lib.rs](../../crates/hark-config/src/lib.rs), [crates/hark-config/src/lib.rs](../../crates/hark-config/src/lib.rs), [crates/hark-app/src/ui/spellbook/mod.rs:1-90](../../crates/hark-app/src/ui/spellbook/mod.rs#L1-L90)
+**List and Book views.** The same entries can be read as a list or as a book, chosen with a `List | Book` toggle beside the "YOUR VOCABULARY" heading. The choice persists under the `hark-spellbook-view-v1` id, and any saved value other than `book` (including one from a newer build) reads as List ([mod.rs:30-32](../../crates/hark-app/src/ui/spellbook/mod.rs#L30-L32), [mod.rs:124-140](../../crates/hark-app/src/ui/spellbook/mod.rs#L124-L140), [book.rs:43-76](../../crates/hark-app/src/ui/book.rs#L43-L76)). In the book each term opens with a violet drop cap, then an "Also heard as:" line with its aliases in monospace, then Edit and Delete; an entry just added carries a "New" chip, and an empty book reads "This spellbook has no spells yet." ([spellbook/book.rs:59-173](../../crates/hark-app/src/ui/spellbook/book.rs#L59-L173)). The frame, page turning and position belong to the shared `Book` in `ui/book.rs`, which packs entries onto facing pages and turns them with on-screen controls or PageUp/PageDown/Home/End (ignored while a text field has focus) ([book.rs:1-12](../../crates/hark-app/src/ui/book.rs#L1-L12), [book.rs:292-306](../../crates/hark-app/src/ui/book.rs#L292-L306)).
+
+Editing in the book goes through the list's own `edit_term` (Enter or lost focus commits, Esc cancels) and `alias_editor`, so the two views cannot disagree. Position is an anchor entry index: an open entry pins its spread so it cannot turn away under the cursor, and `submit_add` re-anchors on the entry just added, which may be an existing entry that only gained an alias. A History handoff therefore lands the book on the right spread. Delete is applied after the book is painted so indices cannot shift under entries still being drawn ([mod.rs:153-171](../../crates/hark-app/src/ui/spellbook/mod.rs#L153-L171), [mod.rs:247-262](../../crates/hark-app/src/ui/spellbook/mod.rs#L247-L262), [spellbook/book.rs:33-56](../../crates/hark-app/src/ui/spellbook/book.rs#L33-L56)).
+
+Sources: [crates/hark-spellbook/src/lib.rs:67-167](../../crates/hark-spellbook/src/lib.rs#L67-L167), [crates/hark-spellbook/src/matcher.rs:29-75](../../crates/hark-spellbook/src/matcher.rs#L29-L75), [crates/hark-config/src/lib.rs](../../crates/hark-config/src/lib.rs), [crates/hark-config/src/lib.rs](../../crates/hark-config/src/lib.rs), [crates/hark-app/src/ui/spellbook/mod.rs:1-171](../../crates/hark-app/src/ui/spellbook/mod.rs#L1-L171), [crates/hark-app/src/ui/spellbook/book.rs:1-173](../../crates/hark-app/src/ui/spellbook/book.rs#L1-L173), [crates/hark-app/src/ui/book.rs:1-76](../../crates/hark-app/src/ui/book.rs#L1-L76)
 <!-- END:AUTOGEN hark_08_spellbook_edge -->
 
 ---

@@ -1,5 +1,29 @@
 # Generation Metadata
 
+## Catch-up for 0.64.1–0.67.1: themes, book views, meeting speakers, Gemini drain — 2026-10-29T17:41:02-04:00 (0.67.2)
+
+- **Source reviewed:** `0394127` (0.67.1), clean tree. Covers the source drift since `784272c` that `check:docs` reported on 10 pages. That drift came from merging the wizard theme, the speakers and the setup work, from the 0.64.1 Gemini Live drain fix, and from the 0.67.1 `CLAUDE.md` registry rename. Changed sources: `hark-app` `theme/{appearance,fonts,hues,lettering,palette,tests}.rs`, `theme.rs`, `ui/{mod,shell}.rs`, `ui/settings/{preferences,meetings}.rs`, `ui/spellbook/mod.rs`, `ui/invocations/mod.rs`, `ui/meetings/{mod,detail,share,share/excerpt,share/word}.rs`, `meeting.rs`, `storage/meetings.rs` and `assets/README.md`; `hark-store` `lib.rs`, `meetings.rs` and migration `007_meeting_speakers.sql`; `hark-meeting` `lib.rs`, `export.rs` and `export/subtitles.rs`; `hark-pipeline` `meeting/{mod,coordinator,finish,rerun}.rs`; `hark-voice` `lib.rs`, `summary.rs`, `speaker_names.rs` and `speaker_refs.rs`; `hark-config` `meeting.rs`; `hark-stt` `gemini_live.rs`; and `CLAUDE.md`. Global baseline `784272c` is unchanged.
+- **Scope:**
+  - Desktop UI: six themes with a Parchment token column, categorical hues and speaker colors, Wizard lettering and the vendored fonts, the top-bar theme menu, and Book view.
+  - Configuration: device-local appearance, lettering and view preferences.
+  - Meetings: Speakers, Notes Follow Speakers, a rewritten Re-run section, and the diagram's name-speakers step.
+  - Data Storage: migration 007 and the speaker store API.
+  - Transcription: the timer-free `drain_into`.
+  - Spellbook and Invocations: List | Book views, with shifted `gemini_live.rs` citations fixed.
+  - Voice Cleanup: speaker-name and speaker-ref exports.
+  - Getting Started: Development Workflow now covers `check:claude`, including the case-collision check.
+  - Glossary: eight new terms.
+  - The `Docs/README.md` Latest Updates callout.
+  - AUTOGEN markers and `PAGE_ID` counts are unchanged on every page. No manual text outside the markers was edited, and `_toc.yaml` needed no change.
+- **Validation:**
+  - `check:docs` passes for all 17 mapped pages, and `check:claude` passes.
+  - The `check-docs-sync` unit tests pass (6 of 6). No relative link in the changed pages is broken.
+  - `mmdc` is not installed, so the edited Meetings diagram got only the static check: `graph TD`, all node text quoted.
+- **Left for a person:** these sit outside AUTOGEN markers, which update mode does not edit.
+  - The Data Storage intro still says "migrations 001-006".
+  - The trailing Meetings paragraph links "label" to `export.rs`, where `speaker_label` no longer exists.
+  - The Glossary AEC paragraph says production AEC "remains disabled", but the AEC term itself says Reduce speaker echo exists and defaults off.
+
 ## Speech to text card and first-run tips — 2026-10-29 (0.65.0)
 
 - **Source reviewed:** `13df6eb` (0.64.1): `Section::OnDevice` removed; `ui/settings/stt_card.rs` (new card, no-key suggestion, mode decisions), `local.rs` (`on_device_block`), `keys.rs` (Get a key link), `form.rs` (header rename, `id_salt`), `cleanup.rs` (STT key in Primary), `onboarding.rs`/`get_started.rs` (readiness follows the mode), and the `model.rs` comment. Global baseline `784272c` is unchanged.

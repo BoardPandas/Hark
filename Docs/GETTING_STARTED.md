@@ -10,6 +10,15 @@ The following files were used as evidence for this page:
 - [README.md:81-94](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/README.md#L81-L94)
 - [Cargo.toml:19-27](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/Cargo.toml#L19-L27)
 - [config/default-config.toml:9-22](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/config/default-config.toml#L9-L22)
+- [CLAUDE.md:54](../CLAUDE.md#L54)
+- [CLAUDE.md:82-98](../CLAUDE.md#L82-L98)
+- [CLAUDE.md:154](../CLAUDE.md#L154)
+- [README.md:81](../README.md#L81)
+- [README.md:154-155](../README.md#L154-L155)
+- [README.md:161](../README.md#L161)
+- [scripts/check-claude-wiring.mjs:371-406](../scripts/check-claude-wiring.mjs#L371-L406)
+- [.github/workflows/ci.yml:61-62](../.github/workflows/ci.yml#L61-L62)
+- [package.json:8](../package.json#L8)
 
 </details>
 
@@ -131,12 +140,16 @@ After setup, Home shows your real shortcut and recent dictations. Use the top ap
 <!-- BEGIN:AUTOGEN hark_03_getting_started_dev -->
 ## Development Workflow
 
-Local development uses the same rustup toolchain called out in Prerequisites: `cargo` for building, `rustfmt` for formatting, and `clippy` for linting ([README.md:61](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/README.md#L61)).
+Local development uses the same rustup toolchain called out in Prerequisites: `cargo` for building, `rustfmt` for formatting, and `clippy` for linting ([README.md:81](../README.md#L81)).
 
-- Build and run day-to-day with `cargo build` / `cargo run`, the same commands used for a from-source install ([README.md:87-88](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/README.md#L87-L88)).
-- This machine is intentionally coding-only: build, test, lint, and typecheck here, then validate the actually-running app, mic permissions, the push-to-talk hotkey, text injection, and notarization/signing, on real macOS and Windows hardware ([README.md:94](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/README.md#L94)).
+- Build and run day-to-day with `cargo build` / `cargo run`, the same commands used for a from-source install ([README.md:154-155](../README.md#L154-L155)).
+- `cargo fmt` and `cargo clippy --all-targets -- -D warnings` must pass, and tests run before a change is called done ([CLAUDE.md:54](../CLAUDE.md#L54)).
+- This machine is intentionally coding-only: build, test, lint, and typecheck here, then validate the actually-running app, mic permissions, the push-to-talk hotkey, text injection, and notarization/signing, on real macOS, Windows and Linux hardware ([README.md:161](../README.md#L161); [CLAUDE.md:54](../CLAUDE.md#L54)).
+- `npm run check:claude` is the project's repo check, and a change is not done until it is green. Never skip, delete, or narrow a failing check to make it pass ([CLAUDE.md:82-98](../CLAUDE.md#L82-L98)). CI runs it ([ci.yml:61-62](../.github/workflows/ci.yml#L61-L62)), as does the release workflow ([release.yml:155](../.github/workflows/release.yml#L155)).
+- The check also fails when two tracked paths differ only by letter case, because Windows and macOS treat them as one file and every checkout would show one of them modified. This is why the agent registry is `AGENT-REGISTRY.md` and not `agents.md`, which collided with `AGENTS.md` ([check-claude-wiring.mjs:371-406](../scripts/check-claude-wiring.mjs#L371-L406); [CLAUDE.md:154](../CLAUDE.md#L154)).
+- `npm run check:docs` is a separate CI guard for the pages under `Docs/` ([ci.yml:94-95](../.github/workflows/ci.yml#L94-L95); [package.json:8](../package.json#L8)).
 
-Sources: [README.md:61](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/README.md#L61), [README.md:87-88](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/README.md#L87-L88), [README.md:94](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/README.md#L94)
+Sources: [README.md:81](../README.md#L81), [README.md:154-155](../README.md#L154-L155), [README.md:161](../README.md#L161), [CLAUDE.md:54](../CLAUDE.md#L54), [CLAUDE.md:82-98](../CLAUDE.md#L82-L98), [CLAUDE.md:154](../CLAUDE.md#L154), [check-claude-wiring.mjs:371-406](../scripts/check-claude-wiring.mjs#L371-L406)
 <!-- END:AUTOGEN hark_03_getting_started_dev -->
 
 ---

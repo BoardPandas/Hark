@@ -6,6 +6,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.67.2] - 2026-10-29
+
+### Fixed
+
+- **The project docs describe what shipped in 0.64.1–0.67.1, and the docs check in CI passes again.** Ten pages under `Docs/` were behind the code:
+  - Desktop UI and Configuration: the Parchment theme, Wizard lettering, speaker colors and the Book view, plus where those preferences are saved.
+  - Meetings and Data Storage: the speaker roster, name guesses, notes that follow renames, and the new speaker tables in migration 007.
+  - Transcription, Spellbook, Invocations and Voice Cleanup: the Gemini Live latency fix, the List | Book views, and the speaker-name helpers.
+  - Getting Started: the repo checks, including the new case-collision check.
+  - Glossary: eight new terms.
+
 ## [0.67.1] - 2026-10-29
 
 ### Fixed

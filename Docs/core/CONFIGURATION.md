@@ -16,6 +16,9 @@ The following files were used as evidence for this page:
 - [config/default-config.toml:1-48](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/config/default-config.toml#L1-L48)
 - [crates/hark-config/src/meeting.rs](../../crates/hark-config/src/meeting.rs)
 - [config/default-config.toml:82-119](../../config/default-config.toml#L82-L119)
+- [crates/hark-app/src/theme/appearance.rs:38-107](../../crates/hark-app/src/theme/appearance.rs#L38-L107)
+- [crates/hark-app/src/theme/lettering.rs:19-77](../../crates/hark-app/src/theme/lettering.rs#L19-L77)
+- [crates/hark-app/src/ui/settings/preferences.rs:58-75](../../crates/hark-app/src/ui/settings/preferences.rs#L58-L75)
 
 </details>
 
@@ -106,7 +109,14 @@ The `Settings` struct is the single source of truth for the config schema; every
 
 `[insights]` is additive within schema 6: older configurations omit it and receive both opt-ins as `false`; explicit values round-trip independently of history capture. Changes follow Settings' Save/Discard behavior. Turning app tracking off leaves previous numeric app labels until expiry or Reset stats. Text analysis needs retained history; disabling capture does not erase existing transcripts.
 
-Appearance is intentionally outside `config.toml`: System, Light, Dark, Solarized Light, and Solarized Dark persist in egui memory, apply immediately, and are independent of the settings draft ([appearance persistence](../../crates/hark-app/src/theme/appearance.rs), [privacy controls](../../crates/hark-app/src/ui/settings/preferences.rs)).
+Appearance is intentionally outside `config.toml`. Two device-local preferences persist in egui memory, apply immediately, and are independent of the settings draft and of Save/Discard. They are set from Settings → General → Appearance ([appearance section](../../crates/hark-app/src/ui/settings/preferences.rs#L58-L75)); the top-bar picker changes the theme only ([lettering toggle](../../crates/hark-app/src/theme/lettering.rs#L64-L77)).
+
+| Preference | Persisted key | Values | Default when unsaved |
+|---|---|---|---|
+| Theme | `hark-appearance-v1` | `system`, `light`, `dark`, `solarized-light`, `solarized-dark`, `parchment` ([keys](../../crates/hark-app/src/theme/appearance.rs#L38-L47), [id](../../crates/hark-app/src/theme/appearance.rs#L73-L75)) | The built-in Light/Dark/System preference an older Hark saved; an unknown value from a newer build falls back the same way instead of resetting to System ([appearance.rs:77-93](../../crates/hark-app/src/theme/appearance.rs#L77-L93)) |
+| Wizard lettering | `hark-lettering-v1` | `modern`, `wizard` ([keys](../../crates/hark-app/src/theme/lettering.rs#L19-L24), [id](../../crates/hark-app/src/theme/lettering.rs#L35-L37)) | Follows the theme: Wizard on Parchment, Modern on every other theme ([lettering.rs:26-32](../../crates/hark-app/src/theme/lettering.rs#L26-L32)) |
+
+Parchment is light only. Choosing it stores the Light preference and installs the Parchment palette in both the light and dark slots, so a stray dark resolution still draws Parchment ([appearance.rs:49-70](../../crates/hark-app/src/theme/appearance.rs#L49-L70)). The lettering key is read, never written, at startup: writing the derived default would turn "follows the theme" into a fixed choice. It is written only when the user ticks or unticks **Wizard lettering**, after which the choice holds on every theme; a theme change reinstalls fonts only while no choice is saved ([lettering.rs:39-55](../../crates/hark-app/src/theme/lettering.rs#L39-L55), [appearance.rs:95-107](../../crates/hark-app/src/theme/appearance.rs#L95-L107)). The Spellbook and Invocations List | Book choice is persisted the same way, under `hark-spellbook-view-v1` and `hark-invocations-view-v1`; anything other than `book` reads as List ([spellbook](../../crates/hark-app/src/ui/spellbook/mod.rs#L30-L32), [invocations](../../crates/hark-app/src/ui/invocations/mod.rs#L21-L23), [book.rs:43-51](../../crates/hark-app/src/ui/book.rs#L43-L51)). Privacy and history controls remain in `config.toml` ([privacy controls](../../crates/hark-app/src/ui/settings/preferences.rs#L130-L182)).
 
 `[meeting]` is additive: it was added after `[local_stt]` and before `[[invocations.entries]]`, and a config file written before it existed loads unchanged, filling every key from `Meeting::default()` via `#[serde(default)]` ([meeting.rs](../../crates/hark-config/src/meeting.rs), [lib.rs](../../crates/hark-config/src/lib.rs)). An out-of-range `audio_cap_mb` is clamped in place with a logged warning rather than rejected outright, on the same "typo, not a reason to refuse to start" reasoning `Settings::from_toml` already applies to the spellbook migration ([meeting.rs](../../crates/hark-config/src/meeting.rs), [lib.rs](../../crates/hark-config/src/lib.rs)).
 
