@@ -1,8 +1,8 @@
 //! Pure request/response layer for the OpenAI-compatible chat-completions
 //! contract: `POST {base_url}/chat/completions`, Bearer auth, buffered JSON
 //! body. One code path serves every provider that clones the OpenAI contract
-//! (OpenAI itself, Groq, any compatible endpoint); Deepgram has no chat
-//! product and is rejected at config validation.
+//! (OpenAI itself, Gemini's compatibility endpoint, any compatible endpoint);
+//! Deepgram has no chat product and is rejected at config validation.
 //!
 //! `OpenAiCompatibleChat` is a thin I/O shell over the pure functions here;
 //! the cleanup spike drives the same functions against real endpoints.
@@ -67,15 +67,15 @@ struct ChatMessage<'a> {
 struct ChatRequest<'a> {
     model: &'a str,
     messages: [ChatMessage<'a>; 2],
-    // Both OpenAI and Groq have converged on this name (Groq deprecates
-    // `max_tokens`); no per-provider branching.
+    // OpenAI's current name (it deprecates `max_tokens`), which compatible
+    // endpoints follow; no per-provider branching.
     max_completion_tokens: u32,
     // Only serialized when configured: OpenAI's GPT-5 family rejects any
     // non-default temperature with a 400. Presets set it per provider.
     #[serde(skip_serializing_if = "Option::is_none")]
     temperature: Option<f32>,
     // OpenAI GPT-5 family only ("minimal" for short deterministic rewrites);
-    // the Groq preset leaves it unset.
+    // every other preset leaves it unset.
     #[serde(skip_serializing_if = "Option::is_none")]
     reasoning_effort: Option<&'a str>,
 }
@@ -182,8 +182,8 @@ pub fn parse_response(provider: &str, body: &str) -> Result<String, CleanupError
 }
 
 /// Parse a Retry-After header value in seconds form (HTTP-date form is rare
-/// on these APIs and not worth the dependency). Rate-limit headers are
-/// identical across OpenAI and Groq, so the STT pattern carries over.
+/// on these APIs and not worth the dependency). Rate-limit headers match the
+/// STT endpoints', so the STT pattern carries over.
 pub fn retry_after_secs(headers: &reqwest::header::HeaderMap) -> Option<u64> {
     headers
         .get(reqwest::header::RETRY_AFTER)?
@@ -200,7 +200,7 @@ pub fn retry_after_secs(headers: &reqwest::header::HeaderMap) -> Option<u64> {
 /// request body but never logs.
 #[derive(Clone)]
 pub struct CleanupConfig {
-    /// Short human label for logs and errors ("openai", "groq"). Error
+    /// Short human label for logs and errors ("openai", "gemini"). Error
     /// messages carry this, never the key.
     pub label: String,
     /// e.g. "https://api.openai.com/v1"; chat and STT share base URLs.

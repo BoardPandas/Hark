@@ -84,7 +84,7 @@ mod tests {
             version = 1
 
             [provider]
-            kind = "groq"
+            kind = "openai"
 
             [spellbook]
             terms = ["Modero"]

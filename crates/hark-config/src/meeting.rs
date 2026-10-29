@@ -351,7 +351,7 @@ mod tests {
         // The whole point of staying additive: a file written by a build
         // that predates this section must load with the documented defaults.
         let s = Settings::from_toml(
-            "version = 1\n[provider]\nkind = \"groq\"\n[hotkey]\nptt_key = \"LCtrl+LWin\"",
+            "version = 1\n[provider]\nkind = \"openai\"\n[hotkey]\nptt_key = \"LCtrl+LWin\"",
         )
         .expect("a config predating [meeting] must load");
         assert!(s.meeting.enabled);

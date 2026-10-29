@@ -6,6 +6,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.64.0] - 2026-10-29
+
+### Added
+
+- **Live transcribe for OpenAI.** The OpenAI provider has a new "Live transcribe" checkbox. While you hold the key, it streams your speech to OpenAI's `gpt-live-transcribe`, so only the last moment of audio is left to process when you let go. In testing on a 10-second clip, it returned text about 200 ms sooner than `gpt-transcribe`, at the same accuracy. It uses the OpenAI key you already saved, so there is nothing new to enter. It is off by default and costs about four times as much per minute ($0.017 against $0.0045), and Settings says so next to the checkbox. If the live connection fails or comes back empty, Hark sends the dictation through `gpt-transcribe` instead, so it is never lost. Meeting notes always use `gpt-transcribe` and are never billed at the live rate.
+- `openai_live_probe`, a diagnostic example that checks OpenAI's realtime transcription socket against the real API and compares it with `gpt-transcribe`: `cargo run -p hark-stt --features live --example openai_live_probe`.
+
+### Removed
+
+- **Groq is no longer offered for speech-to-text or cleanup.** If you used Groq, your settings are converted on first launch to an OpenAI-compatible provider with the same Groq address and model, so dictation and cleanup keep working as before. Your Groq key is copied across if that slot was empty. Your old settings file is kept beside the new one as `config.toml.v6.bak`.
+
+### Changed
+
+- **Live transcribe captures audio at 24 kHz**, converted straight from your microphone's own rate, which keeps more of the high end of speech. OpenAI's realtime API accepts no other rate. Everything else still uses 16 kHz.
+- The `gemini-live` build feature is now called `live-stt`, because it covers both live providers. The old name still works.
+
 ## [0.63.2] - 2026-10-29
 
 ### Fixed

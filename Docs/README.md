@@ -1,6 +1,7 @@
 # Hark Documentation
 
-> **Latest Updates (September 2026):**
+> **Latest Updates (October 2026):**
+> - **v0.64.0:** OpenAI gains an opt-in **Live transcribe** toggle (`[provider] live = true`) that streams to `gpt-live-transcribe` over OpenAI's realtime WebSocket while the key is held, using the same OpenAI key; it costs about 4× gpt-transcribe ($0.017/min vs $0.0045/min), falls back to gpt-transcribe if the stream fails, and is ignored by meetings. The live stream is resampled straight from the device rate to 24 kHz, the only rate the realtime API accepts. Groq is removed as an STT and cleanup provider; config schema 7 migrates saved Groq setups to `openai-compatible` with Groq's URL and model, copying the key only into an empty slot. See [Transcription](features/TRANSCRIPTION.md#openai-live-transcribe) and [Configuration](core/CONFIGURATION.md#groq-retirement-schema-7).
 > - **v0.50.x:** Windows Meetings records mic and meeting audio, offers live transcripts, Deepgram speaker labels, notes, search, speaker renaming, and file sharing. See [Meetings](features/MEETINGS.md) for provider and storage privacy details.
 > - **v0.47.0:** Invocations can recognize exact alternate phrases for repeatable provider mishearings.
 > - **v0.46.0:** Push-to-talk survives intercepted/remapped keys and surfaces an advisory warning naming the key.
@@ -50,7 +51,7 @@ One page per major subsystem of the dictation pipeline and the desktop shell.
 | Document | Description |
 |----------|-------------|
 | [AUDIO_CAPTURE.md](features/AUDIO_CAPTURE.md) | The cpal ring, pre-roll/tail, loudness gates, shortcut capture, and native push-to-talk hooks. |
-| [TRANSCRIPTION.md](features/TRANSCRIPTION.md) | Batch/live traits, Deepgram, OpenAI-compatible, gpt-transcribe, Gemini Live, WAV, and error contracts. |
+| [TRANSCRIPTION.md](features/TRANSCRIPTION.md) | Batch/live traits, Deepgram, OpenAI-compatible, gpt-transcribe, Gemini Live, OpenAI Live transcribe, WAV, and error contracts. |
 | [ON_DEVICE_STT.md](features/ON_DEVICE_STT.md) | Opt-in local Parakeet model: download manager, the cloud/local fallback policy, and the `local-engine` build feature. |
 | [SPELLBOOK.md](features/SPELLBOOK.md) | Canonical terms, exact aliases, guarded phonetic post-correction, and per-provider vocabulary hints. |
 | [INVOCATIONS.md](features/INVOCATIONS.md) | User-authored trigger phrases that inject canned text verbatim, skipping the cleanup pass. |
@@ -94,7 +95,7 @@ Release engineering and packaging.
 
 ---
 
-**Last Updated:** September 24, 2026 · Source baseline `784272c`
+**Last Updated:** October 29, 2026 (v0.64.0 scoped update) · Source baseline `784272c`
 
 ### Meeting echo-cancellation research
 

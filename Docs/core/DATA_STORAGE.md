@@ -26,8 +26,11 @@ The following files were used as evidence for this page:
 
 Config schema 6 adds optional microphone echo reduction, defaulting off, while
 preserving explicit meeting preferences and the schema-5 Gemini model setting.
-TOML remains at schema 6; the separate SQLite schema now includes migration 005
-for bounded numeric Insights and a tracking-coverage timestamp.
+Config schema 7 retires the Groq preset, rewriting saved Groq tables as
+`openai-compatible` ([Configuration](CONFIGURATION.md#groq-retirement-schema-7)).
+The TOML is at schema 7. The separate SQLite schema is versioned on its own
+(migrations 001-006, including 005 for bounded numeric Insights and a
+tracking-coverage timestamp); schema 7 does not touch it.
 Migration attempts a versioned TOML backup before saving; failure keeps
 the in-memory settings usable, and a failed backup leaves the original file alone
 ([config persistence](../../crates/hark-config/src/lib.rs),

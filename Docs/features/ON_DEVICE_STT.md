@@ -32,7 +32,7 @@ produced the text, so history never misattributes the result.
 
 `primary` is the only mode that lets the pipeline start without a resolvable API
 key — see `PipelineController::start`, which skips the keychain failure path when
-`mode.uses_cloud()` is false ([hark-app/src/pipeline.rs:129](../../crates/hark-app/src/pipeline.rs#L129),
+`mode.uses_cloud()` is false ([hark-app/src/pipeline.rs `PipelineController::start`](../../crates/hark-app/src/pipeline.rs),
 [hark-config/src/local.rs:42](../../crates/hark-config/src/local.rs#L42)).
 
 ## The model
@@ -74,7 +74,7 @@ are actually on disk**, the pipeline builds its STT client with
 `local_stt.fallback_after_ms` (default 6000, floor 500) instead
 ([hark-config/src/local.rs:69](../../crates/hark-config/src/local.rs#L69),
 [:106-108](../../crates/hark-config/src/local.rs#L106-L108),
-[hark-pipeline/src/lib.rs:300-310](../../crates/hark-pipeline/src/lib.rs#L300-L310)). With no
+[hark-pipeline/src/lib.rs `run_inner`](../../crates/hark-pipeline/src/lib.rs)). With no
 model downloaded, nothing changes and the normal 15 s applies.
 
 ## Residency
@@ -104,6 +104,10 @@ So it sits behind a Cargo feature, on by default:
 cargo build --release                        # includes the engine
 cargo build --release --no-default-features  # slim, cloud-only
 ```
+
+`--no-default-features` also drops `live-stt`, the WebSocket client behind
+Gemini and OpenAI's Live transcribe; add `--features live-stt` to keep them
+([hark-app/Cargo.toml](../../crates/hark-app/Cargo.toml)).
 
 `hark-app/local-engine` → `hark-local-stt/engine` + `hark-pipeline/engine`
 ([hark-app/Cargo.toml:69-70](../../crates/hark-app/Cargo.toml#L69-L70),

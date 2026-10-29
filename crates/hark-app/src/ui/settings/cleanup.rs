@@ -47,7 +47,6 @@ pub fn section(
                 ui.horizontal_wrapped(|ui| {
                     for (kind, label) in [
                         (ProviderKind::Openai, "OpenAI"),
-                        (ProviderKind::Groq, "Groq"),
                         (ProviderKind::OpenaiCompatible, "OpenAI-compatible"),
                     ] {
                         // Deepgram is absent by design: no chat product.

@@ -38,6 +38,7 @@
 use crate::error::SttError;
 use crate::{ProviderConfig, SttProvider, Transcript};
 use serde_json::{json, Value};
+#[cfg(feature = "live")]
 use std::time::{Duration, Instant};
 
 /// Wire host for the Live API. The model and key are appended per session.
@@ -301,15 +302,9 @@ pub fn activity_end_message() -> Value {
     json!({ "realtimeInput": { "activityEnd": {} } })
 }
 
-/// Convert f32 samples in [-1.0, 1.0] to little-endian PCM16 bytes.
-pub fn samples_to_pcm16_le(samples: &[f32]) -> Vec<u8> {
-    let mut out = Vec::with_capacity(samples.len() * 2);
-    for &s in samples {
-        let clamped = s.clamp(-1.0, 1.0);
-        out.extend_from_slice(&((clamped * 32767.0) as i16).to_le_bytes());
-    }
-    out
-}
+/// Shared with [`crate::openai_live`]; re-exported so existing callers keep
+/// their import path.
+pub use crate::wav::samples_to_pcm16_le;
 
 /// What one server frame contributed.
 #[derive(Debug, PartialEq)]
@@ -1021,6 +1016,8 @@ pub(crate) mod session {
 ///
 /// Holds no loggable copy of the socket URL: it is rebuilt per session from the
 /// key so a `{self:?}`-shaped mistake cannot leak it.
+// Without the `live` feature only `label` is read: the session half is gone.
+#[cfg_attr(not(feature = "live"), allow(dead_code))]
 pub struct GeminiLive {
     label: String,
     model: String,

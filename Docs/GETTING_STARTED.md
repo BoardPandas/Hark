@@ -28,7 +28,7 @@ Hark is a native Rust desktop app. Cloud transcription is BYOK by default; the o
 |---|---|
 | Rust toolchain | Stable Rust via [rustup](https://rustup.rs), providing `cargo`, `rustfmt`, and `clippy` ([README: Prerequisites](../README.md#prerequisites)) |
 | Minimum Rust version | `1.97`, required by the workspace and bundled SQLite dependency ([Cargo.toml:22-30](../Cargo.toml#L22-L30)) |
-| STT access | A key for Deepgram, OpenAI, Groq, Gemini, or another compatible endpoint; not required for live STT when local Primary is selected ([README: Prerequisites](../README.md#prerequisites)) |
+| STT access | A key for Deepgram, OpenAI, Gemini, or another compatible endpoint; not required for live STT when local Primary is selected ([README: Prerequisites](../README.md#prerequisites)) |
 | Platform build tools | Xcode command-line tools on macOS; MSVC on Windows; ALSA, GTK, AppIndicator, X11/XKB, PipeWire, and build packages listed in the README on Linux; `libxdo`/`xdotool` is no longer needed ([README: Prerequisites](../README.md#prerequisites)) |
 
 Sources: [README: Features](../README.md#features), [README: Prerequisites](../README.md#prerequisites), [Cargo.toml:22-30](../Cargo.toml#L22-L30)
@@ -95,14 +95,18 @@ The `[provider]` block in the default config selects which adapter handles trans
 
 ```toml
 [provider]
-kind = "deepgram"    # deepgram | openai | groq | gemini | openai-compatible
+kind = "deepgram"    # deepgram | openai | gemini | openai-compatible
 # base_url and model default per kind:
 #   deepgram -> https://api.deepgram.com, nova-3
 #   openai   -> https://api.openai.com/v1, gpt-transcribe
-#   groq     -> https://api.groq.com/openai/v1, whisper-large-v3-turbo
 #   gemini   -> Live API WebSocket, gemini-3.5-transcribe-live
 # "openai-compatible" is the escape hatch for any other server speaking the
 # multipart /audio/transcriptions contract; it requires an explicit base_url.
+# ...
+# OpenAI only. true streams to gpt-live-transcribe while you hold the key, so
+# only the tail is left after release; billed per audio minute, about 4x
+# gpt-transcribe. Same key as OpenAI. A pinned model is kept for when it is off.
+# live = false
 ```
 
 Each `kind` carries its own default endpoint and model, and `openai-compatible` is the escape hatch for any other server speaking the same multipart contract, at the cost of requiring an explicit `base_url` ([config/default-config.toml:13-20](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/config/default-config.toml#L13-L20)):
@@ -111,13 +115,14 @@ Each `kind` carries its own default endpoint and model, and `openai-compatible` 
 |---|---|---|
 | `deepgram` | `https://api.deepgram.com` | `nova-3` |
 | `openai` | `https://api.openai.com/v1` | `gpt-transcribe` |
-| `groq` | `https://api.groq.com/openai/v1` | `whisper-large-v3-turbo` |
 | `gemini` | Live API WebSocket (fixed host) | `gemini-3.5-transcribe-live` |
 | `openai-compatible` | none, must be set explicitly | none, must be set explicitly |
 
-`gemini` is the only provider that streams: the session opens when you press the chord and audio goes up as you speak, so releasing the key leaves only the tail outstanding. If the session cannot open — or fails at any point during the hold — Hark falls back to the ordinary single-request path with no dictation lost. Streamed audio is sent at capture level, because the batch path's whole-clip gain normalization has no streaming equivalent; on a very quiet microphone the batch path may still transcribe slightly better.
+Two setups stream: `gemini`, and `openai` with `live = true` (**Live transcribe** under the OpenAI option in Settings, off by default, using the same OpenAI key). The session opens when you press the chord and audio goes up as you speak, so releasing the key leaves only the tail outstanding. If the session cannot open, or fails at any point during the hold, Hark sends the finished recording through the batch path instead (for OpenAI, gpt-transcribe over REST), so no dictation is lost. Live transcribe costs about 4× gpt-transcribe ($0.017/min vs $0.0045/min); see [Transcription](features/TRANSCRIPTION.md#openai-live-transcribe). Streamed audio is sent at capture level, because the batch path's whole-clip gain normalization has no streaming equivalent; on a very quiet microphone the batch path may still transcribe slightly better.
 
-Sources: [config/default-config.toml:9-22](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/config/default-config.toml#L9-L22)
+Groq is no longer a provider. A config saved by an older Hark with `kind = "groq"` loads as `openai-compatible` pointed at Groq's URL and model, and its key is copied into the `openai-compatible` keychain slot if that slot is empty ([Configuration: Groq Retirement](core/CONFIGURATION.md#groq-retirement-schema-7)).
+
+Sources: [config/default-config.toml:9-22](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/config/default-config.toml#L9-L22), [config/default-config.toml:23-42](../config/default-config.toml#L23-L42)
 After setup, Home shows your real shortcut and recent dictations. Use the top appearance picker for System, Light, Dark, Solarized Light, or Solarized Dark; the choice applies immediately. Open Insights for 7/30/90-day local usage views. App-name tracking and word/phrase analysis are separate opt-ins under Settings → Privacy and take effect after Save. Disabling history capture does not disable numeric Insights; use Reset stats to remove numeric details and lifetime totals ([UI guide](features/DESKTOP_UI.md), [settings](core/CONFIGURATION.md)).
 <!-- END:AUTOGEN hark_03_getting_started_firstrun -->
 

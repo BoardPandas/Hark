@@ -140,7 +140,7 @@ impl std::fmt::Debug for ActionItem {
 /// fields: notes have no protected-terms clause and no over-expansion guard.
 #[derive(Clone)]
 pub struct SummaryConfig {
-    /// Short human label for logs and errors ("openai", "groq").
+    /// Short human label for logs and errors ("openai", "gemini").
     pub label: String,
     /// e.g. "https://api.openai.com/v1"; shares the chat-completions contract
     /// with cleanup and STT.
@@ -186,7 +186,7 @@ struct SummaryChatRequest<'a> {
     model: &'a str,
     messages: [SummaryChatMessage<'a>; 2],
     max_completion_tokens: u32,
-    // Both OpenAI and Groq's chat-completions contract accept this field;
+    // OpenAI's chat-completions contract accepts this field;
     // unlike temperature/reasoning_effort it has no known model quirk, so
     // (like `max_completion_tokens`) it is sent unconditionally rather than
     // per-preset. `JSON_OUTPUT_CLAUSE` makes parsing work even on an

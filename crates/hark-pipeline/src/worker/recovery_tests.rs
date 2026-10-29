@@ -53,7 +53,8 @@ fn worker(provider: Box<dyn SttProvider>, control: Arc<RunControl>) -> Worker {
         cleanup: None,
         prewarm_url: String::new(),
         client: hark_stt::shared_client().unwrap(),
-        stt_model: "test".into(),
+        stream_model: "test".into(),
+        batch_model: "test".into(),
         strip_single_word_period: false,
         track_apps: false,
         events,
@@ -193,6 +194,87 @@ fn failed_live_open_or_mid_hold_send_allows_only_one_batch_replay() {
             1,
             "live attempt already spent the first cloud request (refuse_start={refuse_start})"
         );
+    }
+}
+
+/// A live adapter whose sessions accept audio and then either deliver a
+/// transcript or fail at finalise, as an empty or broken stream does.
+struct ScriptedLive {
+    delivers: bool,
+}
+impl LiveStt for ScriptedLive {
+    fn start_session(&self) -> Result<Box<dyn hark_stt::LiveSession>, SttError> {
+        Ok(Box::new(ScriptedSession {
+            delivers: self.delivers,
+        }))
+    }
+}
+struct ScriptedSession {
+    delivers: bool,
+}
+impl hark_stt::LiveSession for ScriptedSession {
+    fn push(&mut self, _: &[f32]) -> Result<(), SttError> {
+        Ok(())
+    }
+    fn finish(&mut self) -> Result<Transcript, SttError> {
+        if !self.delivers {
+            return Err(SttError::Provider {
+                provider: "test".into(),
+                detail: "the stream returned an empty transcript".into(),
+            });
+        }
+        Ok(Transcript {
+            text: "streamed words".into(),
+            cleaned: None,
+            request_ms: 1,
+        })
+    }
+}
+
+#[test]
+fn the_record_names_the_model_of_the_path_that_produced_the_text() {
+    // OpenAI Live streams to gpt-live-transcribe and falls back to batch
+    // gpt-transcribe. History crediting the realtime model with a batch
+    // rescue would point a user at the wrong model for what they read.
+    for (delivers, model, text) in [
+        (true, "live-model", "streamed words"),
+        (false, "batch-model", "a completed test dictation"),
+    ] {
+        let mut worker = worker(
+            Box::new(SuccessfulProvider),
+            Arc::new(RunControl::default()),
+        );
+        worker.stream_model = "live-model".into();
+        worker.batch_model = "batch-model".into();
+        let (events, received) = mpsc::channel();
+        worker.events = events;
+        let adapter = ScriptedLive { delivers };
+        let turn = LiveTurn::start(
+            Some(&adapter),
+            &worker.consumer,
+            16_000,
+            16_000,
+            &worker.window,
+        );
+        dictate(
+            &mut worker,
+            16_000,
+            32_000,
+            PipelineState::Transcribing,
+            turn,
+            None,
+            |_, _| Ok(()),
+        );
+        let record = received
+            .try_iter()
+            .find_map(|event| match event {
+                PipelineEvent::Injected(record) => Some(record),
+                _ => None,
+            })
+            .unwrap_or_else(|| panic!("the dictation is injected (delivers={delivers})"));
+        assert_eq!(record.stt_model, model, "delivers={delivers}");
+        assert_eq!(record.raw_text, text, "delivers={delivers}");
+        assert_eq!(record.stt_provider, "test");
     }
 }
 

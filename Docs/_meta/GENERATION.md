@@ -1,5 +1,12 @@
 # Generation Metadata
 
+## OpenAI Live transcribe, Groq retired, 24 kHz live input — 2026-10-29 (0.64.0)
+
+- **Source reviewed:** the uncommitted working tree over `089b6a2` (0.63.2): `hark-stt::openai_live` (realtime adapter, `LiveStt::input_rate`), `hark-audio::resample` (`StreamResampler::with_target`, `resample_to`), `hark-pipeline` (`stt_route`, `stream.rs` target rate), `hark-config` (`Provider.live`, `uses_live_transcribe`, schema 7 and `groq_migration`), `hark-keychain::copy_key_if_empty`, `hark-app` (`live_rows.rs`, the `live-stt` feature with `gemini-live` as an alias), plus the CP0 results in `tasks/2026-10-29-plan-openai-live.md`. Global baseline `784272c` is unchanged.
+- **Scope:** Transcription (new OpenAI Live Transcribe section; traits, WAV, errors and gotchas), Configuration (`live` and `live_mode` rows, kind list, schema 7 Groq retirement, `copy_key_if_empty`), Getting Started, Overview, Architecture (live pump rate), Audio Capture (rate-parameterized resampler), Spellbook, Voice Cleanup, Desktop UI (provider picker and toggle), Meetings (chunks ignore the toggle), Data Storage, On-Device STT, Invocations, Release and Packaging, Glossary, and `Docs/README.md`. `_toc.yaml` gains the `hark_07_transcription_openai_live` section and source ownership for `openai_live.rs`, the probe, `groq_migration.rs` and `live_rows.rs`. AUTOGEN markers are preserved.
+- **Pending code:** written to match two behaviours the coordinator reported as in progress on 2026-10-29 and not yet in the tree at review: a failed or empty OpenAI live stream falls back to gpt-transcribe over REST (Test connection keeps the realtime replay), and meeting live-transcript chunks always use the batch route. Citations into `openai_live.rs`, `hark-pipeline/src/lib.rs`, `meeting/coordinator.rs`, `hark-app/src/pipeline.rs` and `live_rows.rs` name functions rather than lines because those files are still moving.
+- **Validation:** `npm run check:claude` and `npm run check:docs` pass. Relative links, line-range citations, heading anchors and AUTOGEN pairs in the edited pages were checked by script with no problems. No Rust was built or tested for this documentation pass.
+
 ## macOS stapler validate retry — 2026-10-15 (0.62.6)
 
 - **Source reviewed:** `7b3d214` (0.62.5) plus `stapler_retry` replacing `staple` in `scripts/package-macos.sh`, now wrapping both staple and validate for the app and the DMG. Global baseline `784272c` is unchanged.

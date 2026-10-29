@@ -6,4 +6,5 @@
 - [Cloud STT provider landscape (2026-07-15)](hark_cloud_stt_providers.md) — BYOK pivot: OpenAI/Groq share one adapter shape, Deepgram best for spellbook biasing; comparison table + gotchas.
 - [Phonetic post-correction crates (2026-07-16)](hark_phonetic_correction_crates.md) — rphonetic 3.0.6 + strsim 0.11.1 picks, n-gram sliding-window matching shape, short-word/Unicode/hyphenated-term pitfalls for the spellbook correction pass.
 - [LLM cleanup chat models (2026-07-16)](hark_llm_cleanup_chat_models.md) — gpt-5-nano vs llama-3.1-8b-instant picks, pricing, temperature-lock conflict with "low temperature" spec for the Phase 3 shared OpenAI/Groq adapter.
+- [OpenAI realtime transcription wire contract (2026-10-29)](hark_openai_realtime_transcription.md) — gpt-live-transcribe WebSocket URL/session.update/commit/events, 24 kHz only, $0.017/min, plus UNCONFIRMED list.
 - [Local STT model + Rust stack (2026-07-21)](hark_local_stt_2026.md) — Parakeet TDT 0.6B v2 + sherpa-onnx primary, transcribe-rs/Handy precedent runner-up; hotwords bug now moot (phonetic post-correction covers biasing); CPU latency ~1.5-2s/5s-utterance vs cloud's sub-1s.

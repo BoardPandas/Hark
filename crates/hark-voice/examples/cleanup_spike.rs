@@ -1,7 +1,7 @@
 //! Phase 3 CP0 cleanup model spike (tasks/2026-07-16-phase3-voices.md).
 //!
 //! For each candidate chat model whose provider key is configured via env
-//! (`OPENAI_API_KEY`, `GROQ_API_KEY`): rewrite fixture transcripts per voice
+//! (`OPENAI_API_KEY`): rewrite fixture transcripts per voice
 //! prompt (eyeball quality), measure warm latency (N runs, p50/p95), report
 //! token usage vs our derived `max_completion_tokens` (reasoning headroom),
 //! and run the verification drills the plan calls out: GPT-5 temperature
@@ -91,24 +91,6 @@ fn model_arms() -> Vec<ModelArm> {
             provider: "openai",
             base_url: "https://api.openai.com/v1",
             model: "gpt-4.1-mini",
-            temperature: Some(0.2),
-            reasoning_effort: None,
-            api_key: key,
-        });
-    }
-    if let Some(key) = env_nonempty("GROQ_API_KEY") {
-        arms.push(ModelArm {
-            provider: "groq",
-            base_url: "https://api.groq.com/openai/v1",
-            model: "llama-3.1-8b-instant",
-            temperature: Some(0.2),
-            reasoning_effort: None,
-            api_key: key.clone(),
-        });
-        arms.push(ModelArm {
-            provider: "groq",
-            base_url: "https://api.groq.com/openai/v1",
-            model: "openai/gpt-oss-20b",
             temperature: Some(0.2),
             reasoning_effort: None,
             api_key: key,
@@ -214,12 +196,8 @@ fn main() {
     let r = &report;
 
     r.say("=== Hark Phase 3 CP0 cleanup spike: BYOK chat models ===");
-    for (env, provider) in [("OPENAI_API_KEY", "openai"), ("GROQ_API_KEY", "groq")] {
-        if !arms.iter().any(|a| a.provider == provider) {
-            r.say(format!("provider {provider}: skipped (no {env} set)"));
-        }
-    }
     if arms.is_empty() {
+        r.say("provider openai: skipped (no OPENAI_API_KEY set)");
         r.say("no providers configured; set at least one key and re-run.");
         return;
     }

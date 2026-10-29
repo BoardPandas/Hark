@@ -49,6 +49,6 @@ pub trait CleanupProvider: Send {
     /// prompts, or text.
     fn clean(&self, text: &str) -> Result<Cleaned, CleanupError>;
 
-    /// Short label for logs and errors ("openai", "groq").
+    /// Short label for logs and errors ("openai", "gemini").
     fn label(&self) -> &str;
 }

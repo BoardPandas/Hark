@@ -35,7 +35,7 @@ Hark is a single-user, system-wide push-to-talk dictation app for Windows, macOS
 
 Windows, macOS and Linux implement the push-to-talk path. macOS uses CGEventTap with Input Monitoring access and requires Accessibility for text insertion; its bundled distribution targets macOS 14.2+ on Apple Silicon (ARM64) only ([README](../README.md#hark), [hark-hotkey/lib.rs](../crates/hark-hotkey/src/lib.rs)). Meeting mode runs on all three as well; its platform seam per OS is WASAPI and Core Audio capture sessions on Windows, PipeWire on Linux, and Core Audio process taps on macOS ([Meetings](features/MEETINGS.md)).
 
-Cloud transcription is bring-your-own-key, with Deepgram, OpenAI, Groq, OpenAI-compatible endpoints, and Gemini Live supported. An optional Parakeet engine can instead run locally as a cloud backup or the primary recognizer ([README: Tech stack](../README.md#tech-stack), [README: On-device transcription](../README.md#on-device-transcription)). History, stats, settings, the spellbook, and invocations are stored on the machine; provider requests can include transcript text and vocabulary. Hark operates no server, account system, hosted database, or browser frontend ([README: Privacy](../README.md#privacy)).
+Cloud transcription is bring-your-own-key, with Deepgram, OpenAI (batch gpt-transcribe, or opt-in Live transcribe over the realtime API), OpenAI-compatible endpoints, and Gemini Live supported. An optional Parakeet engine can instead run locally as a cloud backup or the primary recognizer ([README: Tech stack](../README.md#tech-stack), [README: On-device transcription](../README.md#on-device-transcription)). History, stats, settings, the spellbook, and invocations are stored on the machine; provider requests can include transcript text and vocabulary. Hark operates no server, account system, hosted database, or browser frontend ([README: Privacy](../README.md#privacy)).
 
 **Meetings** run on Windows, Linux and macOS 14.2+: microphone and playback capture, live Me/Them transcripts, optional Deepgram or Gemini refinement and LLM notes, transcript search, speaker renaming, explicit final-pass reruns from retained recordings, text/Word/subtitle/audio exports, and selected excerpts; Windows and macOS additionally have native OS share sheets. On Linux, system audio and detection come from PipeWire, and save dialogs use the desktop's zenity/kdialog ([Meetings](features/MEETINGS.md), [Audio Capture](features/AUDIO_CAPTURE.md)). On-device Primary keeps live meeting chunks local; the final pass and notes generation have independent settings. Audio is kept under a configurable cap, while eviction preserves transcripts and notes ([README: Features](../README.md#features), [Meetings: Privacy](features/MEETINGS.md#privacy)).
 
@@ -74,7 +74,7 @@ Five stated principles shape implementation decisions in Hark ([README: Design p
 - **English done well.** Accuracy is prioritized over broad language support.
 - **Data, not code, for tunable behavior.** Vocabulary, invocations, and voice choices are configuration rather than pipeline forks.
 
-The latency rule now has two transport shapes: batch adapters reuse a long-lived HTTP client, while Gemini Live streams during the hold and finalizes after release. Both keep network work off the UI thread, allow at most one retry or replay, and defer history/stat writes until after injection ([CLAUDE.md:26-30](../CLAUDE.md#L26-L30)).
+The latency rule now has two transport shapes: batch adapters reuse a long-lived HTTP client, while the live adapters (Gemini Live and OpenAI Live transcribe) stream during the hold and finalize after release. Both keep network work off the UI thread, allow at most one retry or replay, and defer history/stat writes until after injection ([CLAUDE.md:26-30](../CLAUDE.md#L26-L30)).
 
 Sources: [README: Design principles](../README.md#design-principles), [CLAUDE.md:26-30](../CLAUDE.md#L26-L30)
 <!-- END:AUTOGEN hark_01_overview_principles -->
@@ -89,11 +89,11 @@ Hark is a desktop app with no web infrastructure: no server, database service, a
 | Layer | Choice | Source |
 |---|---|---|
 | Language / process model | Rust; single process, UI on main thread, pipeline on worker threads | ([README: Tech stack](../README.md#tech-stack), [CLAUDE.md:11](../CLAUDE.md#L11)) |
-| Audio | `cpal`; device-rate capture, ring buffer, and per-clip 16 kHz mono resampling | ([README.md](../README.md#tech-stack), [CLAUDE.md](../CLAUDE.md#stack)) |
+| Audio | `cpal`; device-rate capture, ring buffer, and per-clip 16 kHz mono resampling; a live stream is resampled straight to the provider's rate (24 kHz for OpenAI) | ([README.md](../README.md#tech-stack), [CLAUDE.md](../CLAUDE.md#stack)) |
 | Push-to-talk | `WH_KEYBOARD_LL` on Windows, CGEventTap on macOS and evdev on Linux | ([README.md](../README.md#tech-stack), [hark-hotkey/lib.rs](../crates/hark-hotkey/src/lib.rs)) |
-| STT (cloud, primary) | Deepgram, Whisper-family OpenAI-compatible endpoints, OpenAI `gpt-transcribe`, and Gemini Live | ([README: Tech stack](../README.md#tech-stack), [CLAUDE.md:14](../CLAUDE.md#L14)) |
+| STT (cloud, primary) | Deepgram, Whisper-family OpenAI-compatible endpoints, OpenAI `gpt-transcribe` or `gpt-live-transcribe` (`[provider] live = true`), and Gemini Live | ([README: Tech stack](../README.md#tech-stack), [CLAUDE.md:14](../CLAUDE.md#L14)) |
 | STT (on-device, optional) | `hark-local-stt`: sherpa-onnx Parakeet behind the `engine` feature, enabled by `hark-app`'s default `local-engine` feature. Opt-in at runtime via `[local_stt] mode` (Off / Backup / Primary) | ([hark-app/Cargo.toml](../crates/hark-app/Cargo.toml), [hark-local-stt/Cargo.toml:37](../crates/hark-local-stt/Cargo.toml#L37), [hark-config/src/local.rs:14](../crates/hark-config/src/local.rs#L14)) |
-| STT transport | Blocking `reqwest` batch adapters plus a private current-thread Tokio/WebSocket runtime inside Gemini Live; HTTP trusts only compiled-in Mozilla roots, never the OS store | ([README: Tech stack](../README.md#tech-stack), [CLAUDE.md:16](../CLAUDE.md#L16)) |
+| STT transport | Blocking `reqwest` batch adapters plus a private current-thread Tokio/WebSocket runtime inside each live adapter (Gemini Live, OpenAI live); HTTP trusts only compiled-in Mozilla roots, never the OS store | ([README: Tech stack](../README.md#tech-stack), [CLAUDE.md:16](../CLAUDE.md#L16)) |
 | Text processing | Spellbook correction, exact/fuzzy invocation matching, and optional cleanup voices | ([README: Tech stack](../README.md#tech-stack), [CLAUDE.md:17-19](../CLAUDE.md#L17-L19)) |
 | Injection | Clipboard stash/set/paste/restore with platform key synthesis | ([README: Tech stack](../README.md#tech-stack), [CLAUDE.md:20](../CLAUDE.md#L20)) |
 | Tray + UI | `tray-icon` + `eframe`/`egui` (native, no webview) | ([README: Tech stack](../README.md#tech-stack), [CLAUDE.md:21](../CLAUDE.md#L21)) |
@@ -151,7 +151,7 @@ Sources: [Cargo.toml:1-20](../Cargo.toml#L1-L20), [README: Project structure](..
 <!-- BEGIN:AUTOGEN hark_01_overview_hotpath -->
 ## The Hot Path
 
-The release-to-inject flow is the app's latency-critical path. Capture begins before the user speaks, and Gemini Live may upload audio during the hold; all network, recognition, correction, cleanup, and injection work remains off the UI thread ([README: Architecture](../README.md#architecture), [CLAUDE.md:26-30](../CLAUDE.md#L26-L30)):
+The release-to-inject flow is the app's latency-critical path. Capture begins before the user speaks, and a live adapter (Gemini Live, or OpenAI with Live transcribe on) may upload audio during the hold; all network, recognition, correction, cleanup, and injection work remains off the UI thread ([README: Architecture](../README.md#architecture), [CLAUDE.md:26-30](../CLAUDE.md#L26-L30)):
 
 ```mermaid
 graph TD
@@ -170,7 +170,7 @@ graph TD
     Inject --> History["Write History and Stats"]
 ```
 
-- Key-down marks the capture window and, for Gemini Live, opens the single-use session that streams while the chord is held ([README: Architecture](../README.md#architecture)).
+- Key-down marks the capture window and, for Gemini Live or OpenAI Live transcribe, opens the single-use session that streams while the chord is held ([README: Architecture](../README.md#architecture)).
 - Key-up appends the configured tail, then either finalizes the live turn or sends the preserved finished clip through a batch adapter. A failed live attempt may replay the clip, but no dictation receives more than one retry or replay ([README: Architecture](../README.md#architecture), [CLAUDE.md:30](../CLAUDE.md#L30)).
 - The spellbook corrects the transcript before invocation matching. A fired invocation injects its expansion verbatim and bypasses cleanup ([README: Architecture](../README.md#architecture)).
 - Non-invocation text may receive optional provider cleanup before clipboard injection; provider-cleaned Gemini output is not cleaned twice ([README: Architecture](../README.md#architecture), [README: Privacy](../README.md#privacy)).

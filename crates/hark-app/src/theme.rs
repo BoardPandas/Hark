@@ -101,6 +101,8 @@ pub const CONTROL_RADIUS: u8 = 7;
 pub const SURFACE_RADIUS: u8 = 14;
 pub const DIALOG_RADIUS: u8 = 12;
 pub const GAP: f32 = 8.0;
+/// Between a provider's radios and the option row that belongs to them.
+pub const SUBROW_GAP: f32 = 4.0;
 pub const SECTION_GAP: f32 = 24.0;
 pub const ROW_GAP: f32 = 16.0;
 pub const SHADOW_MARGIN: Margin = Margin::same(4);

@@ -21,11 +21,10 @@ always_on_top = false
 exit_on_close = false
 
 [provider]
-kind = "deepgram"    # deepgram | openai | groq | gemini | openai-compatible
+kind = "deepgram"    # deepgram | openai | gemini | openai-compatible
 # base_url and model default per kind:
 #   deepgram -> https://api.deepgram.com, nova-3
 #   openai   -> https://api.openai.com/v1, gpt-transcribe
-#   groq     -> https://api.groq.com/openai/v1, whisper-large-v3-turbo
 #   gemini   -> Live API WebSocket, gemini-3.5-transcribe-live
 # "openai-compatible" is the escape hatch for any other server speaking the
 # multipart /audio/transcriptions contract; it requires an explicit base_url.
@@ -37,6 +36,10 @@ kind = "deepgram"    # deepgram | openai | groq | gemini | openai-compatible
 # stores the tidied text rather than what you actually said, and invocation
 # triggers are matched against the tidied text.
 # live_mode = "verbatim"
+# OpenAI only. true streams to gpt-live-transcribe while you hold the key, so
+# only the tail is left after release; billed per audio minute, about 4x
+# gpt-transcribe. Same key as OpenAI. A pinned model is kept for when it is off.
+# live = false
 
 [hotkey]
 # Push-to-talk chord: hold ALL listed keys to record, release any to stop.

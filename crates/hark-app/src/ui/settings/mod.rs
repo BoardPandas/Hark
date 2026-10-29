@@ -10,6 +10,7 @@ pub mod form;
 pub mod get_started;
 pub mod hotkey;
 pub mod keys;
+mod live_rows;
 pub mod local;
 pub mod meetings;
 mod onboarding;

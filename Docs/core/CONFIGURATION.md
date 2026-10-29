@@ -7,6 +7,7 @@ The following files were used as evidence for this page:
 - [crates/hark-config/src/lib.rs](../../crates/hark-config/src/lib.rs)
 - [crates/hark-config/src/lib.rs](../../crates/hark-config/src/lib.rs)
 - [crates/hark-config/src/lib.rs](../../crates/hark-config/src/lib.rs)
+- [crates/hark-config/src/groq_migration.rs](../../crates/hark-config/src/groq_migration.rs)
 - [crates/hark-config/src/voice.rs:1-65](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/crates/hark-config/src/voice.rs#L1-L65)
 - [crates/hark-config/src/voice.rs:67-152](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/crates/hark-config/src/voice.rs#L67-L152)
 - [crates/hark-config/src/voice.rs:214-282](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/crates/hark-config/src/voice.rs#L214-L282)
@@ -58,10 +59,12 @@ The `Settings` struct is the single source of truth for the config schema; every
 
 | Section | Key | Type | Default | Meaning |
 |---|---|---|---|---|
-| top-level | `version` | `u32` | `6` (`CONFIG_VERSION`) | Schema stamp written on save; older versions migrate with a backup on load ([config](../../crates/hark-config/src/lib.rs)) |
-| `[provider]` | `kind` | enum | `"deepgram"` | STT provider: `deepgram` \| `openai` \| `groq` \| `openai-compatible` ([lib.rs](../../crates/hark-config/src/lib.rs)) |
+| top-level | `version` | `u32` | `7` (`CONFIG_VERSION`) | Schema stamp written on save; older versions migrate with a backup on load ([lib.rs:28-51](../../crates/hark-config/src/lib.rs#L28-L51)) |
+| `[provider]` | `kind` | enum | `"deepgram"` | STT provider: `deepgram` \| `openai` \| `gemini` \| `openai-compatible`. `groq` is no longer a kind; schema 7 migrates it (see [Groq Retirement](#groq-retirement-schema-7)) ([lib.rs:104-130](../../crates/hark-config/src/lib.rs#L104-L130)) |
 | `[provider]` | `base_url` | `Option<String>` | per-kind (e.g. `https://api.deepgram.com`) | Required explicit for `openai-compatible` ([lib.rs](../../crates/hark-config/src/lib.rs)) |
 | `[provider]` | `model` | `Option<String>` | per-kind (e.g. `nova-3`) | Resolved model name sent in the request ([lib.rs](../../crates/hark-config/src/lib.rs)) |
+| `[provider]` | `live_mode` | enum | `"verbatim"` | Gemini only: `verbatim` (literal transcript, then the cleanup voice) \| `smart` (Gemini tidies in the same call; the voice does not run) ([lib.rs:143-146](../../crates/hark-config/src/lib.rs#L143-L146)) |
+| `[provider]` | `live` | `bool` | `false` | OpenAI only, ignored by every other kind: **Live transcribe**. `true` streams to `gpt-live-transcribe` over OpenAI's realtime WebSocket while the key is held, with the same `openai` key. Billed per audio minute, about 4× gpt-transcribe ($0.017/min vs $0.0045/min). Not written when `false`. A `gpt-live-*` `model` turns it on too; a pinned batch `model` is kept and comes back when it is off. Dictation only: a failed or empty stream falls back to gpt-transcribe over REST, and meeting live-transcript chunks always use the batch route ([lib.rs:147-162](../../crates/hark-config/src/lib.rs#L147-L162), [lib.rs:261-284](../../crates/hark-config/src/lib.rs#L261-L284), [Transcription](../features/TRANSCRIPTION.md#openai-live-transcribe)) |
 | `[hotkey]` | `ptt_key` | `String` | `"LCtrl+LWin"` | `"+"`-joined chord; hold all keys to record, release any to stop ([lib.rs](../../crates/hark-config/src/lib.rs)) |
 | `[audio]` | `input_device` | `Option<String>` | `None` | cpal device name; `None` or a stale name falls back to the OS default mic ([lib.rs](../../crates/hark-config/src/lib.rs)) |
 | `[audio]` | `preroll_ms` | `u32` | `300` | Audio kept from before the chord registers ([lib.rs](../../crates/hark-config/src/lib.rs)) |
@@ -112,7 +115,7 @@ Appearance is intentionally outside `config.toml`: System, Light, Dark, Solarize
 `Provider::resolved_base_url` and `resolved_model` fill in the per-kind defaults when the file leaves them unset ([lib.rs](../../crates/hark-config/src/lib.rs)):
 
 ```rust
-// crates/hark-config/src/lib.rs:110-126
+// crates/hark-config/src/lib.rs:229-242
 pub fn resolved_model(&self) -> String {
     if let Some(model) = &self.model {
         return model.clone();
@@ -121,7 +124,6 @@ pub fn resolved_model(&self) -> String {
         ProviderKind::Deepgram => "nova-3",
         ProviderKind::Openai => "gpt-transcribe",
         ProviderKind::Gemini => "gemini-3.5-transcribe-live",
-        ProviderKind::Groq => "whisper-large-v3-turbo",
         // Validation guarantees openai-compatible configs are explicit;
         // an empty model is still a valid request for some servers.
         ProviderKind::OpenaiCompatible => "",
@@ -129,6 +131,8 @@ pub fn resolved_model(&self) -> String {
     .to_string()
 }
 ```
+
+`resolved_model` is the configured model, not always the one a dictation sends. With Live transcribe on, `live_transcribe_model` substitutes `gpt-live-transcribe` (or a pinned `gpt-live-*` model) and leaves `model` alone, and the pipeline's `stt_route` is what the footer and history name ([lib.rs:261-284](../../crates/hark-config/src/lib.rs#L261-L284), [pipeline lib.rs `stt_route`](../../crates/hark-pipeline/src/lib.rs)).
 
 `Settings::validate` (run on every load and every save) enforces the cross-field rules: `openai-compatible` requires an explicit `base_url`, `ptt_key` must not be blank, and both `history` caps must be >= 1 ([lib.rs](../../crates/hark-config/src/lib.rs)). The annotated `default-config.toml` mirrors this table and ships as the on-disk documentation for a fresh install ([default-config.toml:13-47](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/config/default-config.toml#L13-L47)).
 
@@ -145,6 +149,20 @@ See [speaker echo reduction](../features/MEETINGS.md#reduce-speaker-echo) for th
 capture scope and fallback behavior ([settings and migration](../../crates/hark-config/src/meeting.rs)).
 
 `validate_meeting_shortcut` parses both chords through `hark-hotkey` and rejects invalid names, empty configured strings, equal key sets, and either-direction subsets. For the default push-to-talk `LCtrl+LWin`, `LWin+LCtrl`, `LCtrl`, and `LCtrl+LWin+M` conflict; `LCtrl+F11` does not. The settings UI converts blank text to `None`, shows validation errors immediately, and restarts the shared listener after a valid save. This version adds no final-pass provider or model setting ([validation](../../crates/hark-config/src/lib.rs), [settings](../../crates/hark-app/src/ui/settings/meetings.rs)).
+
+### Groq Retirement (schema 7)
+
+Schema 7 removes Groq as both an STT and a cleanup provider. `ProviderKind` has no `#[serde(other)]`, so an unknown `kind` fails the *whole* parse; the app would then fall back to defaults behind a banner, and the next Save would write those defaults over the user's file. The migration therefore runs on the raw TOML tree before serde sees it, for any file stamped below 7, and is idempotent ([lib.rs:627-667](../../crates/hark-config/src/lib.rs#L627-L667), [groq_migration.rs:1-45](../../crates/hark-config/src/groq_migration.rs#L1-L45)):
+
+| Saved shape | After migration |
+|---|---|
+| `[provider] kind = "groq"` | `kind = "openai-compatible"`, with `base_url = "https://api.groq.com/openai/v1"` and `model = "whisper-large-v3-turbo"` written out unless the user had set them |
+| `[voice.provider] kind = "groq"` | `openai-compatible` with Groq's URL, `model = "llama-3.1-8b-instant"` and `temperature = 0.2`. When the STT provider was not Groq, `key_account = "groq"` is added so cleanup keeps reading the key it always used |
+| No `[voice.provider]`, cleanup inherited from a Groq STT provider | An explicit `[voice.provider]` table with the same endpoint, model and temperature. `openai-compatible` is not inherited, so converting only the STT table would silently turn the default Clean voice off |
+
+Sources: [groq_migration.rs:47-122](../../crates/hark-config/src/groq_migration.rs#L47-L122).
+
+Config cannot reach the keychain, so `Settings::load_with_migrations` returns a `Migrations` report alongside the settings. At startup the app reads `Migrations::key_copy()` and calls `hark_keychain::copy_key_if_empty("groq", "openai-compatible")`. The copy happens only when the `openai-compatible` slot is empty, never moves or deletes the `groq` entry, and logs account labels only. An occupied slot logs a warning telling the user to store the right key in Settings if dictation reports it rejected. A second launch loads an already-migrated file and reports nothing ([lib.rs:56-80](../../crates/hark-config/src/lib.rs#L56-L80), [lib.rs:684-711](../../crates/hark-config/src/lib.rs#L684-L711), [keychain lib.rs:119-166](../../crates/hark-keychain/src/lib.rs#L119-L166), [app pipeline.rs `carry_migrated_key`](../../crates/hark-app/src/pipeline.rs), [app.rs:472-476](../../crates/hark-app/src/app.rs#L472-L476)). The versioned backup is `config.toml.v6.bak` for a schema-6 file, written before the migrated file is saved, as with every earlier schema step.
 <!-- END:AUTOGEN hark_04_configuration_schema -->
 
 ---
@@ -159,7 +177,7 @@ The `[voice]` section picks which preset rewrites the transcript before injectio
 | `default` | `VoiceName` | `Clean` | `verbatim` \| `clean` \| `professional` \| `casual` \| `custom` ([voice.rs:16-22](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/crates/hark-config/src/voice.rs#L16-L22), [voice.rs:56-64](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/crates/hark-config/src/voice.rs#L56-L64)) |
 | `custom_prompt` | `String` | `""` | System prompt for `default = "custom"`; validated non-empty in that case ([voice.rs:44-46](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/crates/hark-config/src/voice.rs#L44-L46)) |
 | `skip_below_words` | `u32` | `5` | Corrected transcripts shorter than this skip the cleanup call; `0` disables the gate ([voice.rs:47-49](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/crates/hark-config/src/voice.rs#L47-L49)) |
-| `provider` | `Option<VoiceProvider>` | `None` | Explicit cleanup provider table; omit to inherit from an openai/groq STT provider ([voice.rs:50-53](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/crates/hark-config/src/voice.rs#L50-L53)) |
+| `provider` | `Option<VoiceProvider>` | `None` | Explicit cleanup provider table; omit to inherit from an openai/gemini STT provider ([voice.rs:50-53](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/crates/hark-config/src/voice.rs#L50-L53)) |
 
 The optional `[voice.provider]` table shares the same shape idea as `[provider]` but is chat-oriented: Deepgram has no chat-completions product and is rejected at validation ([voice.rs:69-93](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/crates/hark-config/src/voice.rs#L69-L93), [voice.rs:160-167](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/crates/hark-config/src/voice.rs#L160-L167)).
 
@@ -180,7 +198,7 @@ pub struct VoiceProvider {
 }
 ```
 
-`resolve_cleanup_provider` decides, in order: an effective `Verbatim` voice needs no provider; an explicit `[voice.provider]` wins outright; absent that, an `openai`/`groq` STT provider is inherited (same kind, same base URL, the kind's default chat model, and the already-resolved STT key is reused rather than reading the keychain again); otherwise the pipeline degrades to Verbatim with a logged warning ([voice.rs:214-225](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/crates/hark-config/src/voice.rs#L214-L225)). An `openai-compatible` STT endpoint is deliberately **not** inherited, since speaking `/audio/transcriptions` does not imply `/chat/completions` ([voice.rs:271-280](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/crates/hark-config/src/voice.rs#L271-L280)).
+`resolve_cleanup_provider` decides, in order: an effective `Verbatim` voice needs no provider; an explicit `[voice.provider]` wins outright; absent that, an `openai`/`gemini` STT provider is inherited (same kind, same base URL, the kind's default chat model, and the already-resolved STT key is reused rather than reading the keychain again; OpenAI with Live transcribe on is still OpenAI here, since the realtime model returns a verbatim transcript); otherwise the pipeline degrades to Verbatim with a logged warning ([voice.rs:214-225](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/crates/hark-config/src/voice.rs#L214-L225)). An `openai-compatible` STT endpoint is deliberately **not** inherited, since speaking `/audio/transcriptions` does not imply `/chat/completions` ([voice.rs:271-280](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/crates/hark-config/src/voice.rs#L271-L280)).
 
 Sources: [voice.rs:1-152](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/crates/hark-config/src/voice.rs#L1-L152), [voice.rs:214-282](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/crates/hark-config/src/voice.rs#L214-L282)
 <!-- END:AUTOGEN hark_04_configuration_voices -->
@@ -190,7 +208,7 @@ Sources: [voice.rs:1-152](https://github.com/BoardPandas/Hark/blob/1c1738716fa4c
 <!-- BEGIN:AUTOGEN hark_04_configuration_loadsave -->
 ## Load and Save
 
-`Settings::load` uses defaults for a missing file and returns other I/O errors. Existing files pass through `from_toml`, migration, and validation. If their schema version is older than `CONFIG_VERSION`, Hark creates the versioned backup and immediately saves the migrated settings. Both writes are best-effort: a failed backup keeps the original file, and a failed save is logged. Migrated settings are still returned in memory; successful in-memory migration does not prove persistence ([implementation](../../crates/hark-config/src/lib.rs), [v3 migration fixture](../../crates/hark-config/src/meeting.rs)).
+`Settings::load` uses defaults for a missing file and returns other I/O errors. Existing files pass through the schema-7 Groq fix-up on the TOML tree, then `from_toml`, field migrations, and validation. `Settings::load_with_migrations` is the same load, plus the `Migrations` report the app needs for the keychain copy (see [Groq Retirement](#groq-retirement-schema-7)). If their schema version is older than `CONFIG_VERSION`, Hark creates the versioned backup and immediately saves the migrated settings. Both writes are best-effort: a failed backup keeps the original file, and a failed save is logged. Migrated settings are still returned in memory; successful in-memory migration does not prove persistence ([implementation](../../crates/hark-config/src/lib.rs), [v3 migration fixture](../../crates/hark-config/src/meeting.rs)).
 
 Saving writes a pretty TOML representation through a temporary file and replaces the destination. `validate_meeting_shortcut` also applies to hand-built settings at runtime before installing the listener. The optional meeting shortcut is omitted from serialized TOML when unassigned ([settings](../../crates/hark-config/src/lib.rs), [meeting fields](../../crates/hark-config/src/meeting.rs)).
 <!-- END:AUTOGEN hark_04_configuration_loadsave -->
@@ -218,6 +236,7 @@ const KEYRING_SERVICE: &str = "hark";
 | `key_status(account)` | Non-destructive presence check (`Stored` \| `Missing` \| `Backend(detail)`); the stored value is read and immediately dropped ([keychain/lib.rs:78-88](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/crates/hark-keychain/src/lib.rs#L78-L88)) |
 | `resolve_key(provider)` | Thin wrapper over `resolve_key_for(ENV_OVERRIDE, provider)` for the STT role ([keychain/lib.rs:119-123](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/crates/hark-keychain/src/lib.rs#L119-L123)) |
 | `resolve_key_for(env_var, account)` | `env_var` (non-blank) beats the keychain; the keychain is never touched when the env override is present ([keychain/lib.rs:125-131](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/crates/hark-keychain/src/lib.rs#L125-L131)) |
+| `copy_key_if_empty(from, to)` | Keychain to keychain, for a migration that moved a provider's account. Returns `Copied`, `DestinationOccupied` (a stored key is never overwritten; the source is not even read) or `SourceMissing`; the source entry stays ([keychain lib.rs:119-166](../../crates/hark-keychain/src/lib.rs#L119-L166)) |
 
 `resolve_key_for` is used for both roles: the STT role resolves through `HARK_STT_KEY`, the cleanup role through `HARK_CLEANUP_KEY`, and a missing key on either path produces a `KeyError::Missing` naming both the account and the exact env var to set ([keychain/lib.rs:30-42](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/crates/hark-keychain/src/lib.rs#L30-L42)):
 

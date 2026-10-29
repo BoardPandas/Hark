@@ -66,7 +66,7 @@ pub struct Voice {
     /// keystroke, invented prose has to be read and deleted. Built-in voices
     /// only (never Custom). 0 disables the check.
     pub max_expansion_ratio: f32,
-    /// Explicit cleanup provider; omit to inherit from an openai/groq STT
+    /// Explicit cleanup provider; omit to inherit from an openai/gemini STT
     /// provider (see `resolve_cleanup_provider`).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub provider: Option<VoiceProvider>,
@@ -88,7 +88,7 @@ impl Default for Voice {
 /// is present; everything else defaults per kind.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct VoiceProvider {
-    /// openai | groq | openai-compatible. Deepgram has no chat product and
+    /// openai | gemini | openai-compatible. Deepgram has no chat product and
     /// is rejected at validation.
     pub kind: ProviderKind,
     /// Defaults per kind; required (validated) for `openai-compatible`.
@@ -100,7 +100,7 @@ pub struct VoiceProvider {
     pub model: Option<String>,
     /// Serialized into the request only when present; the openai preset
     /// leaves it unset because the GPT-5 family rejects any non-default
-    /// temperature. Groq preset: 0.2.
+    /// temperature. Gemini preset: 0.2.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub temperature: Option<f32>,
     /// OpenAI GPT-5 family only; openai preset "minimal", others unset.
@@ -116,7 +116,6 @@ pub struct VoiceProvider {
 fn default_chat_model(kind: ProviderKind) -> &'static str {
     match kind {
         ProviderKind::Openai => "gpt-5-nano",
-        ProviderKind::Groq => "llama-3.1-8b-instant",
         // Flash Lite: a cleanup pass is a short, low-temperature rewrite, and
         // the cheapest fast model that can follow the voice prompt is the
         // right tool. Measured 554 ms for a one-sentence rewrite (2026-09-17).
@@ -129,7 +128,7 @@ fn default_chat_model(kind: ProviderKind) -> &'static str {
 
 fn preset_temperature(kind: ProviderKind) -> Option<f32> {
     match kind {
-        ProviderKind::Groq | ProviderKind::Gemini => Some(0.2),
+        ProviderKind::Gemini => Some(0.2),
         _ => None,
     }
 }
@@ -146,7 +145,6 @@ fn preset_reasoning_effort(kind: ProviderKind) -> Option<&'static str> {
 fn voice_default_base_url(kind: ProviderKind) -> Option<String> {
     match kind {
         ProviderKind::Openai => Some("https://api.openai.com/v1".to_string()),
-        ProviderKind::Groq => Some("https://api.groq.com/openai/v1".to_string()),
         // Gemini publishes an OpenAI-compatible chat endpoint, so the same
         // adapter reaches it unchanged -- note the `/openai` suffix, which
         // the STT base URL does not carry.
@@ -263,7 +261,7 @@ pub enum CleanupResolution {
 /// 1. Effective voice Verbatim: no provider, no warning.
 /// 2. Explicit `[voice.provider]` wins; its key account is `key_account`
 ///    when set, else the kind's label.
-/// 3. Absent: an openai/groq STT provider is inherited (same kind, same
+/// 3. Absent: an openai/gemini STT provider is inherited (same kind, same
 ///    resolved base_url, the kind's default chat model and presets) and the
 ///    already-resolved STT key is reused. An openai-compatible STT endpoint
 ///    is NOT inherited: speaking /audio/transcriptions does not imply
@@ -302,10 +300,11 @@ pub fn resolve_cleanup_provider(
         });
     }
     match stt.kind {
-        // Gemini joins these: one key covers both the transcription and the
-        // cleanup call, so selecting Gemini no longer silently drops the
-        // configured voice.
-        ProviderKind::Openai | ProviderKind::Groq | ProviderKind::Gemini => {
+        // One key covers both the transcription and the cleanup call, so
+        // selecting Gemini no longer silently drops the configured voice.
+        // OpenAI with Live transcribe on is still OpenAI here: the realtime
+        // model hands back a verbatim transcript, and gpt-5-nano cleans it.
+        ProviderKind::Openai | ProviderKind::Gemini => {
             CleanupResolution::Resolved(ResolvedCleanupProvider {
                 kind: stt.kind,
                 // An explicit STT base_url is a deliberate override (a proxy,
@@ -316,7 +315,7 @@ pub fn resolve_cleanup_provider(
                 // POST /chat/completions to the wrong place.
                 base_url: stt.base_url.clone().unwrap_or_else(|| {
                     voice_default_base_url(stt.kind)
-                        .expect("openai/groq/gemini always resolve a chat base URL")
+                        .expect("openai/gemini always resolve a chat base URL")
                 }),
                 model: default_chat_model(stt.kind).to_string(),
                 temperature: preset_temperature(stt.kind),
@@ -386,15 +385,14 @@ mod tests {
     }
 
     #[test]
-    fn groq_stt_is_inherited_with_groq_presets() {
-        let s = Settings::from_toml("[provider]\nkind = \"groq\"").expect("parses");
+    fn openai_live_transcribe_still_inherits_openai_cleanup() {
+        // The realtime model returns a verbatim transcript; the voice runs on
+        // the same key exactly as it does for batch OpenAI.
+        let s = Settings::from_toml("[provider]\nkind = \"openai\"\nlive = true").unwrap();
         match resolve(&s) {
             CleanupResolution::Resolved(p) => {
-                assert_eq!(p.kind, ProviderKind::Groq);
-                assert_eq!(p.base_url, "https://api.groq.com/openai/v1");
-                assert_eq!(p.model, "llama-3.1-8b-instant");
-                assert_eq!(p.temperature, Some(0.2));
-                assert_eq!(p.reasoning_effort, None);
+                assert_eq!(p.kind, ProviderKind::Openai);
+                assert_eq!(p.model, "gpt-5-nano");
                 assert_eq!(p.key_source, CleanupKeySource::ReuseSttKey);
             }
             other => panic!("expected Resolved, got {other:?}"),
@@ -475,7 +473,7 @@ mod tests {
             default = "verbatim"
 
             [voice.provider]
-            kind = "groq"
+            kind = "gemini"
             "#,
         )
         .expect("parses");
@@ -487,7 +485,7 @@ mod tests {
         let s = Settings::from_toml(
             r#"
             [provider]
-            kind = "groq"
+            kind = "gemini"
 
             [voice.provider]
             kind = "openai"
@@ -560,7 +558,7 @@ mod tests {
         // Phase 4 UI paste field will write); changing one orphans keys.
         for (kind, label) in [
             (ProviderKind::Openai, "openai"),
-            (ProviderKind::Groq, "groq"),
+            (ProviderKind::Gemini, "gemini"),
             (ProviderKind::OpenaiCompatible, "openai-compatible"),
         ] {
             let voice = Voice {
@@ -657,8 +655,8 @@ mod tests {
             skip_below_words = 3
 
             [voice.provider]
-            kind = "groq"
-            model = "openai/gpt-oss-20b"
+            kind = "gemini"
+            model = "gemini-3.5-flash"
             reasoning_effort = "low"
             "#,
         )
@@ -667,9 +665,9 @@ mod tests {
         assert_eq!(s.voice.skip_below_words, 3);
         match resolve(&s) {
             CleanupResolution::Resolved(p) => {
-                assert_eq!(p.model, "openai/gpt-oss-20b");
+                assert_eq!(p.model, "gemini-3.5-flash");
                 assert_eq!(p.reasoning_effort.as_deref(), Some("low"));
-                assert_eq!(p.temperature, Some(0.2), "groq preset still applies");
+                assert_eq!(p.temperature, Some(0.2), "gemini preset still applies");
             }
             other => panic!("expected Resolved, got {other:?}"),
         }

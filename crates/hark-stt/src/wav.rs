@@ -36,6 +36,17 @@ pub fn encode_wav_16k_mono(samples: &[f32]) -> Vec<u8> {
     out
 }
 
+/// Convert f32 samples in [-1.0, 1.0] to little-endian PCM16 bytes: the wire
+/// format of both live adapters, whatever rate each one streams at.
+pub fn samples_to_pcm16_le(samples: &[f32]) -> Vec<u8> {
+    let mut out = Vec::with_capacity(samples.len() * 2);
+    for &s in samples {
+        let clamped = s.clamp(-1.0, 1.0);
+        out.extend_from_slice(&((clamped * 32767.0) as i16).to_le_bytes());
+    }
+    out
+}
+
 /// Parsed header facts + decoded samples for a PCM16 WAV.
 #[derive(Debug)]
 pub struct WavInfo {

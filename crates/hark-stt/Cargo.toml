@@ -4,7 +4,7 @@ version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
-description = "Hark BYOK cloud speech-to-text: SttProvider trait with OpenAI-compatible, Deepgram and Gemini adapters."
+description = "Hark BYOK cloud speech-to-text: SttProvider trait with OpenAI-compatible, Deepgram, Gemini and live WebSocket adapters."
 
 [dependencies]
 # Static trust roots, no OS cert store: reqwest 0.13.2+ removed its
@@ -32,12 +32,12 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 thiserror = "2"
 
-# The Gemini Live adapter is the only thing in this crate that needs an async
-# runtime: the Live API is a bidirectional WebSocket, with no REST equivalent
-# that accepts inline audio. The runtime is a private, current-thread instance
-# owned by that adapter and driven with block_on from the pipeline worker
-# thread, so it never becomes a process-wide executor and no other adapter's
-# blocking reqwest call ever runs on it (LL-G Rust HIGH, blocking-io-on-tokio).
+# The two live adapters (Gemini Live, OpenAI live transcribe) are the only
+# things in this crate that need an async runtime: both providers stream over
+# a bidirectional WebSocket. Each adapter owns a private, current-thread
+# runtime driven with block_on from the pipeline worker thread, so neither
+# becomes a process-wide executor and no other adapter's blocking reqwest call
+# ever runs on one (LL-G Rust HIGH, blocking-io-on-tokio).
 tokio = { version = "1.53", default-features = false, features = [
     "rt",
     "net",
@@ -52,12 +52,18 @@ tokio-tungstenite = { version = "0.30", default-features = false, features = [
 futures-util = { version = "0.3", default-features = false, features = [
     "sink",
 ], optional = true }
+# OpenAI's realtime API accepts only 24 kHz, so its replay path upsamples the
+# stored 16 kHz clip with one whole-clip process_all (LL-G Rust HIGH,
+# rubato-4-whole-clip-process-all). The version hark-audio already pins; not
+# hark-audio itself, which would drag cpal into this crate.
+rubato = { version = "5.0", optional = true }
 
 [features]
 default = []
-# Pulls in tokio + a WebSocket client for the Gemini Live adapter. Off here so
-# the crate stays runtime-free by default; hark-app turns it on.
-live = ["dep:tokio", "dep:tokio-tungstenite", "dep:futures-util"]
+# Pulls in tokio + a WebSocket client for the live adapters, and the resampler
+# OpenAI's replay needs. Off here so the crate stays runtime-free by default;
+# hark-app turns it on.
+live = ["dep:tokio", "dep:tokio-tungstenite", "dep:futures-util", "dep:rubato"]
 
 [dev-dependencies]
 hound = "3.5"
@@ -72,4 +78,8 @@ hark-voice = { path = "../hark-voice" }
 # it the example would fail to compile for anyone running a plain `cargo test`.
 [[example]]
 name = "gemini_live_probe"
+required-features = ["live"]
+
+[[example]]
+name = "openai_live_probe"
 required-features = ["live"]

@@ -176,9 +176,9 @@ mod tests {
         assert_eq!(icon, theme::icons::CHECK);
         assert_eq!(text, "Key stored for deepgram");
 
-        let (icon, _, text) = status_line(&egui::Visuals::dark(), &KeyStatus::Missing, "groq");
+        let (icon, _, text) = status_line(&egui::Visuals::dark(), &KeyStatus::Missing, "openai");
         assert_eq!(icon, theme::icons::KEY);
-        assert_eq!(text, "No key for groq yet");
+        assert_eq!(text, "No key for openai yet");
 
         let (icon, _, text) = status_line(
             &egui::Visuals::dark(),

@@ -2,9 +2,10 @@
 //! `{raw, cleaned}` beat the current two-hop path (STT POST, then cleanup POST)
 //! without giving up the expansion guardrail?
 //!
-//! Run with `GEMINI_API_KEY` set. If `OPENAI_API_KEY` or `GROQ_API_KEY` is also
-//! set, the spike measures the two-hop baseline on the same fixture so the
-//! latency verdict is a comparison rather than a number in isolation.
+//! Run with `GEMINI_API_KEY` set. If `OPENAI_API_KEY` is also set, the spike
+//! measures the two-hop baseline (gpt-transcribe, then gpt-5-nano cleanup) on
+//! the same fixture so the latency verdict is a comparison rather than a
+//! number in isolation.
 //!
 //! Knobs: `SPIKE_RUNS` (default 10), `SPIKE_DELAY_MS` (default 0),
 //! `GEMINI_MODEL` (default gemini-3.6-flash), `GEMINI_BASE_URL`,
@@ -61,7 +62,6 @@ fn main() {
         return;
     };
     let baseline_key = env_nonempty("OPENAI_API_KEY").map(|k| ("openai", k));
-    let baseline_key = baseline_key.or_else(|| env_nonempty("GROQ_API_KEY").map(|k| ("groq", k)));
 
     let report = Report {
         keys: std::iter::once(gemini_key.clone())
@@ -238,19 +238,12 @@ fn main() {
     let mut baseline_tally = LatencyTally::default();
     match &baseline_key {
         Some((label, key)) => {
+            // The adapter the app uses for OpenAI's gpt-transcribe.
             let stt_config = ProviderConfig {
-                kind: ProviderKind::OpenAiCompatible,
+                kind: ProviderKind::OpenAiTranscribe,
                 label: (*label).into(),
-                base_url: if *label == "groq" {
-                    "https://api.groq.com/openai/v1".into()
-                } else {
-                    "https://api.openai.com/v1".into()
-                },
-                model: if *label == "groq" {
-                    "whisper-large-v3-turbo".into()
-                } else {
-                    "gpt-transcribe".into()
-                },
+                base_url: "https://api.openai.com/v1".into(),
+                model: "gpt-transcribe".into(),
                 api_key: key.clone(),
                 bias_terms: bias.clone(),
                 cleanup_instruction: None,
@@ -259,11 +252,7 @@ fn main() {
             let cleanup_config = CleanupConfig {
                 label: (*label).into(),
                 base_url: stt_config.base_url.clone(),
-                model: if *label == "groq" {
-                    "llama-3.1-8b-instant".into()
-                } else {
-                    "gpt-5-nano".into()
-                },
+                model: "gpt-5-nano".into(),
                 api_key: key.clone(),
                 temperature: None,
                 reasoning_effort: None,
@@ -308,7 +297,7 @@ fn main() {
                 _ => r.say("  baseline: adapter build failed"),
             }
         }
-        None => r.say("  baseline: skipped (set OPENAI_API_KEY or GROQ_API_KEY to compare)"),
+        None => r.say("  baseline: skipped (set OPENAI_API_KEY to compare)"),
     }
 
     // --- Checkpoint 4: failure taxonomy ---

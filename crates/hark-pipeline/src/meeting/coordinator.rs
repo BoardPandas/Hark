@@ -587,13 +587,15 @@ impl Coordinator {
         }
         let built = hark_keychain::resolve_key(&label)
             .map_err(|e| e.to_string())
-            .and_then(|key| crate::provider_config(&self.settings, key).map_err(|e| e.to_string()))
+            .and_then(|key| {
+                // The batch route, as dictation's fallback uses: a chunk is a
+                // finished clip, never a live session, and OpenAI's Live
+                // transcribe toggle does not apply to it.
+                crate::meeting_chunk_config(&self.settings, key).map_err(|e| e.to_string())
+            })
             .and_then(|cfg| {
                 let client = hark_stt::shared_client().map_err(|e| e.to_string())?;
-                // The batch contract, as dictation's replay uses: a chunk is a
-                // finished clip, never a live session.
-                hark_stt::build_meeting_chunks(&crate::fallback_config(&cfg), client)
-                    .map_err(|e| e.to_string())
+                hark_stt::build_meeting_chunks(&cfg, client).map_err(|e| e.to_string())
             });
         match built {
             Ok(provider) if self.settings.local_stt.mode == hark_config::LocalMode::Fallback => (

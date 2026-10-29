@@ -5,6 +5,12 @@
 //! key-down instead and fed as the ring fills, leaving only the tail
 //! outstanding at release.
 //!
+//! The stream is resampled straight from the device rate to whatever rate the
+//! provider declares ([`LiveStt::input_rate`]): 16 kHz for Gemini Live, 24 kHz
+//! for OpenAI's realtime API, which accepts nothing else. Going device -> 24 kHz
+//! directly keeps the 8-12 kHz band a detour through the pipeline's 16 kHz
+//! would have cut. The assembled clip the batch path uses stays 16 kHz.
+//!
 //! # This is an accelerator, never the spine
 //!
 //! Every failure here — no live adapter, a refused connection, a socket that
@@ -75,7 +81,8 @@ pub(crate) struct LivePump {
 }
 
 impl LivePump {
-    /// Open a session and position the reader at the window start.
+    /// Open a session and position the reader at the window start, resampling
+    /// from the device `rate` to the provider's declared input rate.
     ///
     /// Returns `None` on any failure: the caller then simply has no pump, and
     /// the batch path runs exactly as it did before streaming existed.
@@ -95,7 +102,7 @@ impl LivePump {
         // taken moments after launch.
         let start = start.max(consumer.oldest_available());
 
-        let resampler = match StreamResampler::new(rate) {
+        let resampler = match StreamResampler::with_target(rate, live.input_rate()) {
             Ok(r) => r,
             Err(e) => {
                 log::warn!("live stream unavailable (resampler): {e}");
@@ -195,6 +202,8 @@ mod tests {
         refuse_start: bool,
         /// Fail the first `push`, standing in for a socket dying mid-hold.
         fail_push: bool,
+        /// The provider's declared input rate; 0 means the trait default.
+        input_rate: u32,
     }
 
     struct FakeSession {
@@ -228,6 +237,13 @@ mod tests {
                 pushed: self.pushed.clone(),
                 fail_push: self.fail_push,
             }))
+        }
+
+        fn input_rate(&self) -> u32 {
+            match self.input_rate {
+                0 => hark_stt::wav::SAMPLE_RATE,
+                rate => rate,
+            }
         }
     }
 
@@ -328,8 +344,8 @@ mod tests {
 
     #[test]
     fn a_48k_device_is_resampled_on_the_way_out() {
-        // The provider is promised 16 kHz; a device-rate stream would be
-        // transcribed as chipmunk audio.
+        // The provider is promised its declared rate (16 kHz by default); a
+        // device-rate stream would be transcribed as chipmunk audio.
         let (producer, consumer) = hark_audio::ring::ring(48_000 * 8);
         producer.push(&vec![0.25f32; 48_000]);
         let live = FakeLive::default();
@@ -345,6 +361,56 @@ mod tests {
             got.abs_diff(expected) < 2_048,
             "expected about {expected} samples at 16 kHz, got {got}"
         );
+    }
+
+    #[test]
+    fn the_stream_goes_out_at_the_providers_declared_rate() {
+        // OpenAI's realtime API accepts only 24 kHz. A 48 kHz device streams
+        // straight to it, never through the pipeline's 16 kHz.
+        let (producer, consumer) = hark_audio::ring::ring(48_000 * 8);
+        producer.push(&vec![0.25f32; 48_000]);
+        let live = FakeLive {
+            input_rate: 24_000,
+            ..Default::default()
+        };
+        let pushed = live.pushed.clone();
+        let mut pump =
+            LivePump::start(&live, &consumer, 48_000, 48_000, &WindowParams::default()).unwrap();
+        producer.push(&vec![0.5f32; 48_000]);
+        pump.pump(u64::MAX).unwrap();
+        let mut got = pushed.lock().unwrap().len();
+        // ~1 s of new audio plus 300 ms pre-roll, at half the rate.
+        let expected = (48_000 + 14_400) / 2;
+        assert!(
+            got.abs_diff(expected) < 2_048,
+            "expected about {expected} samples at 24 kHz, got {got}"
+        );
+        // The tail comes out at the same rate, to the exact length.
+        let end = pump.next_abs;
+        let window = (end - (48_000 - 14_400)) as usize;
+        pump.finish(end, 1.0).unwrap();
+        got = pushed.lock().unwrap().len();
+        assert_eq!(
+            got,
+            hark_audio::resample::resampled_len_to(window, 48_000, 24_000)
+        );
+    }
+
+    #[test]
+    fn a_device_already_at_the_providers_rate_streams_untouched() {
+        let (producer, consumer) = hark_audio::ring::ring(24_000 * 8);
+        producer.push(&vec![0.25f32; 24_000]);
+        let live = FakeLive {
+            input_rate: 24_000,
+            ..Default::default()
+        };
+        let pushed = live.pushed.clone();
+        let mut pump =
+            LivePump::start(&live, &consumer, 24_000, 24_000, &WindowParams::default()).unwrap();
+        producer.push(&vec![0.5f32; 2_400]);
+        pump.pump(u64::MAX).unwrap();
+        // 300 ms pre-roll plus the new 100 ms, sample for sample.
+        assert_eq!(pushed.lock().unwrap().len(), 7_200 + 2_400);
     }
 
     #[test]

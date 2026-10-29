@@ -303,6 +303,61 @@ impl PipelineController {
     }
 }
 
+/// Carry the STT key across a schema migration that moved it to a new
+/// keychain account: the retired Groq preset now reads `openai-compatible`,
+/// and the account is the kind's label.
+///
+/// Owed while the STT provider is `openai-compatible` on Groq's endpoint
+/// ([`hark_config::Provider::groq_key_carry`]), or when this load has just
+/// converted a Groq table (which may name a proxy instead). A condition, not a
+/// once-only step: the file is already v7 when this runs, so a keychain that
+/// failed on the migrating launch would otherwise leave the key stranded under
+/// `groq`. The copy fills only an empty slot from a stored key, so asking on a
+/// later launch costs one or two keychain reads and changes nothing once done.
+///
+/// Called from `load_settings`, once at startup and before the first pipeline
+/// start resolves the key; never per frame. Never overwrites a stored key,
+/// and logs account labels only.
+pub(crate) fn carry_migrated_key(settings: &Settings, migrations: &hark_config::Migrations) {
+    carry_key_with(settings, migrations, hark_keychain::copy_key_if_empty);
+}
+
+/// [`carry_migrated_key`] over an injected copy, so the decision is testable
+/// without a real keychain.
+fn carry_key_with(
+    settings: &Settings,
+    migrations: &hark_config::Migrations,
+    copy: impl FnOnce(&str, &str) -> Result<hark_keychain::CopyOutcome, hark_keychain::KeyError>,
+) {
+    use hark_keychain::CopyOutcome;
+    let Some((from, to)) = migrations
+        .key_copy()
+        .or_else(|| settings.provider.groq_key_carry())
+    else {
+        return;
+    };
+    let just_migrated = migrations.stt_from_groq;
+    match copy(from, to) {
+        Ok(CopyOutcome::Copied) => {
+            log::info!("config migration: copied the \"{from}\" keychain key into \"{to}\"")
+        }
+        Ok(CopyOutcome::DestinationOccupied) if just_migrated => log::warn!(
+            "config migration: \"{to}\" already holds a key, so the \"{from}\" key was not \
+             copied over it; store the right key in Settings if dictation reports it rejected"
+        ),
+        Ok(CopyOutcome::SourceMissing) if just_migrated => {
+            log::info!("config migration: no \"{from}\" key stored, nothing to copy")
+        }
+        // A later launch: carried already, or there was never a key to carry.
+        Ok(CopyOutcome::DestinationOccupied | CopyOutcome::SourceMissing) => {
+            log::debug!("config migration: no \"{from}\" key left to carry into \"{to}\"")
+        }
+        Err(e) => log::warn!(
+            "config migration: could not copy the \"{from}\" key ({e}); trying again next launch"
+        ),
+    }
+}
+
 fn meeting_chord(settings: &Settings) -> Result<Option<hark_hotkey::PttChord>, String> {
     if !settings.meeting.enabled || !hark_pipeline::meeting::meetings_supported() {
         return Ok(None);
@@ -442,6 +497,67 @@ fn spawn_repaint_pump(
 mod tests {
     use super::*;
     use hark_pipeline::DictationRecord;
+
+    /// The accounts `carry_key_with` asked to copy, if it asked at all.
+    fn carry_asked(toml: &str, migrations: hark_config::Migrations) -> Option<(String, String)> {
+        let settings = Settings::from_toml(toml).unwrap();
+        let asked = std::cell::RefCell::new(None);
+        carry_key_with(&settings, &migrations, |from, to| {
+            *asked.borrow_mut() = Some((from.to_string(), to.to_string()));
+            Ok(hark_keychain::CopyOutcome::SourceMissing)
+        });
+        asked.into_inner()
+    }
+
+    #[test]
+    fn a_groq_key_carry_is_retried_on_launches_after_the_migration() {
+        // The migrating launch's keychain failed; the file is already v7 and
+        // reports no migration. The key must still be carried.
+        let groq = "[provider]\nkind = \"openai-compatible\"\n\
+                    base_url = \"https://api.groq.com/openai/v1\"\nmodel = \"whisper-large-v3-turbo\"";
+        let expected = Some(("groq".to_string(), "openai-compatible".to_string()));
+        assert_eq!(
+            carry_asked(groq, hark_config::Migrations::default()),
+            expected
+        );
+        // A just-converted proxy endpoint is carried on its migrating launch.
+        let proxy =
+            "[provider]\nkind = \"openai-compatible\"\nbase_url = \"https://groq-proxy.example/v1\"";
+        let migrated = hark_config::Migrations {
+            stt_from_groq: true,
+            cleanup_from_groq: true,
+        };
+        assert_eq!(carry_asked(proxy, migrated), expected);
+    }
+
+    #[test]
+    fn no_keychain_is_touched_when_no_groq_key_is_owed() {
+        for toml in [
+            "",
+            "[provider]\nkind = \"openai\"",
+            "[provider]\nkind = \"openai-compatible\"\nbase_url = \"http://localhost:8000/v1\"",
+        ] {
+            assert_eq!(
+                carry_asked(toml, hark_config::Migrations::default()),
+                None,
+                "{toml:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_failed_carry_is_logged_not_fatal() {
+        let settings = Settings::from_toml(
+            "[provider]\nkind = \"openai-compatible\"\nbase_url = \"https://api.groq.com/openai/v1\"",
+        )
+        .unwrap();
+        carry_key_with(&settings, &hark_config::Migrations::default(), |from, _| {
+            Err(hark_keychain::KeyError::Backend {
+                account: from.to_string(),
+                detail: "locked".to_string(),
+            })
+        });
+    }
 
     #[test]
     fn meeting_toggles_survive_an_absent_dictation_worker() {

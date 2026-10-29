@@ -9,7 +9,7 @@ The following files were used as evidence for this page:
 - [crates/hark-voice/src/openai_compatible.rs:1-286](../../crates/hark-voice/src/openai_compatible.rs#L1-L286)
 - [crates/hark-voice/src/error.rs:1-160](../../crates/hark-voice/src/error.rs#L1-L160)
 - [crates/hark-voice/src/summary.rs:1-45](../../crates/hark-voice/src/summary.rs#L1-L45)
-- [crates/hark-config/src/voice.rs:1-338](../../crates/hark-config/src/voice.rs#L1-L338)
+- [crates/hark-config/src/voice.rs:1-337](../../crates/hark-config/src/voice.rs#L1-L337)
 - [crates/hark-config/src/lib.rs](../../crates/hark-config/src/lib.rs)
 - [crates/hark-pipeline/src/lib.rs](../../crates/hark-pipeline/src/lib.rs)
 - [crates/hark-pipeline/src/worker.rs:440-618](../../crates/hark-pipeline/src/worker.rs#L440-L618)
@@ -54,11 +54,11 @@ graph TD
     G --> H
 ```
 
-The configured voice and the provider are resolved independently. A non-Verbatim voice may inherit an OpenAI, Groq, or Gemini STT provider and key, use an explicit cleanup provider/key, or degrade to Verbatim with a startup warning when no chat-capable provider resolves ([voice.rs:248-338](../../crates/hark-config/src/voice.rs#L248-L338)).
+The configured voice and the provider are resolved independently. A non-Verbatim voice may inherit an OpenAI or Gemini STT provider and key, use an explicit cleanup provider/key, or degrade to Verbatim with a startup warning when no chat-capable provider resolves. OpenAI with Live transcribe on still inherits OpenAI cleanup: the realtime model returns a verbatim transcript, and `gpt-5-nano` cleans it on the same key ([voice.rs:246-337](../../crates/hark-config/src/voice.rs#L246-L337)).
 
 Meeting notes reuse this same fail-open shape at a coarser grain: `hark-voice::summarize` calls a chat-completions provider once, after the call ends rather than on the hot path, and returns validated `MeetingNotes` (title, summary, key points, decisions, action items) or an error the meeting keeps its transcript through — never a partial or invented result ([summary.rs:1-12](../../crates/hark-voice/src/summary.rs#L1-L12)). See [Meetings](MEETINGS.md#notes) for where that call fits in a call's lifecycle.
 
-Sources: [crates/hark-voice/src/lib.rs](../../crates/hark-voice/src/lib.rs), [crates/hark-config/src/voice.rs:248-338](../../crates/hark-config/src/voice.rs#L248-L338), [crates/hark-pipeline/src/worker.rs:550-618](../../crates/hark-pipeline/src/worker.rs#L550-L618), [crates/hark-voice/src/summary.rs:1-12](../../crates/hark-voice/src/summary.rs#L1-L12)
+Sources: [crates/hark-voice/src/lib.rs](../../crates/hark-voice/src/lib.rs), [crates/hark-config/src/voice.rs:246-337](../../crates/hark-config/src/voice.rs#L246-L337), [crates/hark-pipeline/src/worker.rs:550-618](../../crates/hark-pipeline/src/worker.rs#L550-L618), [crates/hark-voice/src/summary.rs:1-12](../../crates/hark-voice/src/summary.rs#L1-L12)
 <!-- END:AUTOGEN hark_09_voice_cleanup_overview -->
 
 ---
@@ -94,7 +94,7 @@ Sources: [crates/hark-voice/src/voices.rs:8-120](../../crates/hark-voice/src/voi
 <!-- BEGIN:AUTOGEN hark_09_voice_cleanup_adapter -->
 ## Cleanup Adapter
 
-`OpenAiCompatibleChat` is the live cleanup adapter. It sends buffered JSON to `POST {base_url}/chat/completions` with Bearer authentication and the process-wide blocking HTTP client. The same contract serves OpenAI, Groq, Gemini's OpenAI-compatible endpoint, and user-supplied compatible endpoints; Deepgram has no chat product and is rejected by configuration validation ([openai_compatible.rs:1-18](../../crates/hark-voice/src/openai_compatible.rs#L1-L18), [voice.rs:87-160](../../crates/hark-config/src/voice.rs#L87-L160), [voice.rs:191-223](../../crates/hark-config/src/voice.rs#L191-L223)).
+`OpenAiCompatibleChat` is the live cleanup adapter. It sends buffered JSON to `POST {base_url}/chat/completions` with Bearer authentication and the process-wide blocking HTTP client. The same contract serves OpenAI, Gemini's OpenAI-compatible endpoint, and user-supplied compatible endpoints; Deepgram has no chat product and is rejected by configuration validation. Groq is no longer a cleanup preset: schema 7 rewrites a saved Groq cleanup provider, explicit or inherited, as an `openai-compatible` table with Groq's URL, `llama-3.1-8b-instant` and temperature 0.2 ([openai_compatible.rs:1-18](../../crates/hark-voice/src/openai_compatible.rs#L1-L18), [voice.rs:87-158](../../crates/hark-config/src/voice.rs#L87-L158), [voice.rs:189-221](../../crates/hark-config/src/voice.rs#L189-L221), [groq_migration.rs](../../crates/hark-config/src/groq_migration.rs), [Configuration](../core/CONFIGURATION.md#groq-retirement-schema-7)).
 
 The provider resolver supports these paths:
 
@@ -102,16 +102,16 @@ The provider resolver supports these paths:
 |---|---|
 | Verbatim voice | No provider or key is needed |
 | Explicit `[voice.provider]` | Uses the configured kind/base URL/model and a cleanup account key |
-| OpenAI, Groq, or Gemini STT with no override | Inherits the provider and already-resolved STT key; Gemini defaults to its `/v1beta/openai` chat URL and `gemini-3.5-flash-lite` model |
+| OpenAI (batch or Live transcribe) or Gemini STT with no override | Inherits the provider and already-resolved STT key; Gemini defaults to its `/v1beta/openai` chat URL and `gemini-3.5-flash-lite` model |
 | Deepgram or generic OpenAI-compatible STT with no override | Degrades to Verbatim with a warning because STT support does not prove a chat endpoint exists |
 
-The resolution rules and presets live in `hark-config`, while pipeline construction performs key lookup, builds the adapter, and converts every missing-key/build failure into `None` so STT still starts ([voice.rs:115-189](../../crates/hark-config/src/voice.rs#L115-L189), [voice.rs:225-338](../../crates/hark-config/src/voice.rs#L225-L338), [lib.rs](../../crates/hark-pipeline/src/lib.rs)).
+The resolution rules and presets live in `hark-config`, while pipeline construction performs key lookup, builds the adapter, and converts every missing-key/build failure into `None` so STT still starts ([voice.rs:115-187](../../crates/hark-config/src/voice.rs#L115-L187), [voice.rs:223-337](../../crates/hark-config/src/voice.rs#L223-L337), [lib.rs](../../crates/hark-pipeline/src/lib.rs)).
 
 Meeting notes resolve the same way, through the same `resolve_cleanup_provider`, but ask for it as if a non-Verbatim voice were selected — a `Verbatim` dictation setup still has a text provider that can write notes, since the summary call is independent of the dictation cleanup voice ([finish.rs](../../crates/hark-pipeline/src/meeting/finish.rs)).
 
 Each request builds a system prompt from the effective voice and terms present in that transcript, sends the transcript fenced in `<transcript>` tags, and opens the system prompt with `TRANSCRIPT_IS_DATA_CLAUSE`, which tells the model the fenced text is dictation to edit, never a request to answer. Without it, dictation that sounds like an instruction ("Proceed however you recommend...") was answered instead of edited. The adapter also strips an echoed fence from the response. It derives `max_completion_tokens` from input length with a 512-to-4096 clamp, applies a 10-second request timeout, and never retries ([openai_compatible.rs:20-85](../../crates/hark-voice/src/openai_compatible.rs#L20-L85), [openai_compatible.rs:236-281](../../crates/hark-voice/src/openai_compatible.rs#L236-L281)). `CleanupConfig` has a manual `Debug` implementation that redacts the API key and custom prompt and reports only the spellbook-term count ([openai_compatible.rs:146-190](../../crates/hark-voice/src/openai_compatible.rs#L146-L190)).
 
-Sources: [crates/hark-voice/src/openai_compatible.rs:1-286](../../crates/hark-voice/src/openai_compatible.rs#L1-L286), [crates/hark-config/src/voice.rs:87-189](../../crates/hark-config/src/voice.rs#L87-L189), [crates/hark-config/src/voice.rs:225-338](../../crates/hark-config/src/voice.rs#L225-L338), [crates/hark-pipeline/src/lib.rs](../../crates/hark-pipeline/src/lib.rs), [crates/hark-pipeline/src/meeting/finish.rs](../../crates/hark-pipeline/src/meeting/finish.rs)
+Sources: [crates/hark-voice/src/openai_compatible.rs:1-286](../../crates/hark-voice/src/openai_compatible.rs#L1-L286), [crates/hark-config/src/voice.rs:87-187](../../crates/hark-config/src/voice.rs#L87-L187), [crates/hark-config/src/voice.rs:223-337](../../crates/hark-config/src/voice.rs#L223-L337), [crates/hark-pipeline/src/lib.rs](../../crates/hark-pipeline/src/lib.rs), [crates/hark-pipeline/src/meeting/finish.rs](../../crates/hark-pipeline/src/meeting/finish.rs)
 Nonempty content is rejected when `finish_reason` is `length`, `content_filter`,
 `tool_calls`, or `function_call`: a returned prefix is not a complete cleanup.
 The existing fail-open path keeps the original transcript. Compatible endpoints

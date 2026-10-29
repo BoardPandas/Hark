@@ -3,10 +3,11 @@
 //! Adapters are deliberately I/O-thin: they take complete WAV bytes and return
 //! text plus wall time. WAV encoding, timing loops, and reporting live in the
 //! caller (the spike harness now, the pipeline worker thread later). Batch HTTP
-//! uses `reqwest::blocking` on the calling thread. Gemini Live is the deliberate
-//! exception: its adapter owns a private current-thread Tokio runtime for the
-//! WebSocket session; there is no process-wide runtime. Implementations must
-//! never log API keys or raw audio.
+//! uses `reqwest::blocking` on the calling thread. The two live WebSocket
+//! adapters, Gemini Live and OpenAI live transcribe, are the deliberate
+//! exception: each owns a private current-thread Tokio runtime for its
+//! sessions, and there is no process-wide runtime. Implementations must never
+//! log API keys or raw audio.
 
 mod config;
 pub mod deepgram;
@@ -18,6 +19,7 @@ pub mod meeting;
 pub mod meeting_gemini;
 pub mod metrics;
 pub mod openai_compatible;
+pub mod openai_live;
 pub mod openai_transcribe;
 pub mod wav;
 
@@ -54,8 +56,9 @@ pub struct Transcript {
 /// Sessions are single-use and single-threaded: the pump thread owns one for
 /// the length of one dictation and drops it afterwards.
 pub trait LiveSession: Send {
-    /// Push 16 kHz mono samples. Blocking, but only for one socket write.
-    fn push(&mut self, samples_16k: &[f32]) -> Result<(), SttError>;
+    /// Push mono samples at the rate [`LiveStt::input_rate`] declares.
+    /// Blocking, but only for the socket writes those samples need.
+    fn push(&mut self, samples: &[f32]) -> Result<(), SttError>;
 
     /// End the turn and wait for the final transcript.
     fn finish(&mut self) -> Result<Transcript, SttError>;
@@ -70,6 +73,13 @@ pub trait LiveSession: Send {
 pub trait LiveStt: Send + Sync {
     /// Open a session. Blocking (connect + handshake + setup).
     fn start_session(&self) -> Result<Box<dyn LiveSession>, SttError>;
+
+    /// The sample rate [`LiveSession::push`] expects. Per provider, not a
+    /// pipeline constant: Gemini Live takes the pipeline's 16 kHz, OpenAI's
+    /// realtime API accepts only 24 kHz.
+    fn input_rate(&self) -> u32 {
+        wav::SAMPLE_RATE
+    }
 }
 
 /// A configured, reusable cloud transcription adapter.
@@ -79,7 +89,7 @@ pub trait SttProvider: Send {
     /// raw audio.
     fn transcribe(&self, wav_bytes: &[u8]) -> Result<Transcript, SttError>;
 
-    /// Short label for reports and errors ("groq", "openai", "deepgram").
+    /// Short label for reports and errors ("openai", "deepgram", "gemini").
     fn label(&self) -> &str;
 }
 
@@ -116,6 +126,12 @@ pub fn build(
             config.live_mode,
         )?)),
         ProviderKind::Gemini => Ok(Box::new(gemini::Gemini::new(config, client))),
+        // The replay adapter: a finished clip over the realtime socket, so
+        // Test connection exercises the live path. A dictation the stream
+        // could not carry, and every meeting chunk, go to the batch REST
+        // route instead (the pipeline's `batch_stt_route`), so this is never
+        // the fallback for its own failure.
+        ProviderKind::OpenAiLive => Ok(Box::new(openai_live::OpenAiLive::new(config)?)),
     }
 }
 
@@ -124,7 +140,7 @@ pub fn build(
 /// Separate from [`build`] rather than folded into it because the two are
 /// used at different moments: this one is opened on key-down, the batch
 /// adapter only if streaming could not carry the dictation. The pair costs a
-/// second adapter instance, which for Gemini Live means a second idle
+/// second adapter instance, which for either live adapter means a second idle
 /// `current_thread` runtime — no extra threads, and the alternative is
 /// downcasting a `dyn SttProvider` to find out whether it also streams.
 ///
@@ -134,6 +150,14 @@ pub fn build_live(config: &ProviderConfig) -> Option<Box<dyn LiveStt>> {
     match config.kind {
         #[cfg(feature = "live")]
         ProviderKind::GeminiLive => match gemini_live::GeminiLive::new(config, config.live_mode) {
+            Ok(adapter) => Some(Box::new(adapter) as Box<dyn LiveStt>),
+            Err(e) => {
+                log::warn!("no live session available for {}: {e}", config.label);
+                None
+            }
+        },
+        #[cfg(feature = "live")]
+        ProviderKind::OpenAiLive => match openai_live::OpenAiLive::new(config) {
             Ok(adapter) => Some(Box::new(adapter) as Box<dyn LiveStt>),
             Err(e) => {
                 log::warn!("no live session available for {}: {e}", config.label);

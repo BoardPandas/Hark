@@ -469,9 +469,10 @@ fn load_settings() -> (Settings, Option<String>) {
         log::warn!("no OS config dir found; using default settings");
         return (Settings::default(), None);
     };
-    match Settings::load(&path) {
-        Ok(s) => {
+    match Settings::load_with_migrations(&path) {
+        Ok((s, migrations)) => {
             log::info!("settings: {} (missing file = defaults)", path.display());
+            crate::pipeline::carry_migrated_key(&s, &migrations);
             (s, None)
         }
         Err(e) => (

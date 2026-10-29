@@ -49,9 +49,11 @@ pub(crate) struct Worker {
     /// The cloud adapter. `None` when `[local_stt] mode = "primary"`: that
     /// mode never contacts a provider and does not even require an API key.
     pub provider: Option<Box<dyn SttProvider>>,
-    /// The same adapter again when it can also stream, so audio can go up
+    /// The streaming adapter, when the provider has one, so audio can go up
     /// while the key is still held. `None` for every batch-only provider, and
-    /// for a build without the live feature.
+    /// for a build without the live feature. For Gemini `provider` replays
+    /// over the same socket protocol; for OpenAI Live it is batch REST, so the
+    /// fallback does not share whatever just broke the stream.
     pub live: Option<Box<dyn LiveStt>>,
     /// Provider label for the dictation record. Kept separately because
     /// `provider` may be absent while the record still needs a label.
@@ -71,9 +73,13 @@ pub(crate) struct Worker {
     /// The shared HTTP client (same instance the provider adapter holds),
     /// used only for the pre-warm requests.
     pub client: reqwest::blocking::Client,
-    /// STT model label, for the dictation record (the provider label comes
-    /// from the adapter itself).
-    pub stt_model: String,
+    /// The model `live` streams to, for the record of a dictation the stream
+    /// delivered.
+    pub stream_model: String,
+    /// The model `provider` runs, for the record of a dictation it delivered.
+    /// Differs from `stream_model` only for OpenAI Live, whose fallback is
+    /// batch REST rather than another realtime session.
+    pub batch_model: String,
     /// Drop the trailing period on a single-word dictation before injecting
     /// (see [`strip_single_word_period`]). Off leaves the text exactly as the
     /// provider/cleanup produced it.
@@ -474,6 +480,7 @@ fn dictate(
         may_retry: !streamed_attempt,
         control: &worker.control,
     };
+    let delivered_by_stream = streamed.is_some();
     let (source, transcript) = match streamed {
         Some(transcript) => (Source::Cloud, transcript),
         None => {
@@ -550,6 +557,18 @@ fn dictate(
                 },
                 transcript.request_ms,
             );
+            // Name the engine and model that actually produced this line. A
+            // fallback dictation credited to the cloud provider, or a batch
+            // rescue credited to the realtime model, would make history lie
+            // about why a transcript reads the way it does.
+            let stt_model = match source {
+                Source::Cloud if delivered_by_stream => worker.stream_model.clone(),
+                Source::Cloud => worker.batch_model.clone(),
+                _ => worker
+                    .local
+                    .as_ref()
+                    .map_or_else(String::new, |p| p.spec.id.to_string()),
+            };
             // The labels state what actually shaped the text: a skipped,
             // gated, or failed cleanup call means the entry is verbatim, so
             // a disappointing result never blames the wrong model.
@@ -560,18 +579,8 @@ fn dictate(
                 // call, so the STT model is the cleanup model. Labelling this
                 // "verbatim" would tell the user nothing rewrote their text
                 // when something plainly did.
-                None if provider_cleaned => ("smart".to_string(), Some(worker.stt_model.clone())),
+                None if provider_cleaned => ("smart".to_string(), Some(stt_model.clone())),
                 None => (Voice::Verbatim.name().to_string(), None),
-            };
-            // Name the engine that actually produced this line. A fallback
-            // dictation credited to the cloud provider would make history
-            // lie about why a transcript reads the way it does.
-            let stt_model = match source {
-                Source::Cloud => worker.stt_model.clone(),
-                _ => worker
-                    .local
-                    .as_ref()
-                    .map_or_else(String::new, |p| p.spec.id.to_string()),
             };
             let _ = events.send(PipelineEvent::Injected(Box::new(DictationRecord {
                 raw_text: transcript.text,
