@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.63.2] - 2026-10-29
+
+### Added
+
+- A living feature-ideas checklist (`tasks/feature-ideas.md`) that tracks ideas with a status (Incomplete, In progress, Complete, Sidelined, Denied). It starts with seven ideas: speaker colors and fixing a line's speaker in meeting transcripts, an accent color choice per theme, a Parchment theme with a wizard-pen font toggle, a Book view for the Spellbook and Invocations, and a Full / Half / Non-Wizard setting.
+
 ## [0.63.1] - 2026-10-29
 
 ### Fixed
