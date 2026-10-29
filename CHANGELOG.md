@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.64.8] - 2026-10-29
+
+### Changed
+
+- Speaker names inside meeting notes are now shown in each speaker's color, so you can see who owns an action item at a glance. The words are the same as before.
+- Long meetings stay smooth: a three-hour transcript (about 2,500 lines) now draws only the lines on screen, instead of all of them on every frame.
+- The speaker button on each transcript line works from the keyboard: Tab reaches it, Enter opens the menu, Tab moves through the choices, and Esc closes it.
+
 ## [0.64.7] - 2026-10-29
 
 ### Changed

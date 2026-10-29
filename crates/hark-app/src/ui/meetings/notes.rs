@@ -1,13 +1,15 @@
 //! The notes card: summary, key points, decisions and tickable action items,
-//! rendered with the meeting's current speaker names. Ticks write the stored
-//! notes (speaker tokens and all), never the rendered copy. When moved lines
-//! left the notes crediting the old speaker, one line says so, with an
-//! Update notes button (spec §2.5, §10).
+//! rendered with the meeting's current speaker names, each in its speaker's
+//! color (the name is the text, so color is never alone). Ticks write the
+//! stored notes (speaker tokens and all), never a rendered copy. When moved
+//! lines left the notes crediting the old speaker, one line says so, with
+//! an Update notes button (spec §2.5, §10).
 
 use crate::meeting::NotesStatus;
 use crate::theme;
+use egui::text::{LayoutJob, TextFormat};
 use egui::{RichText, Ui};
-use hark_meeting::SpeakerKey;
+use hark_meeting::{Roster, SpeakerKey};
 use hark_pipeline::meeting::NotesRequest;
 use hark_store::MeetingDetail;
 use hark_voice::MeetingNotes;
@@ -20,14 +22,23 @@ pub(super) struct NotesAction {
     pub update: bool,
 }
 
-/// `stale` is the line under the heading, if the notes are stale; `None`
-/// inside means a rewrite is running.
+/// Everything a notes field renders through: the roster for colors, and its
+/// `(key, default label, display label)` table.
+pub(super) struct Names<'a> {
+    pub roster: &'a Roster,
+    pub table: &'a [(String, String, String)],
+}
+
+/// `notes` as stored. `stale` is the line under the heading, if the notes
+/// are stale; `None` inside means a rewrite is running.
 pub(super) fn card(
     ui: &mut Ui,
     notes: &MeetingNotes,
+    names: &Names,
     stale: Option<Option<String>>,
 ) -> NotesAction {
     let mut action = NotesAction::default();
+    let field = |ui: &Ui, parts: &[(&str, &str)]| field_job(ui, notes, names, parts);
     theme::card(ui, |ui| {
         ui.label(RichText::new("Summary").text_style(theme::subheading()));
         match &stale {
@@ -50,16 +61,28 @@ pub(super) fn card(
             }
             None => {}
         }
-        ui.label(&notes.summary);
-        list(ui, "Key points", &notes.key_points);
-        list(ui, "Decisions", &notes.decisions);
+        ui.label(field(ui, &[("", &notes.summary)]));
+        let lists = [
+            ("Key points", &notes.key_points),
+            ("Decisions", &notes.decisions),
+        ];
+        for (heading, items) in lists {
+            if items.is_empty() {
+                continue;
+            }
+            ui.add_space(theme::GAP);
+            ui.label(RichText::new(heading).strong());
+            for item in items {
+                ui.label(field(ui, &[("• ", item)]));
+            }
+        }
         if !notes.action_items.is_empty() {
             ui.add_space(theme::GAP);
             ui.label(RichText::new("Action items").strong());
             for (i, item) in notes.action_items.iter().enumerate() {
                 let label = match &item.owner {
-                    Some(owner) => format!("{} ({owner})", item.text),
-                    None => item.text.clone(),
+                    Some(owner) => field(ui, &[("", &item.text), (" (", owner), (")", "")]),
+                    None => field(ui, &[("", &item.text)]),
                 };
                 let mut done = item.done;
                 if ui.checkbox(&mut done, label).changed() {
@@ -71,15 +94,28 @@ pub(super) fn card(
     action
 }
 
-fn list(ui: &mut Ui, heading: &str, items: &[String]) {
-    if items.is_empty() {
-        return;
+/// One field as a layout job: each `(plain prefix, notes text)` part in
+/// order, with speaker names in their hue's ink and everything else in the
+/// body text color. The text is exactly what `MeetingNotes::render` shows.
+fn field_job(ui: &Ui, notes: &MeetingNotes, names: &Names, parts: &[(&str, &str)]) -> LayoutJob {
+    let font = egui::TextStyle::Body.resolve(ui.style());
+    let plain = ui.visuals().text_color();
+    let mut job = LayoutJob::default();
+    for (prefix, text) in parts {
+        if !prefix.is_empty() {
+            job.append(prefix, 0.0, TextFormat::simple(font.clone(), plain));
+        }
+        for span in hark_voice::speaker_spans(text, names.table, notes.speaker_refs) {
+            let color = span
+                .speaker
+                .and_then(|i| SpeakerKey::parse(&names.table[i].0))
+                .map_or(plain, |key| {
+                    theme::hue(ui.visuals(), theme::speaker_hue(names.roster.slot(key)))
+                });
+            job.append(&span.text, 0.0, TextFormat::simple(font.clone(), color));
+        }
     }
-    ui.add_space(theme::GAP);
-    ui.label(RichText::new(heading).strong());
-    for item in items {
-        ui.label(format!("• {item}"));
-    }
+    job
 }
 
 /// The stored notes' JSON with one action item's tick changed.
@@ -173,6 +209,59 @@ mod tests {
         assert!(written.action_items[0].done);
         assert_eq!(written.speaker_refs, hark_voice::SpeakerRefs::Tokens);
         assert!(ticked(&mut stored, 5, true).is_none());
+    }
+
+    #[test]
+    fn speaker_names_in_the_card_are_drawn_in_their_hue_with_the_rendered_text() {
+        let detail = super::super::transcript::tests::detail();
+        let roster = crate::storage::meetings::roster_of(&detail);
+        let table = roster.notes_names();
+        let notes = hark_voice::parse_notes(
+            r#"{"title":"t","summary":"{Speaker 1} met {Me}.","action_items":[{"text":"Send it","owner":"{Me}"}]}"#,
+            &[
+                ("Me".to_string(), "me".to_string()),
+                ("Speaker 1".to_string(), "them:0".to_string()),
+            ],
+        )
+        .unwrap();
+        let rendered = notes.render(&table);
+        let ctx = egui::Context::default();
+        crate::theme::apply(&ctx);
+        let mut visuals = egui::Visuals::default();
+        let mut sections = Vec::new();
+        let mut out = ctx.run_ui(Default::default(), |ui| {
+            visuals = ui.visuals().clone();
+            let names = Names {
+                roster: &roster,
+                table: &table,
+            };
+            card(ui, &notes, &names, None);
+        });
+        out.textures_delta.clear();
+        let mut texts = Vec::new();
+        for clipped in &out.shapes {
+            if let egui::Shape::Text(t) = &clipped.shape {
+                texts.push(t.galley.text().to_string());
+                for s in &t.galley.job.sections {
+                    sections.push((
+                        t.galley.job.text[s.byte_range.start.0..s.byte_range.end.0].to_string(),
+                        s.format.color,
+                    ));
+                }
+            }
+        }
+        assert!(texts.contains(&rendered.summary), "{texts:?}");
+        let ink = |slot| theme::hue(&visuals, theme::speaker_hue(slot));
+        assert!(
+            sections.contains(&("Speaker 1".to_string(), ink(1))),
+            "{sections:?}"
+        );
+        assert!(
+            sections.contains(&("Me".to_string(), ink(0))),
+            "{sections:?}"
+        );
+        assert!(sections.contains(&(" met ".to_string(), visuals.text_color())));
+        assert!(texts.iter().any(|t| t == "Send it (Me)"), "{texts:?}");
     }
 
     #[test]

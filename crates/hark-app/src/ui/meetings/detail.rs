@@ -25,8 +25,9 @@ pub(super) struct DetailView {
     roster: Option<Roster>,
     /// As stored: speaker tokens, never names. Ticks are written here.
     notes: Option<MeetingNotes>,
-    /// `notes` with the roster's names in, for display only.
-    rendered: Option<MeetingNotes>,
+    /// The roster's `(key, default label, display label)` table the notes
+    /// render through; built with `roster`.
+    note_names: Vec<(String, String, String)>,
     error: Option<String>,
     title: String,
     speakers: SpeakersCard,
@@ -49,7 +50,7 @@ impl DetailView {
             detail: None,
             roster: None,
             notes: None,
-            rendered: None,
+            note_names: Vec::new(),
             error: None,
             title: String::new(),
             speakers: SpeakersCard::new(),
@@ -250,9 +251,13 @@ impl DetailView {
         self.sharing.show(ui.ctx());
         ui.add_space(theme::SECTION_GAP);
 
-        if let Some(rendered) = &self.rendered {
+        if let (Some(stored), Some(roster)) = (&self.notes, &self.roster) {
             let stale = notes::stale_line(detail, meetings.notes_status(id));
-            let action = notes::card(ui, rendered, stale);
+            let names = notes::Names {
+                roster,
+                table: &self.note_names,
+            };
+            let action = notes::card(ui, stored, &names, stale);
             if let Some((index, done)) = action.toggled {
                 self.tick(storage, id, index, done);
             }
@@ -332,11 +337,11 @@ impl DetailView {
                     self.assignments.clear_error();
                 }
                 self.roster = detail.as_ref().map(roster_of);
-                self.rendered = self
-                    .notes
+                self.note_names = self
+                    .roster
                     .as_ref()
-                    .zip(self.roster.as_ref())
-                    .map(|(notes, roster)| notes.render(&roster.notes_names()));
+                    .map(Roster::notes_names)
+                    .unwrap_or_default();
                 self.detail = detail;
                 self.error = None;
             }
@@ -348,11 +353,10 @@ impl DetailView {
     /// A checkbox writes the stored notes, tokens and all, never the rendered
     /// copy: storing that would freeze today's names into the notes.
     fn tick(&mut self, storage: &StorageHandle, id: &str, index: usize, done: bool) {
-        let (Some(stored), Some(rendered)) = (&mut self.notes, &mut self.rendered) else {
+        let Some(stored) = &mut self.notes else {
             return;
         };
         if let Some(notes_json) = notes::ticked(stored, index, done) {
-            rendered.action_items[index].done = done;
             storage.send(StorageCmd::Meeting(MeetingCmd::UpdateNotes {
                 id: id.to_string(),
                 notes_json,

@@ -30,15 +30,27 @@ pub(super) enum Reassign {
 pub(super) struct TranscriptView {
     /// The open "New speaker…" field: its line and buffer.
     naming: Option<(i64, String)>,
+    /// Each line's height when last drawn (0: never drawn), at `width`.
+    /// Lines outside the visible area take their space from here instead of
+    /// being laid out: a 3 h meeting is ~2,500 wrapped lines, and laying out
+    /// all of them every frame cost ~75 ms (debug build). Rows vary in height,
+    /// so this is a measured cache, not `show_rows`.
+    heights: Vec<f32>,
+    width: f32,
 }
 
 impl TranscriptView {
     pub fn new() -> Self {
-        TranscriptView { naming: None }
+        TranscriptView {
+            naming: None,
+            heights: Vec::new(),
+            width: 0.0,
+        }
     }
 
     pub fn reset(&mut self) {
         self.naming = None;
+        self.heights.clear();
     }
 
     pub fn show(
@@ -54,43 +66,54 @@ impl TranscriptView {
         }
         let people = roster.people();
         let mut picked = None;
-        for s in &detail.segments {
+        let width = ui.available_width();
+        if self.heights.len() != detail.segments.len() || (self.width - width).abs() > 0.5 {
+            self.heights = vec![0.0; detail.segments.len()];
+            self.width = width;
+        }
+        let visible = ui.clip_rect();
+        let estimate = ui.spacing().interact_size.y;
+        for (i, s) in detail.segments.iter().enumerate() {
+            let known = self.heights[i];
+            let top = ui.cursor().top();
+            let height = if known > 0.0 { known } else { estimate };
+            if top > visible.bottom() || top + height < visible.top() {
+                ui.allocate_space(Vec2::new(width, height));
+                continue;
+            }
             let transcribed = SpeakerKey::transcribed(s.channel, s.speaker);
             let current =
                 SpeakerKey::effective(s.channel, s.speaker, s.speaker_override.as_deref());
             let ink = theme::hue(ui.visuals(), theme::speaker_hue(roster.slot(current)));
-            let (rule, body) = ui
-                .horizontal(|ui| {
-                    let (rule, _) = ui.allocate_exact_size(
-                        Vec2::new(theme::SPEAKER_RULE_WIDTH, ui.spacing().interact_size.y),
-                        Sense::hover(),
-                    );
-                    let body = ui
-                        .horizontal_wrapped(|ui| {
-                            ui.label(
-                                RichText::new(format_timestamp(s.start_ms.max(0) as u64))
-                                    .small()
-                                    .weak(),
-                            );
-                            if let Some(choice) =
-                                self.menu(ui, s.id, roster, &people, current, transcribed)
-                            {
-                                picked = Some(choice);
-                            }
-                            if current != transcribed {
-                                ui.label(theme::icon_text(theme::icons::ARROWS_LEFT_RIGHT).weak())
-                                    .on_hover_text(format!(
-                                        "Moved from {}",
-                                        roster.label(transcribed)
-                                    ));
-                            }
-                            ui.add(egui::Label::new(&s.text).selectable(true));
-                        })
-                        .response
-                        .rect;
-                    (rule, body)
-                })
-                .inner;
+            let row = ui.horizontal(|ui| {
+                let (rule, _) = ui.allocate_exact_size(
+                    Vec2::new(theme::SPEAKER_RULE_WIDTH, ui.spacing().interact_size.y),
+                    Sense::hover(),
+                );
+                let body = ui
+                    .horizontal_wrapped(|ui| {
+                        ui.label(
+                            RichText::new(format_timestamp(s.start_ms.max(0) as u64))
+                                .small()
+                                .weak(),
+                        );
+                        if let Some(choice) =
+                            self.menu(ui, s.id, roster, &people, current, transcribed)
+                        {
+                            picked = Some(choice);
+                        }
+                        if current != transcribed {
+                            ui.label(theme::icon_text(theme::icons::ARROWS_LEFT_RIGHT).weak())
+                                .on_hover_text(format!("Moved from {}", roster.label(transcribed)));
+                        }
+                        ui.add(egui::Label::new(&s.text).selectable(true));
+                    })
+                    .response
+                    .rect;
+                (rule, body)
+            });
+            let (rule, body) = row.inner;
+            self.heights[i] = row.response.rect.height();
             ui.painter().rect_filled(
                 Rect::from_x_y_ranges(rule.x_range(), body.y_range()),
                 1.0,
@@ -216,142 +239,4 @@ fn as_transcribed(roster: &Roster, current: SpeakerKey, transcribed: SpeakerKey)
 }
 
 #[cfg(test)]
-pub(super) mod tests {
-    use super::*;
-
-    fn roster() -> Roster {
-        Roster::new(
-            [
-                (0, None, None),
-                (1, Some(0), None),
-                (1, Some(1), Some("me")),
-                (1, Some(2), None),
-            ],
-            [("them:2", "Sam"), ("them:0", "sam")],
-        )
-    }
-
-    fn person(r: &Roster, key: SpeakerKey) -> Person {
-        r.people()
-            .into_iter()
-            .find(|p| p.keys.contains(&key))
-            .unwrap()
-    }
-
-    #[test]
-    fn the_menu_lists_me_then_people_in_slot_order_merged_by_name() {
-        let labels: Vec<String> = roster().people().into_iter().map(|p| p.label).collect();
-        assert_eq!(labels, ["Me", "sam", "Speaker 2"]);
-    }
-
-    #[test]
-    fn choosing_the_transcribed_speaker_clears_the_override() {
-        let r = roster();
-        let me = SpeakerKey::Me;
-        let s1 = SpeakerKey::Diarized(1);
-        // Line transcribed as speaker 1, moved to Me: back to speaker 1.
-        assert_eq!(choose(&person(&r, s1), me, s1), Some(None));
-        // Moved to someone else: stored as their key.
-        assert_eq!(
-            choose(&person(&r, SpeakerKey::Diarized(0)), me, s1),
-            Some(Some(SpeakerKey::Diarized(0)))
-        );
-        // Already that person: nothing to send.
-        assert_eq!(choose(&person(&r, me), me, s1), None);
-        // A merged person that includes the transcribed key also clears it.
-        let s2 = SpeakerKey::Diarized(2);
-        assert_eq!(
-            choose(&person(&r, SpeakerKey::Diarized(0)), me, s2),
-            Some(None)
-        );
-    }
-
-    #[test]
-    fn as_transcribed_shows_only_for_a_moved_line() {
-        let r = roster();
-        let s1 = SpeakerKey::Diarized(1);
-        assert_eq!(
-            as_transcribed(&r, SpeakerKey::Me, s1).as_deref(),
-            Some("As transcribed (Speaker 2)")
-        );
-        assert_eq!(as_transcribed(&r, s1, s1), None);
-    }
-
-    /// Me, three far-side speakers, one line moved to Me and one override
-    /// this build does not know.
-    pub(in crate::ui::meetings) fn detail() -> MeetingDetail {
-        let mut store = hark_store::Store::open_in_memory().unwrap();
-        store
-            .create_meeting(&hark_store::NewMeeting {
-                id: "m".into(),
-                started_ms: 0,
-                trigger: "manual".into(),
-                app_hint: None,
-                stt_provider: "deepgram".into(),
-            })
-            .unwrap();
-        for (i, (channel, speaker)) in [(0, None), (1, Some(0)), (1, Some(1)), (1, Some(2))]
-            .into_iter()
-            .enumerate()
-        {
-            let at = i as i64 * 1_000;
-            let line = hark_store::MeetingSegment {
-                start_ms: at,
-                end_ms: at + 900,
-                channel,
-                speaker,
-                text: format!("line {i}"),
-            };
-            store.append_meeting_segment("m", &line).unwrap();
-        }
-        let ids: Vec<i64> = store
-            .meeting("m")
-            .unwrap()
-            .unwrap()
-            .segments
-            .iter()
-            .map(|s| s.id)
-            .collect();
-        store
-            .assign_segment_speaker("m", ids[2], Some("me"), 1)
-            .unwrap();
-        store
-            .assign_segment_speaker("m", ids[3], Some("bogus"), 1)
-            .unwrap();
-        store.meeting("m").unwrap().unwrap()
-    }
-
-    #[test]
-    fn the_transcript_renders_names_beside_every_rule_in_every_palette() {
-        let detail = detail();
-        let roster = crate::storage::meetings::roster_of(&detail);
-        for appearance in crate::theme::Appearance::ALL {
-            let ctx = egui::Context::default();
-            crate::theme::apply(&ctx);
-            crate::theme::set_appearance(&ctx, appearance);
-            let mut view = TranscriptView::new();
-            let mut output = ctx.run_ui(Default::default(), |ui| {
-                assert!(view.show(ui, &detail, &roster).is_none());
-            });
-            output.textures_delta.clear();
-            let texts: Vec<String> = output
-                .shapes
-                .iter()
-                .filter_map(|c| match &c.shape {
-                    egui::Shape::Text(t) => Some(t.galley.text().to_string()),
-                    _ => None,
-                })
-                .collect();
-            // Every line keeps a visible name; the moved one says so.
-            let chips = texts
-                .iter()
-                .filter(|t| t.contains(theme::icons::CARET_DOWN))
-                .count();
-            assert_eq!(chips, 4, "{texts:?}");
-            assert!(texts
-                .iter()
-                .any(|t| t.contains(theme::icons::ARROWS_LEFT_RIGHT)));
-            assert!(texts.iter().any(|t| t.starts_with("Me")));
-        }
-    }
-}
+pub(super) mod tests;

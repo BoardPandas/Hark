@@ -71,20 +71,68 @@ pub(crate) fn tokenize(text: &str, labels: &[(String, String)]) -> String {
     out
 }
 
-/// Replace speaker references in one notes field. `names` is `(key, default
-/// label, display label)` for every key the meeting has. One pass over the
-/// text, so a display label that happens to equal another key's default
-/// label is never replaced twice. Default labels match whole phrases only,
-/// case-sensitively: "Speaker 1" never matches inside "Speaker 12".
-pub(crate) fn render_text(text: &str, names: &[(String, String, String)], tokens: bool) -> String {
-    let mut defaults: Vec<(&str, &str)> = names
-        .iter()
-        .filter(|(_, default, _)| !default.is_empty())
-        .map(|(_, default, display)| (default.as_str(), display.as_str()))
-        .collect();
-    defaults.sort_by_key(|(default, _)| std::cmp::Reverse(default.len()));
+/// One piece of a notes field as shown: plain text, or a speaker's display
+/// label with that speaker's index into the `names` table it was rendered
+/// with (the notes card colors those). No `Debug`: carries notes text.
+pub struct Span {
+    pub text: String,
+    pub speaker: Option<usize>,
+}
 
-    let mut out = String::with_capacity(text.len());
+/// One notes field split into plain text and speaker names, with exactly
+/// the text [`crate::MeetingNotes::render`] shows. `Frozen` notes are one
+/// plain span: their names are already text.
+pub fn speaker_spans(
+    text: &str,
+    names: &[(String, String, String)],
+    refs: SpeakerRefs,
+) -> Vec<Span> {
+    match refs {
+        SpeakerRefs::Frozen => vec![Span {
+            text: text.to_string(),
+            speaker: None,
+        }],
+        SpeakerRefs::Tokens => spans(text, names, true),
+        SpeakerRefs::Labels => spans(text, names, false),
+    }
+}
+
+pub(crate) fn render_text(text: &str, names: &[(String, String, String)], tokens: bool) -> String {
+    spans(text, names, tokens)
+        .into_iter()
+        .map(|s| s.text)
+        .collect()
+}
+
+/// Split one notes field at its speaker references. `names` is `(key,
+/// default label, display label)` for every key the meeting has. One pass
+/// over the text, so a display label that happens to equal another key's
+/// default label is never replaced twice. Default labels match whole
+/// phrases only, case-sensitively: "Speaker 1" never matches inside
+/// "Speaker 12".
+fn spans(text: &str, names: &[(String, String, String)], tokens: bool) -> Vec<Span> {
+    let mut defaults: Vec<(usize, &str)> = names
+        .iter()
+        .enumerate()
+        .filter(|(_, (_, default, _))| !default.is_empty())
+        .map(|(i, (_, default, _))| (i, default.as_str()))
+        .collect();
+    defaults.sort_by_key(|(_, default)| std::cmp::Reverse(default.len()));
+
+    let mut out: Vec<Span> = Vec::new();
+    let mut plain = String::with_capacity(text.len());
+    let speaker = |out: &mut Vec<Span>, plain: &mut String, label: &str, index| {
+        if !plain.is_empty() {
+            out.push(Span {
+                text: std::mem::take(plain),
+                speaker: None,
+            });
+        }
+        out.push(Span {
+            text: label.to_string(),
+            speaker: index,
+        });
+    };
     let mut prev: Option<char> = None;
     let mut i = 0;
     while i < text.len() {
@@ -93,11 +141,10 @@ pub(crate) fn render_text(text: &str, names: &[(String, String, String)], tokens
             if let Some(end) = rest[2..].find("}}") {
                 let key = &rest[2..2 + end];
                 if !key.is_empty() && key.bytes().all(|b| b.is_ascii_alphanumeric() || b == b':') {
-                    let label = names
-                        .iter()
-                        .find(|(k, _, _)| k == key)
-                        .map_or(UNKNOWN_SPEAKER, |(_, _, display)| display.as_str());
-                    out.push_str(label);
+                    match names.iter().position(|(k, _, _)| k == key) {
+                        Some(n) => speaker(&mut out, &mut plain, &names[n].2, Some(n)),
+                        None => speaker(&mut out, &mut plain, UNKNOWN_SPEAKER, None),
+                    }
                     i += end + 4;
                     prev = Some('}');
                     continue;
@@ -105,15 +152,15 @@ pub(crate) fn render_text(text: &str, names: &[(String, String, String)], tokens
             }
         }
         if !prev.is_some_and(char::is_alphanumeric) {
-            let hit = defaults.iter().find(|(default, _)| {
+            let hit = defaults.iter().find(|(_, default)| {
                 rest.starts_with(default)
                     && !rest[default.len()..]
                         .chars()
                         .next()
                         .is_some_and(char::is_alphanumeric)
             });
-            if let Some((default, display)) = hit {
-                out.push_str(display);
+            if let Some((n, default)) = hit {
+                speaker(&mut out, &mut plain, &names[*n].2, Some(*n));
                 i += default.len();
                 prev = default.chars().last();
                 continue;
@@ -123,9 +170,15 @@ pub(crate) fn render_text(text: &str, names: &[(String, String, String)], tokens
             .chars()
             .next()
             .expect("i is a char boundary inside text");
-        out.push(ch);
+        plain.push(ch);
         prev = Some(ch);
         i += ch.len_utf8();
+    }
+    if !plain.is_empty() {
+        out.push(Span {
+            text: plain,
+            speaker: None,
+        });
     }
     out
 }
@@ -275,6 +328,32 @@ mod tests {
             render_text("{{them:0}}, Speaker 1, Speaker 2", &names, true),
             "Speaker 2, Speaker 2, Sam"
         );
+    }
+
+    #[test]
+    fn spans_mark_each_speaker_and_join_to_the_rendered_text() {
+        let text = "{{them:1}} owes {{me}}; Speaker 12 agreed. {{added:3}} left.";
+        let spans = speaker_spans(text, &names(), SpeakerRefs::Tokens);
+        let pieces: Vec<(&str, Option<usize>)> =
+            spans.iter().map(|s| (s.text.as_str(), s.speaker)).collect();
+        assert_eq!(
+            pieces,
+            [
+                ("Sam", Some(2)),
+                (" owes ", None),
+                ("Chaz", Some(0)),
+                ("; ", None),
+                ("Lee", Some(3)),
+                (" agreed. ", None),
+                (UNKNOWN_SPEAKER, None),
+                (" left.", None),
+            ]
+        );
+        let joined: String = spans.iter().map(|s| s.text.as_str()).collect();
+        assert_eq!(joined, render_text(text, &names(), true));
+        let frozen = speaker_spans("Sam said so", &names(), SpeakerRefs::Frozen);
+        assert_eq!(frozen.len(), 1);
+        assert_eq!(frozen[0].speaker, None);
     }
 
     #[test]
