@@ -18,20 +18,51 @@ fn contrast(a: Color32, b: Color32) -> f64 {
     (la.max(lb) + 0.05) / (la.min(lb) + 0.05)
 }
 
-fn palettes() -> [(&'static str, Visuals); 4] {
-    [
-        ("light", palette::visuals(&LIGHT)),
-        ("dark", palette::visuals(&DARK)),
-        (
-            "solarized-light",
-            palette::visuals(&palette::SOLARIZED_LIGHT),
-        ),
-        ("solarized-dark", palette::visuals(&palette::SOLARIZED_DARK)),
-    ]
+/// Built from `palette::ALL`, so a new palette cannot skip these tests.
+fn palettes() -> Vec<(String, Visuals)> {
+    palette::ALL
+        .into_iter()
+        .enumerate()
+        .map(|(i, p)| {
+            (
+                format!("palette {i} (window {:?})", p.window),
+                palette::visuals(p),
+            )
+        })
+        .collect()
 }
 
 #[test]
-fn text_meets_wcag_aa_across_all_four_palettes_and_surfaces() {
+fn every_palette_is_found_again_from_its_own_visuals() {
+    for (i, p) in palette::ALL.into_iter().enumerate() {
+        assert_eq!(palette(&palette::visuals(p)), p, "palette {i}");
+        for other in &palette::ALL[i + 1..] {
+            assert_ne!(
+                p.window, other.window,
+                "palette {i} shares its window color, so one theme would render as another"
+            );
+        }
+    }
+}
+
+#[test]
+fn every_appearance_installs_palettes_from_the_tested_list() {
+    let ctx = Context::default();
+    apply(&ctx);
+    for selected in Appearance::ALL {
+        set_appearance(&ctx, selected);
+        for variant in [egui::Theme::Light, egui::Theme::Dark] {
+            let fill = ctx.style_of(variant).visuals.panel_fill;
+            assert!(
+                palette::ALL.iter().any(|p| p.window == fill),
+                "{selected:?} / {variant:?} installs a palette outside palette::ALL"
+            );
+        }
+    }
+}
+
+#[test]
+fn text_meets_wcag_aa_across_every_palette_and_surface() {
     for (name, v) in palettes() {
         for background in [
             v.window_fill,

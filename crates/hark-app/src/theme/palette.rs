@@ -8,6 +8,7 @@ const fn rgb(hex: u32) -> Color32 {
     Color32::from_rgb((hex >> 16) as u8, (hex >> 8) as u8, hex as u8)
 }
 
+#[derive(Debug, PartialEq)]
 pub(super) struct Palette {
     pub text: Color32,
     pub text_strong: Color32,
@@ -23,6 +24,9 @@ pub(super) struct Palette {
     pub on_accent: Color32,
     pub chart: Color32,
     pub chart_soft: Color32,
+    pub danger: Color32,
+    pub success: Color32,
+    pub warning: Color32,
     pub dark: bool,
 }
 
@@ -42,6 +46,9 @@ pub(super) const LIGHT: Palette = Palette {
     on_accent: Color32::WHITE,
     chart: rgb(0x527e69),
     chart_soft: rgb(0xc2d2bc),
+    danger: rgb(0xb63b50),
+    success: rgb(0x23754f),
+    warning: rgb(0x915c10),
     dark: false,
 };
 
@@ -60,6 +67,9 @@ pub(super) const DARK: Palette = Palette {
     on_accent: rgb(0x182518),
     chart: rgb(0xa8c99a),
     chart_soft: rgb(0x4a644c),
+    danger: DANGER,
+    success: SUCCESS,
+    warning: WARNING,
     dark: true,
 };
 
@@ -90,6 +100,10 @@ pub(super) const SOLARIZED_LIGHT: Palette = Palette {
     on_accent: BASE3,
     chart: CYAN,
     chart_soft: rgb(0xbdd8c5),
+    // Solarized Light has always drawn status in the Light theme's colors.
+    danger: LIGHT.danger,
+    success: LIGHT.success,
+    warning: LIGHT.warning,
     dark: false,
 };
 
@@ -108,22 +122,24 @@ pub(super) const SOLARIZED_DARK: Palette = Palette {
     on_accent: BASE03,
     chart: CYAN,
     chart_soft: rgb(0x185852),
+    danger: DANGER,
+    success: SUCCESS,
+    warning: WARNING,
     dark: true,
 };
 
-/// `Visuals` has no custom palette slot. The four deliberately distinct
-/// canvas colors identify our palette; unknown egui visuals fall back to
-/// the corresponding neutral theme. Per-widget color changes are harmless.
+/// Every palette an appearance can install. `palette()` and the contrast
+/// tests both walk this list, so a palette left out is neither found nor
+/// tested — and the tests fail if an appearance installs one that is.
+pub(super) const ALL: [&Palette; 4] = [&LIGHT, &DARK, &SOLARIZED_LIGHT, &SOLARIZED_DARK];
+
+/// `Visuals` has no custom palette slot. Each palette's deliberately distinct
+/// canvas color identifies it; unknown egui visuals fall back to the
+/// corresponding neutral theme. Per-widget color changes are harmless.
 pub(super) fn palette(v: &Visuals) -> &'static Palette {
-    if v.panel_fill == SOLARIZED_LIGHT.window {
-        &SOLARIZED_LIGHT
-    } else if v.panel_fill == SOLARIZED_DARK.window {
-        &SOLARIZED_DARK
-    } else if v.dark_mode {
-        &DARK
-    } else {
-        &LIGHT
-    }
+    ALL.into_iter()
+        .find(|p| p.window == v.panel_fill)
+        .unwrap_or(if v.dark_mode { &DARK } else { &LIGHT })
 }
 
 pub(super) fn visuals(p: &Palette) -> Visuals {
@@ -158,8 +174,8 @@ pub(super) fn visuals(p: &Palette) -> Visuals {
         hyperlink_color: p.accent,
         faint_bg_color: p.surface,
         extreme_bg_color: p.window,
-        warn_fg_color: warning(&base),
-        error_fg_color: danger(&base),
+        warn_fg_color: p.warning,
+        error_fg_color: p.danger,
         window_corner_radius: CornerRadius::same(DIALOG_RADIUS),
         window_shadow: Shadow {
             offset: [0, 12],

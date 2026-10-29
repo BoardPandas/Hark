@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.63.3] - 2026-10-29
+
+### Changed
+
+- Each theme now carries its own error, success and warning colors. Nothing looks different yet; this prepares for the new Parchment theme, whose status colors are tuned to its paper.
+
 ## [0.63.2] - 2026-10-29
 
 ### Fixed

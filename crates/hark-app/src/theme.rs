@@ -53,9 +53,6 @@ pub mod icons {
 pub const DANGER: Color32 = Color32::from_rgb(0xF1, 0x9C, 0xAB);
 pub const SUCCESS: Color32 = Color32::from_rgb(0x8B, 0xD5, 0xAF);
 pub const WARNING: Color32 = Color32::from_rgb(0xE5, 0xBC, 0x75);
-const LIGHT_DANGER: Color32 = Color32::from_rgb(0xB6, 0x3B, 0x50);
-const LIGHT_SUCCESS: Color32 = Color32::from_rgb(0x23, 0x75, 0x4F);
-const LIGHT_WARNING: Color32 = Color32::from_rgb(0x91, 0x5C, 0x10);
 const ON_DARK_ACCENT: Color32 = Color32::from_rgb(0x18, 0x25, 0x18);
 
 pub const TRAY_MARK: Color32 = ON_DARK_ACCENT;
@@ -124,25 +121,13 @@ pub const LIST_ACTIONS_WIDTH: f32 = 116.0;
 pub const MIN_CARD_WIDTH: f32 = 240.0;
 
 pub fn danger(v: &Visuals) -> Color32 {
-    if v.dark_mode {
-        DANGER
-    } else {
-        LIGHT_DANGER
-    }
+    palette(v).danger
 }
 pub fn success(v: &Visuals) -> Color32 {
-    if v.dark_mode {
-        SUCCESS
-    } else {
-        LIGHT_SUCCESS
-    }
+    palette(v).success
 }
 pub fn warning(v: &Visuals) -> Color32 {
-    if v.dark_mode {
-        WARNING
-    } else {
-        LIGHT_WARNING
-    }
+    palette(v).warning
 }
 pub fn on_accent(v: &Visuals) -> Color32 {
     palette(v).on_accent
