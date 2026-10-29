@@ -98,7 +98,10 @@ fn brand(ui: &mut Ui) {
 }
 
 fn button(ui: &mut Ui, page: &mut Page, target: Page, full_width: bool) {
-    let label = theme::icon_label_job(ui.style(), target.icon(), target.label());
+    // The icon wears the page's hue; the label stays text color, and the
+    // selected state is still the fill and highlight, never the hue.
+    let ink = target.ink(ui.visuals());
+    let label = theme::hued_icon_label_job(ui.style(), target.icon(), target.label(), ink);
     let mut button = egui::Button::new(label)
         .selected(*page == target)
         .frame_when_inactive(*page == target)

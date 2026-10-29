@@ -337,13 +337,27 @@ impl SpellbookPage {
                         // are invisible until something they caused looks wrong.
                         let count = entries[index].aliases.len();
                         let open = self.expanded == Some(index);
-                        let label = match count {
-                            0 => "Advanced".to_string(),
-                            1 => "1 alias".to_string(),
-                            n => format!("{n} aliases"),
+                        // A count worth noticing is a Spellbook-hued chip; with
+                        // none, the quieter "Advanced" link opens the editor.
+                        let toggle = match count {
+                            0 => ui.link(RichText::new("Advanced").small().weak()),
+                            n => {
+                                let label = if n == 1 {
+                                    "1 alias".to_string()
+                                } else {
+                                    format!("{n} aliases")
+                                };
+                                let chip = ui.add(theme::chip_button(
+                                    ui.style(),
+                                    theme::Hue::Violet,
+                                    &label,
+                                    None,
+                                ));
+                                theme::focus_ring(ui, &chip);
+                                chip
+                            }
                         };
-                        if ui
-                            .link(RichText::new(label).small().weak())
+                        if toggle
                             .on_hover_text("Misheard spellings corrected to this term")
                             .clicked()
                         {

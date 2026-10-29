@@ -54,6 +54,20 @@ impl Section {
             Self::Updates => theme::icons::ARROW_UP,
         }
     }
+
+    /// A fixed hue per section for its nav icon. Seven sections share six
+    /// hues, so General and Updates (the ends of the list) share Blue;
+    /// Meetings wears the Meetings page's Teal.
+    fn hue(self) -> theme::Hue {
+        match self {
+            Self::General | Self::Updates => theme::Hue::Blue,
+            Self::Dictation => theme::Hue::Violet,
+            Self::Audio => theme::Hue::Green,
+            Self::Meetings => theme::Hue::Teal,
+            Self::Behavior => theme::Hue::Gold,
+            Self::Privacy => theme::Hue::Rose,
+        }
+    }
 }
 
 impl SettingsPage {
@@ -73,7 +87,9 @@ impl SettingsPage {
             if section == Section::Meetings && !hark_pipeline::meeting::meetings_supported() {
                 continue;
             }
-            let label = theme::icon_label_job(ui.style(), section.icon(), section.label());
+            let ink = theme::hue(ui.visuals(), section.hue());
+            let label =
+                theme::hued_icon_label_job(ui.style(), section.icon(), section.label(), ink);
             if theme::nav_button(ui, label, self.section == section).clicked() {
                 self.section = section;
             }

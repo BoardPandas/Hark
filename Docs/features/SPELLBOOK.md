@@ -18,7 +18,8 @@ The following files were used as evidence for this page:
 - [crates/hark-stt/src/deepgram.rs:29-47](../../crates/hark-stt/src/deepgram.rs#L29-L47)
 - [crates/hark-stt/src/gemini_live.rs:233-272](../../crates/hark-stt/src/gemini_live.rs#L233-L272)
 - [crates/hark-stt/src/openai_live.rs](../../crates/hark-stt/src/openai_live.rs)
-- [crates/hark-app/src/ui/spellbook/mod.rs:1-132](../../crates/hark-app/src/ui/spellbook/mod.rs#L1-L132)
+- [crates/hark-app/src/ui/spellbook/mod.rs:1-151](../../crates/hark-app/src/ui/spellbook/mod.rs#L1-L151)
+- [crates/hark-app/src/ui/spellbook/book.rs](../../crates/hark-app/src/ui/spellbook/book.rs) and [crates/hark-app/src/ui/book.rs](../../crates/hark-app/src/ui/book.rs)
 - [crates/hark-pipeline/src/meeting/live.rs:52-97](../../crates/hark-pipeline/src/meeting/live.rs#L52-L97)
 - [crates/hark-pipeline/src/meeting/finish.rs](../../crates/hark-pipeline/src/meeting/finish.rs)
 
@@ -177,9 +178,15 @@ Sources: [crates/hark-spellbook/src/lib.rs:18-167](../../crates/hark-spellbook/s
 | Legacy `terms` / `bias_terms` config | Schema 2 migrates values into `[[spellbook.entries]]`, preserves existing entries, and stamps the current version ([lib.rs](../../crates/hark-config/src/lib.rs), [lib.rs](../../crates/hark-config/src/lib.rs)) |
 | Common-word alias | Allowed, but the editor warns because an exact alias made entirely of common words can fire frequently; the warning does not block the user's choice ([edit.rs:102-134](../../crates/hark-app/src/ui/spellbook/edit.rs#L102-L134)) |
 
-The editor saves automatically and restarts the pipeline after a change because corrector entries are baked at pipeline construction. A History selection becomes an alias while the user supplies the canonical term, preserving both what the provider heard and what should be injected ([mod.rs:1-17](../../crates/hark-app/src/ui/spellbook/mod.rs#L1-L17), [mod.rs:67-90](../../crates/hark-app/src/ui/spellbook/mod.rs#L67-L90)).
+The editor saves automatically and restarts the pipeline after a change because corrector entries are baked at pipeline construction. A History selection becomes an alias while the user supplies the canonical term, preserving both what the provider heard and what should be injected ([mod.rs:1-17](../../crates/hark-app/src/ui/spellbook/mod.rs#L1-L17), [mod.rs:80-96](../../crates/hark-app/src/ui/spellbook/mod.rs#L80-L96)).
 
-Sources: [crates/hark-spellbook/src/lib.rs:67-167](../../crates/hark-spellbook/src/lib.rs#L67-L167), [crates/hark-spellbook/src/matcher.rs:29-75](../../crates/hark-spellbook/src/matcher.rs#L29-L75), [crates/hark-config/src/lib.rs](../../crates/hark-config/src/lib.rs), [crates/hark-config/src/lib.rs](../../crates/hark-config/src/lib.rs), [crates/hark-app/src/ui/spellbook/mod.rs:1-90](../../crates/hark-app/src/ui/spellbook/mod.rs#L1-L90)
+Sources: [crates/hark-spellbook/src/lib.rs:67-167](../../crates/hark-spellbook/src/lib.rs#L67-L167), [crates/hark-spellbook/src/matcher.rs:29-75](../../crates/hark-spellbook/src/matcher.rs#L29-L75), [crates/hark-config/src/lib.rs](../../crates/hark-config/src/lib.rs), [crates/hark-config/src/lib.rs](../../crates/hark-config/src/lib.rs), [crates/hark-app/src/ui/spellbook/mod.rs:1-96](../../crates/hark-app/src/ui/spellbook/mod.rs#L1-L96)
 <!-- END:AUTOGEN hark_08_spellbook_edge -->
 
 ---
+
+## Book view
+
+The page's **List | Book** switch (saved as `hark-spellbook-view-v1`, List by default) shows the same entries as a book; see [Desktop UI](DESKTOP_UI.md#book-view) for page turning, layout and keyboard. Each term opens with a drop cap in the Spellbook's Violet, then "Also heard as" with its aliases in monospace, then **Edit** and **Delete** ([book.rs](../../crates/hark-app/src/ui/spellbook/book.rs)).
+
+Editing happens where the entry sits. **Edit** opens the term field and the alias editor; **Done** commits a pending term edit the way leaving the field would and closes the entry. Both views call the same `edit_term` and `alias_editor`, so the term still commits on Enter or lost focus, Esc cancels, and at most one entry is open. An open entry pins the book's position, so the spread cannot turn out from under the cursor. Deletes are applied after the book is drawn, as in the list. The pinned add row and the Undo row sit above both views; after an add, including a History handoff, the book opens to the spread holding the added (or merged) entry and marks it with a **New** chip ([mod.rs `submit_add`, `edit_term`](../../crates/hark-app/src/ui/spellbook/mod.rs)). Every change returns the page's existing `changed` flag, so saving, the pipeline restart and the Settings-draft mirror are unchanged.

@@ -165,17 +165,30 @@ fn summary(ui: &mut Ui, value: &str, label: &str) {
     ui.add_space(theme::ROW_GAP);
 }
 
+/// The icon is tinted by state, in status colors (never a category hue). The
+/// icon and the words carry the state on their own; the tint only adds to it.
 fn status_line(ui: &mut Ui, status: &PipelineStatus) {
-    let (icon, text) = match status {
-        PipelineStatus::Idle => (theme::icons::CHECK, "Ready to dictate"),
-        PipelineStatus::Recording => (theme::icons::MICROPHONE, "Listening…"),
-        PipelineStatus::Processing => (theme::icons::CIRCLE_NOTCH, "Processing your words…"),
-        PipelineStatus::LoadingModel => (theme::icons::CIRCLE_NOTCH, "Loading on-device model…"),
+    let v = ui.visuals();
+    let (icon, color, text) = match status {
+        PipelineStatus::Idle => (theme::icons::CHECK, theme::success(v), "Ready to dictate"),
+        PipelineStatus::Recording => (theme::icons::MICROPHONE, theme::accent(v), "Listening…"),
+        PipelineStatus::Processing => (
+            theme::icons::CIRCLE_NOTCH,
+            theme::accent(v),
+            "Processing your words…",
+        ),
+        PipelineStatus::LoadingModel => (
+            theme::icons::CIRCLE_NOTCH,
+            theme::accent(v),
+            "Loading on-device model…",
+        ),
         PipelineStatus::Errored { detail, .. } | PipelineStatus::Stopped { detail, .. } => {
-            (theme::icons::WARNING, detail.as_str())
+            (theme::icons::WARNING, theme::warning(v), detail.as_str())
         }
-        PipelineStatus::Hint { detail } => (theme::icons::MICROPHONE, detail.as_str()),
+        PipelineStatus::Hint { detail } => {
+            (theme::icons::MICROPHONE, theme::accent(v), detail.as_str())
+        }
     };
     ui.add_space(theme::GAP);
-    ui.label(theme::icon_label_job(ui.style(), icon, text));
+    ui.label(theme::hued_icon_label_job(ui.style(), icon, text, color));
 }

@@ -715,3 +715,41 @@ fn wizard_text_roles_render_at_three_weights() {
         "weights did not pin: {widths:?}"
     );
 }
+
+/// Page and section icons keep their hue while their nav button is hovered,
+/// so the inks must also read on the hover fill.
+#[test]
+fn hue_inks_read_on_a_hovered_control() {
+    for (name, v) in palettes() {
+        let hover = v.widgets.hovered.bg_fill;
+        for h in Hue::ALL {
+            let ratio = contrast(hue(&v, h), hover);
+            assert!(ratio >= 4.5, "{name}: {h:?} on hover fill: {ratio:.2}");
+        }
+    }
+}
+
+#[test]
+fn every_known_provider_has_a_named_chip() {
+    for label in [
+        "deepgram",
+        "openai",
+        "gemini",
+        "openai-compatible",
+        "groq",
+        "local",
+        "local (fallback)",
+    ] {
+        let (_, name) = provider_chip(label).expect(label);
+        assert!(!name.is_empty());
+    }
+    assert_eq!(provider_chip("mock"), None);
+    // Distinct providers a user is likely to see side by side differ in hue.
+    let hues: Vec<Hue> = ["deepgram", "openai", "gemini", "openai-compatible", "local"]
+        .iter()
+        .map(|label| provider_chip(label).unwrap().0)
+        .collect();
+    for (i, a) in hues.iter().enumerate() {
+        assert!(!hues[i + 1..].contains(a), "{a:?} is used twice");
+    }
+}

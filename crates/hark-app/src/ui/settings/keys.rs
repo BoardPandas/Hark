@@ -67,6 +67,11 @@ impl KeySection {
     pub fn show_with_link(&mut self, ui: &mut Ui, link: Option<(&str, &str)>) -> bool {
         let mut changed = false;
 
+        // Which provider this key is for, in its hue. On a row of its own: a
+        // hue never shares a row with the status glyph below it.
+        if let Some((hue, name)) = theme::provider_chip(&self.account) {
+            theme::chip(ui, hue, None, name);
+        }
         let (icon, color, text) = status_line(ui.visuals(), &self.status, &self.account);
         ui.horizontal_wrapped(|ui| {
             ui.label(theme::icon_text(icon).color(color));

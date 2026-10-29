@@ -1,5 +1,11 @@
 # Generation Metadata
 
+## Wizard theme: Parchment, lettering, book views and the color pass — 2026-10-29 (0.68.0)
+
+- **Source reviewed:** `d5dc70c` (0.67.0, the merge of the theme, transcription-setup and meeting-speakers builds) plus the working tree for 0.68.0: `Page::hue` and the hued page header (`ui/pages.rs`), hued nav icons (`navigation.rs`), `hued_icon_label_job` and `provider_chip` in `theme`, Home's status tint, Insights tile icons and per-series bars, History provider and Invocation chips (`history/row.rs`), the Spellbook alias-count chip, the Rose glyph and scope chip in the Invocations list, Settings section hues, the key provider chip and the on-device engine chip. Global baseline `784272c` is unchanged.
+- **Scope:** Desktop UI (Theming rewritten: Parchment column, Lettering, Color, Book view; History, Spellbook, Invocations and Settings rows), Spellbook (new Book view section; shifted `mod.rs` citations), Invocations (new Book view section; Rose glyph), Configuration (egui-memory keys table for appearance, lettering and the two book views), and On-Device STT (engine chip; shifted `local.rs` citations). Meetings, Data Storage, Voice Cleanup, Transcription and Overview are left to the meeting-speakers documentation pass. AUTOGEN markers are preserved; the two new Book view sections sit outside them.
+- **Validation:** `npm run check:docs` no longer lists Desktop UI, Spellbook, Invocations, Configuration or On-Device STT; it still lists Data Storage, Transcription, Voice Cleanup and Meetings, which belong to that other pass. Relative links in the edited pages point at files that exist; no line-range citation into a file this change edited was left stale.
+
 ## Speech to text card and first-run tips — 2026-10-29 (0.65.0)
 
 - **Source reviewed:** `13df6eb` (0.64.1): `Section::OnDevice` removed; `ui/settings/stt_card.rs` (new card, no-key suggestion, mode decisions), `local.rs` (`on_device_block`), `keys.rs` (Get a key link), `form.rs` (header rename, `id_salt`), `cleanup.rs` (STT key in Primary), `onboarding.rs`/`get_started.rs` (readiness follows the mode), and the `model.rs` comment. Global baseline `784272c` is unchanged.

@@ -90,12 +90,8 @@ pub fn show(
             }
             ui.add_space(theme::GAP);
             ui.horizontal_wrapped(|ui| {
-                if entry.invocation.is_some() {
-                    ui.label(
-                        theme::icon_text(theme::icons::LIGHTNING)
-                            .small()
-                            .color(theme::accent(ui.visuals())),
-                    );
+                for (hue, glyph, text) in chips(entry) {
+                    theme::chip(ui, hue, glyph, text);
                 }
                 if !timestamp_column {
                     ui.label(
@@ -222,22 +218,38 @@ fn details(ui: &mut Ui, entry: &Entry, tz: &TimeZone, selection: &mut Option<Sel
     });
 }
 
-/// Voice and actual provider/model, with a leading "Invocation" segment when the
-/// text was pasted from an invocation rather than transcribed. Without it a
-/// row of canned text looks like a suspiciously articulate dictation.
+/// The row's chips: an "Invocation" chip when the text was pasted from an
+/// invocation rather than transcribed (without it a row of canned text looks
+/// like a suspiciously articulate dictation), then the provider that wrote
+/// it. Each chip is its label in words; the hue only groups them.
+fn chips(entry: &Entry) -> Vec<(theme::Hue, Option<&'static str>, &'static str)> {
+    let mut chips = Vec::new();
+    if entry.invocation.is_some() {
+        chips.push((
+            theme::Hue::Rose,
+            Some(theme::icons::LIGHTNING),
+            "Invocation",
+        ));
+    }
+    if let Some((hue, name)) = theme::provider_chip(&entry.stt_provider) {
+        chips.push((hue, None, name));
+    }
+    chips
+}
+
+/// Voice and model, plus the provider when no chip names it.
 fn caption(entry: &Entry) -> String {
-    let base = format!(
-        "{} · {} · {}",
-        entry.voice, entry.stt_provider, entry.stt_model
-    );
-    let base = match &entry.cleanup_model {
+    let base = if theme::provider_chip(&entry.stt_provider).is_some() {
+        format!("{} · {}", entry.voice, entry.stt_model)
+    } else {
+        format!(
+            "{} · {} · {}",
+            entry.voice, entry.stt_provider, entry.stt_model
+        )
+    };
+    match &entry.cleanup_model {
         Some(model) if entry.cleanup_ms.is_some() => format!("{base} · {model}"),
         _ => base,
-    };
-    match entry.invocation {
-        // Icon + label, never color alone (design system rule).
-        Some(_) => format!("Invocation · {base}"),
-        None => base,
     }
 }
 
@@ -313,22 +325,41 @@ mod tests {
     }
 
     #[test]
-    fn caption_badges_invocations_and_leaves_ordinary_rows_alone() {
+    fn chips_badge_invocations_and_leave_ordinary_rows_alone() {
         let plain = entry(false);
         let caption_plain = caption(&plain);
         assert!(
-            !caption_plain.contains("Invocation"),
-            "an ordinary dictation must not be badged: {caption_plain}"
+            !chips(&plain)
+                .iter()
+                .any(|(_, _, text)| *text == "Invocation"),
+            "an ordinary dictation must not be badged"
         );
         assert!(caption_plain.contains("clean") && caption_plain.contains("nova-3"));
+        // The provider is named by its chip, so the caption does not repeat it.
+        assert_eq!(chips(&plain), vec![(theme::Hue::Teal, None, "Deepgram")]);
+        assert!(!caption_plain.contains("deepgram"), "{caption_plain}");
 
         let mut fired = entry(false);
         fired.invocation = Some("access granted".to_string());
-        let badged = caption(&fired);
-        assert!(badged.starts_with("Invocation"), "{badged}");
-        assert!(badged.contains("Invocation"));
+        let badges = chips(&fired);
+        assert_eq!(
+            badges[0],
+            (
+                theme::Hue::Rose,
+                Some(theme::icons::LIGHTNING),
+                "Invocation"
+            )
+        );
         // The badge is additive: the usual segments still read the same.
-        assert!(badged.ends_with(&caption_plain), "{badged}");
+        assert_eq!(caption(&fired), caption_plain);
+    }
+
+    #[test]
+    fn an_unknown_provider_keeps_its_label_in_the_caption() {
+        let mut row = entry(false);
+        row.stt_provider = "future-provider".to_string();
+        assert!(chips(&row).is_empty());
+        assert!(caption(&row).contains("future-provider"));
     }
 
     #[test]

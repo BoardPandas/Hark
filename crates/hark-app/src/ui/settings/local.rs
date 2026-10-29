@@ -43,6 +43,8 @@ pub(super) fn on_device_block(
 
     ui.indent("on-device-mode", |ui| {
         if draft.local_stt.mode.uses_local() {
+            // The engine by name, in the on-device hue History uses for it.
+            theme::chip(ui, theme::Hue::Violet, None, download.spec().display_name);
             ui.radio_value(
                 &mut draft.local_stt.mode,
                 LocalMode::Primary,

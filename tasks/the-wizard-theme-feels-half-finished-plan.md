@@ -345,12 +345,17 @@ Gotchas already known, from LL-G and this exploration:
 
 To fill in during and after implementation:
 
-- [ ] Gotchas encountered → LL-G via `/add-lesson`. Likely candidates: egui variable-font
-  `coords` behavior, `has_glyph` probe-family testing, and keyboard consumption order against
-  inner `ScrollArea`s.
-- [ ] Reusable patterns → BP via `/add-practice`. Likely candidates: per-theme semantic hue
-  sets with contrast and distinctness tests, and the anchor-based pagination for immediate-mode
-  UIs.
+- [ ] Gotchas encountered → LL-G via `/add-lesson` (not sent yet; listed in the intent's
+  Lessons Learned): variable-font `coords` work in egui 0.36; `has_glyph` is always false in a
+  one-face family; `egui_wants_keyboard_input()` blocks page keys after a button click.
+- [ ] Reusable patterns → BP via `/add-practice` (not sent yet): per-theme categorical hue sets
+  with contrast and distinctness tests; anchor-based pagination that remembers painted heights.
 - [ ] Repo-only notes → `.claude/agent-memory/patterns.md`.
-- [ ] Failed approaches, recorded here with the reason, such as variable versus static fonts
-  if the spike fails.
+- [x] Failed approaches: none. The variable-font spike passed (widths 268.8, 270.8 and 272.1 pt
+  at wght 400/500/600), so the Spectral fallback was not needed.
+- [x] Deviations, with reasons: page keys use `text_edit_focused()`, because
+  `egui_wants_keyboard_input()` is true for any focused widget; Cinzel's two unmapped characters
+  fall back to Alegreya; drop caps are drawn as capitals because phrases are usually lower-case;
+  the shell overflow test kept its existing window sizes and runs every (appearance, lettering)
+  pair; the provider chip sits on its own row above a key's status line, so a hue never shares
+  a row with a status glyph.
