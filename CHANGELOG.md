@@ -17,7 +17,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
-- Groundwork for choosing a transcription setup in Settings: a one-line description and a "Get a key" page for each speech-to-text provider, and the rules for when Hark suggests on-device transcription. Nothing changes on screen yet.
 - Hark's notes about the on-device model no longer call Parakeet TDT 0.6B v3 the latest version. It is the multilingual build Hark ships. Newer English-only builds exist, and Hark keeps v3 for now.
 - The separate **On-device** page in Settings is gone; its controls moved into Speech to text.
 - "Model & endpoint" is now **Model and endpoint (optional)**, or **(required)** for an OpenAI-compatible server, with a note that leaving it blank uses the recommended model.
@@ -31,6 +30,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Saving on-device Primary before the model has downloaded no longer says "Saved. Dictation is ready." It now says dictation works once the download finishes.
 - In first-run setup, switching to on-device Primary from the cloud screen (with the new toggle or the "Use on-device instead" button) now shows the on-device setup and waits for the model download, instead of still asking for a cloud key and a passed test. Choosing Backup still needs a passed test.
 - If your settings say on-device Primary but your build of Hark has no on-device engine, the Speech to text card now still shows the cloud controls. Before, it hid them along with the on-device controls, so nothing on the card could change the setting.
+
+## [0.64.1] - 2026-10-29
+
+### Fixed
+
+- **Gemini Live no longer wastes about 15 ms on Windows every time it checks for new text.** Hark checks after every 100 ms of audio it sends. Each check started a timer that Windows rounds up to about 15.6 ms, even when nothing had arrived. A 25-second meeting chunk lost about 4 seconds this way, and Test connection and the backup replay of a 10-second clip lost up to 1.5 seconds. Checks now return right away. The OpenAI live adapter in 0.64.0 already worked this way.
 
 ## [0.64.0] - 2026-10-29
 
