@@ -24,6 +24,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [0.63.2] - 2026-10-29
 
+### Added
+
+- A living feature-ideas checklist (`tasks/feature-ideas.md`) that tracks ideas with a status (Incomplete, In progress, Complete, Sidelined, Denied). It starts with seven ideas: speaker colors and fixing a line's speaker in meeting transcripts, an accent color choice per theme, a Parchment theme with a wizard-pen font toggle, a Book view for the Spellbook and Invocations, and a Full / Half / Non-Wizard setting.
+
 ### Fixed
 
 - **The tray's meeting menu no longer starts notes you did not ask for.** If a call ended and the notes stopped while the tray menu was open, the menu still said "Stop meeting notes", and clicking it started a new meeting. The menu now has separate "Start meeting notes" and "Stop meeting notes" entries, and only the one that applies can be clicked. A late "Stop" click does nothing.
