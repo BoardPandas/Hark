@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.64.1] - 2026-10-29
+
+### Added
+
+- The source tree now includes two free book fonts, Alegreya and Cinzel Decorative (SIL Open Font License), for the coming "Wizard lettering" option. The app does not use them yet. Their source, download date and license are recorded in `crates/hark-app/assets/README.md`.
+
 ## [0.64.0] - 2026-10-29
 
 ### Added

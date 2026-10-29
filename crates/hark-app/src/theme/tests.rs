@@ -329,3 +329,124 @@ fn solarized_uses_official_base_fills_and_cyan_charts() {
         assert_ne!(chart(&v), chart_soft(&v));
     }
 }
+
+const ALEGREYA: &[u8] = include_bytes!("../../assets/Alegreya[wght].ttf");
+
+/// Spike (plan F4): egui 0.36 pins a variable font's instance through
+/// `FontTweak::coords`. If it ignored them, all three widths would match and
+/// Wizard's Medium and SemiBold would silently render as Regular.
+#[test]
+fn alegreya_weights_are_pinned_by_font_tweak_coords() {
+    use egui::epaint::text::VariationCoords;
+    use std::sync::Arc;
+    const WEIGHTS: [f32; 3] = [400.0, 500.0, 600.0];
+    let family = |w: f32| FontFamily::Name(format!("probe-{w}").into());
+    let mut fonts = egui::FontDefinitions::default();
+    for w in WEIGHTS {
+        let name = format!("probe-{w}");
+        let data = egui::FontData::from_static(ALEGREYA).tweak(egui::FontTweak {
+            coords: VariationCoords::new([(b"wght", w)]),
+            ..Default::default()
+        });
+        fonts.font_data.insert(name.clone(), Arc::new(data));
+        fonts.families.insert(family(w), vec![name]);
+    }
+    let ctx = Context::default();
+    ctx.set_fonts(fonts);
+    let mut widths = [0.0; 3];
+    let mut output = ctx.run_ui(Default::default(), |ui| {
+        widths = WEIGHTS.map(|w| {
+            ui.fonts_mut(|f| {
+                f.layout_no_wrap(
+                    "The quick brown fox jumps over the lazy dog".into(),
+                    FontId::new(15.0, family(w)),
+                    Color32::BLACK,
+                )
+                .size()
+                .x
+            })
+        });
+    });
+    output.textures_delta.clear();
+    eprintln!("Alegreya widths at wght 400/500/600: {widths:?}");
+    assert!(
+        widths[0] < widths[1] && widths[1] < widths[2],
+        "coords not applied: {widths:?}"
+    );
+}
+
+/// Spec AC7: ASCII, Latin-1, and the typographic punctuation the UI writes.
+fn coverage_string() -> String {
+    (' '..='~')
+        .chain('\u{A0}'..='\u{FF}')
+        .chain("“”‘’–—…•·×".chars())
+        .collect()
+}
+
+/// Characters the Cinzel Decorative files (google/fonts 6157dfaa) do not map:
+/// the no-break space and the micro sign. Phosphor lacks both too, so the
+/// Wizard serif family puts Alegreya right after Phosphor to catch them in a
+/// book face. The font cannot be patched (its Reserved Font Name), so this
+/// gap is pinned instead: a font update that closes it fails this test and
+/// the workaround can go.
+const CINZEL_GAPS: &str = "\u{A0}\u{B5}";
+
+/// Which coverage-string characters each face lacks on its own. A probe
+/// family holds only the face under test, because in a real family a missing
+/// glyph falls through to the next font and renders in the wrong face with
+/// no error. (`has_glyph` cannot answer this: in a one-face family that face
+/// is also the replacement face, so it reports `false` for every char. The
+/// charmap from `characters()` is the honest answer.)
+fn missing_from_each_face(faces: &[(&str, &'static [u8])]) -> Vec<String> {
+    use std::sync::Arc;
+    let mut fonts = egui::FontDefinitions::default();
+    for (name, bytes) in faces {
+        let name = format!("probe-{name}");
+        fonts
+            .font_data
+            .insert(name.clone(), Arc::new(egui::FontData::from_static(bytes)));
+        fonts
+            .families
+            .insert(FontFamily::Name(name.clone().into()), vec![name]);
+    }
+    let ctx = Context::default();
+    ctx.set_fonts(fonts);
+    let mut missing = Vec::new();
+    let mut output = ctx.run_ui(Default::default(), |ui| {
+        missing = faces
+            .iter()
+            .map(|(name, _)| {
+                ui.fonts_mut(|f| {
+                    let family = FontFamily::Name(format!("probe-{name}").into());
+                    let charmap = f.fonts.font(&family).characters().clone();
+                    coverage_string()
+                        .chars()
+                        .filter(|c| !charmap.contains_key(c))
+                        .collect()
+                })
+            })
+            .collect();
+    });
+    output.textures_delta.clear();
+    missing
+}
+
+#[test]
+fn the_wizard_faces_cover_the_coverage_string_alone() {
+    let faces: [(&str, &'static [u8]); 3] = [
+        ("Alegreya", ALEGREYA),
+        (
+            "CinzelDecorative",
+            include_bytes!("../../assets/CinzelDecorative-Regular.ttf"),
+        ),
+        (
+            "CinzelDecorativeBold",
+            include_bytes!("../../assets/CinzelDecorative-Bold.ttf"),
+        ),
+    ];
+    let missing = missing_from_each_face(&faces);
+    assert_eq!(missing[0], "", "the Wizard body face");
+    for (face, gaps) in faces[1..].iter().zip(&missing[1..]) {
+        assert_eq!(gaps, CINZEL_GAPS, "{} changed coverage", face.0);
+    }
+}
