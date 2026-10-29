@@ -24,7 +24,10 @@ impl SettingsPage {
         pipeline: &mut PipelineController,
     ) {
         theme::card(ui, |ui| {
-            let primary = self.draft.local_stt.mode == LocalMode::Primary;
+            let primary = cloud_hidden(
+                hark_local_stt::LocalEngine::is_available(),
+                self.draft.local_stt.mode,
+            );
             if primary {
                 form::subhead(ui, "Speech to text");
             } else {
@@ -103,6 +106,13 @@ pub(super) fn mode_when_enabled(key_stored: bool) -> LocalMode {
     } else {
         LocalMode::Primary
     }
+}
+
+/// Primary hides the cloud block (R3), but only while the on-device block
+/// can be drawn: a `primary` config in a build without the engine would
+/// otherwise leave the card with no control to change it.
+pub(super) fn cloud_hidden(engine_available: bool, mode: LocalMode) -> bool {
+    engine_available && mode == LocalMode::Primary
 }
 
 /// The no-key callout (R9). `Backend` counts as not stored: on-device needs
@@ -197,6 +207,14 @@ mod tests {
     fn enabling_backs_up_a_stored_key_and_otherwise_goes_on_device() {
         assert_eq!(mode_when_enabled(true), LocalMode::Fallback);
         assert_eq!(mode_when_enabled(false), LocalMode::Primary);
+    }
+
+    #[test]
+    fn primary_hides_the_cloud_only_where_the_toggle_can_undo_it() {
+        assert!(cloud_hidden(true, LocalMode::Primary));
+        assert!(!cloud_hidden(false, LocalMode::Primary));
+        assert!(!cloud_hidden(true, LocalMode::Fallback));
+        assert!(!cloud_hidden(true, LocalMode::Off));
     }
 
     #[test]

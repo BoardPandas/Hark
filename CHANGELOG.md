@@ -6,6 +6,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.64.2] - 2026-10-29
+
+### Fixed
+
+- If your settings say on-device Primary but your build of Hark has no on-device engine, the Speech to text card now still shows the cloud controls. Before, it hid them along with the on-device controls, so nothing on the card could change the setting.
+
+### Changed
+
+- The README and docs now point to Settings → Dictation → Speech to text for on-device transcription, and describe the first-run tip and the "Use on-device instead" suggestion.
+
 ## [0.64.1] - 2026-10-29
 
 ### Changed

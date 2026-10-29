@@ -1,5 +1,11 @@
 # Generation Metadata
 
+## Speech to text card and first-run tips — 2026-10-29 (0.64.2)
+
+- **Source reviewed:** `13df6eb` (0.64.1): `Section::OnDevice` removed; `ui/settings/stt_card.rs` (new card, no-key suggestion, mode decisions), `local.rs` (`on_device_block`), `keys.rs` (Get a key link), `form.rs` (header rename, `id_salt`), `cleanup.rs` (STT key in Primary), `onboarding.rs`/`get_started.rs` (readiness follows the mode), and the `model.rs` comment. Global baseline `784272c` is unchanged.
+- **Scope:** README (On-device transcription), Desktop UI (Settings table, First run), On-Device STT (where modes are set, citations, crate layout), Glossary, Getting Started and Overview (where the choice is made), and shifted `form.rs`/`model.rs` citations in Transcription, Voice Cleanup and On-Device STT. AUTOGEN markers are preserved.
+- **Validation:** `check:docs` passes for every page this change touched. It still flags Architecture, Data Storage, Spellbook, Invocations, Release and Packaging, and Meetings for source changes made in 0.63.x and earlier, none of which this change touched.
+
 ## macOS stapler validate retry — 2026-10-15 (0.62.6)
 
 - **Source reviewed:** `7b3d214` (0.62.5) plus `stapler_retry` replacing `staple` in `scripts/package-macos.sh`, now wrapping both staple and validate for the app and the DMG. Global baseline `784272c` is unchanged.
