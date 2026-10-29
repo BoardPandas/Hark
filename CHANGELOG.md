@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.68.2] - 2026-10-29
+
+### Fixed
+
+- The Linux build compiles again. The 0.63.2 tray fix added meeting-menu fields that the Linux tray does not use yet, and CI's strict lint check rejected them as unused, so a release could not build Linux packages.
+
 ## [0.68.1] - 2026-10-29
 
 ### Changed

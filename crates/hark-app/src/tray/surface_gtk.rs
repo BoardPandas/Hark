@@ -174,7 +174,15 @@ fn apply_on_gtk_thread(
             }
         }
         // Meetings are not built on Linux yet (D4), so there is no entry to
-        // update; the fields are read only by the native surface.
-        TrayUpdate::Meeting { .. } => {}
+        // update; the fields are read only by the native surface. Binding
+        // them here keeps them read on Linux, where `-D warnings` would
+        // otherwise reject them as dead.
+        TrayUpdate::Meeting {
+            start_enabled,
+            stop_label,
+            stop_enabled,
+        } => {
+            let _ = (start_enabled, stop_label, stop_enabled);
+        }
     }
 }
