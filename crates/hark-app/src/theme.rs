@@ -159,8 +159,7 @@ pub fn chart_soft(v: &Visuals) -> Color32 {
 /// element never carries a CHECK, WARNING or X glyph, and status colors are
 /// never used for categories. Every hued element also has a text label.
 ///
-/// `speaker_hue(slot)` is reserved as the one place meeting speakers map onto
-/// these; the meeting-speakers spec owns that order.
+/// [`speaker_hue`] is the one place meeting speakers map onto these.
 #[allow(dead_code)] // first drawn by the color pass (plan P1) and meeting speakers
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
 pub enum Hue {
@@ -194,6 +193,29 @@ pub fn hue(v: &Visuals, hue: Hue) -> Color32 {
 #[allow(dead_code)] // first drawn by the color pass (plan P1) and meeting speakers
 pub fn hue_wash(v: &Visuals, hue: Hue) -> Color32 {
     palette(v).hues[hue as usize].wash
+}
+
+/// After Me, warm and cool alternate so neighbours in slot order differ most;
+/// Green comes last because it sits near the success color.
+const SPEAKER_HUES: [Hue; 5] = [Hue::Gold, Hue::Violet, Hue::Teal, Hue::Rose, Hue::Green];
+
+/// A meeting speaker's hue from its roster color slot (`hark_meeting::Roster`,
+/// spec §2.4). Slot 0 is Me and always Blue, and no other slot ever is, so Me
+/// reads the same in every meeting. Past six speakers the hues repeat over
+/// slots 1–5; the name next to every hued mark never does.
+#[allow(dead_code)] // first drawn by the meeting speakers card (plan CP4)
+pub fn speaker_hue(slot: usize) -> Hue {
+    match slot {
+        0 => Hue::Blue,
+        n => SPEAKER_HUES[(n - 1) % SPEAKER_HUES.len()],
+    }
+}
+
+/// The Light palette's ink for `hue`: documents are white whatever the app's
+/// theme, so the Word export colors speakers with this.
+#[allow(dead_code)] // first used by the Word export (plan CP5)
+pub fn document_hue(hue: Hue) -> Color32 {
+    palette::LIGHT.hues[hue as usize].ink
 }
 
 /// A pill in the hue's wash with an ink label and an optional icon. This is

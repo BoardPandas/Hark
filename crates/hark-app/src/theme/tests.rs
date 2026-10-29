@@ -155,6 +155,53 @@ fn the_six_inks_of_each_palette_are_perceptually_distinct() {
 }
 
 #[test]
+fn me_is_always_blue_and_no_one_else_ever_is() {
+    assert_eq!(speaker_hue(0), Hue::Blue);
+    for slot in 1..64 {
+        assert_ne!(speaker_hue(slot), Hue::Blue, "slot {slot}");
+    }
+}
+
+#[test]
+fn the_first_six_speakers_get_six_different_hues() {
+    let first: Vec<Hue> = (0..6).map(speaker_hue).collect();
+    for h in Hue::ALL {
+        assert_eq!(first.iter().filter(|x| **x == h).count(), 1, "{h:?}");
+    }
+    assert_eq!(
+        first,
+        [
+            Hue::Blue,
+            Hue::Gold,
+            Hue::Violet,
+            Hue::Teal,
+            Hue::Rose,
+            Hue::Green
+        ]
+    );
+}
+
+#[test]
+fn speaker_hues_wrap_over_slots_one_to_five() {
+    assert_eq!(speaker_hue(6), speaker_hue(1));
+    assert_eq!(speaker_hue(10), speaker_hue(5));
+    assert_eq!(speaker_hue(11), speaker_hue(1));
+}
+
+#[test]
+fn document_speaker_inks_read_on_white_paper() {
+    for h in Hue::ALL {
+        let ratio = contrast(document_hue(h), Color32::WHITE);
+        assert!(ratio >= 4.5, "{h:?} on white: {ratio:.2}");
+    }
+    // The same table the palette tests cover, never a copied hex.
+    let light = palette::visuals(&palette::LIGHT);
+    for h in Hue::ALL {
+        assert_eq!(document_hue(h), hue(&light, h));
+    }
+}
+
+#[test]
 fn a_chip_paints_its_label_in_ink_on_its_wash() {
     let ctx = Context::default();
     apply(&ctx);

@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.64.2] - 2026-10-29
+
+### Changed
+
+- Meeting speakers now have a fixed color order: "Me" is always blue, and nobody else ever is, so you can spot your own lines in any meeting. The next five people get gold, violet, teal, rose and green. Nothing is drawn in these colors yet.
+
 ## [0.64.1] - 2026-10-29
 
 ### Changed
