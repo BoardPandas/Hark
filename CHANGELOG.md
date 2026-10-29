@@ -11,6 +11,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Changed
 
 - Getting Started lists the checks a change must pass and where the agent tooling is indexed. The Glossary explains the agent registry rename. With these, `npm run check:docs` passes again.
+- The Glossary defines eight more terms: Parchment, Wizard lettering, Book view, Drop cap, Speaker roster, Speaker key, Speaker color and Guessed name. The docs index summarizes 0.65.0–0.67.0.
 
 ## [0.68.0] - 2026-10-29
 

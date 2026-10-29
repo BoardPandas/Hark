@@ -11,6 +11,12 @@ The following files were used as evidence for this page:
 - [crates/hark-hotkey/src/edges.rs](../crates/hark-hotkey/src/edges.rs)
 - [crates/hark-pipeline/src/events.rs](../crates/hark-pipeline/src/events.rs)
 - [crates/hark-stt/src/meeting.rs](../crates/hark-stt/src/meeting.rs)
+- [crates/hark-app/src/theme/appearance.rs](../crates/hark-app/src/theme/appearance.rs)
+- [crates/hark-app/src/theme/lettering.rs](../crates/hark-app/src/theme/lettering.rs)
+- [crates/hark-app/src/theme.rs](../crates/hark-app/src/theme.rs)
+- [crates/hark-app/src/ui/book.rs](../crates/hark-app/src/ui/book.rs)
+- [crates/hark-meeting/src/speakers.rs](../crates/hark-meeting/src/speakers.rs)
+- [crates/hark-store/src/meetings.rs](../crates/hark-store/src/meetings.rs)
 
 </details>
 
@@ -60,6 +66,14 @@ same person ([meeting labels](features/MEETINGS.md#gemini-files-final-pass)).
 - **Insights:** Local, period-based numeric dictation details retained for up to 366 days independently of transcript history, plus lifetime totals. Reset stats clears numeric details and counters; retained transcripts remain available for separately opted-in word analysis ([Data Storage](core/DATA_STORAGE.md#lifetime-stats-and-detailed-insights)).
 - **Measured pace:** Words from dictations with known clip duration divided by that duration, including capture padding; older missing durations are excluded and coverage is shown ([Desktop UI](features/DESKTOP_UI.md#interpreting-insights)).
 - **Words in invocation output:** The full inserted word count on rows where an invocation fired, including surrounding speech for anywhere-scope invocations; separate from dictated words ([Invocations](features/INVOCATIONS.md#edge-cases)).
+- **Parchment:** One of six appearances (System, Light, Dark, Solarized Light, Solarized Dark, Parchment). It is light-only and fills both the light and dark palette slots, so it stays light when the OS resolves to dark ([appearance.rs:8-21](../crates/hark-app/src/theme/appearance.rs#L8-L21), [appearance.rs:57-69](../crates/hark-app/src/theme/appearance.rs#L57-L69)).
+- **Wizard lettering:** A Settings → Appearance checkbox that sets text in Alegreya and titles and drop caps in Cinzel Decorative, instead of the default Inter. Until the user chooses, it follows the theme (on for Parchment, off elsewhere); once chosen, the choice holds on every theme ([lettering.rs:1-4](../crates/hark-app/src/theme/lettering.rs#L1-L4), [lettering.rs:9-14](../crates/hark-app/src/theme/lettering.rs#L9-L14), [fonts.rs:12-13](../crates/hark-app/src/theme/fonts.rs#L12-L13)).
+- **Book view:** An optional List | Book renderer for the Spellbook and Invocations pages. Entries are packed onto facing pages and turned with controls or PageUp/PageDown/Home/End; List stays the default until the user chooses Book ([book.rs:1-4](../crates/hark-app/src/ui/book.rs#L1-L4), [book.rs:29-31](../crates/hark-app/src/ui/book.rs#L29-L31), [book.rs:43-50](../crates/hark-app/src/ui/book.rs#L43-L50)).
+- **Drop cap:** The large colored first letter that opens each entry in the book view. It is shown as a capital even when the phrase is lowercase; only the display changes ([book.rs:398-415](../crates/hark-app/src/ui/book.rs#L398-L415), [spellbook/book.rs:1-4](../crates/hark-app/src/ui/spellbook/book.rs#L1-L4), [invocations/book.rs:1-4](../crates/hark-app/src/ui/invocations/book.rs#L1-L4)).
+- **Speaker roster:** The per-meeting table of speaker labels and color slots, built once per view refresh, export or notes render. Slot order is Me first, then first transcribed appearance, then added speakers; two speakers sharing a label (ignoring case and surrounding spaces) are one person ([speakers.rs:135-142](../crates/hark-meeting/src/speakers.rs#L135-L142), [speakers.rs:247-248](../crates/hark-meeting/src/speakers.rs#L247-L248)).
+- **Speaker key:** One speaker identity within a meeting: `Me` (any microphone line), `Them` (a call line with no diarized speaker), `Diarized(n)` (a Deepgram or window-encoded Gemini id), or `Added(n)` (a speaker the user created while reassigning a line). Unnamed, they read "Me", "Them", "Speaker 2", "Window 3 · Speaker 1" and "Other speaker 1" ([speakers.rs:26-37](../crates/hark-meeting/src/speakers.rs#L26-L37), [speakers.rs:98-112](../crates/hark-meeting/src/speakers.rs#L98-L112)).
+- **Speaker color:** A speaker's hue from its roster slot. Slot 0 is Me and always Blue, and no one else is; the next five slots take Gold, Violet, Teal, Rose and Green, and past six speakers the hues repeat, while the name beside every mark never does ([theme.rs:221-230](../crates/hark-app/src/theme.rs#L221-L230)).
+- **Guessed name:** A speaker name Hark filled in from a name said in the call, kept distinct from a user-typed one. A later guess may replace a guess; a user name is never replaced, and saving a guessed name unchanged confirms it as the user's ([meetings.rs:80-86](../crates/hark-store/src/meetings.rs#L80-L86), [guess.rs:1-10](../crates/hark-meeting/src/speakers/guess.rs#L1-L10), [speakers.rs:113-117](../crates/hark-app/src/ui/meetings/speakers.rs#L113-L117)).
 <!-- END:AUTOGEN hark_14_glossary_terms -->
 
 ---
