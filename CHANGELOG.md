@@ -6,6 +6,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.64.1] - 2026-10-29
+
+### Changed
+
+- First-run setup now suggests "No paid AI key? Choose on-device. You can add a cloud provider later in Settings." under the two choices, and the on-device choice shows the download size.
+
+### Fixed
+
+- In first-run setup, switching to on-device Primary from the cloud screen (with the new toggle or the "Use on-device instead" button) now shows the on-device setup and waits for the model download, instead of still asking for a cloud key and a passed test. Choosing Backup still needs a passed test.
+
 ## [0.64.0] - 2026-10-29
 
 ### Added

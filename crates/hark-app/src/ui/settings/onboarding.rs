@@ -6,6 +6,7 @@ use super::{
 use crate::{pipeline::PipelineController, theme};
 use egui::{RichText, Ui};
 use hark_config::{LocalMode, Settings, VoiceName};
+use hark_local_stt::format_bytes;
 
 impl SettingsPage {
     pub(super) fn onboarding(
@@ -128,6 +129,10 @@ impl SettingsPage {
         );
         ui.add_space(theme::SECTION_GAP);
         let local_available = hark_local_stt::LocalEngine::is_available();
+        let local_detail = format!(
+            "No key needed. Download Parakeet once ({}), then dictate offline.",
+            format_bytes(self.download.spec().total_bytes())
+        );
         for (local, icon, title, detail) in [
             (
                 false,
@@ -139,13 +144,12 @@ impl SettingsPage {
                 true,
                 theme::icons::WAVEFORM,
                 "Keep transcription on-device",
-                "No key needed. Download Parakeet once, then dictate offline.",
+                local_detail.as_str(),
             ),
         ] {
             ui.add_enabled_ui(!local || local_available, |ui| {
                 let label = theme::icon_label_job(ui.style(), icon, title);
                 if theme::nav_button(ui, label, false).clicked() {
-                    self.get_started.local = local;
                     self.get_started.step = Step::Configure;
                     self.draft.local_stt.mode = if local {
                         LocalMode::Primary
@@ -160,7 +164,15 @@ impl SettingsPage {
             });
             ui.add_space(theme::ROW_GAP);
         }
-        if !local_available {
+        if local_available {
+            theme::tip(ui, theme::icons::WAVEFORM, |ui| {
+                ui.label(
+                    "No paid AI key? Choose on-device. \
+                     You can add a cloud provider later in Settings.",
+                );
+            });
+            ui.add_space(theme::ROW_GAP);
+        } else {
             ui.label(
                 RichText::new("This build does not include the on-device engine.")
                     .small()
@@ -180,9 +192,21 @@ impl SettingsPage {
         saved: &mut Settings,
         pipeline: &mut PipelineController,
     ) {
-        if self.get_started.local {
+        // Re-read every frame: the toggle or the no-key callout in the cloud
+        // view can switch to Primary, and the view follows on the next frame.
+        let local = self.draft.local_stt.mode == LocalMode::Primary;
+        if local {
             ui.heading("A little download. A lot of freedom.");
-            ui.label(RichText::new("Your audio stays on this computer. This setup uses Verbatim voice for offline dictation.").weak());
+            // Reaching Primary by the toggle or the callout can keep a
+            // cleanup voice, so only claim Verbatim when it is.
+            ui.label(
+                RichText::new(if self.draft.voice.default == VoiceName::Verbatim {
+                    "Your audio stays on this computer. This setup uses Verbatim voice for offline dictation."
+                } else {
+                    "Your audio stays on this computer."
+                })
+                .weak(),
+            );
             ui.add_space(theme::ROW_GAP);
             local::card(ui, &mut self.draft, &mut self.download);
         } else {
@@ -191,7 +215,7 @@ impl SettingsPage {
         }
         ui.add_space(theme::SECTION_GAP);
         let ready = get_started::ready(
-            self.get_started.local,
+            local,
             self.download.status().is_ready(),
             self.test.passed_for(&self.draft),
         );
@@ -216,7 +240,7 @@ impl SettingsPage {
         });
         if !ready {
             ui.label(
-                RichText::new(if self.get_started.local {
+                RichText::new(if local {
                     "Finish downloading the model to continue."
                 } else {
                     "Store your key and run Test connection to continue."
