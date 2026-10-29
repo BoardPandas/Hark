@@ -15,7 +15,7 @@ mod lettering;
 mod palette;
 pub use appearance::{appearance, appearance_picker, set_appearance, Appearance};
 use fonts::font_definitions;
-pub use fonts::{icon, icon_label_job, icon_text};
+pub use fonts::{icon, icon_label_job, icon_text, label_icon_job};
 #[cfg(test)]
 pub(crate) use lettering::set_lettering;
 pub use lettering::{lettering, lettering_toggle, Lettering};
@@ -34,6 +34,8 @@ pub mod icons {
 
     pub const ARROW_UP: &str = "\u{E048}";
     pub const BOOK_OPEN: &str = "\u{E0E6}";
+    pub const CARET_LEFT: &str = "\u{E138}";
+    pub const CARET_RIGHT: &str = "\u{E13A}";
     pub const CHART_BAR: &str = "\u{E150}";
     pub const CHECK: &str = "\u{E182}";
     pub const CIRCLE_NOTCH: &str = "\u{EB44}";
@@ -44,9 +46,11 @@ pub mod icons {
     pub const HOME: &str = "\u{E2C2}";
     pub const KEY: &str = "\u{E2D6}";
     pub const LIGHTNING: &str = "\u{E2DE}";
+    pub const LIST_BULLETS: &str = "\u{E2F2}";
     pub const MAGNIFYING_GLASS: &str = "\u{E30C}";
     pub const MICROPHONE: &str = "\u{E326}";
     pub const MEETINGS: &str = "\u{E4D6}";
+    pub const PENCIL_SIMPLE: &str = "\u{E3B4}";
     pub const PLAY: &str = "\u{E3D0}";
     pub const SPINNER: &str = "\u{E66A}";
     pub const TRASH: &str = "\u{E4A6}";
@@ -128,6 +132,17 @@ pub const MIN_CARD_WIDTH: f32 = 240.0;
 pub const CHIP_RADIUS: u8 = 10;
 #[allow(dead_code)] // first drawn by the color pass (plan P1) and meeting speakers
 pub const CHIP_PADDING: Margin = Margin::symmetric(8, 2);
+/// A book page is never narrower than this; two of them plus the gutter
+/// make a spread, and a narrower column shows one page at a time.
+pub const BOOK_PAGE_MIN_WIDTH: f32 = 340.0;
+pub const BOOK_GUTTER: f32 = 24.0;
+pub const BOOK_SPREAD_MIN_WIDTH: f32 = 2.0 * BOOK_PAGE_MIN_WIDTH + BOOK_GUTTER;
+pub const BOOK_PAGE_PADDING: f32 = 22.0;
+/// The book fills the page height down to this; below it the page scrolls.
+pub const BOOK_MIN_HEIGHT: f32 = 320.0;
+/// Space between two entries on a page; the ornament rule sits in it.
+pub const BOOK_ENTRY_GAP: f32 = 22.0;
+pub const DROP_CAP_SIZE: f32 = 40.0;
 
 pub fn danger(v: &Visuals) -> Color32 {
     palette(v).danger
@@ -256,6 +271,32 @@ pub fn surface_shadow(v: &Visuals) -> Shadow {
         color: Color32::from_black_alpha(if v.dark_mode { 48 } else { 13 }),
     }
 }
+/// The shade along a book's spine, between two facing pages.
+pub fn book_gutter(v: &Visuals) -> Color32 {
+    Color32::from_black_alpha(if v.dark_mode { 70 } else { 22 })
+}
+/// A book page: the card surface with a hairline edge and the card shadow.
+/// It has no padding of its own: the book places its running head, body and
+/// folio inside `rect` itself.
+pub fn paint_book_page(ui: &Ui, rect: Rect) {
+    let v = ui.visuals();
+    ui.painter()
+        .add(surface_shadow(v).as_shape(rect, CONTROL_RADIUS));
+    ui.painter().rect(
+        rect,
+        CONTROL_RADIUS,
+        surface(v),
+        v.widgets.noninteractive.bg_stroke,
+        egui::StrokeKind::Inside,
+    );
+}
+pub fn drop_cap_font() -> FontId {
+    FontId::new(DROP_CAP_SIZE, drop_cap())
+}
+/// The rest of a book entry's heading, after its drop cap.
+pub fn book_heading_font() -> FontId {
+    FontId::new(DIALOG_TITLE_SIZE, serif())
+}
 pub fn surface_frame(v: &Visuals) -> egui::Frame {
     egui::Frame::new()
         .fill(surface(v))
@@ -355,6 +396,23 @@ pub fn fading_rule(ui: &mut Ui, gap: f32) {
         Sense::hover(),
     );
     paint_fading_rule(ui, rect);
+}
+/// The rule between two book entries: the fading rule with a small diamond
+/// at its center.
+pub fn paint_ornament_rule(ui: &Ui, rect: Rect) {
+    paint_fading_rule(ui, rect);
+    let center = egui::pos2(rect.center().x.round(), rect.center().y.round());
+    let r = 3.5;
+    ui.painter().add(egui::Shape::convex_polygon(
+        vec![
+            center + Vec2::new(0.0, -r),
+            center + Vec2::new(r, 0.0),
+            center + Vec2::new(0.0, r),
+            center + Vec2::new(-r, 0.0),
+        ],
+        palette(ui.visuals()).hairline_strong,
+        Stroke::NONE,
+    ));
 }
 pub fn paint_fading_rule(ui: &Ui, rect: Rect) {
     ui.painter().hline(

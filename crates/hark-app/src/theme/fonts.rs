@@ -165,3 +165,23 @@ pub fn icon_label_job(style: &egui::Style, glyph: &str, text: &str) -> egui::tex
     );
     job
 }
+
+/// A label followed by an icon ("Next ›"): `icon_label_job` mirrored, for a
+/// control whose icon points the way it goes.
+pub fn label_icon_job(style: &egui::Style, text: &str, glyph: &str) -> egui::text::LayoutJob {
+    use egui::text::{LayoutJob, TextFormat};
+    let size = TextStyle::Button.resolve(style).size;
+    let color = Color32::PLACEHOLDER;
+    let mut job = LayoutJob::default();
+    job.append(
+        text,
+        0.0,
+        TextFormat::simple(FontId::new(size, medium()), color),
+    );
+    job.append(
+        glyph,
+        6.0,
+        TextFormat::simple(FontId::new(size, icon()), color),
+    );
+    job
+}

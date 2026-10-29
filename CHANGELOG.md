@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.66.0] - 2026-10-29
+
+### Added
+
+- **Book view for the Spellbook.** A new List | Book switch above your vocabulary opens the Spellbook as a book. Each term starts with a large colored first letter, followed by "Also heard as" with its misheard spellings. Turn pages with Previous and Next, or with Page Up, Page Down, Home and End when you are not typing. A wide window shows two facing pages; a narrow one shows one.
+- Edit a term right where it sits in the book: Edit opens the term and its misheard spellings, and Done saves. Changes save and apply the same way as in the list.
+- After you add a term, including one sent from History, the book opens to the page that holds it and marks it "New".
+- List stays the default. Hark remembers your choice on this device.
+
 ## [0.65.0] - 2026-10-29
 
 ### Added
