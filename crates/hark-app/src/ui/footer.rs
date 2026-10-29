@@ -197,18 +197,17 @@ fn settings_jump(ui: &mut Ui) -> bool {
 /// mode the cloud provider is never called, so naming it here would be a
 /// plain lie about where the words come from.
 fn provider_line(settings: &Settings) -> String {
+    // The routed model, not the configured one: with Live transcribe on, the
+    // batch pin sitting in `model` is not what runs.
+    let (_, cloud_model) = hark_pipeline::stt_route(&settings.provider);
     let mut line = match settings.local_stt.mode {
         LocalMode::Primary => format!("on-device · {}", settings.local_stt.model),
         LocalMode::Fallback => format!(
             "{} · {} · on-device fallback",
             settings.provider.kind.label(),
-            settings.provider.resolved_model()
+            cloud_model
         ),
-        LocalMode::Off => format!(
-            "{} · {}",
-            settings.provider.kind.label(),
-            settings.provider.resolved_model()
-        ),
+        LocalMode::Off => format!("{} · {}", settings.provider.kind.label(), cloud_model),
     };
     // A fused provider does its own cleanup, so the separate cleanup model is
     // never called and must not be advertised as if it were.
@@ -260,6 +259,21 @@ mod tests {
             provider_line(&settings),
             "openai · gpt-transcribe · cleanup gpt-5-nano"
         );
+    }
+
+    #[test]
+    fn live_transcribe_names_the_realtime_model_not_the_batch_pin() {
+        let settings = hark_config::Settings::from_toml(
+            "[provider]\nkind = \"openai\"\nlive = true\nmodel = \"whisper-1\"\n\
+             [voice]\ndefault = \"verbatim\"",
+        )
+        .unwrap();
+        let expected = if cfg!(feature = "live-stt") {
+            "openai · gpt-live-transcribe"
+        } else {
+            "openai · whisper-1"
+        };
+        assert_eq!(provider_line(&settings), expected);
     }
 
     #[test]

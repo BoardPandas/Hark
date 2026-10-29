@@ -4,8 +4,7 @@
 //! window whose cut point lies between [`ChunkParams::min_ms`] and
 //! [`ChunkParams::max_ms`], so words are not split where a pause exists, and no
 //! chunk is ever longer than the hard cut. Regular chunks are therefore at
-//! least `min_ms` long (Groq bills 10 s minimum per request, so shorter ones
-//! would be paid for anyway). Only the tail flushed at stop can be shorter.
+//! least `min_ms` long; only the tail flushed at stop can be shorter.
 //!
 //! A chunk with nothing in it (the loopback while you talk, the mic while they
 //! do) is dropped, judged by the same loudest-window gate as a dictation clip:

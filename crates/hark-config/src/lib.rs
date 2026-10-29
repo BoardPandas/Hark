@@ -8,6 +8,7 @@
 //! user hand-added are dropped. Acceptable while the schema is additive
 //! (Phase 4 spec §5); the struct is the source of truth.
 
+mod groq_migration;
 mod invocations;
 mod local;
 mod meeting;
@@ -42,7 +43,42 @@ use thiserror::Error;
 /// final-pass choices stay unchanged. Both use additive defaults, with the
 /// same versioned backup and immediate persistence as earlier migrations.
 /// Schema 6 adds opt-in meeting echo cancellation, off for existing users.
-pub const CONFIG_VERSION: u32 = 6;
+/// Schema 7 retires the Groq preset: each `kind = "groq"` table becomes the
+/// `openai-compatible` endpoint it always was, with Groq's URL and models
+/// written out. That one is a fix-up of the TOML tree rather than a field
+/// mapping, because an unknown kind fails the whole parse (see
+/// `groq_migration`).
+pub const CONFIG_VERSION: u32 = 7;
+
+/// The first schema without the Groq preset; older files get the fix-up.
+const GROQ_RETIRED_IN: u32 = 7;
+
+/// Follow-ups a load's schema migration leaves for the caller. Config cannot
+/// reach the keychain, so it reports what it converted instead.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct Migrations {
+    /// `[provider]` was the retired Groq preset and now reads
+    /// `openai-compatible`. Its key is still under the old account; see
+    /// [`Migrations::key_copy`].
+    pub stt_from_groq: bool,
+    /// `[voice.provider]` was Groq, or cleanup was inherited from a Groq STT
+    /// provider and is now written out as an explicit table.
+    pub cleanup_from_groq: bool,
+}
+
+impl Migrations {
+    /// The keychain copy this load needs, as `(from, to)` account names. The
+    /// account is the kind's label, so changing the STT kind moved its slot.
+    /// The caller copies only into an empty slot. A second load of the
+    /// migrated file reports nothing here, so a copy that failed is retried
+    /// through [`Provider::groq_key_carry`], which asks the settings instead.
+    pub fn key_copy(&self) -> Option<(&'static str, &'static str)> {
+        self.stt_from_groq.then_some((
+            groq_migration::GROQ_KEY_ACCOUNT,
+            ProviderKind::OpenaiCompatible.label(),
+        ))
+    }
+}
 
 #[derive(Debug, Error)]
 pub enum ConfigError {
@@ -69,12 +105,14 @@ pub enum ConfigError {
 /// Which provider preset the user picked. `OpenaiCompatible` is the escape
 /// hatch for any other endpoint speaking the multipart
 /// `/audio/transcriptions` contract; it requires an explicit `base_url`.
+///
+/// Removing a variant needs a schema migration: there is no `#[serde(other)]`,
+/// so a kind this build does not know fails the whole file (Groq, schema 7).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum ProviderKind {
     Deepgram,
     Openai,
-    Groq,
     /// Gemini Live: a WebSocket session, not a REST POST. Selected here like
     /// any other provider; the transport difference is the adapter's problem.
     Gemini,
@@ -87,7 +125,6 @@ impl ProviderKind {
         match self {
             ProviderKind::Deepgram => "deepgram",
             ProviderKind::Openai => "openai",
-            ProviderKind::Groq => "groq",
             ProviderKind::Gemini => "gemini",
             ProviderKind::OpenaiCompatible => "openai-compatible",
         }
@@ -108,7 +145,22 @@ pub struct Provider {
     /// or one it has already cleaned up. Ignored by every other provider.
     #[serde(default)]
     pub live_mode: LiveMode,
+    /// OpenAI only; ignored by every other provider. Streams the dictation to
+    /// the realtime `gpt-live-transcribe` model while the key is held, instead
+    /// of uploading the clip to the batch model after release. A flag rather
+    /// than a model name, so `model` keeps the user's batch pin, which comes
+    /// back when the toggle goes off.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub live: bool,
 }
+
+fn is_false(b: &bool) -> bool {
+    !*b
+}
+
+/// OpenAI's realtime transcription model: what Live transcribe uses unless the
+/// user pinned another `gpt-live-*` model.
+pub const OPENAI_LIVE_MODEL: &str = "gpt-live-transcribe";
 
 impl Default for Provider {
     fn default() -> Self {
@@ -117,6 +169,7 @@ impl Default for Provider {
             base_url: None,
             model: None,
             live_mode: LiveMode::default(),
+            live: false,
         }
     }
 }
@@ -159,7 +212,6 @@ impl Provider {
         match self.kind {
             ProviderKind::Deepgram => Some("https://api.deepgram.com".to_string()),
             ProviderKind::Openai => Some("https://api.openai.com/v1".to_string()),
-            ProviderKind::Groq => Some("https://api.groq.com/openai/v1".to_string()),
             // The REST host, used by the batch/fused Gemini adapter. The Live
             // adapter talks to a fixed `wss://` host instead and ignores this;
             // the value is still resolved so every kind has a coherent config.
@@ -182,7 +234,6 @@ impl Provider {
         match self.kind {
             ProviderKind::Deepgram => "nova-3",
             ProviderKind::Openai => "gpt-transcribe",
-            ProviderKind::Groq => "whisper-large-v3-turbo",
             ProviderKind::Gemini => "gemini-3.5-transcribe-live",
             // Validation guarantees openai-compatible configs are explicit;
             // an empty model is still a valid request for some servers.
@@ -199,11 +250,38 @@ impl Provider {
     /// to the model: an `openai-compatible` base_url pointed at a gateway that
     /// proxies gpt-transcribe needs the same treatment as OpenAI itself.
     ///
-    /// `gpt-live-transcribe` deliberately does not match — it is realtime-only
-    /// (`v1/realtime/transcription_sessions`) and reaches no adapter here.
+    /// `gpt-live-transcribe` deliberately does not match. It is realtime-only:
+    /// it reaches the WebSocket adapter through
+    /// [`Provider::uses_live_transcribe`], never the multipart endpoint this
+    /// contract describes.
     pub fn uses_keywords_biasing(&self) -> bool {
         let model = self.resolved_model();
         model == "gpt-transcribe" || model.starts_with("gpt-transcribe-")
+    }
+
+    /// Whether OpenAI dictation streams to the realtime model: the toggle is
+    /// on, or a hand-edited `model` is a `gpt-live-*` one (the contract
+    /// belongs to the model, as with gpt-transcribe). False for every other
+    /// kind, whatever `live` says.
+    pub fn uses_live_transcribe(&self) -> bool {
+        self.kind == ProviderKind::Openai
+            && (self.live || self.resolved_model().starts_with("gpt-live-"))
+    }
+
+    /// The realtime model when [`Provider::uses_live_transcribe`] holds: a
+    /// pinned `gpt-live-*` model wins, else [`OPENAI_LIVE_MODEL`]. A pinned
+    /// batch model is never sent to the realtime API; it stays in `model` for
+    /// when the toggle goes off.
+    pub fn live_transcribe_model(&self) -> Option<String> {
+        if !self.uses_live_transcribe() {
+            return None;
+        }
+        let model = self.resolved_model();
+        Some(if model.starts_with("gpt-live-") {
+            model
+        } else {
+            OPENAI_LIVE_MODEL.to_string()
+        })
     }
 }
 
@@ -547,7 +625,28 @@ impl Settings {
     /// Parse settings from TOML text. Unknown keys are tolerated (forward
     /// compatibility); missing keys take defaults; the result is validated.
     pub fn from_toml(text: &str) -> Result<Settings, ConfigError> {
-        let mut settings: Settings = toml::from_str(text)?;
+        Settings::parse(text).map(|(settings, _)| settings)
+    }
+
+    /// [`Settings::from_toml`], also reporting what the migration converted.
+    fn parse(text: &str) -> Result<(Settings, Migrations), ConfigError> {
+        let mut migrations = Migrations::default();
+        // The Groq fix-up has to happen on the TOML tree: serde rejects the
+        // retired kind outright. Text that is not TOML at all falls through,
+        // so the real parse below is what reports it.
+        let fixed = match text.parse::<toml::Table>() {
+            Ok(mut root) if stamp(&root) < GROQ_RETIRED_IN => {
+                let converted = groq_migration::migrate(&mut root);
+                migrations.stt_from_groq = converted.stt;
+                migrations.cleanup_from_groq = converted.cleanup;
+                (converted.stt || converted.cleanup).then_some(root)
+            }
+            _ => None,
+        };
+        let mut settings: Settings = match fixed {
+            Some(root) => root.try_into()?,
+            None => toml::from_str(text)?,
+        };
         // Before validation: the rest of the app must never see a half-migrated
         // model, and `version` is stamped to current so a later save cannot
         // re-trigger the migration.
@@ -565,7 +664,7 @@ impl Settings {
             settings.version = CONFIG_VERSION;
         }
         settings.validate()?;
-        Ok(settings)
+        Ok((settings, migrations))
     }
 
     /// Load settings from a file, migrating an older schema in place.
@@ -583,16 +682,28 @@ impl Settings {
     /// is what makes a bad mapping recoverable, so migrating without one would
     /// trade the user's only copy for a convenience.
     pub fn load(path: &Path) -> Result<Settings, ConfigError> {
+        Settings::load_with_migrations(path).map(|(settings, _)| settings)
+    }
+
+    /// [`Settings::load`], also reporting the follow-ups the migration left
+    /// for the caller (the keychain copy config cannot do itself).
+    ///
+    /// The report does not depend on whether the rewrite could be saved: the
+    /// returned settings are migrated either way, so this session needs the
+    /// follow-up either way.
+    pub fn load_with_migrations(path: &Path) -> Result<(Settings, Migrations), ConfigError> {
         match std::fs::read_to_string(path) {
             Ok(text) => {
                 let from_version = Settings::version_of(&text);
-                let settings = Settings::from_toml(&text)?;
+                let (settings, migrations) = Settings::parse(&text)?;
                 if from_version < CONFIG_VERSION {
                     settings.persist_migration(path, &text, from_version);
                 }
-                Ok(settings)
+                Ok((settings, migrations))
             }
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(Settings::default()),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                Ok((Settings::default(), Migrations::default()))
+            }
             Err(e) => Err(ConfigError::Io {
                 path: path.display().to_string(),
                 source: e,
@@ -605,11 +716,7 @@ impl Settings {
     /// deserializes to the *current* value, which would hide the very
     /// migration this needs to detect.
     fn version_of(text: &str) -> u32 {
-        text.parse::<toml::Table>()
-            .ok()
-            .and_then(|t| t.get("version").and_then(toml::Value::as_integer))
-            .and_then(|v| u32::try_from(v).ok())
-            .unwrap_or(0)
+        text.parse::<toml::Table>().map(|t| stamp(&t)).unwrap_or(0)
     }
 
     /// Back up the pre-migration text, then rewrite the file in the new shape.
@@ -721,6 +828,14 @@ impl Settings {
         }
         Ok(())
     }
+}
+
+/// The `version` stamp of a parsed file; 0 when absent (pre-stamp files).
+fn stamp(root: &toml::Table) -> u32 {
+    root.get("version")
+        .and_then(toml::Value::as_integer)
+        .and_then(|v| u32::try_from(v).ok())
+        .unwrap_or(0)
 }
 
 /// The per-user config *directory*. `None` when the OS gives us no home
@@ -853,8 +968,8 @@ mod tests {
         let s = Settings::from_toml(
             r#"
             [provider]
-            kind = "groq"
-            model = "whisper-large-v3"
+            kind = "openai"
+            model = "whisper-1"
 
             [hotkey]
             ptt_key = "RCtrl"
@@ -870,12 +985,12 @@ mod tests {
             "#,
         )
         .expect("valid TOML parses");
-        assert_eq!(s.provider.kind, ProviderKind::Groq);
+        assert_eq!(s.provider.kind, ProviderKind::Openai);
         assert_eq!(
             s.provider.resolved_base_url().as_deref(),
-            Some("https://api.groq.com/openai/v1")
+            Some("https://api.openai.com/v1")
         );
-        assert_eq!(s.provider.resolved_model(), "whisper-large-v3");
+        assert_eq!(s.provider.resolved_model(), "whisper-1");
         assert_eq!(s.hotkey.ptt_key, "RCtrl");
         assert_eq!(s.audio.tail_ms, 200);
         // Untouched keys keep their defaults.
@@ -1077,8 +1192,12 @@ mod tests {
             Settings::from_toml("[provider]\nkind = \"openai\"\nmodel = \"whisper-1\"").unwrap();
         assert!(!pinned_whisper.provider.uses_keywords_biasing());
 
-        let groq = Settings::from_toml("[provider]\nkind = \"groq\"").unwrap();
-        assert!(!groq.provider.uses_keywords_biasing());
+        let whisper_server = Settings::from_toml(
+            "[provider]\nkind = \"openai-compatible\"\nbase_url = \"http://localhost:8000/v1\"\n\
+             model = \"whisper-large-v3-turbo\"",
+        )
+        .unwrap();
+        assert!(!whisper_server.provider.uses_keywords_biasing());
 
         let deepgram = Settings::default();
         assert!(!deepgram.provider.uses_keywords_biasing());
@@ -1101,6 +1220,82 @@ mod tests {
             Settings::from_toml("[provider]\nkind = \"openai\"\nmodel = \"gpt-live-transcribe\"")
                 .unwrap();
         assert!(!live.provider.uses_keywords_biasing());
+    }
+
+    // --- OpenAI Live transcribe toggle ---
+
+    #[test]
+    fn live_defaults_off_and_is_not_written_when_off() {
+        let s = Settings::from_toml("[provider]\nkind = \"openai\"").unwrap();
+        assert!(!s.provider.live);
+        assert!(!s.provider.uses_live_transcribe());
+        assert_eq!(s.provider.live_transcribe_model(), None);
+        let out = s.to_toml().unwrap();
+        assert!(!out.contains("live ="), "{out}");
+    }
+
+    #[test]
+    fn live_round_trips_when_on() {
+        let s = Settings::from_toml("[provider]\nkind = \"openai\"\nlive = true").unwrap();
+        assert!(s.provider.uses_live_transcribe());
+        assert_eq!(
+            s.provider.live_transcribe_model().as_deref(),
+            Some(OPENAI_LIVE_MODEL)
+        );
+        let out = s.to_toml().unwrap();
+        assert!(out.contains("live = true"), "{out}");
+        assert!(Settings::from_toml(&out).unwrap().provider.live);
+    }
+
+    #[test]
+    fn toggling_live_keeps_a_pinned_batch_model() {
+        let mut s =
+            Settings::from_toml("[provider]\nkind = \"openai\"\nmodel = \"whisper-1\"").unwrap();
+        s.provider.live = true;
+        assert_eq!(
+            s.provider.live_transcribe_model().as_deref(),
+            Some("gpt-live-transcribe"),
+            "a batch model is never sent to the realtime API"
+        );
+        s.provider.live = false;
+        assert_eq!(s.provider.resolved_model(), "whisper-1");
+        assert!(!s.provider.uses_live_transcribe());
+    }
+
+    #[test]
+    fn a_hand_edited_live_model_turns_live_on_and_is_kept() {
+        let s =
+            Settings::from_toml("[provider]\nkind = \"openai\"\nmodel = \"gpt-live-transcribe\"")
+                .unwrap();
+        assert!(!s.provider.live);
+        assert!(s.provider.uses_live_transcribe());
+        let dated = Settings::from_toml(
+            "[provider]\nkind = \"openai\"\nmodel = \"gpt-live-transcribe-2026-10-01\"",
+        )
+        .unwrap();
+        assert_eq!(
+            dated.provider.live_transcribe_model().as_deref(),
+            Some("gpt-live-transcribe-2026-10-01")
+        );
+    }
+
+    #[test]
+    fn live_is_ignored_by_every_other_provider() {
+        for kind in ["deepgram", "gemini"] {
+            let s = Settings::from_toml(&format!("[provider]\nkind = \"{kind}\"\nlive = true"))
+                .unwrap();
+            assert!(!s.provider.uses_live_transcribe(), "{kind}");
+            assert_eq!(s.provider.live_transcribe_model(), None, "{kind}");
+        }
+        let custom = Settings::from_toml(
+            "[provider]\nkind = \"openai-compatible\"\nbase_url = \"https://gw.example/v1\"\n\
+             model = \"gpt-live-transcribe\"\nlive = true",
+        )
+        .unwrap();
+        assert!(
+            !custom.provider.uses_live_transcribe(),
+            "the realtime adapter is OpenAI's own; a gateway gets no WebSocket"
+        );
     }
 
     #[test]
@@ -1318,8 +1513,9 @@ mod tests {
         let path = dir.path().join("nested").join("config.toml");
 
         let mut s = Settings::default();
-        s.provider.kind = ProviderKind::Groq;
-        s.provider.model = Some("whisper-large-v3".to_string());
+        s.provider.kind = ProviderKind::Openai;
+        s.provider.model = Some("whisper-1".to_string());
+        s.provider.live = true;
         s.hotkey.ptt_key = "RCtrl".to_string();
         s.spellbook.entries = vec![SpellbookEntry::new("Hark"), SpellbookEntry::new("Modero")];
         s.history.capture = false;
@@ -1344,8 +1540,9 @@ mod tests {
 
         let loaded = Settings::load(&path).expect("saved file loads");
         assert_eq!(loaded.version, CONFIG_VERSION);
-        assert_eq!(loaded.provider.kind, ProviderKind::Groq);
-        assert_eq!(loaded.provider.model.as_deref(), Some("whisper-large-v3"));
+        assert_eq!(loaded.provider.kind, ProviderKind::Openai);
+        assert_eq!(loaded.provider.model.as_deref(), Some("whisper-1"));
+        assert!(loaded.provider.live);
         assert_eq!(loaded.provider.base_url, None);
         assert_eq!(loaded.hotkey.ptt_key, "RCtrl");
         assert_eq!(loaded.spellbook.terms(), vec!["Hark", "Modero"]);
@@ -1413,7 +1610,7 @@ mod tests {
         // orphans stored keys.
         assert_eq!(ProviderKind::Deepgram.label(), "deepgram");
         assert_eq!(ProviderKind::Openai.label(), "openai");
-        assert_eq!(ProviderKind::Groq.label(), "groq");
+        assert_eq!(ProviderKind::Gemini.label(), "gemini");
         assert_eq!(ProviderKind::OpenaiCompatible.label(), "openai-compatible");
     }
 }

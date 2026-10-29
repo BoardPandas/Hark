@@ -8,13 +8,19 @@
 //! UI file crosses the project's hard size cap.
 
 mod aliases;
+mod book;
 mod editor;
 
 use crate::theme;
+use crate::ui::book::{Book, BookView};
 use crate::ui::widgets;
-use editor::Draft;
-use egui::{Label, RichText, Sense, Ui};
+use editor::{Draft, Outcome};
+use egui::{Id, Label, RichText, Sense, Ui};
 use hark_config::{Invocation, Invocations};
+
+fn view_id() -> Id {
+    Id::new("hark-invocations-view-v1")
+}
 
 /// One-line preview length for the expansion column.
 const PREVIEW_CHARS: usize = 80;
@@ -25,6 +31,8 @@ pub struct InvocationsPage {
     draft: Option<Draft>,
     /// Persistence failure surfaced by the caller; sticky until it clears.
     notice: Option<String>,
+    /// The book view's position. The view choice itself is persisted.
+    book: Book,
 }
 
 impl InvocationsPage {
@@ -32,6 +40,7 @@ impl InvocationsPage {
         InvocationsPage {
             draft: None,
             notice: None,
+            book: Book::default(),
         }
     }
 
@@ -41,10 +50,11 @@ impl InvocationsPage {
 
     /// Render. Returns true when `invocations` changed (caller persists).
     pub fn show(&mut self, ui: &mut Ui, invocations: &mut Invocations) -> bool {
-        // An open editor owns the whole page: a full-screen form is easier
-        // to reason about than an inline one that reflows the list under
-        // the cursor while a multi-line expansion grows.
-        if self.draft.is_some() {
+        // In the list, an open editor owns the whole page: a full-screen form
+        // is easier to reason about than an inline one that reflows the list
+        // under the cursor while a multi-line expansion grows. The book lays
+        // itself flat for the same reason (`book_view`).
+        if self.draft.is_some() && crate::ui::book::view(ui.ctx(), view_id()) == BookView::List {
             return self.show_editor(ui, invocations);
         }
 
@@ -58,15 +68,24 @@ impl InvocationsPage {
         );
         ui.add_space(8.0);
 
-        if ui
-            .add(theme::primary_button(
-                ui.visuals(),
-                theme::icon_label_job(ui.style(), theme::icons::LIGHTNING, "New invocation"),
-            ))
-            .clicked()
-        {
-            self.draft = Some(Draft::new_entry());
-        }
+        let mut view = BookView::List;
+        ui.horizontal(|ui| {
+            // Disabled while a draft is open in the book: a second click
+            // would throw away what is being written.
+            let new = ui.add_enabled(
+                self.draft.is_none(),
+                theme::primary_button(
+                    ui.visuals(),
+                    theme::icon_label_job(ui.style(), theme::icons::LIGHTNING, "New invocation"),
+                ),
+            );
+            if new.clicked() {
+                self.draft = Some(Draft::new_entry());
+            }
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                view = crate::ui::book::view_toggle(ui, view_id());
+            });
+        });
 
         if let Some(error) = &self.notice {
             ui.add_space(6.0);
@@ -79,6 +98,14 @@ impl InvocationsPage {
         }
         ui.add_space(8.0);
 
+        if view == BookView::Book {
+            return self.book_view(ui, invocations);
+        }
+        if self.draft.is_some() {
+            // "New invocation" clicked this frame: the editor takes the page
+            // from the next one.
+            return false;
+        }
         if invocations.entries.is_empty() {
             empty_state(ui);
             return false;
@@ -183,27 +210,42 @@ impl InvocationsPage {
         let Some(draft) = &mut self.draft else {
             return false;
         };
-        match draft.show(ui, &invocations.entries) {
-            editor::Outcome::Open => false,
-            editor::Outcome::Cancelled => {
+        let outcome = draft.show(ui, &invocations.entries);
+        self.apply_outcome(&mut invocations.entries, outcome)
+    }
+
+    /// What the editor's Save, Cancel and Delete do, in both views. Returns
+    /// true when `entries` changed. Afterwards the book opens on the saved
+    /// entry (or where the deleted one was).
+    fn apply_outcome(&mut self, entries: &mut Vec<Invocation>, outcome: Outcome) -> bool {
+        match outcome {
+            Outcome::Open => false,
+            Outcome::Cancelled => {
                 self.draft = None;
                 false
             }
-            editor::Outcome::Saved(entry, index) => {
-                match index {
-                    Some(i) if i < invocations.entries.len() => invocations.entries[i] = entry,
+            Outcome::Saved(entry, index) => {
+                self.book.anchor = match index {
+                    Some(i) if i < entries.len() => {
+                        entries[i] = entry;
+                        i
+                    }
                     // A row deleted from another window mid-edit would land
                     // here; appending is better than panicking or silently
                     // discarding what the user just typed.
-                    _ => invocations.entries.push(entry),
-                }
+                    _ => {
+                        entries.push(entry);
+                        entries.len() - 1
+                    }
+                };
                 self.draft = None;
                 true
             }
-            editor::Outcome::Deleted(index) => {
-                if index < invocations.entries.len() {
-                    invocations.entries.remove(index);
+            Outcome::Deleted(index) => {
+                if index < entries.len() {
+                    entries.remove(index);
                 }
+                self.book.anchor = crate::ui::book::clamp_anchor(index, entries.len());
                 self.draft = None;
                 true
             }

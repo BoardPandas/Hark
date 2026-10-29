@@ -18,7 +18,7 @@ would rather not send audio to a provider at all, it removes the cloud entirely.
 
 ## The three modes
 
-Set under Settings → On-device model ([ui/settings/local.rs:15-53](../../crates/hark-app/src/ui/settings/local.rs#L15-L53)), stored as `[local_stt] mode` ([hark-config/src/local.rs:14-30](../../crates/hark-config/src/local.rs#L14-L30)).
+Set in Settings → Dictation → Speech to text, below the cloud provider: the **Use on-device transcription** toggle with **Primary** and **Backup** ([ui/settings/local.rs:17-87](../../crates/hark-app/src/ui/settings/local.rs#L17-L87)), inside the card that also hides the cloud controls in Primary and suggests on-device when no cloud key is stored ([ui/settings/stt_card.rs:17-95](../../crates/hark-app/src/ui/settings/stt_card.rs#L17-L95)). Stored as `[local_stt] mode` ([hark-config/src/local.rs:14-30](../../crates/hark-config/src/local.rs#L14-L30)). Turning the toggle on picks Backup when a cloud key is stored and Primary when none is; the download still starts only from the model card's own button.
 
 | Mode | Behavior | API key needed |
 |---|---|---|
@@ -32,13 +32,13 @@ produced the text, so history never misattributes the result.
 
 `primary` is the only mode that lets the pipeline start without a resolvable API
 key — see `PipelineController::start`, which skips the keychain failure path when
-`mode.uses_cloud()` is false ([hark-app/src/pipeline.rs:129](../../crates/hark-app/src/pipeline.rs#L129),
+`mode.uses_cloud()` is false ([hark-app/src/pipeline.rs `PipelineController::start`](../../crates/hark-app/src/pipeline.rs),
 [hark-config/src/local.rs:42](../../crates/hark-config/src/local.rs#L42)).
 
 ## The model
 
 **Parakeet TDT 0.6B v3, int8 ONNX** — NVIDIA, CC-BY-4.0, 25 languages
-([hark-local-stt/src/model.rs:114-145](../../crates/hark-local-stt/src/model.rs#L114-L145)).
+([hark-local-stt/src/model.rs:119-150](../../crates/hark-local-stt/src/model.rs#L119-L150)).
 
 | | |
 |---|---|
@@ -58,10 +58,12 @@ the open [sherpa-onnx #3267](https://github.com/k2-fsa/sherpa-onnx/issues/3267)
 hallucination bug; Hark never needs it because the spellbook's phonetic
 post-correction already handles term biasing, provider-agnostically.
 
-v3 is the latest revision and costs ~0.27 pp of English accuracy against the
-English-only v2 in exchange for 24 more languages. Switching back is a one-line
+v3 is the pinned multilingual build, not the newest Parakeet: it costs ~0.27 pp
+of English accuracy against the English-only v2 in exchange for 24 more
+languages, and the English-only `parakeet-unified-en-0.6b` (2026-04) also exists.
+Keeping v3 was decided on 2026-10-29 without an A/B test. Switching back is a one-line
 config change once `parakeet-tdt-0.6b-v2-int8` is added to the catalog in
-[`hark-local-stt/src/model.rs:146`](../../crates/hark-local-stt/src/model.rs#L146).
+[`hark-local-stt/src/model.rs:151`](../../crates/hark-local-stt/src/model.rs#L151).
 
 ## The fallback deadline
 
@@ -74,7 +76,7 @@ are actually on disk**, the pipeline builds its STT client with
 `local_stt.fallback_after_ms` (default 6000, floor 500) instead
 ([hark-config/src/local.rs:69](../../crates/hark-config/src/local.rs#L69),
 [:106-108](../../crates/hark-config/src/local.rs#L106-L108),
-[hark-pipeline/src/lib.rs:300-310](../../crates/hark-pipeline/src/lib.rs#L300-L310)). With no
+[hark-pipeline/src/lib.rs `run_inner`](../../crates/hark-pipeline/src/lib.rs)). With no
 model downloaded, nothing changes and the normal 15 s applies.
 
 ## Residency
@@ -105,6 +107,10 @@ cargo build --release                        # includes the engine
 cargo build --release --no-default-features  # slim, cloud-only
 ```
 
+`--no-default-features` also drops `live-stt`, the WebSocket client behind
+Gemini and OpenAI's Live transcribe; add `--features live-stt` to keep them
+([hark-app/Cargo.toml](../../crates/hark-app/Cargo.toml)).
+
 `hark-app/local-engine` → `hark-local-stt/engine` + `hark-pipeline/engine`
 ([hark-app/Cargo.toml:69-70](../../crates/hark-app/Cargo.toml#L69-L70),
 [hark-local-stt/Cargo.toml:35-37](../../crates/hark-local-stt/Cargo.toml#L35-L37)).
@@ -113,7 +119,7 @@ Without the feature, the model-management half still compiles and tests
 normally, `LocalEngine::load` returns `EngineUnavailable`
 ([engine.rs:100-107](../../crates/hark-local-stt/src/engine.rs#L100-L107)), and the Settings
 section says so plainly instead of offering a toggle that cannot work
-([ui/settings/local.rs:55-70](../../crates/hark-app/src/ui/settings/local.rs#L55-L70)).
+([ui/settings/local.rs:89-103](../../crates/hark-app/src/ui/settings/local.rs#L89-L103)).
 
 ## Crate layout
 
@@ -126,7 +132,8 @@ hark-pipeline/
   local.rs     LocalPlan (lazy resident engine) + the cloud/local policy
 hark-app/
   model_download.rs        download lifecycle for the UI (thread + mpsc + poll)
-  ui/settings/local.rs     the Settings section
+  ui/settings/local.rs     the on-device half of the Speech to text card
+  ui/settings/stt_card.rs  the card, the no-key suggestion, the mode decisions
 ```
 
 The policy in `hark-pipeline/src/local.rs` is expressed over a `Transcriber`

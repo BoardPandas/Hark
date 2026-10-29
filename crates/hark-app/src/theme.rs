@@ -1,4 +1,4 @@
-//! Hark's visual identity: the four palettes, embedded fonts, type scale,
+//! Hark's visual identity: the palettes, embedded fonts, type scale,
 //! spacing, and icon glyphs. Panels consume these tokens so the native UI
 //! changes appearance consistently without per-panel color overrides.
 
@@ -11,10 +11,14 @@ use std::collections::BTreeMap;
 mod appearance;
 mod fonts;
 mod hues;
+mod lettering;
 mod palette;
 pub use appearance::{appearance, appearance_picker, set_appearance, Appearance};
 use fonts::font_definitions;
-pub use fonts::{icon, icon_label_job, icon_text};
+pub use fonts::{icon, icon_label_job, icon_text, label_icon_job};
+#[cfg(test)]
+pub(crate) use lettering::set_lettering;
+pub use lettering::{lettering, lettering_toggle, Lettering};
 use palette::{palette, DARK, LIGHT};
 
 /// Phosphor glyphs, vendored from the egui-phosphor 0.12.0 crate package
@@ -32,6 +36,8 @@ pub mod icons {
     pub const ARROWS_LEFT_RIGHT: &str = "\u{E0A0}";
     pub const BOOK_OPEN: &str = "\u{E0E6}";
     pub const CARET_DOWN: &str = "\u{E136}";
+    pub const CARET_LEFT: &str = "\u{E138}";
+    pub const CARET_RIGHT: &str = "\u{E13A}";
     pub const CHART_BAR: &str = "\u{E150}";
     pub const CHECK: &str = "\u{E182}";
     pub const CIRCLE_NOTCH: &str = "\u{EB44}";
@@ -42,9 +48,11 @@ pub mod icons {
     pub const HOME: &str = "\u{E2C2}";
     pub const KEY: &str = "\u{E2D6}";
     pub const LIGHTNING: &str = "\u{E2DE}";
+    pub const LIST_BULLETS: &str = "\u{E2F2}";
     pub const MAGNIFYING_GLASS: &str = "\u{E30C}";
     pub const MICROPHONE: &str = "\u{E326}";
     pub const MEETINGS: &str = "\u{E4D6}";
+    pub const PENCIL_SIMPLE: &str = "\u{E3B4}";
     pub const PLAY: &str = "\u{E3D0}";
     pub const PLUS: &str = "\u{E3D4}";
     pub const SPARKLE: &str = "\u{E6A2}";
@@ -103,6 +111,8 @@ pub const CONTROL_RADIUS: u8 = 7;
 pub const SURFACE_RADIUS: u8 = 14;
 pub const DIALOG_RADIUS: u8 = 12;
 pub const GAP: f32 = 8.0;
+/// Between a provider's radios and the option row that belongs to them.
+pub const SUBROW_GAP: f32 = 4.0;
 pub const SECTION_GAP: f32 = 24.0;
 pub const ROW_GAP: f32 = 16.0;
 pub const SHADOW_MARGIN: Margin = Margin::same(4);
@@ -128,6 +138,17 @@ pub const MIN_CARD_WIDTH: f32 = 240.0;
 pub const CHIP_RADIUS: u8 = 10;
 #[allow(dead_code)] // first drawn by the color pass (plan P1) and meeting speakers
 pub const CHIP_PADDING: Margin = Margin::symmetric(8, 2);
+/// A book page is never narrower than this; two of them plus the gutter
+/// make a spread, and a narrower column shows one page at a time.
+pub const BOOK_PAGE_MIN_WIDTH: f32 = 340.0;
+pub const BOOK_GUTTER: f32 = 24.0;
+pub const BOOK_SPREAD_MIN_WIDTH: f32 = 2.0 * BOOK_PAGE_MIN_WIDTH + BOOK_GUTTER;
+pub const BOOK_PAGE_PADDING: f32 = 22.0;
+/// The book fills the page height down to this; below it the page scrolls.
+pub const BOOK_MIN_HEIGHT: f32 = 320.0;
+/// Space between two entries on a page; the ornament rule sits in it.
+pub const BOOK_ENTRY_GAP: f32 = 22.0;
+pub const DROP_CAP_SIZE: f32 = 40.0;
 
 pub fn danger(v: &Visuals) -> Color32 {
     palette(v).danger
@@ -303,9 +324,10 @@ pub fn chip(ui: &mut Ui, hue: Hue, glyph: Option<&str>, text: &str) -> egui::Res
         .response
 }
 
-/// Editorial serif for the Home introduction and brand, embedded for all OSes.
+/// The editorial role: the Home introduction, brand and hero figures (Lora),
+/// plus page and dialog titles under Wizard lettering (Cinzel Decorative).
 pub fn serif() -> FontFamily {
-    FontFamily::Name("Lora".into())
+    FontFamily::Name("Serif".into())
 }
 pub fn hero_font() -> FontId {
     FontId::new(HERO_SIZE, serif())
@@ -323,6 +345,32 @@ pub fn surface_shadow(v: &Visuals) -> Shadow {
         spread: 0,
         color: Color32::from_black_alpha(if v.dark_mode { 48 } else { 13 }),
     }
+}
+/// The shade along a book's spine, between two facing pages.
+pub fn book_gutter(v: &Visuals) -> Color32 {
+    Color32::from_black_alpha(if v.dark_mode { 70 } else { 22 })
+}
+/// A book page: the card surface with a hairline edge and the card shadow.
+/// It has no padding of its own: the book places its running head, body and
+/// folio inside `rect` itself.
+pub fn paint_book_page(ui: &Ui, rect: Rect) {
+    let v = ui.visuals();
+    ui.painter()
+        .add(surface_shadow(v).as_shape(rect, CONTROL_RADIUS));
+    ui.painter().rect(
+        rect,
+        CONTROL_RADIUS,
+        surface(v),
+        v.widgets.noninteractive.bg_stroke,
+        egui::StrokeKind::Inside,
+    );
+}
+pub fn drop_cap_font() -> FontId {
+    FontId::new(DROP_CAP_SIZE, drop_cap())
+}
+/// The rest of a book entry's heading, after its drop cap.
+pub fn book_heading_font() -> FontId {
+    FontId::new(DIALOG_TITLE_SIZE, serif())
 }
 pub fn surface_frame(v: &Visuals) -> egui::Frame {
     egui::Frame::new()
@@ -375,17 +423,25 @@ pub fn nav_button(
     response
 }
 
-/// Section heads use Inter Medium; hierarchy comes from size and spacing.
+/// Section heads use the medium role; hierarchy comes from size and spacing.
 pub fn subheading() -> TextStyle {
     TextStyle::Name("Subheading".into())
 }
 
+/// Inter Medium, or Alegreya Medium under Wizard lettering.
 fn medium() -> FontFamily {
-    FontFamily::Name("InterMedium".into())
+    FontFamily::Name("Medium".into())
 }
 
+/// Inter SemiBold, or Alegreya SemiBold under Wizard lettering.
 fn semibold() -> FontFamily {
-    FontFamily::Name("InterSemiBold".into())
+    FontFamily::Name("SemiBold".into())
+}
+
+/// Lora, or Cinzel Decorative Bold under Wizard lettering: the first letter
+/// of a book entry.
+pub(crate) fn drop_cap() -> FontFamily {
+    FontFamily::Name("DropCap".into())
 }
 
 pub fn accent(visuals: &Visuals) -> Color32 {
@@ -415,6 +471,23 @@ pub fn fading_rule(ui: &mut Ui, gap: f32) {
         Sense::hover(),
     );
     paint_fading_rule(ui, rect);
+}
+/// The rule between two book entries: the fading rule with a small diamond
+/// at its center.
+pub fn paint_ornament_rule(ui: &Ui, rect: Rect) {
+    paint_fading_rule(ui, rect);
+    let center = egui::pos2(rect.center().x.round(), rect.center().y.round());
+    let r = 3.5;
+    ui.painter().add(egui::Shape::convex_polygon(
+        vec![
+            center + Vec2::new(0.0, -r),
+            center + Vec2::new(r, 0.0),
+            center + Vec2::new(0.0, r),
+            center + Vec2::new(-r, 0.0),
+        ],
+        palette(ui.visuals()).hairline_strong,
+        Stroke::NONE,
+    ));
 }
 pub fn paint_fading_rule(ui: &Ui, rect: Rect) {
     ui.painter().hline(
@@ -461,28 +534,66 @@ pub(crate) fn focus_ring(ui: &Ui, response: &egui::Response) {
     }
 }
 
+/// Inner padding of a `tip`; tighter than a card's because a tip sits inside one.
+pub const TIP_PADDING: i8 = 10;
+
+/// A tip fills with `tint`, whose text contrast is already tested in every
+/// palette, so a tip needs no color pair of its own. A test pins this.
+pub fn tip_frame(v: &Visuals) -> egui::Frame {
+    egui::Frame::new()
+        .fill(tint(v))
+        .corner_radius(CONTROL_RADIUS)
+        .inner_margin(Margin::same(TIP_PADDING))
+}
+
+/// A short suggestion at the point of decision. The leading icon means it is
+/// never carried by the fill color alone.
+pub fn tip<R>(
+    ui: &mut Ui,
+    glyph: &str,
+    add_contents: impl FnOnce(&mut Ui) -> R,
+) -> egui::InnerResponse<R> {
+    tip_frame(ui.visuals()).show(ui, |ui| {
+        ui.set_min_width(ui.available_width());
+        ui.horizontal_top(|ui| {
+            ui.label(icon_text(glyph).color(accent(ui.visuals())));
+            ui.vertical(add_contents).inner
+        })
+        .inner
+    })
+}
+
 /// Install fonts and tokens once, restoring the explicit palette or the
-/// legacy Light/Dark/System preference already loaded by eframe.
+/// legacy Light/Dark/System preference already loaded by eframe. The
+/// lettering is read after the appearance, because with no saved choice it
+/// follows the theme.
 pub fn apply(ctx: &Context) {
-    ctx.set_fonts(font_definitions());
+    let selected: Appearance = appearance(ctx);
+    let lettering = lettering(ctx);
+    ctx.set_fonts(font_definitions(lettering));
     ctx.all_styles_mut(|style| {
-        style.text_styles = text_styles();
+        style.text_styles = text_styles(lettering);
         spacing(&mut style.spacing);
     });
-    let selected: Appearance = appearance(ctx);
     appearance::install(ctx, selected);
 }
 
-/// Inter hierarchy for readable text; JetBrains Mono for technical values.
-fn text_styles() -> BTreeMap<TextStyle, FontId> {
+/// Modern: the Inter hierarchy. Wizard: Alegreya one step larger, because it
+/// reads smaller than Inter at the same size, and Cinzel Decorative titles.
+/// JetBrains Mono for technical values in both.
+fn text_styles(lettering: Lettering) -> BTreeMap<TextStyle, FontId> {
+    let (heading, sub, body, button, small) = match lettering {
+        Lettering::Modern => (FontId::new(TITLE_SIZE, medium()), 15.0, 14.0, 13.0, 12.0),
+        Lettering::Wizard => (FontId::new(TITLE_SIZE, serif()), 16.0, 15.0, 14.0, 13.0),
+    };
     BTreeMap::from([
-        (TextStyle::Heading, FontId::new(TITLE_SIZE, medium())),
-        (subheading(), FontId::new(15.0, medium())),
-        (TextStyle::Body, FontId::new(14.0, FontFamily::Proportional)),
-        (TextStyle::Button, FontId::new(13.0, medium())),
+        (TextStyle::Heading, heading),
+        (subheading(), FontId::new(sub, medium())),
+        (TextStyle::Body, FontId::new(body, FontFamily::Proportional)),
+        (TextStyle::Button, FontId::new(button, medium())),
         (
             TextStyle::Small,
-            FontId::new(12.0, FontFamily::Proportional),
+            FontId::new(small, FontFamily::Proportional),
         ),
         (
             TextStyle::Monospace,

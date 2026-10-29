@@ -10,7 +10,7 @@
 
 use crate::theme;
 use egui::{RichText, Ui};
-use hark_config::{ProviderKind, Settings};
+use hark_config::Settings;
 use std::sync::mpsc::{self, Receiver};
 
 pub struct SttPass {
@@ -93,16 +93,6 @@ impl TestConnection {
                 ui.label(RichText::new("Testing against the provider").small());
             }
         });
-        if draft.provider.kind == ProviderKind::Groq {
-            ui.label(
-                RichText::new(
-                    "Groq bills a 10 second minimum per request; each test (like each \
-                     short dictation) is billed as 10 s.",
-                )
-                .small()
-                .weak(),
-            );
-        }
 
         if let State::Done(report) = &self.state {
             show_report(ui, report);
@@ -170,7 +160,10 @@ fn spawn(settings: Settings, ctx: egui::Context) -> Receiver<TestReport> {
 
 fn execute(settings: &Settings) -> TestReport {
     let provider = settings.provider.kind.label().to_string();
-    let model = settings.provider.resolved_model();
+    // The model the test really ran: with Live transcribe on that is the
+    // realtime one (a replay over its socket, so the live path is what gets
+    // verified), not the batch pin `resolved_model` would name.
+    let model = hark_pipeline::stt_route(&settings.provider).1;
 
     let key = hark_keychain::resolve_key(&provider);
     let stt_key = key.as_ref().ok().cloned();

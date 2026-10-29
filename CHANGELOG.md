@@ -6,86 +6,105 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
-## [0.64.8] - 2026-10-29
-
-### Changed
-
-- Speaker names inside meeting notes are now shown in each speaker's color, so you can see who owns an action item at a glance. The words are the same as before.
-- Long meetings stay smooth: a three-hour transcript (about 2,500 lines) now draws only the lines on screen, instead of all of them on every frame.
-- The speaker button on each transcript line works from the keyboard: Tab reaches it, Enter opens the menu, Tab moves through the choices, and Esc closes it.
-
-## [0.64.7] - 2026-10-29
-
-### Changed
-
-- **Moving a line rewrites the notes to match.** When you move transcript lines to another speaker in a meeting that has notes, Hark asks your text provider for new notes in the background ("Updating notes…"). Several quick moves cause at most two rewrites, and you see the result of the last one. Action items you ticked stay ticked, even if their wording changes a little; a ticked item the new notes leave out is kept. The meeting title never changes.
-- If the notes cannot be rewritten (no text provider key, notes turned off, or the provider did not answer), the old notes stay and a line under Summary says why: "Notes still credit the earlier speaker for 3 moved lines." Choose **Update notes** to try again.
-- **Re-running the final pass now guesses speaker names again and rewrites the notes.** The notes keep the names they had until the rewrite lands, so they never credit the wrong person after speakers are renumbered. The confirmation explains this before anything is sent.
-
-## [0.64.6] - 2026-10-29
+## [0.67.0] - 2026-10-29
 
 ### Added
 
+- **New Parchment theme.** Aged paper with dark-brown ink and lapis-blue accents. Pick it from the theme menu in the top bar or in Settings → Appearance. It is a light theme only, so it stays light even when your computer is set to dark mode. Every color in it is checked to stay readable.
+- Hark now ships two free book fonts for Wizard lettering, Alegreya and Cinzel Decorative (SIL Open Font License). Their source, download date and license are recorded in `crates/hark-app/assets/README.md`.
+- **Wizard lettering.** A new "Wizard lettering" checkbox in Settings → Appearance sets text in Alegreya, a calligraphic book face, and page titles, dialog titles and the Home headline in Cinzel Decorative. Body text is one size larger than before, because Alegreya reads smaller than Inter. Key names and timings stay in the monospace font, and icons do not change.
+- The Parchment theme turns Wizard lettering on until you choose for yourself. Once you tick or untick the box, your choice stays the same in every theme, and Hark remembers it on this device.
+- **Book view for the Spellbook.** A new List | Book switch above your vocabulary opens the Spellbook as a book. Each term starts with a large colored first letter, followed by "Also heard as" with its misheard spellings. Turn pages with Previous and Next, or with Page Up, Page Down, Home and End when you are not typing. A wide window shows two facing pages; a narrow one shows one.
+- Edit a term right where it sits in the book: Edit opens the term and its misheard spellings, and Done saves. Changes save and apply the same way as in the list.
+- After you add a term, including one sent from History, the book opens to the page that holds it and marks it "New".
+- List stays the default. Hark remembers your choice on this device.
+- **Book view for Invocations.** The same List | Book switch now sits beside "New invocation". In the book, each trigger phrase starts with a large colored capital, followed by its scope, its alternates, and the full text it types with line breaks kept. If an invocation cannot fire, the reason is shown with a warning icon.
+- Edit or create an invocation without leaving the book: the editor opens across both pages, and page turning pauses until you save or cancel. Saving works exactly as before (only on Save), and the book then opens to the invocation you saved.
+
+### Changed
+
+- In the book view, the first letter of every Spellbook term and invocation phrase is shown as a capital. Your terms and phrases are not changed.
+
+## [0.66.0] - 2026-10-29
+
+### Added
+
+- Every theme now has a set of six colors (blue, teal, green, gold, rose and violet) for telling things apart, such as pages, providers and meeting speakers. Each one is checked to stay readable in its theme and to look different from the other five.
+- **Every meeting speaker has a color and a name you can change, "Me" included.** The Speakers card on a meeting now lists everyone who spoke, you too, each with their color. Click a name to change it. If you give two speakers the same name, the card says "Shown as the same person as Speaker 2" first, and after you save they share one color and one entry everywhere.
+- **Fix who said a line.** Each transcript line now starts with a thin bar in the speaker's color and a speaker button. Click the button to move the line to yourself, to anyone else in the meeting, or to a new speaker (for example a second person on your microphone). A moved line shows an arrows icon that says who it was transcribed as, and "As transcribed" puts it back. Moves are saved right away and survive a restart.
 - **Hark fills in speaker names it hears in the call.** After each meeting, when someone says "Hi, this is Sam from Acme" or is thanked by name twice, that speaker is named Sam. With notes on and a text provider set up, your provider looks for the names; otherwise Hark looks for introductions on this device. A name is only used when the line it came from really says it. Guessed names carry a sparkle marker that says when the name was heard; click the name to change it, or save it unchanged to keep it. A guess never replaces a name you set.
 - **Your name** (Settings > Meetings): names "Me" in every new meeting. Renaming Me in one meeting still wins. Existing meetings are unchanged.
 - **Guess speaker names from names said in the call** (Settings > Meetings), on by default.
 
 ### Changed
 
-- The notes setting now reads "Write notes and guess speaker names after the call (sends the transcript to your text provider)", because name guessing uses the same provider and the same transcript as the notes.
-
-## [0.64.5] - 2026-10-29
-
-### Changed
-
-- **Meeting notes follow your speaker names.** Rename a speaker and the notes change at once: the summary, key points, decisions, action items and their owners all show the new name. Nothing is sent anywhere, so it works without a text provider key. Notes made before this version follow renames too.
-- Exported and copied notes use the same names as the meeting page. A notes-generated title keeps the names it had when it was set, since a title is yours to edit.
-
-## [0.64.4] - 2026-10-29
-
-### Changed
-
+- Each theme now carries its own error, success and warning colors. Nothing looks different yet; this prepares for the new Parchment theme, whose status colors are tuned to its paper.
+- Speaker names you gave in past meetings move to a new format the first time this version opens your meetings, so "Me" and new speakers can be named later. Nothing to do on your side, and every name you set is kept. An older Hark opened afterwards still shows those names as they were.
+- Meeting speakers now have a fixed color order: "Me" is always blue, and nobody else ever is, so you can spot your own lines in any meeting. The next five people get gold, violet, teal, rose and green.
 - **Exports show who really said each line.** Markdown, text, subtitles, Word and audio excerpts now use the names you set, including your own, and follow any line you moved to another speaker.
 - In Word documents, each speaker's name is bold and in their color. The colors are dark enough to read on white paper.
+- **Meeting notes follow your speaker names.** Rename a speaker and the notes change at once: the summary, key points, decisions, action items and their owners all show the new name. Nothing is sent anywhere, so it works without a text provider key. Notes made before this version follow renames too.
+- Exported and copied notes use the same names as the meeting page. A notes-generated title keeps the names it had when it was set, since a title is yours to edit.
+- The notes setting now reads "Write notes and guess speaker names after the call (sends the transcript to your text provider)", because name guessing uses the same provider and the same transcript as the notes.
+- **Moving a line rewrites the notes to match.** When you move transcript lines to another speaker in a meeting that has notes, Hark asks your text provider for new notes in the background ("Updating notes…"). Several quick moves cause at most two rewrites, and you see the result of the last one. Action items you ticked stay ticked, even if their wording changes a little; a ticked item the new notes leave out is kept. The meeting title never changes.
+- If the notes cannot be rewritten (no text provider key, notes turned off, or the provider did not answer), the old notes stay and a line under Summary says why: "Notes still credit the earlier speaker for 3 moved lines." Choose **Update notes** to try again.
+- **Re-running the final pass now guesses speaker names again and rewrites the notes.** The notes keep the names they had until the rewrite lands, so they never credit the wrong person after speakers are renumbered. The confirmation explains this before anything is sent.
+- Speaker names inside meeting notes are now shown in each speaker's color, so you can see who owns an action item at a glance. The words are the same as before.
+- Long meetings stay smooth: a three-hour transcript (about 2,500 lines) now draws only the lines on screen, instead of all of them on every frame.
+- The speaker button on each transcript line works from the keyboard: Tab reaches it, Enter opens the menu, Tab moves through the choices, and Esc closes it.
 
-## [0.64.3] - 2026-10-29
+## [0.65.0] - 2026-10-29
 
 ### Added
 
-- **Every meeting speaker has a color and a name you can change, "Me" included.** The Speakers card on a meeting now lists everyone who spoke, you too, each with their color. Click a name to change it. If you give two speakers the same name, the card says "Shown as the same person as Speaker 2" first, and after you save they share one color and one entry everywhere.
-- **Fix who said a line.** Each transcript line now starts with a thin bar in the speaker's color and a speaker button. Click the button to move the line to yourself, to anyone else in the meeting, or to a new speaker (for example a second person on your microphone). A moved line shows an arrows icon that says who it was transcribed as, and "As transcribed" puts it back. Moves are saved right away and survive a restart.
-
-## [0.64.2] - 2026-10-29
+- **Choose cloud or on-device transcription in one place.** Settings → Dictation → Speech to text now holds the whole choice. Your cloud provider comes first. Below it, **Use on-device transcription** turns on the on-device model, as **Primary** (offline, no key needed) or **Backup** (used when the cloud fails or is slow). A line under the choice says where your audio goes. Turning it on picks Backup if you have a cloud key stored and Primary if you do not. In Primary, the cloud controls are hidden.
+- **A suggestion when you have no key.** With no cloud key stored, the card offers "No paid AI key? Use on-device." and a **Use on-device instead** button. The button switches to on-device but does not start the download; that stays behind the model's own **Download** button.
+- Each provider now has a one-line description under its name (also shown when you hover it), and a **Get a key** link next to "No key for … yet" that opens the provider's key page. The link goes away once a key is stored.
+- If you turn on-device off while the model is still downloading, the download's progress and a **Cancel** button stay visible.
 
 ### Changed
 
-- Meeting speakers now have a fixed color order: "Me" is always blue, and nobody else ever is, so you can spot your own lines in any meeting. The next five people get gold, violet, teal, rose and green. Nothing is drawn in these colors yet.
+- Hark's notes about the on-device model no longer call Parakeet TDT 0.6B v3 the latest version. It is the multilingual build Hark ships. Newer English-only builds exist, and Hark keeps v3 for now.
+- The separate **On-device** page in Settings is gone; its controls moved into Speech to text.
+- "Model & endpoint" is now **Model and endpoint (optional)**, or **(required)** for an OpenAI-compatible server, with a note that leaving it blank uses the recommended model.
+- The privacy note under Dictation now matches your mode: cloud, cloud with on-device backup, or on-device only.
+- In on-device Primary, a cleanup voice that reuses your speech-to-text key now shows that key's status and a field to store it under **Cleanup provider**, since the Speech to text key box is hidden.
+- First-run setup now suggests "No paid AI key? Choose on-device. You can add a cloud provider later in Settings." under the two choices, and the on-device choice shows the download size.
+- The README and docs now point to Settings → Dictation → Speech to text for on-device transcription, and describe the first-run tip and the "Use on-device instead" suggestion.
+
+### Fixed
+
+- Saving on-device Primary before the model has downloaded no longer says "Saved. Dictation is ready." It now says dictation works once the download finishes.
+- In first-run setup, switching to on-device Primary from the cloud screen (with the new toggle or the "Use on-device instead" button) now shows the on-device setup and waits for the model download, instead of still asking for a cloud key and a passed test. Choosing Backup still needs a passed test.
+- If your settings say on-device Primary but your build of Hark has no on-device engine, the Speech to text card now still shows the cloud controls. Before, it hid them along with the on-device controls, so nothing on the card could change the setting.
 
 ## [0.64.1] - 2026-10-29
 
-### Changed
+### Fixed
 
-- Speaker names you gave in past meetings move to a new format the first time this version opens your meetings, so "Me" and new speakers can be named later. Nothing to do on your side, and every name you set is kept. An older Hark opened afterwards still shows those names as they were.
+- **Gemini Live no longer wastes about 15 ms on Windows every time it checks for new text.** Hark checks after every 100 ms of audio it sends. Each check started a timer that Windows rounds up to about 15.6 ms, even when nothing had arrived. A 25-second meeting chunk lost about 4 seconds this way, and Test connection and the backup replay of a 10-second clip lost up to 1.5 seconds. Checks now return right away. The OpenAI live adapter in 0.64.0 already worked this way.
 
 ## [0.64.0] - 2026-10-29
 
+### Added
+
+- **Live transcribe for OpenAI.** The OpenAI provider has a new "Live transcribe" checkbox. While you hold the key, it streams your speech to OpenAI's `gpt-live-transcribe`, so only the last moment of audio is left to process when you let go. In testing on a 10-second clip, it returned text about 200 ms sooner than `gpt-transcribe`, at the same accuracy. It uses the OpenAI key you already saved, so there is nothing new to enter. It is off by default and costs about four times as much per minute ($0.017 against $0.0045), and Settings says so next to the checkbox. If the live connection fails or comes back empty, Hark sends the dictation through `gpt-transcribe` instead, so it is never lost. Meeting notes always use `gpt-transcribe` and are never billed at the live rate.
+- `openai_live_probe`, a diagnostic example that checks OpenAI's realtime transcription socket against the real API and compares it with `gpt-transcribe`: `cargo run -p hark-stt --features live --example openai_live_probe`.
+
+### Removed
+
+- **Groq is no longer offered for speech-to-text or cleanup.** If you used Groq, your settings are converted on first launch to an OpenAI-compatible provider with the same Groq address and model, so dictation and cleanup keep working as before. Your Groq key is copied across if that slot was empty. Your old settings file is kept beside the new one as `config.toml.v6.bak`.
+
 ### Changed
 
-- Groundwork for telling meeting speakers apart: every speaker in a meeting, "Me" included, now has one identity that labels, colors and exports will all read from. Nothing looks different yet.
+- **Live transcribe captures audio at 24 kHz**, converted straight from your microphone's own rate, which keeps more of the high end of speech. OpenAI's realtime API accepts no other rate. Everything else still uses 16 kHz.
+- The `gemini-live` build feature is now called `live-stt`, because it covers both live providers. The old name still works.
 
-## [0.63.4] - 2026-10-29
+## [0.63.2] - 2026-10-29
 
 ### Added
 
-- Every theme now has a set of six colors (blue, teal, green, gold, rose and violet) for telling things apart, such as pages, providers and meeting speakers. Each one is checked to stay readable in its theme and to look different from the other five. Nothing uses them yet.
-
-## [0.63.3] - 2026-10-29
-
-### Changed
-
-- Each theme now carries its own error, success and warning colors. Nothing looks different yet; this prepares for the new Parchment theme, whose status colors are tuned to its paper.
-
-## [0.63.2] - 2026-10-29
+- A living feature-ideas checklist (`tasks/feature-ideas.md`) that tracks ideas with a status (Incomplete, In progress, Complete, Sidelined, Denied). It starts with seven ideas: speaker colors and fixing a line's speaker in meeting transcripts, an accent color choice per theme, a Parchment theme with a wizard-pen font toggle, a Book view for the Spellbook and Invocations, and a Full / Half / Non-Wizard setting.
 
 ### Fixed
 

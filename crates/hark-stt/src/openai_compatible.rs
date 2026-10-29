@@ -1,6 +1,6 @@
 //! The OpenAI-compatible adapter: multipart `POST {base_url}/audio/transcriptions`
 //! with Bearer auth. One code path serves every provider that clones the OpenAI
-//! contract (OpenAI itself, Groq).
+//! contract (OpenAI's Whisper-family models, and any compatible gateway).
 //!
 //! The multipart body is assembled by hand into a buffered `Vec<u8>` instead of
 //! `reqwest::blocking::multipart`: reqwest streams multipart bodies through a

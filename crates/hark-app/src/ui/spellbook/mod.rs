@@ -16,14 +16,20 @@
 //! global: a global mode would tax the simple path forever, and the common
 //! case is still a bare word.
 
+mod book;
 mod edit;
 
 use crate::theme;
+use crate::ui::book::{Book, BookView};
 use crate::ui::widgets;
 use edit::{add_alias, add_entry, commit_edit, is_common_word, remove_alias, undo_add};
 use egui::text::{CCursor, CCursorRange};
-use egui::{Key, RichText, TextEdit, Ui};
+use egui::{Id, Key, RichText, TextEdit, Ui};
 use hark_config::SpellbookEntry;
+
+fn view_id() -> Id {
+    Id::new("hark-spellbook-view-v1")
+}
 
 pub struct SpellbookPage {
     add: String,
@@ -45,6 +51,8 @@ pub struct SpellbookPage {
     add_needs_focus: bool,
     /// Last term added this session, offered for one-click undo.
     last_added: Option<String>,
+    /// The book view's position. The view choice itself is persisted.
+    book: Book,
 }
 
 impl SpellbookPage {
@@ -61,6 +69,7 @@ impl SpellbookPage {
             primed_from: None,
             add_needs_focus: false,
             last_added: None,
+            book: Book::default(),
         }
     }
 
@@ -112,6 +121,23 @@ impl SpellbookPage {
         }
         ui.add_space(8.0);
 
+        let mut view = BookView::List;
+        ui.horizontal(|ui| {
+            ui.label(RichText::new("YOUR VOCABULARY").small().weak());
+            if !entries.is_empty() {
+                ui.label(
+                    RichText::new(format!("{} terms · saved automatically", entries.len()))
+                        .small()
+                        .weak(),
+                );
+            }
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                view = crate::ui::book::view_toggle(ui, view_id());
+            });
+        });
+        if view == BookView::Book {
+            return changed | self.book_view(ui, entries);
+        }
         if entries.is_empty() {
             widgets::empty_state(
                 ui,
@@ -121,15 +147,27 @@ impl SpellbookPage {
             );
             return changed;
         }
-        ui.horizontal(|ui| {
-            ui.label(RichText::new("YOUR VOCABULARY").small().weak());
-            ui.label(
-                RichText::new(format!("{} terms · saved automatically", entries.len()))
-                    .small()
-                    .weak(),
-            );
-        });
         changed | theme::card(ui, |ui| self.entry_list(ui, entries)).inner
+    }
+
+    /// The term editor both views share: commits on Enter or lost focus,
+    /// Esc cancels. Returns true when `entries` changed.
+    fn edit_term(&mut self, ui: &mut Ui, entries: &mut [SpellbookEntry], width: f32) -> bool {
+        let Some((_, buffer)) = &mut self.edit else {
+            return false;
+        };
+        let response = ui.add(TextEdit::singleline(buffer).desired_width(width));
+        if self.edit_needs_focus {
+            response.request_focus();
+            self.edit_needs_focus = false;
+        }
+        if ui.input(|i| i.key_pressed(Key::Escape)) {
+            self.edit = None;
+        } else if response.lost_focus() {
+            let (i, buffer) = self.edit.take().expect("edit is Some here");
+            return commit_edit(entries, i, &buffer);
+        }
+        false
     }
 
     /// The pinned add row, plus the Advanced alias field and its guard.
@@ -201,15 +239,25 @@ impl SpellbookPage {
         }
 
         if submit {
-            let term = self.add.trim().to_string();
-            if add_entry(entries, &self.add, &self.add_alias) {
-                changed = true;
-                self.last_added = Some(term);
-            }
-            self.add.clear();
-            self.add_alias.clear();
-            self.primed_from = None;
+            changed = self.submit_add(entries);
         }
+        changed
+    }
+
+    /// Add what the add row holds. The book opens to the spread holding the
+    /// entry, which may be an existing one that just gained an alias.
+    fn submit_add(&mut self, entries: &mut Vec<SpellbookEntry>) -> bool {
+        let term = self.add.trim().to_string();
+        let changed = add_entry(entries, &self.add, &self.add_alias);
+        if changed {
+            if let Some(index) = entries.iter().position(|e| e.term == term) {
+                self.book.anchor = index;
+            }
+            self.last_added = Some(term);
+        }
+        self.add.clear();
+        self.add_alias.clear();
+        self.primed_from = None;
         changed
     }
 
@@ -256,23 +304,10 @@ impl SpellbookPage {
             .show(ui, |ui| {
                 for index in 0..entries.len() {
                     ui.horizontal(|ui| {
-                        if let Some((edit_index, buffer)) = &mut self.edit {
-                            if *edit_index == index {
-                                let response = ui.add(TextEdit::singleline(buffer).desired_width(
-                                    theme::TOOLBAR_SEARCH_WIDTH.min(ui.available_width() * 0.6),
-                                ));
-                                if self.edit_needs_focus {
-                                    response.request_focus();
-                                    self.edit_needs_focus = false;
-                                }
-                                if ui.input(|i| i.key_pressed(Key::Escape)) {
-                                    self.edit = None;
-                                } else if response.lost_focus() {
-                                    let (i, buffer) = self.edit.take().expect("edit is Some here");
-                                    changed |= commit_edit(entries, i, &buffer);
-                                }
-                                return;
-                            }
+                        if self.edit.as_ref().is_some_and(|(i, _)| *i == index) {
+                            let width = theme::TOOLBAR_SEARCH_WIDTH.min(ui.available_width() * 0.6);
+                            changed |= self.edit_term(ui, entries, width);
+                            return;
                         }
                         // A flat, full-row button: click to edit in place.
                         if ui

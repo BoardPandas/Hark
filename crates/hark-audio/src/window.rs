@@ -146,8 +146,7 @@ fn window_rms_extremes(samples: &[f32], rate: u32, window_ms: u32) -> (f32, f32)
 }
 
 /// Why a clip was dropped, or `Speech` to proceed. Gating happens before any
-/// network request: silence and misfires must cost nothing (and Groq bills a
-/// 10 s minimum per request).
+/// network request: silence and misfires must cost nothing.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum GateVerdict {
     Speech,

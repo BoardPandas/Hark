@@ -1,14 +1,14 @@
 //! Phase 1 STT spike harness (tasks/2026-07-15-phase1-stt-spike.md).
 //!
-//! For each provider whose key is configured via env (`GROQ_API_KEY`,
-//! `OPENAI_API_KEY`, `DEEPGRAM_API_KEY`): transcribe the committed fixture,
+//! For each provider whose key is configured via env (`OPENAI_API_KEY`,
+//! `DEEPGRAM_API_KEY`): transcribe the committed fixture,
 //! measure cold-vs-warm latency (N runs, p50/p95), run the Deepgram keyterm
 //! A/B, drill the failure taxonomy, and print a default-provider + retry-policy
 //! verdict. Providers without keys are skipped with an explicit message.
 //!
 //! Knobs: `SPIKE_RUNS` (default 20), `SPIKE_DELAY_MS` between timed runs
 //! (default 0), `OPENAI_STT_MODEL` (default gpt-transcribe),
-//! `GROQ_STT_MODEL` (default whisper-large-v3-turbo), `SPIKE_SKIP_DRILLS=1`.
+//! `SPIKE_SKIP_DRILLS=1`.
 
 use hark_stt::metrics::{contains_term, divergence_ratio, LatencyTally};
 use hark_stt::{build, shared_client, wav, ProviderConfig, ProviderKind, SttError};
@@ -45,19 +45,6 @@ fn env_nonempty(name: &str) -> Option<String> {
 fn provider_configs() -> Vec<ProviderConfig> {
     let bias = BIAS_TERMS.iter().map(|s| s.to_string()).collect::<Vec<_>>();
     let mut configs = Vec::new();
-    if let Some(key) = env_nonempty("GROQ_API_KEY") {
-        configs.push(ProviderConfig {
-            kind: ProviderKind::OpenAiCompatible,
-            label: "groq".into(),
-            base_url: "https://api.groq.com/openai/v1".into(),
-            model: env_nonempty("GROQ_STT_MODEL")
-                .unwrap_or_else(|| "whisper-large-v3-turbo".into()),
-            api_key: key,
-            bias_terms: bias.clone(),
-            cleanup_instruction: None,
-            live_mode: hark_stt::gemini_live::TranscribeMode::Verbatim,
-        });
-    }
     if let Some(key) = env_nonempty("OPENAI_API_KEY") {
         configs.push(ProviderConfig {
             kind: ProviderKind::OpenAiTranscribe,
@@ -122,16 +109,12 @@ fn main() {
         encode_us as f64 / 1000.0
     ));
 
-    for name in ["groq", "openai", "deepgram"] {
+    for (name, key_var) in [
+        ("openai", "OPENAI_API_KEY"),
+        ("deepgram", "DEEPGRAM_API_KEY"),
+    ] {
         if !configs.iter().any(|c| c.label == name) {
-            r.say(format!(
-                "provider {name}: skipped (no {} set)",
-                match name {
-                    "groq" => "GROQ_API_KEY",
-                    "openai" => "OPENAI_API_KEY",
-                    _ => "DEEPGRAM_API_KEY",
-                }
-            ));
+            r.say(format!("provider {name}: skipped (no {key_var} set)"));
         }
     }
     if configs.is_empty() {
@@ -335,7 +318,7 @@ fn main() {
         None => r.say("no latency data collected; configure at least one provider key."),
     }
     r.say("retry policy proposal: one retry on Timeout or connect-class Http errors only; never retry 4xx (Auth/RateLimited surface to the user immediately).");
-    r.say("cost caveats: Groq bills a 10 s minimum per request (short utterances cost as 10 s); Deepgram keyterm requires nova-3+; OpenAI gpt-4o-(mini-)transcribe is priced per audio minute.");
+    r.say("cost caveats: Deepgram keyterm requires nova-3+; OpenAI gpt-transcribe is priced per audio minute.");
     r.say("key-leak self-check: OK (no configured key appeared in any report line)");
 }
 

@@ -61,6 +61,12 @@ fn appearance_section(ui: &mut Ui) {
         ui.label("Theme");
         crate::theme::appearance_picker(ui);
     });
+    crate::theme::lettering_toggle(ui);
+    ui.label(
+        RichText::new("Sets headings and text in a book face, in any theme. Parchment turns it on until you choose.")
+            .small()
+            .weak(),
+    );
     ui.label(
         RichText::new("Applies immediately and is remembered on this device. System follows your desktop's light or dark appearance.")
             .small()

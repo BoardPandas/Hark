@@ -17,7 +17,7 @@
 //! Contract notes (verified 2026-07-22, re-check before relying on them):
 //! - `POST https://generativelanguage.googleapis.com/v1beta/interactions`,
 //!   auth via the `x-goog-api-key` header (no Bearer, no OAuth, no service
-//!   account) — the same paste-one-key BYOK shape as OpenAI and Groq.
+//!   account) — the same paste-one-key BYOK shape as OpenAI.
 //! - The Interactions API took breaking changes in May 2026 (`outputs` ->
 //!   `steps`, polymorphic `response_format`). [`API_REVISION`] pins the
 //!   revision so a future break surfaces as a deliberate bump here.

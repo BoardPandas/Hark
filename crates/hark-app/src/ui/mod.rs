@@ -3,6 +3,7 @@
 //! Every color, size, and spacing value comes from `theme`; modules stay
 //! under ~300 lines each (design guardrails §1).
 
+pub mod book;
 pub mod footer;
 pub mod format;
 pub mod history;

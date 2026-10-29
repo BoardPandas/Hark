@@ -92,7 +92,7 @@ The meeting detection prompt ("Teams is using your mic. Take meeting notes?") fo
 
 A labeled sidebar groups Home, Insights, History, and Meetings, followed by Spellbook and Invocations, with Settings at the bottom. Below 760 points wide or 500 points of available height after footer bars, it becomes wrapping navigation rows so every destination remains reachable. The appearance picker remains available at the top. Content centers at up to 1,020 points and contracts with the window. The running-pipeline landing page is Home; missing setup or startup errors still lead to Settings.
 
-The footer remains visible with the actual pipeline state, configured shortcut, and active transcription/cleanup models. Long model text truncates with the full value available on hover. A key-related issue opens Dictation settings.
+The footer remains visible with the actual pipeline state, configured shortcut, and active transcription/cleanup models. The transcription model is the routed one (`hark_pipeline::stt_route`), so with Live transcribe on it reads `gpt-live-transcribe`, not the batch model still pinned in the draft ([footer.rs `provider_line`](../../crates/hark-app/src/ui/footer.rs)). Long model text truncates with the full value available on hover. A key-related issue opens Dictation settings.
 
 Settings' Save changes / Discard bar stays outside its scroll area. The update banner opens the Updates section directly. Destructive confirmations explain the consequence and initially focus Cancel. Existing settings drafts and editor state survive page navigation; shortcut capture stops when leaving its settings page.
 
@@ -128,13 +128,14 @@ Queries and text aggregation run on the storage worker. The UI caches results by
 | Section | Controls |
 |---|---|
 | General | Launch at startup, always on top, exit when the window is closed, appearance, Close Program |
-| Dictation | Speech provider, key, connection test, model/endpoint, voice, cleanup |
+| Dictation | Speech to text card: provider with a one-line description, key with a Get a key link until one is stored, a no-key on-device suggestion, connection test, Model and endpoint (optional); then the on-device toggle (Backup or Primary) with model download/progress/cancel/delete. Primary hides the cloud controls. Voice, cleanup, and a privacy line that follows the mode |
 | Audio & shortcut | Shortcut recording/manual entry, microphone picker and input meter |
-| On-device | Off/Backup/Primary modes, model download/progress/cancel/delete |
 | Meetings | Take notes toggle, optional Windows start/stop shortcut, microphone, detection (off/ask/auto, auto-stop delay, app list), speaker labels (Deepgram key, independent of the dictation key), storage cap and usage, delete all meeting audio |
 | Behavior | Cleanup limits, single-word punctuation |
 | Privacy | History capture/retention, optional local app tracking, optional retained-history word/phrase analysis, numeric retention and provider disclosures |
 | Updates | Version, checking, download/install status, release details |
+
+The Dictation provider picker offers Deepgram, OpenAI, Gemini and OpenAI-compatible, always in that order; Groq is gone (schema 7 migrates saved Groq configs). The selected provider's option row sits under the radios ([live_rows.rs](../../crates/hark-app/src/ui/settings/live_rows.rs)). Gemini shows its Verbatim/Smart transcript mode. OpenAI shows a **Live transcribe** checkbox with the cost note "Streams while you hold the key. Billed per audio minute, about 4× gpt-transcribe." It uses the same OpenAI key, so nothing is entered twice. While it is ticked the Model field becomes a read-only `gpt-live-transcribe (Live transcribe)` label, and a batch model typed earlier is kept for when it is unticked. Switching provider turns the toggle off. Toggling it counts as a change, so an earlier Test connection pass no longer stands. A `--no-default-features` build, which lacks the `live-stt` WebSocket client, hides both Gemini and the toggle instead of offering controls that cannot work ([form.rs `provider_choices`, `provider_section`](../../crates/hark-app/src/ui/settings/form.rs)). The Groq cleanup row and Groq's 10-second-minimum note under Test connection are gone too ([cleanup.rs](../../crates/hark-app/src/ui/settings/cleanup.rs), [test.rs](../../crates/hark-app/src/ui/settings/test.rs)).
 
 Meetings also exposes **Reduce speaker echo**, off by default. Save applies it
 from the next meeting. It reduces playback picked up by the meeting microphone;
@@ -149,7 +150,7 @@ Within Settings, General is the initial section after setup. Startup and window 
 
 ### First run
 
-Setup offers cloud or on-device transcription, then configuration, platform-specific permission guidance, and a first dictation. The local choice downloads the real model and uses Verbatim voice to keep setup offline. The cloud choice requires a successful test of the current provider configuration; changing a stored key invalidates that test. Testing does not save the draft. **Save & continue** is explicit.
+Setup offers cloud or on-device transcription, with a tip that suggests on-device to anyone without a paid key, then configuration, platform-specific permission guidance, and a first dictation. The local choice downloads the real model and uses Verbatim voice to keep setup offline. Readiness follows the draft's mode, not the first choice: on-device Primary (chosen up front, or by the Speech to text toggle or its no-key suggestion during configuration) waits for the model download, while cloud and Backup require a successful test of the current provider configuration; changing a stored key invalidates that test ([onboarding.rs](../../crates/hark-app/src/ui/settings/onboarding.rs), [get_started.rs](../../crates/hark-app/src/ui/settings/get_started.rs)). Testing does not save the draft. **Save & continue** is explicit.
 
 Permission guidance explains microphone and keyboard/insertion access without claiming permission has been granted. The final step uses the saved shortcut and retires after an actual successful insertion. Users can skip setup, return to configuration, or change their shortcut.
 <!-- END:AUTOGEN hark_12_desktop_ui_pages -->

@@ -189,6 +189,7 @@ pages:
     category: configuration
     source_files:
       - "crates/hark-config/src/lib.rs"
+      - "crates/hark-config/src/groq_migration.rs"
       - "crates/hark-config/src/voice.rs"
       - "crates/hark-keychain/src/lib.rs"
       - "config/default-config.toml"
@@ -222,6 +223,7 @@ pages:
         autogen: true
         source_files:
           - "crates/hark-config/src/lib.rs"
+          - "crates/hark-config/src/groq_migration.rs"
         diagrams_needed: false
         diagram_types: []
       - id: hark_04_configuration_keychain
@@ -444,7 +446,7 @@ pages:
     title: "Transcription (STT Providers)"
     folder: "features"
     filename: "TRANSCRIPTION.md"
-    description: "Batch and live STT traits, Deepgram, OpenAI-compatible, gpt-transcribe, Gemini Live, audio formats, and errors."
+    description: "Batch and live STT traits, Deepgram, OpenAI-compatible, gpt-transcribe, Gemini Live, OpenAI live transcribe, audio formats, and errors."
     category: feature
     source_files:
       - "crates/hark-stt/src/lib.rs"
@@ -454,6 +456,8 @@ pages:
       - "crates/hark-stt/src/openai_transcribe.rs"
       - "crates/hark-stt/src/deepgram.rs"
       - "crates/hark-stt/src/gemini_live.rs"
+      - "crates/hark-stt/src/openai_live.rs"
+      - "crates/hark-stt/examples/openai_live_probe.rs"
       - "crates/hark-stt/src/wav.rs"
       - "crates/hark-stt/src/error.rs"
       - "crates/hark-stt/src/metrics.rs"
@@ -480,6 +484,14 @@ pages:
         source_files:
           - "crates/hark-stt/src/deepgram.rs"
           - "crates/hark-stt/src/gemini_live.rs"
+        diagrams_needed: false
+        diagram_types: []
+      - id: hark_07_transcription_openai_live
+        title: "OpenAI Live Transcribe"
+        autogen: true
+        source_files:
+          - "crates/hark-stt/src/openai_live.rs"
+          - "crates/hark-stt/examples/openai_live_probe.rs"
         diagrams_needed: false
         diagram_types: []
       - id: hark_07_transcription_wav
@@ -897,6 +909,7 @@ pages:
       - "crates/hark-app/src/ui/history/mod.rs"
       - "crates/hark-app/src/ui/stats.rs"
       - "crates/hark-app/src/ui/settings/mod.rs"
+      - "crates/hark-app/src/ui/settings/live_rows.rs"
       - "crates/hark-app/src/theme/*.rs"
       - "crates/hark-app/assets/README.md"
       - "crates/hark-app/src/ui/home.rs"

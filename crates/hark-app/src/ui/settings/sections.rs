@@ -1,7 +1,7 @@
 //! Settings navigation and grouped surfaces. The draft belongs to SettingsPage,
 //! so moving between sections never discards a field or re-seeds its buffer.
 
-use super::{capture, cleanup, form, hotkey, local, preferences, updates, SettingsPage};
+use super::{capture, cleanup, form, hotkey, preferences, stt_card, updates, SettingsPage};
 use crate::meeting::MeetingController;
 use crate::storage::StorageHandle;
 use crate::{pipeline::PipelineController, theme, update::Updater};
@@ -14,7 +14,6 @@ pub enum Section {
     General,
     Dictation,
     Audio,
-    OnDevice,
     Meetings,
     Behavior,
     Privacy,
@@ -22,11 +21,10 @@ pub enum Section {
 }
 
 impl Section {
-    pub const ALL: [Self; 8] = [
+    pub const ALL: [Self; 7] = [
         Self::General,
         Self::Dictation,
         Self::Audio,
-        Self::OnDevice,
         Self::Meetings,
         Self::Behavior,
         Self::Privacy,
@@ -38,7 +36,6 @@ impl Section {
             Self::General => "General",
             Self::Dictation => "Dictation",
             Self::Audio => "Audio & shortcut",
-            Self::OnDevice => "On-device",
             Self::Meetings => "Meetings",
             Self::Behavior => "Behavior",
             Self::Privacy => "Privacy",
@@ -51,7 +48,6 @@ impl Section {
             Self::General => theme::icons::GEAR,
             Self::Dictation => theme::icons::WAVEFORM,
             Self::Audio => theme::icons::MICROPHONE,
-            Self::OnDevice => theme::icons::WAVEFORM,
             Self::Meetings => theme::icons::CLOCK,
             Self::Behavior => theme::icons::GEAR,
             Self::Privacy => theme::icons::KEY,
@@ -122,9 +118,6 @@ impl SettingsPage {
                         }
                         Section::Dictation => self.dictation_section(ui, saved, pipeline),
                         Section::Audio => self.audio_section(ui, pipeline),
-                        Section::OnDevice => {
-                            local::section(ui, &mut self.draft, &mut self.download)
-                        }
                         Section::Meetings => self.meetings.show(
                             ui,
                             &mut self.draft,
@@ -154,25 +147,9 @@ impl SettingsPage {
         saved: &mut Settings,
         pipeline: &mut PipelineController,
     ) {
-        theme::card(ui, |ui| {
-            if form::provider_section(ui, &mut self.draft, &mut self.bufs) {
-                self.stt_keys.sync_account(self.draft.provider.kind.label());
-                self.test.reset();
-            }
-            ui.add_space(theme::GAP);
-            if self.stt_keys.show(ui) {
-                self.test.reset();
-                if self.draft.provider.kind == saved.provider.kind {
-                    pipeline.start(saved, ui.ctx());
-                }
-            }
-            ui.add_space(theme::GAP);
-            self.test.show(ui, &self.draft);
-            ui.add_space(theme::GAP);
-            form::model_endpoint_section(ui, &mut self.draft, &mut self.bufs);
-        });
+        self.speech_to_text_card(ui, saved, pipeline);
         ui.add_space(theme::SECTION_GAP);
-        theme::card(ui, |ui| {
+        let stt_key_changed = theme::card(ui, |ui| {
             form::voice_section(ui, &mut self.draft, &mut self.voice_secret_clicks);
             ui.add_space(theme::GAP);
             cleanup::section(
@@ -180,11 +157,21 @@ impl SettingsPage {
                 &mut self.draft,
                 &mut self.bufs,
                 &mut self.cleanup_keys,
+                &mut self.stt_keys,
                 &mut self.cleanup_test,
-            );
-        });
+            )
+        })
+        .inner;
+        // Only possible in Primary, where cleanup shows the STT key (R14).
+        if stt_key_changed && self.draft.provider.kind == saved.provider.kind {
+            pipeline.start(saved, ui.ctx());
+        }
         ui.add_space(theme::GAP);
-        ui.label(RichText::new("Cloud transcription sends audio to your chosen provider. Non-Verbatim voices may also send text to your cleanup provider.").small().weak());
+        ui.label(
+            RichText::new(stt_card::privacy_line(self.draft.local_stt.mode))
+                .small()
+                .weak(),
+        );
     }
 
     pub(super) fn audio_section(&mut self, ui: &mut Ui, pipeline: &mut PipelineController) {
@@ -224,5 +211,13 @@ mod tests {
             .map(|section| egui::Id::new(("settings-section", section)))
             .collect();
         assert_eq!(ids.len(), Section::ALL.len());
+    }
+
+    #[test]
+    fn on_device_lives_in_dictation_not_its_own_section() {
+        assert_eq!(Section::ALL.len(), 7);
+        assert!(Section::ALL
+            .iter()
+            .all(|section| !section.label().contains("On-device")));
     }
 }

@@ -27,11 +27,11 @@ Desktop app — **no web infrastructure** (no server, database service, auth, or
 | Layer | Choice |
 |---|---|
 | Language | Rust (UI on main thread, pipeline on worker threads) |
-| Audio | `cpal` (device-rate mono ring buffer, resampled to 16 kHz per clip) |
+| Audio | `cpal` (device-rate mono ring buffer, resampled to 16 kHz per clip; a live stream is resampled straight to the provider's rate, 24 kHz for OpenAI) |
 | Push-to-talk | `WH_KEYBOARD_LL` (Windows), `CGEventTap` (macOS), and `evdev` (Linux — X11 and Wayland) |
-| STT | BYOK cloud via an `SttProvider` trait: Deepgram, Whisper-family OpenAI-compatible endpoints, OpenAI `gpt-transcribe`, and Gemini Live |
-| STT transport | Blocking `reqwest` adapters on worker threads plus a Gemini-only private current-thread Tokio/WebSocket runtime; no global runtime |
-| Spellbook | Phonetic post-correction (primary, provider-agnostic) + per-provider biasing (`prompt`, `keywords[]`, `keyterm`, or Gemini `customVocabulary`) |
+| STT | BYOK cloud via an `SttProvider` trait: Deepgram, Whisper-family OpenAI-compatible endpoints, OpenAI `gpt-transcribe` (or `gpt-live-transcribe` with the opt-in Live transcribe toggle), and Gemini Live |
+| STT transport | Blocking `reqwest` adapters on worker threads; the two live adapters (Gemini Live, OpenAI live) each own a private current-thread Tokio/WebSocket runtime; no global runtime |
+| Spellbook | Phonetic post-correction (primary, provider-agnostic) + per-provider biasing (`prompt`, `keywords[]`, OpenAI live `keywords`, `keyterm`, or Gemini `customVocabulary`) |
 | Invocations | Trigger phrase → canned text, matched by the same guarded phonetic matcher at a tighter confirm threshold; injected verbatim, cleanup skipped |
 | Cleanup / voices | Bring-your-own-key, OpenAI-compatible chat endpoint (optional) |
 | Injection | Clipboard paste, `enigo` keystroke fallback (a `uinput` virtual keyboard on Wayland, which has no XTEST) |
@@ -45,7 +45,7 @@ See [`tasks/plan-repo.md`](tasks/plan-repo.md) for the full rationale and the cu
 
 ```
 key down ─▶ cpal ring buffer (with ~200–300 ms pre-roll)
-              ├── Gemini Live selected? ─▶ stream audio during the hold
+              ├── Gemini Live or OpenAI Live transcribe? ─▶ stream audio during the hold
               │
 key up  ─────▶ append ~150 ms tail; finish the live turn if one survived
               │
@@ -79,7 +79,7 @@ Developer builds use an ad-hoc signature. Public distribution and self-updates r
 ## Prerequisites
 
 - **Rust** (stable) via [rustup](https://rustup.rs) — `cargo`, `rustfmt`, `clippy`.
-- **A speech-to-text provider key** (Deepgram, OpenAI, Groq, Gemini, or an OpenAI-compatible endpoint) — entered in Settings on first run, stored in the OS keychain. Not required if you set the on-device model as your primary engine (see below).
+- **A speech-to-text provider key** (Deepgram, OpenAI, Gemini, or an OpenAI-compatible endpoint) — entered in Settings on first run, stored in the OS keychain. Not required if you set the on-device model as your primary engine (see below).
 - Platform build tools: Xcode command-line tools (macOS); MSVC build tools (Windows); on Linux, the dev headers Hark links against:
 
   ```bash
@@ -204,8 +204,9 @@ No web env vars. Settings and secrets live in OS-standard locations:
 ## On-device transcription
 
 Optional, off by default, and included in every stock build. Under **Settings →
-On-device** you can download a Parakeet model (~670 MB) and then run it in
-one of two modes:
+Dictation → Speech to text**, turn on **Use on-device transcription**, download
+the Parakeet model (~670 MB), and run it in one of two modes. With no cloud key
+stored, the card suggests it with a **Use on-device instead** button:
 
 - **Backup** — the cloud provider stays primary; Hark falls back to the local
   model when the network or the provider fails, so you do not lose the sentence
@@ -220,7 +221,9 @@ does to cloud ones, so your custom vocabulary works either way.
 The native engine is compiled in by the `local-engine` Cargo feature, which is
 **on by default**. `cargo build --no-default-features` produces a slimmer
 cloud-only binary (~28 MB smaller); that build says so in Settings instead of
-offering a toggle that could not work.
+offering a toggle that could not work. It also drops the default `live-stt`
+feature (the WebSocket client behind Gemini and OpenAI's Live transcribe), so
+add `--features live-stt` to keep streaming.
 
 See [`Docs/features/ON_DEVICE_STT.md`](Docs/features/ON_DEVICE_STT.md) for the
 download manager, the fallback policy, and the model catalogue.

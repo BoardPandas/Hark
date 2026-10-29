@@ -106,7 +106,7 @@ so closure cannot skip that flush ([echo handling](../../crates/hark-pipeline/sr
 
 A small input worker observes edges independently of blocking transcription. It stamps accepted edges with the ring's current absolute position and reserves the entire hold/completion cycle before forwarding key-down. A hold begun while occupied stays rejected through release, even if the previous dictation finishes during that hold. Aborted and completed cycles reopen admission ([input](../../crates/hark-pipeline/src/input.rs), [lifecycle](../../crates/hark-pipeline/src/lifecycle.rs), [worker](../../crates/hark-pipeline/src/worker.rs)).
 
-With Gemini Live, key-down opens a live session and pumps resampled PCM from the ring while the user is speaking. The live path is only an accelerator: failure to open, send, keep up, or finish drops back to the ordinary batch path because streaming reads rather than consumes the ring ([stream.rs:1-25](../../crates/hark-pipeline/src/stream.rs#L1-L25), [stream.rs:44-130](../../crates/hark-pipeline/src/stream.rs#L44-L130)). Other providers begin at key-up.
+With a live adapter (Gemini Live, or OpenAI with Live transcribe on), key-down opens a live session and pumps PCM from the ring while the user is speaking. The pump resamples straight from the device rate to the rate the provider declares through `LiveStt::input_rate()`: 16 kHz for Gemini, 24 kHz for OpenAI's realtime API, which accepts nothing else. The assembled clip stays 16 kHz. The live path is only an accelerator: failure to open, send, keep up, or finish drops back to the ordinary batch path because streaming reads rather than consumes the ring. For OpenAI that batch path is gpt-transcribe over REST, which an empty live transcript also falls back to ([stream.rs:1-31](../../crates/hark-pipeline/src/stream.rs#L1-L31), [stream.rs:41-176](../../crates/hark-pipeline/src/stream.rs#L41-L176), [Transcription](../features/TRANSCRIPTION.md#openai-live-transcribe)). Other providers begin at key-up.
 
 After release the worker assembles and gates the same audio window, finalizes live STT or encodes WAV and runs batch/local STT, corrects the transcript, expands invocations, conditionally applies voice cleanup (discarding a response that grew the text or answered it instead of editing it), injects the final text, and emits a history record. A replay after live failure consumes the same single retry budget as any batch retry ([worker.rs:324-532](../../crates/hark-pipeline/src/worker.rs#L324-L532)).
 
@@ -137,7 +137,7 @@ sequenceDiagram
     Worker-->>User: text appears at cursor
 ```
 
-Sources: [lib.rs](../../crates/hark-pipeline/src/lib.rs), [worker.rs:170-228](../../crates/hark-pipeline/src/worker.rs#L170-L228), [worker.rs:324-532](../../crates/hark-pipeline/src/worker.rs#L324-L532), [stream.rs:1-148](../../crates/hark-pipeline/src/stream.rs#L1-L148)
+Sources: [lib.rs](../../crates/hark-pipeline/src/lib.rs), [worker.rs:170-228](../../crates/hark-pipeline/src/worker.rs#L170-L228), [worker.rs:324-532](../../crates/hark-pipeline/src/worker.rs#L324-L532), [stream.rs:1-176](../../crates/hark-pipeline/src/stream.rs#L1-L176)
 <!-- END:AUTOGEN hark_02_architecture_pipeline -->
 
 ---
@@ -212,9 +212,9 @@ Latency is the product, so a dictation has one retry budget. Only timeouts and c
 | Other `Http` | No | The request may already have reached the provider |
 | `Auth`, `RateLimited`, `BadAudio`, `Provider` | No | An immediate replay cannot safely repair them |
 
-A failed live session may fall back to batch, but that replay consumes the one retry. The batch helper has no loop and can make at most one additional call ([worker.rs:417-448](../../crates/hark-pipeline/src/worker.rs#L417-L448), [worker.rs:730-746](../../crates/hark-pipeline/src/worker.rs#L730-L746)). The shared client preserves connections across dictations, and streaming uploads most audio before release when available ([lib.rs](../../crates/hark-pipeline/src/lib.rs), [stream.rs:138-148](../../crates/hark-pipeline/src/stream.rs#L138-L148)).
+A failed live session may fall back to batch, but that replay consumes the one retry. The batch helper has no loop and can make at most one additional call ([worker.rs:417-448](../../crates/hark-pipeline/src/worker.rs#L417-L448), [worker.rs:730-746](../../crates/hark-pipeline/src/worker.rs#L730-L746)). The shared client preserves connections across dictations, and streaming uploads most audio before release when available ([lib.rs](../../crates/hark-pipeline/src/lib.rs), [stream.rs:145-155](../../crates/hark-pipeline/src/stream.rs#L145-L155)).
 
-Sources: [retry.rs:1-27](../../crates/hark-pipeline/src/retry.rs#L1-L27), [worker.rs:417-448](../../crates/hark-pipeline/src/worker.rs#L417-L448), [worker.rs:730-746](../../crates/hark-pipeline/src/worker.rs#L730-L746), [stream.rs:138-148](../../crates/hark-pipeline/src/stream.rs#L138-L148)
+Sources: [retry.rs:1-27](../../crates/hark-pipeline/src/retry.rs#L1-L27), [worker.rs:417-448](../../crates/hark-pipeline/src/worker.rs#L417-L448), [worker.rs:730-746](../../crates/hark-pipeline/src/worker.rs#L730-L746), [stream.rs:145-155](../../crates/hark-pipeline/src/stream.rs#L145-L155)
 `LiveTurn` retains whether a session was attempted independently of its pump. A failed open or mid-hold send therefore permits one batch replay and no further batch retry. Cancellation is rechecked before retries, local fallback, cleanup, and injection; a response already in flight may finish but cannot start the next stage after cancellation ([stream](../../crates/hark-pipeline/src/stream.rs), [worker](../../crates/hark-pipeline/src/worker.rs)).
 <!-- END:AUTOGEN hark_02_architecture_retry -->
 

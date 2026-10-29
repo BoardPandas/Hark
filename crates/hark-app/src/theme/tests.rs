@@ -206,7 +206,7 @@ fn document_speaker_inks_read_on_white_paper() {
 #[test]
 fn speaker_icons_are_glyphs_of_the_vendored_phosphor_font() {
     let ctx = Context::default();
-    let mut fonts = font_definitions();
+    let mut fonts = font_definitions(Lettering::Modern);
     let only = FontFamily::Name("phosphor-only".into());
     fonts.families.insert(only.clone(), vec!["Phosphor".into()]);
     ctx.set_fonts(fonts);
@@ -345,17 +345,25 @@ fn apply_preserves_a_restored_theme_preference() {
 
 #[test]
 fn type_scale_matches_the_spec() {
-    let styles = text_styles();
-    assert_eq!(styles.len(), 6);
-    assert_eq!(styles[&TextStyle::Heading].size, TITLE_SIZE);
-    assert_eq!(styles[&TextStyle::Heading].family, medium());
-    assert_eq!(styles[&subheading()].size, 15.0);
-    assert_eq!(styles[&subheading()].family, medium());
-    assert_eq!(styles[&TextStyle::Body].size, 14.0);
-    assert_eq!(styles[&TextStyle::Button].family, medium());
-    assert_eq!(styles[&TextStyle::Small].size, 12.0);
-    assert_eq!(styles[&TextStyle::Monospace].size, 13.0);
-    assert_eq!(styles[&TextStyle::Monospace].family, FontFamily::Monospace);
+    // (lettering, heading family, subheading, body, button, small)
+    for (lettering, heading, sub, body, button, small) in [
+        (Lettering::Modern, medium(), 15.0, 14.0, 13.0, 12.0),
+        (Lettering::Wizard, serif(), 16.0, 15.0, 14.0, 13.0),
+    ] {
+        let styles = text_styles(lettering);
+        assert_eq!(styles.len(), 6);
+        assert_eq!(styles[&TextStyle::Heading].size, TITLE_SIZE);
+        assert_eq!(styles[&TextStyle::Heading].family, heading);
+        assert_eq!(styles[&subheading()].size, sub);
+        assert_eq!(styles[&subheading()].family, medium());
+        assert_eq!(styles[&TextStyle::Body].size, body);
+        assert_eq!(styles[&TextStyle::Body].family, FontFamily::Proportional);
+        assert_eq!(styles[&TextStyle::Button].size, button);
+        assert_eq!(styles[&TextStyle::Button].family, medium());
+        assert_eq!(styles[&TextStyle::Small].size, small);
+        assert_eq!(styles[&TextStyle::Monospace].size, 13.0);
+        assert_eq!(styles[&TextStyle::Monospace].family, FontFamily::Monospace);
+    }
 }
 
 /// The bug this pins: Inter ships 745 Private-Use-Area glyphs, five of
@@ -366,16 +374,18 @@ fn type_scale_matches_the_spec() {
 /// should be, and nothing anywhere reported a problem.
 #[test]
 fn the_icon_family_leads_with_phosphor() {
-    let fonts = font_definitions();
-    let list = &fonts.families[&icon()];
-    assert_eq!(
-        list[0], "Phosphor",
-        "icons must resolve to Phosphor BEFORE any text font, or Inter's \
-         private-use glyphs shadow them"
-    );
-    // ...and Inter stays reachable, so an icon string that also contains
-    // text does not fall all the way through to egui's defaults.
-    assert!(list.contains(&"Inter".to_string()));
+    for lettering in Lettering::ALL {
+        let fonts = font_definitions(lettering);
+        let list = &fonts.families[&icon()];
+        assert_eq!(
+            list[0], "Phosphor",
+            "{lettering:?}: icons must resolve to Phosphor BEFORE any text font, \
+             or Inter's private-use glyphs shadow them"
+        );
+        // ...and Inter stays reachable, so an icon string that also contains
+        // text does not fall all the way through to egui's defaults.
+        assert!(list.contains(&"Inter".to_string()));
+    }
 }
 
 /// Phosphor maps the lowercase Latin range, which is why it cannot simply
@@ -383,38 +393,103 @@ fn the_icon_family_leads_with_phosphor() {
 /// stops being true the whole icon family could be retired.
 #[test]
 fn phosphor_would_swallow_lowercase_text_if_it_led_a_text_family() {
-    let fonts = font_definitions();
-    for family in [FontFamily::Proportional, medium(), semibold()] {
-        assert_ne!(
-            fonts.families[&family][0], "Phosphor",
-            "{family:?} must lead with a text font"
-        );
+    for lettering in Lettering::ALL {
+        let fonts = font_definitions(lettering);
+        for family in [FontFamily::Proportional, medium(), semibold(), serif()] {
+            assert_ne!(
+                fonts.families[&family][0], "Phosphor",
+                "{lettering:?}: {family:?} must lead with a text font"
+            );
+        }
     }
 }
 
 #[test]
 fn every_family_resolves_and_leads_with_the_intended_font() {
-    let fonts = font_definitions();
-    for name in [
-        "Inter",
-        "InterMedium",
-        "InterSemiBold",
-        "JetBrainsMono",
-        "Phosphor",
-        "Lora",
+    for (lettering, text, med, semi, title, cap) in [
+        (
+            Lettering::Modern,
+            "Inter",
+            "InterMedium",
+            "InterSemiBold",
+            "Lora",
+            "Lora",
+        ),
+        (
+            Lettering::Wizard,
+            "Alegreya",
+            "AlegreyaMedium",
+            "AlegreyaSemiBold",
+            "CinzelDecorative",
+            "CinzelDecorativeBold",
+        ),
     ] {
-        assert!(fonts.font_data.contains_key(name), "missing font {name}");
+        let fonts = font_definitions(lettering);
+        // Every font is registered under both letterings, so a switch only
+        // changes family lists.
+        for name in [
+            "Inter",
+            "InterMedium",
+            "InterSemiBold",
+            "JetBrainsMono",
+            "Phosphor",
+            "Lora",
+            "Alegreya",
+            "AlegreyaMedium",
+            "AlegreyaSemiBold",
+            "CinzelDecorative",
+            "CinzelDecorativeBold",
+        ] {
+            assert!(fonts.font_data.contains_key(name), "missing font {name}");
+        }
+        let leads = |family: &FontFamily, expected: &str| {
+            let list = &fonts.families[family];
+            assert_eq!(list[0], expected, "{lettering:?} family {family:?}");
+            assert_eq!(
+                list[1], "Phosphor",
+                "{lettering:?}: icons must fall back in {family:?}"
+            );
+            for name in list {
+                assert!(
+                    fonts.font_data.contains_key(name)
+                        || egui::FontDefinitions::default()
+                            .font_data
+                            .contains_key(name),
+                    "{lettering:?} {family:?} names an unregistered font {name}"
+                );
+            }
+        };
+        leads(&FontFamily::Proportional, text);
+        leads(&medium(), med);
+        leads(&semibold(), semi);
+        leads(&serif(), title);
+        leads(&drop_cap(), cap);
+        leads(&FontFamily::Monospace, "JetBrainsMono");
     }
-    let leads = |family: &FontFamily, expected: &str| {
-        let list = &fonts.families[family];
-        assert_eq!(list[0], expected, "family {family:?}");
-        assert_eq!(list[1], "Phosphor", "icons must fall back in {family:?}");
+}
+
+/// Modern lettering is today's lettering, list for list: the switch must not
+/// move a single glyph for anyone who never turns it on.
+#[test]
+fn modern_lettering_keeps_the_existing_family_lists() {
+    let fonts = font_definitions(Lettering::Modern);
+    let defaults = egui::FontDefinitions::default();
+    let fallback = &defaults.families[&FontFamily::Proportional];
+    let chain = |lead: &str| {
+        let mut list = vec![lead.to_string(), "Phosphor".to_string()];
+        list.extend(fallback.iter().cloned());
+        list
     };
-    leads(&FontFamily::Proportional, "Inter");
-    leads(&medium(), "InterMedium");
-    leads(&semibold(), "InterSemiBold");
-    leads(&serif(), "Lora");
-    leads(&FontFamily::Monospace, "JetBrainsMono");
+    assert_eq!(fonts.families[&FontFamily::Proportional], chain("Inter"));
+    assert_eq!(fonts.families[&medium()], chain("InterMedium"));
+    assert_eq!(fonts.families[&semibold()], chain("InterSemiBold"));
+    assert_eq!(fonts.families[&serif()], chain("Lora"));
+    let mut mono = chain("JetBrainsMono");
+    mono.extend(defaults.families[&FontFamily::Monospace].iter().cloned());
+    assert_eq!(fonts.families[&FontFamily::Monospace], mono);
+    let mut icons = vec!["Phosphor".to_string(), "Inter".to_string()];
+    icons.extend(fallback.iter().cloned());
+    assert_eq!(fonts.families[&icon()], icons);
 }
 
 #[test]
@@ -429,4 +504,214 @@ fn solarized_uses_official_base_fills_and_cyan_charts() {
         assert_eq!(chart(&v), Color32::from_rgb(0x2a, 0xa1, 0x98));
         assert_ne!(chart(&v), chart_soft(&v));
     }
+}
+
+/// Tip text is only contrast-checked because the tip reuses `tint`; a new
+/// fill would need its own row in the WCAG test above.
+#[test]
+fn tip_fill_is_the_contrast_tested_tint() {
+    for (name, v) in palettes() {
+        assert_eq!(tip_frame(&v).fill, tint(&v), "{name}");
+    }
+}
+
+const ALEGREYA: &[u8] = include_bytes!("../../assets/Alegreya[wght].ttf");
+
+/// Spike (plan F4): egui 0.36 pins a variable font's instance through
+/// `FontTweak::coords`. If it ignored them, all three widths would match and
+/// Wizard's Medium and SemiBold would silently render as Regular.
+#[test]
+fn alegreya_weights_are_pinned_by_font_tweak_coords() {
+    use egui::epaint::text::VariationCoords;
+    use std::sync::Arc;
+    const WEIGHTS: [f32; 3] = [400.0, 500.0, 600.0];
+    let family = |w: f32| FontFamily::Name(format!("probe-{w}").into());
+    let mut fonts = egui::FontDefinitions::default();
+    for w in WEIGHTS {
+        let name = format!("probe-{w}");
+        let data = egui::FontData::from_static(ALEGREYA).tweak(egui::FontTweak {
+            coords: VariationCoords::new([(b"wght", w)]),
+            ..Default::default()
+        });
+        fonts.font_data.insert(name.clone(), Arc::new(data));
+        fonts.families.insert(family(w), vec![name]);
+    }
+    let ctx = Context::default();
+    ctx.set_fonts(fonts);
+    let mut widths = [0.0; 3];
+    let mut output = ctx.run_ui(Default::default(), |ui| {
+        widths = WEIGHTS.map(|w| {
+            ui.fonts_mut(|f| {
+                f.layout_no_wrap(
+                    "The quick brown fox jumps over the lazy dog".into(),
+                    FontId::new(15.0, family(w)),
+                    Color32::BLACK,
+                )
+                .size()
+                .x
+            })
+        });
+    });
+    output.textures_delta.clear();
+    eprintln!("Alegreya widths at wght 400/500/600: {widths:?}");
+    assert!(
+        widths[0] < widths[1] && widths[1] < widths[2],
+        "coords not applied: {widths:?}"
+    );
+}
+
+/// Spec AC7: ASCII, Latin-1, and the typographic punctuation the UI writes.
+fn coverage_string() -> String {
+    (' '..='~')
+        .chain('\u{A0}'..='\u{FF}')
+        .chain("“”‘’–—…•·×".chars())
+        .collect()
+}
+
+/// Characters the Cinzel Decorative files (google/fonts 6157dfaa) do not map:
+/// the no-break space and the micro sign. Phosphor lacks both too, so the
+/// Wizard serif family puts Alegreya right after Phosphor to catch them in a
+/// book face. The font cannot be patched (its Reserved Font Name), so this
+/// gap is pinned instead: a font update that closes it fails this test and
+/// the workaround can go.
+const CINZEL_GAPS: &str = "\u{A0}\u{B5}";
+
+/// Which coverage-string characters each face lacks on its own. A probe
+/// family holds only the face under test, because in a real family a missing
+/// glyph falls through to the next font and renders in the wrong face with
+/// no error. (`has_glyph` cannot answer this: in a one-face family that face
+/// is also the replacement face, so it reports `false` for every char. The
+/// charmap from `characters()` is the honest answer.)
+fn missing_from_each_face(faces: &[(&str, &'static [u8])]) -> Vec<String> {
+    use std::sync::Arc;
+    let mut fonts = egui::FontDefinitions::default();
+    for (name, bytes) in faces {
+        let name = format!("probe-{name}");
+        fonts
+            .font_data
+            .insert(name.clone(), Arc::new(egui::FontData::from_static(bytes)));
+        fonts
+            .families
+            .insert(FontFamily::Name(name.clone().into()), vec![name]);
+    }
+    let ctx = Context::default();
+    ctx.set_fonts(fonts);
+    let mut missing = Vec::new();
+    let mut output = ctx.run_ui(Default::default(), |ui| {
+        missing = faces
+            .iter()
+            .map(|(name, _)| {
+                ui.fonts_mut(|f| {
+                    let family = FontFamily::Name(format!("probe-{name}").into());
+                    let charmap = f.fonts.font(&family).characters().clone();
+                    coverage_string()
+                        .chars()
+                        .filter(|c| !charmap.contains_key(c))
+                        .collect()
+                })
+            })
+            .collect();
+    });
+    output.textures_delta.clear();
+    missing
+}
+
+#[test]
+fn the_wizard_faces_cover_the_coverage_string_alone() {
+    let faces: [(&str, &'static [u8]); 3] = [
+        ("Alegreya", ALEGREYA),
+        (
+            "CinzelDecorative",
+            include_bytes!("../../assets/CinzelDecorative-Regular.ttf"),
+        ),
+        (
+            "CinzelDecorativeBold",
+            include_bytes!("../../assets/CinzelDecorative-Bold.ttf"),
+        ),
+    ];
+    let missing = missing_from_each_face(&faces);
+    assert_eq!(missing[0], "", "the Wizard body face");
+    for (face, gaps) in faces[1..].iter().zip(&missing[1..]) {
+        assert_eq!(gaps, CINZEL_GAPS, "{} changed coverage", face.0);
+    }
+}
+
+/// Which font each coverage-string character resolves to in each family of
+/// the shipped definitions. `characters()` lists, per char, the faces that
+/// map it in family order, so the first is the one egui draws.
+fn first_faces(lettering: Lettering, families: &[FontFamily]) -> Vec<Vec<(char, String)>> {
+    let ctx = Context::default();
+    ctx.set_fonts(font_definitions(lettering));
+    let mut faces = Vec::new();
+    let mut output = ctx.run_ui(Default::default(), |ui| {
+        faces = families
+            .iter()
+            .map(|family| {
+                ui.fonts_mut(|f| {
+                    let charmap = f.fonts.font(family).characters().clone();
+                    coverage_string()
+                        .chars()
+                        .map(|c| (c, charmap.get(&c).map_or("none", |v| &v[0]).to_owned()))
+                        .collect()
+                })
+            })
+            .collect();
+    });
+    output.textures_delta.clear();
+    faces
+}
+
+/// AC6/AC7 against what ships: under Wizard every coverage char is drawn by
+/// the Wizard face itself, never by Phosphor (which maps a..z) or Inter, and
+/// the serif families reach Alegreya — not Phosphor — for Cinzel's gaps.
+#[test]
+fn wizard_families_draw_the_coverage_string_in_their_own_faces() {
+    let families = [
+        (FontFamily::Proportional, "Alegreya"),
+        (medium(), "AlegreyaMedium"),
+        (semibold(), "AlegreyaSemiBold"),
+        (serif(), "CinzelDecorative"),
+        (drop_cap(), "CinzelDecorativeBold"),
+    ];
+    let resolved = first_faces(
+        Lettering::Wizard,
+        &families.clone().map(|(family, _)| family),
+    );
+    for ((family, lead), chars) in families.iter().zip(resolved) {
+        for (c, face) in chars {
+            let expected = if lead.starts_with("Cinzel") && CINZEL_GAPS.contains(c) {
+                "Alegreya"
+            } else {
+                lead
+            };
+            assert_eq!(face, expected, "{family:?}: {c:?} (U+{:04X})", c as u32);
+        }
+    }
+}
+
+/// The spike, repeated on the shipped families: Wizard's Regular, Medium and
+/// SemiBold roles really are three different weights.
+#[test]
+fn wizard_text_roles_render_at_three_weights() {
+    let ctx = Context::default();
+    ctx.set_fonts(font_definitions(Lettering::Wizard));
+    let mut widths = [0.0; 3];
+    let mut output = ctx.run_ui(Default::default(), |ui| {
+        widths = [FontFamily::Proportional, medium(), semibold()].map(|family| {
+            ui.fonts_mut(|f| {
+                f.layout_no_wrap(
+                    "The quick brown fox jumps over the lazy dog".into(),
+                    FontId::new(15.0, family),
+                    Color32::BLACK,
+                )
+                .size()
+                .x
+            })
+        });
+    });
+    output.textures_delta.clear();
+    assert!(
+        widths[0] < widths[1] && widths[1] < widths[2],
+        "weights did not pin: {widths:?}"
+    );
 }

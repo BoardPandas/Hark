@@ -27,8 +27,8 @@ fn chat_completions_url_appends_path() {
 #[test]
 fn chat_completions_url_tolerates_trailing_slash() {
     assert_eq!(
-        chat_completions_url("https://api.groq.com/openai/v1/"),
-        "https://api.groq.com/openai/v1/chat/completions"
+        chat_completions_url("https://generativelanguage.googleapis.com/v1beta/openai/"),
+        "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"
     );
 }
 
@@ -237,7 +237,7 @@ fn parse_response_rejects_whitespace_only_content() {
 
 #[test]
 fn parse_response_rejects_junk_without_echoing_it() {
-    let err = parse_response("groq", "<html>gateway timeout</html>").unwrap_err();
+    let err = parse_response("gemini", "<html>gateway timeout</html>").unwrap_err();
     match err {
         CleanupError::Provider { detail, .. } => {
             assert!(detail.contains("unexpected response body"));
@@ -276,13 +276,13 @@ fn status_401_and_403_map_to_auth_without_body_echo() {
 
 #[test]
 fn status_429_maps_to_rate_limited_with_retry_after() {
-    let err = error_for_status("groq", 429, Some(7), "{}");
+    let err = error_for_status("gemini", 429, Some(7), "{}");
     match err {
         CleanupError::RateLimited {
             provider,
             retry_after_s,
         } => {
-            assert_eq!(provider, "groq");
+            assert_eq!(provider, "gemini");
             assert_eq!(retry_after_s, Some(7));
         }
         other => panic!("expected RateLimited, got {other}"),

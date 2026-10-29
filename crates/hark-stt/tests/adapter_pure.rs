@@ -78,8 +78,8 @@ fn prompt_is_omitted_when_even_the_first_term_exceeds_budget() {
 #[test]
 fn transcriptions_url_tolerates_trailing_slash() {
     assert_eq!(
-        openai_compatible::transcriptions_url("https://api.groq.com/openai/v1/"),
-        "https://api.groq.com/openai/v1/audio/transcriptions"
+        openai_compatible::transcriptions_url("https://gateway.example.com/openai/v1/"),
+        "https://gateway.example.com/openai/v1/audio/transcriptions"
     );
 }
 
@@ -165,7 +165,7 @@ fn deepgram_response_parses_nested_transcript() {
 fn status_401_and_403_map_to_auth_without_echoing_body() {
     for status in [401u16, 403] {
         let err = error_for_status(
-            "groq",
+            "gateway",
             status,
             None,
             "{\"error\":\"invalid api key sk-secret\"}",
@@ -245,13 +245,13 @@ fn an_unparseable_body_still_yields_a_usable_auth_error() {
 
 #[test]
 fn status_429_maps_to_rate_limited_with_retry_after() {
-    let err = error_for_status("groq", 429, Some(7), "slow down");
+    let err = error_for_status("gateway", 429, Some(7), "slow down");
     match err {
         SttError::RateLimited {
             ref provider,
             retry_after_s,
         } => {
-            assert_eq!(provider, "groq");
+            assert_eq!(provider, "gateway");
             assert_eq!(retry_after_s, Some(7));
         }
         other => panic!("expected RateLimited, got {other}"),

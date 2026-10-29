@@ -1,6 +1,6 @@
 use hark_stt::{
     deepgram, error_for_status, error_for_transport, gemini, gemini_live, meeting,
-    openai_compatible,
+    openai_compatible, openai_live,
 };
 
 const PRIVATE: &str = "PRIVATE_TRANSCRIPT_sk_sensitive";
@@ -35,6 +35,7 @@ fn batch_and_meeting_parse_errors_never_echo_content() {
         assert_private(meeting::parse_final_pass(&body, 1000).unwrap_err());
         if !body.starts_with('{') {
             assert_private(gemini_live::parse_server_message(&body).unwrap_err());
+            assert_private(openai_live::parse_server_message(&body).unwrap_err());
         }
     }
     let body =
@@ -68,4 +69,25 @@ fn transport_errors_never_echo_urls_or_query_values() {
 fn live_diagnostics_do_not_echo_unknown_json_keys() {
     let body = serde_json::json!({PRIVATE: "irrelevant", "usageMetadata": {}});
     assert!(!gemini_live::top_keys(&body).join(" ").contains(PRIVATE));
+}
+
+#[test]
+fn openai_live_errors_never_echo_the_message_or_a_quoted_key() {
+    // OpenAI's realtime errors quote a masked key in `message`; a completed
+    // event missing its transcript must not echo the frame either.
+    for body in [
+        format!(
+            r#"{{"type":"error","error":{{"code":"{PRIVATE}","message":"Incorrect API key provided: sk-proj-****{PRIVATE}"}}}}"#
+        ),
+        format!(
+            r#"{{"type":"conversation.item.input_audio_transcription.completed","item_id":"{PRIVATE}"}}"#
+        ),
+    ] {
+        match openai_live::parse_server_message(&body) {
+            Ok(event) => assert!(!format!("{event:?}").contains("sk-")),
+            Err(error) => assert_private(error),
+        }
+    }
+    assert_private(openai_live::close_error(3000, PRIVATE, "mid-stream"));
+    assert_private(openai_live::close_error(1011, PRIVATE, "mid-stream"));
 }

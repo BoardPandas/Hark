@@ -116,6 +116,56 @@ fn status_from_read(read: Result<(), keyring::Error>) -> KeyStatus {
     }
 }
 
+/// What [`copy_key_if_empty`] did. Labels only, never key material.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CopyOutcome {
+    Copied,
+    /// The destination already holds a key, and a stored key is never
+    /// overwritten: it may belong to a different endpoint.
+    DestinationOccupied,
+    /// Nothing (or only whitespace) is stored under the source account.
+    SourceMissing,
+}
+
+/// Copy the OS keychain secret under `from` into `to`, only when `to` is
+/// empty. Keychain to keychain: the env overrides play no part, since they
+/// are not stored anywhere to copy. The source entry is left in place.
+///
+/// For a config migration that moved a provider to a new account name. The
+/// caller decides when that happened; this only refuses to clobber.
+pub fn copy_key_if_empty(from: &str, to: &str) -> Result<CopyOutcome, KeyError> {
+    copy_with(from, to, read_keyring, store_key)
+}
+
+/// Pure copy decision over an injected store, unit-testable without a real
+/// keyring. The destination is checked first, so an occupied slot never even
+/// reads the source.
+fn copy_with(
+    from: &str,
+    to: &str,
+    mut read: impl FnMut(&str) -> Result<Option<String>, String>,
+    write: impl FnOnce(&str, &str) -> Result<(), KeyError>,
+) -> Result<CopyOutcome, KeyError> {
+    let backend = |account: &str, detail: String| KeyError::Backend {
+        account: account.to_string(),
+        detail,
+    };
+    match read(to) {
+        Ok(Some(existing)) if !existing.trim().is_empty() => {
+            return Ok(CopyOutcome::DestinationOccupied)
+        }
+        Ok(_) => {}
+        Err(detail) => return Err(backend(to, detail)),
+    }
+    let key = match read(from) {
+        Ok(Some(key)) if !key.trim().is_empty() => key,
+        Ok(_) => return Ok(CopyOutcome::SourceMissing),
+        Err(detail) => return Err(backend(from, detail)),
+    };
+    write(to, &key)?;
+    Ok(CopyOutcome::Copied)
+}
+
 /// Resolve the STT API key for a provider label. Kept as a thin wrapper so
 /// existing call sites stand unchanged.
 pub fn resolve_key(provider: &str) -> Result<String, KeyError> {
@@ -251,7 +301,7 @@ mod tests {
             None,
             || Err("credential store locked".to_string()),
             ENV_OVERRIDE,
-            "groq",
+            "openai",
         )
         .expect_err("must be Backend");
         assert!(matches!(err, KeyError::Backend { .. }));
@@ -285,12 +335,145 @@ mod tests {
             Err(keyring::Error::PlatformFailure(Box::new(
                 std::io::Error::other("credential store locked"),
             ))),
-            "groq",
+            "openai",
         )
         .expect_err("must be Backend");
         assert!(matches!(err, KeyError::Backend { .. }));
         assert!(err.to_string().contains("credential store locked"));
-        assert!(err.to_string().contains("groq"));
+        assert!(err.to_string().contains("openai"));
+    }
+
+    // --- copy_key_if_empty, over a fake store ---
+
+    use std::cell::RefCell;
+    use std::collections::HashMap;
+
+    struct FakeStore {
+        keys: RefCell<HashMap<String, String>>,
+        reads: RefCell<Vec<String>>,
+    }
+
+    impl FakeStore {
+        fn with(entries: &[(&str, &str)]) -> Self {
+            FakeStore {
+                keys: RefCell::new(
+                    entries
+                        .iter()
+                        .map(|(a, k)| (a.to_string(), k.to_string()))
+                        .collect(),
+                ),
+                reads: RefCell::new(Vec::new()),
+            }
+        }
+
+        fn copy(&self, from: &str, to: &str) -> Result<CopyOutcome, KeyError> {
+            copy_with(
+                from,
+                to,
+                |account| {
+                    self.reads.borrow_mut().push(account.to_string());
+                    Ok(self.keys.borrow().get(account).cloned())
+                },
+                |account, key| {
+                    self.keys
+                        .borrow_mut()
+                        .insert(account.to_string(), key.to_string());
+                    Ok(())
+                },
+            )
+        }
+
+        fn get(&self, account: &str) -> Option<String> {
+            self.keys.borrow().get(account).cloned()
+        }
+    }
+
+    #[test]
+    fn an_empty_destination_receives_the_source_key() {
+        let store = FakeStore::with(&[("old", SENTINEL)]);
+        assert_eq!(store.copy("old", "new").unwrap(), CopyOutcome::Copied);
+        assert_eq!(store.get("new").as_deref(), Some(SENTINEL));
+        assert_eq!(
+            store.get("old").as_deref(),
+            Some(SENTINEL),
+            "a copy, not a move"
+        );
+    }
+
+    #[test]
+    fn an_occupied_destination_is_never_overwritten_or_even_compared() {
+        let store = FakeStore::with(&[("old", SENTINEL), ("new", "someone-elses-key")]);
+        assert_eq!(
+            store.copy("old", "new").unwrap(),
+            CopyOutcome::DestinationOccupied
+        );
+        assert_eq!(store.get("new").as_deref(), Some("someone-elses-key"));
+        assert_eq!(
+            *store.reads.borrow(),
+            vec!["new".to_string()],
+            "the source is not read once the destination is known to be taken"
+        );
+    }
+
+    #[test]
+    fn a_missing_or_blank_source_copies_nothing() {
+        let empty = FakeStore::with(&[]);
+        assert_eq!(
+            empty.copy("old", "new").unwrap(),
+            CopyOutcome::SourceMissing
+        );
+        assert_eq!(empty.get("new"), None);
+
+        let blank = FakeStore::with(&[("old", "  ")]);
+        assert_eq!(
+            blank.copy("old", "new").unwrap(),
+            CopyOutcome::SourceMissing
+        );
+        assert_eq!(blank.get("new"), None);
+    }
+
+    #[test]
+    fn a_blank_destination_counts_as_empty() {
+        let store = FakeStore::with(&[("old", SENTINEL), ("new", "")]);
+        assert_eq!(store.copy("old", "new").unwrap(), CopyOutcome::Copied);
+        assert_eq!(store.get("new").as_deref(), Some(SENTINEL));
+    }
+
+    #[test]
+    fn copy_backend_failures_name_the_account_and_never_the_key() {
+        let err = copy_with(
+            "old",
+            "new",
+            |account| {
+                if account == "new" {
+                    Ok(None)
+                } else {
+                    Err("store locked".to_string())
+                }
+            },
+            |_, _| panic!("nothing may be written after a failed read"),
+        )
+        .unwrap_err();
+        let text = format!("{err} {err:?}");
+        assert!(
+            text.contains("old") && text.contains("store locked"),
+            "{text}"
+        );
+
+        let write_failure = copy_with(
+            "old",
+            "new",
+            |account| Ok((account == "old").then(|| SENTINEL.to_string())),
+            |account, _| {
+                Err(KeyError::Backend {
+                    account: account.to_string(),
+                    detail: "write refused".to_string(),
+                })
+            },
+        )
+        .unwrap_err();
+        let text = format!("{write_failure} {write_failure:?}");
+        assert!(!text.contains(SENTINEL), "an error leaked the key: {text}");
     }
 
     #[test]

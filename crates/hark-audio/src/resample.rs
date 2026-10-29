@@ -1,4 +1,5 @@
-//! Device-rate -> 16 kHz mono resampling.
+//! Device-rate mono resampling: to 16 kHz for the pipeline, or to whatever
+//! rate a live STT session declares (OpenAI's realtime API takes only 24 kHz).
 //!
 //! WASAPI shared mode does not resample for us and rarely offers 16 kHz:
 //! devices commonly run at 48 kHz (exact 3:1) or 44.1 kHz (non-integer
@@ -18,8 +19,12 @@ pub const TARGET_RATE: u32 = 16_000;
 
 #[derive(Debug, Error)]
 pub enum ResampleError {
-    #[error("cannot construct resampler for {src_rate} Hz -> 16000 Hz: {detail}")]
-    Construct { src_rate: u32, detail: String },
+    #[error("cannot construct resampler for {src_rate} Hz -> {dst_rate} Hz: {detail}")]
+    Construct {
+        src_rate: u32,
+        dst_rate: u32,
+        detail: String,
+    },
     #[error("resampling failed: {0}")]
     Process(String),
 }
@@ -41,26 +46,23 @@ pub fn downmix_interleaved(interleaved: &[f32], channels: usize) -> Vec<f32> {
 /// Resample a complete mono clip from `src_rate` to 16 kHz. Already-16 kHz
 /// input is passed through untouched.
 pub fn resample_to_16k(samples: &[f32], src_rate: u32) -> Result<Vec<f32>, ResampleError> {
-    if src_rate == TARGET_RATE {
+    resample_to(samples, src_rate, TARGET_RATE)
+}
+
+/// Resample a complete mono clip from `src_rate` to `dst_rate`. Input already
+/// at `dst_rate` is passed through untouched.
+pub fn resample_to(
+    samples: &[f32],
+    src_rate: u32,
+    dst_rate: u32,
+) -> Result<Vec<f32>, ResampleError> {
+    if src_rate == dst_rate {
         return Ok(samples.to_vec());
     }
     if samples.is_empty() {
         return Ok(Vec::new());
     }
-    // Chunk size trades startup cost vs. per-chunk efficiency; 1024 is the
-    // recommended starting point. FixedSync::Both locks input and output to
-    // the exact rational ratio (synchronous resampling, no drift adjustment).
-    let mut resampler = Fft::<f32>::new(
-        src_rate as usize,
-        TARGET_RATE as usize,
-        1024,
-        1,
-        FixedSync::Both,
-    )
-    .map_err(|e| ResampleError::Construct {
-        src_rate,
-        detail: e.to_string(),
-    })?;
+    let mut resampler = fft(src_rate, dst_rate)?;
     // Mono: an interleaved view over the plain slice is the 1-channel adapter.
     let input = InterleavedSlice::new(samples, 1, samples.len())
         .map_err(|e| ResampleError::Process(e.to_string()))?;
@@ -71,10 +73,30 @@ pub fn resample_to_16k(samples: &[f32], src_rate: u32) -> Result<Vec<f32>, Resam
     Ok(output.take_data())
 }
 
+/// The one resampler configuration both paths use, so the whole-clip and the
+/// streaming output can never drift apart.
+fn fft(src_rate: u32, dst_rate: u32) -> Result<Fft<f32>, ResampleError> {
+    // Chunk size trades startup cost vs. per-chunk efficiency; 1024 is the
+    // recommended starting point. FixedSync::Both locks input and output to
+    // the exact rational ratio (synchronous resampling, no drift adjustment).
+    Fft::<f32>::new(
+        src_rate as usize,
+        dst_rate as usize,
+        1024,
+        1,
+        FixedSync::Both,
+    )
+    .map_err(|e| ResampleError::Construct {
+        src_rate,
+        dst_rate,
+        detail: e.to_string(),
+    })
+}
+
 /// A resampler that keeps its state across calls, for feeding a live STT
 /// session while the user is still holding the key.
 ///
-/// [`resample_to_16k`] cannot be used chunk-by-chunk: it builds a fresh
+/// [`resample_to`] cannot be used chunk-by-chunk: it builds a fresh
 /// resampler per call and runs `process_all`, so every chunk would pay the FFT
 /// startup delay again and the seams would land in the audio as periodic
 /// glitches — quiet enough to miss by ear, loud enough to cost transcription
@@ -87,7 +109,8 @@ pub fn resample_to_16k(samples: &[f32], src_rate: u32) -> Result<Vec<f32>, Resam
 /// input and the filter's delayed output, keeping exactly the real input's
 /// frame count. It ends the stream; a second drain is empty.
 pub struct StreamResampler {
-    /// `None` when the device already runs at 16 kHz: passthrough, no work.
+    /// `None` when the device already runs at the target rate: passthrough,
+    /// no work.
     inner: Option<Fft<f32>>,
     /// Device-rate samples not yet consumed by a full block.
     pending: Vec<f32>,
@@ -95,48 +118,40 @@ pub struct StreamResampler {
     /// delay). Counted down once, across the first calls, never per chunk.
     delay_remaining: usize,
     source_rate: u32,
+    target_rate: u32,
     input_frames: usize,
     output_frames: usize,
     finished: bool,
 }
 
 impl StreamResampler {
+    /// A stream to the pipeline's 16 kHz.
     pub fn new(src_rate: u32) -> Result<Self, ResampleError> {
-        if src_rate == TARGET_RATE {
-            return Ok(Self {
-                inner: None,
-                pending: Vec::new(),
-                delay_remaining: 0,
-                source_rate: src_rate,
-                input_frames: 0,
-                output_frames: 0,
-                finished: false,
-            });
-        }
-        let resampler = Fft::<f32>::new(
-            src_rate as usize,
-            TARGET_RATE as usize,
-            1024,
-            1,
-            FixedSync::Both,
-        )
-        .map_err(|e| ResampleError::Construct {
-            src_rate,
-            detail: e.to_string(),
-        })?;
-        let delay_remaining = resampler.output_delay();
+        Self::with_target(src_rate, TARGET_RATE)
+    }
+
+    /// A stream to `dst_rate`, for a live session whose provider declares its
+    /// own input rate.
+    pub fn with_target(src_rate: u32, dst_rate: u32) -> Result<Self, ResampleError> {
+        let inner = if src_rate == dst_rate {
+            None
+        } else {
+            Some(fft(src_rate, dst_rate)?)
+        };
+        let delay_remaining = inner.as_ref().map_or(0, |r| r.output_delay());
         Ok(Self {
-            inner: Some(resampler),
+            inner,
             pending: Vec::new(),
             delay_remaining,
             source_rate: src_rate,
+            target_rate: dst_rate,
             input_frames: 0,
             output_frames: 0,
             finished: false,
         })
     }
 
-    /// Feed device-rate samples; get back whatever 16 kHz output is ready.
+    /// Feed device-rate samples; get back whatever target-rate output is ready.
     pub fn push(&mut self, samples: &[f32]) -> Result<Vec<f32>, ResampleError> {
         if self.finished {
             return Err(ResampleError::Process(
@@ -193,8 +208,8 @@ impl StreamResampler {
             return Ok(Vec::new());
         }
         self.finished = true;
-        let remaining =
-            resampled_len(self.input_frames, self.source_rate).saturating_sub(self.output_frames);
+        let remaining = resampled_len_to(self.input_frames, self.source_rate, self.target_rate)
+            .saturating_sub(self.output_frames);
         let mut out = Vec::new();
         while out.len() < remaining {
             let need = self
@@ -212,11 +227,16 @@ impl StreamResampler {
 }
 
 /// The exact output length `resample_to_16k` produces for a given input
-/// length: ceil(len * 16000 / src_rate), matching rubato's `process_all`
-/// contract (`expected_output_len = ceil(ratio * input_len)`). Pure, for
-/// window-budget math.
+/// length. Pure, for window-budget math.
 pub fn resampled_len(input_len: usize, src_rate: u32) -> usize {
-    ((input_len as u64 * TARGET_RATE as u64).div_ceil(src_rate as u64)) as usize
+    resampled_len_to(input_len, src_rate, TARGET_RATE)
+}
+
+/// The exact output length `resample_to` produces: ceil(len * dst / src),
+/// matching rubato's `process_all` contract
+/// (`expected_output_len = ceil(ratio * input_len)`).
+pub fn resampled_len_to(input_len: usize, src_rate: u32, dst_rate: u32) -> usize {
+    ((input_len as u64 * dst_rate as u64).div_ceil(src_rate as u64)) as usize
 }
 
 #[cfg(test)]
@@ -225,26 +245,28 @@ mod tests {
 
     #[test]
     fn streaming_finalization_preserves_exact_lengths_and_ending_signal() {
-        for rate in [16_000, 44_100, 48_000] {
-            let block = if rate == TARGET_RATE {
+        // 16 kHz is the pipeline's rate; 24 kHz is what OpenAI's realtime API
+        // accepts, reached both by downsampling and by upsampling.
+        for (rate, target) in [
+            (16_000, TARGET_RATE),
+            (44_100, TARGET_RATE),
+            (48_000, TARGET_RATE),
+            (16_000, 24_000),
+            (24_000, 24_000),
+            (44_100, 24_000),
+            (48_000, 24_000),
+        ] {
+            let block = if rate == target {
                 1024
             } else {
-                Fft::<f32>::new(
-                    rate as usize,
-                    TARGET_RATE as usize,
-                    1024,
-                    1,
-                    FixedSync::Both,
-                )
-                .unwrap()
-                .input_frames_next()
+                fft(rate, target).unwrap().input_frames_next()
             };
             for len in [0, 1, 240, block, block * 2, rate as usize] {
                 let mut input = vec![0.0; len];
                 let tail = len.saturating_sub(120);
                 input[tail..].fill(0.5);
                 for chunk_size in [137, 1024] {
-                    let mut stream = StreamResampler::new(rate).unwrap();
+                    let mut stream = StreamResampler::with_target(rate, target).unwrap();
                     let mut output = Vec::new();
                     for chunk in input.chunks(chunk_size) {
                         output.extend(stream.push(chunk).unwrap());
@@ -252,14 +274,14 @@ mod tests {
                     output.extend(stream.drain().unwrap());
                     assert_eq!(
                         output.len(),
-                        resampled_len(len, rate),
-                        "rate={rate}, input={len}"
+                        resampled_len_to(len, rate, target),
+                        "rate={rate}, target={target}, input={len}"
                     );
                     if len >= 240 {
                         let ending = &output[output.len().saturating_sub(40)..];
                         assert!(
                             ending.iter().any(|s| s.abs() > 0.25),
-                            "ending lost: rate={rate}, input={len}"
+                            "ending lost: rate={rate}, target={target}, input={len}"
                         );
                     }
                     assert!(
@@ -269,6 +291,79 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    fn whole_clip_to_24k_has_exact_lengths() {
+        // OpenAI's realtime API takes only 24 kHz: up from the stored 16 kHz
+        // clip on replay, down from a 48 kHz device when streaming.
+        let up = resample_to(&sine(16_000, 1.0), 16_000, 24_000).unwrap();
+        assert_eq!(up.len(), 24_000);
+        let down = resample_to(&sine(48_000, 1.0), 48_000, 24_000).unwrap();
+        assert_eq!(down.len(), 24_000);
+        // An unaligned length rounds up, as process_all does.
+        let odd = resample_to(&sine(16_000, 1.0)[..1_001], 16_000, 24_000).unwrap();
+        assert_eq!(odd.len(), 1_502);
+        assert_eq!(odd.len(), resampled_len_to(1_001, 16_000, 24_000));
+    }
+
+    #[test]
+    fn resampled_len_to_matches_known_ratios() {
+        assert_eq!(resampled_len_to(16_000, 16_000, 24_000), 24_000);
+        assert_eq!(resampled_len_to(48_000, 48_000, 24_000), 24_000);
+        assert_eq!(resampled_len_to(44_100, 44_100, 24_000), 24_000);
+        assert_eq!(resampled_len_to(0, 16_000, 24_000), 0);
+        // The 16 kHz helper is the same function at the pipeline's rate.
+        assert_eq!(
+            resampled_len(44_100, 44_100),
+            resampled_len_to(44_100, 44_100, 16_000)
+        );
+    }
+
+    #[test]
+    fn streaming_to_24k_matches_whole_clip_resampling() {
+        // The same seam check as the 16 kHz test below, at the live target,
+        // from both directions.
+        for rate in [16_000, 48_000] {
+            let clip = sine(rate, 1.0);
+            let whole = resample_to(&clip, rate, 24_000).unwrap();
+
+            let mut streamer = StreamResampler::with_target(rate, 24_000).unwrap();
+            let mut streamed = Vec::new();
+            for chunk in clip.chunks(rate as usize / 50) {
+                streamed.extend(streamer.push(chunk).unwrap());
+            }
+            streamed.extend(streamer.drain().unwrap());
+
+            assert_eq!(streamed.len(), whole.len(), "rate={rate}");
+            let diff = mean_abs_diff(&streamed, &whole);
+            assert!(
+                diff < 0.01,
+                "streamed output diverged from whole-clip at {rate} Hz: {diff}"
+            );
+        }
+    }
+
+    #[test]
+    fn passthrough_at_24k() {
+        let clip = sine(24_000, 0.25);
+        assert_eq!(resample_to(&clip, 24_000, 24_000).unwrap(), clip);
+        let mut streamer = StreamResampler::with_target(24_000, 24_000).unwrap();
+        assert_eq!(streamer.push(&clip).unwrap(), clip);
+        assert!(streamer.drain().unwrap().is_empty());
+    }
+
+    #[test]
+    fn a_construct_error_names_the_actual_target_rate() {
+        let error = ResampleError::Construct {
+            src_rate: 48_000,
+            dst_rate: 24_000,
+            detail: "x".into(),
+        };
+        assert!(
+            error.to_string().contains("48000 Hz -> 24000 Hz"),
+            "{error}"
+        );
     }
 
     /// 440 Hz sine at a given rate: real signal content so resampler output

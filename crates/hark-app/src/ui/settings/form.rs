@@ -2,6 +2,7 @@
 //! endpoint options retain progressive disclosure. Buffers sync into the draft at
 //! widget-render time, so the draft is always current when Save reads it.
 
+use super::live_rows;
 use crate::theme;
 use egui::{CollapsingHeader, Label, RichText, Sense, TextEdit, Ui};
 use hark_config::{LiveMode, Provider, ProviderKind, Settings, VoiceName};
@@ -62,77 +63,56 @@ pub(crate) fn subhead(ui: &mut Ui, text: &str) {
 /// The provider kinds this build can actually run.
 ///
 /// Gemini is omitted from a `--no-default-features` build: without the
-/// `gemini-live` feature there is no WebSocket client linked in, so offering
+/// `live-stt` feature there is no WebSocket client linked in, so offering
 /// the option would produce a provider that fails on the first dictation
 /// rather than one that is simply absent.
 pub fn provider_choices() -> Vec<(ProviderKind, &'static str)> {
     let mut choices = vec![
         (ProviderKind::Deepgram, "Deepgram"),
         (ProviderKind::Openai, "OpenAI"),
-        (ProviderKind::Groq, "Groq"),
     ];
-    if cfg!(feature = "gemini-live") {
+    if live_rows::LIVE_BUILD {
         choices.push((ProviderKind::Gemini, "Gemini"));
     }
     choices.push((ProviderKind::OpenaiCompatible, "OpenAI-compatible"));
     choices
 }
 
-/// Gemini Live's transcript mode. Only meaningful for that provider, so it is
-/// drawn only when that provider is selected rather than greyed out everywhere.
-fn live_mode_row(ui: &mut Ui, draft: &mut Settings) {
-    ui.add_space(4.0);
-    ui.label(RichText::new("Transcript").weak());
-    ui.horizontal_wrapped(|ui| {
-        ui.radio_value(
-            &mut draft.provider.live_mode,
-            LiveMode::Verbatim,
-            "Verbatim",
-        )
-        .on_hover_text(
-            "Literal transcript from Gemini, then your cleanup voice runs as a second call on \
-             Gemini Flash Lite using the same key. Slower, but your voice and its prompt apply.",
-        );
-        ui.radio_value(&mut draft.provider.live_mode, LiveMode::Smart, "Smart")
-            .on_hover_text(
-                "Gemini tidies the text inside the transcription call — one round trip instead of \
-                 two, so it is faster. Your cleanup voice does NOT run: Gemini applies its own \
-                 generic cleanup, not your prompt. It drops openers like \"so basically\", \
-                 carries out spoken edits like \"drop the other bullet points\" instead of \
-                 typing them, and can answer a dictation that sounds like a request. Use \
-                 Verbatim when you dictate prompts or instructions. History stores the tidied \
-                 text rather than what you said, and invocation triggers match against it.",
-            );
-    });
-}
-
-/// Provider kind radio row. Returns true when the kind changed.
+/// Provider kind radio row, plus the selected provider's option row. Returns
+/// true when the kind or OpenAI's Live transcribe toggle changed.
 pub fn provider_section(ui: &mut Ui, draft: &mut Settings, bufs: &mut FormBufs) -> bool {
     subhead(ui, "Speech to text");
     let mut changed = false;
     ui.horizontal_wrapped(|ui| {
         for (kind, label) in provider_choices() {
-            if ui
-                .radio_value(&mut draft.provider.kind, kind, label)
-                .changed()
-            {
-                changed = true;
-            }
+            let radio = ui.radio_value(&mut draft.provider.kind, kind, label);
+            changed |= radio.changed();
+            // Lazy: the line is only built while the radio is hovered.
+            radio.on_hover_ui(|ui| {
+                ui.label(super::provider_help::describe(kind));
+            });
         }
     });
-    if draft.provider.kind == ProviderKind::Gemini {
-        live_mode_row(ui, draft);
-    }
     if changed {
         // A model or URL typed for the previous provider almost certainly
         // does not exist on the new one; fall back to the per-kind default.
+        // Live transcribe is OpenAI's alone, so it starts off again too.
         bufs.model.clear();
         bufs.base_url.clear();
         draft.provider.model = None;
         draft.provider.base_url = None;
+        draft.provider.live = false;
         if draft.provider.kind == ProviderKind::OpenaiCompatible {
             bufs.force_endpoint_open = true;
         }
+    }
+    if draft.provider.kind == ProviderKind::Gemini {
+        live_rows::live_mode_row(ui, draft);
+    }
+    if live_rows::offers_live_transcribe(draft.provider.kind) {
+        // A different transport and model: an earlier Test connection pass
+        // no longer speaks for this one.
+        changed |= live_rows::live_transcribe_row(ui, draft, &mut bufs.model);
     }
     changed
 }
@@ -142,21 +122,40 @@ pub fn model_endpoint_section(ui: &mut Ui, draft: &mut Settings, bufs: &mut Form
     let force_open = bufs.force_endpoint_open.then_some(true);
     bufs.force_endpoint_open = false;
     let custom = draft.provider.kind == ProviderKind::OpenaiCompatible;
-    CollapsingHeader::new("Model & endpoint")
+    // egui ids a header by its label; the salt keeps the open state when it changes.
+    CollapsingHeader::new(super::provider_help::model_header(custom))
+        .id_salt("stt-model-endpoint")
         .default_open(custom)
         .open(force_open)
         .show(ui, |ui| {
+            if !custom {
+                ui.label(
+                    RichText::new("Leave blank to use the recommended model.")
+                        .small()
+                        .weak(),
+                );
+            }
             let default_model = Provider {
                 kind: draft.provider.kind,
                 ..Default::default()
             }
             .resolved_model();
             ui.label(RichText::new("Model").weak());
-            ui.add(
-                TextEdit::singleline(&mut bufs.model)
-                    .hint_text(format!("{default_model} (default)")),
-            );
-            draft.provider.model = none_if_empty(&bufs.model);
+            if live_rows::model_is_fixed(&draft.provider) {
+                // Read-only while Live transcribe is on: the batch pin in
+                // `bufs.model` is left alone, so it returns with the toggle.
+                let live_model = draft
+                    .provider
+                    .live_transcribe_model()
+                    .unwrap_or_else(|| hark_config::OPENAI_LIVE_MODEL.to_string());
+                ui.label(RichText::new(format!("{live_model} (Live transcribe)")).weak());
+            } else {
+                ui.add(
+                    TextEdit::singleline(&mut bufs.model)
+                        .hint_text(format!("{default_model} (default)")),
+                );
+                draft.provider.model = none_if_empty(&bufs.model);
+            }
 
             ui.label(RichText::new("Base URL").weak());
             let hint = if custom {
@@ -434,7 +433,7 @@ mod tests {
         let has_gemini = provider_choices()
             .iter()
             .any(|(kind, _)| *kind == ProviderKind::Gemini);
-        assert_eq!(has_gemini, cfg!(feature = "gemini-live"));
+        assert_eq!(has_gemini, cfg!(feature = "live-stt"));
     }
 
     #[test]
@@ -442,6 +441,19 @@ mod tests {
         // It is the escape hatch, not a peer of the named presets.
         let choices = provider_choices();
         assert_eq!(choices.last().unwrap().0, ProviderKind::OpenaiCompatible);
+    }
+
+    #[test]
+    fn the_picker_offers_no_row_for_groq_or_a_second_openai() {
+        // Groq is gone (schema 7 migrates it), and OpenAI Live is a toggle on
+        // the OpenAI row, not a row of its own with its own key.
+        let labels: Vec<&str> = provider_choices().iter().map(|(_, l)| *l).collect();
+        let expected: &[&str] = if cfg!(feature = "live-stt") {
+            &["Deepgram", "OpenAI", "Gemini", "OpenAI-compatible"]
+        } else {
+            &["Deepgram", "OpenAI", "OpenAI-compatible"]
+        };
+        assert_eq!(labels, expected);
     }
 
     #[test]

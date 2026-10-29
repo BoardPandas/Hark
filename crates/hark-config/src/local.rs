@@ -44,9 +44,9 @@ impl LocalMode {
     }
 }
 
-/// The default model id. Parakeet TDT 0.6B v3, int8 ONNX — the newest
-/// revision (v2 is the English-only predecessor, ~0.27 pp better on English
-/// and 24 languages worse). Changing this string to
+/// The default model id. Parakeet TDT 0.6B v3, int8 ONNX — the pinned
+/// multilingual build (v2 is the English-only predecessor, ~0.27 pp better on
+/// English and 24 languages worse; see `hark_local_stt::PARAKEET_V3_INT8`). Changing this string to
 /// `parakeet-tdt-0.6b-v2-int8` is the supported way to go back.
 pub const DEFAULT_MODEL: &str = "parakeet-tdt-0.6b-v3-int8";
 

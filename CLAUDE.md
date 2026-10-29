@@ -9,11 +9,11 @@ Hark is a single-user, **push-to-talk voice dictation desktop app** for Windows 
 | Layer | Choice |
 |---|---|
 | Language / process model | Rust; single process, **UI on main thread, pipeline on worker threads** |
-| Audio | `cpal` (device-rate mono ring buffer, pre-roll + tail, resampled to 16 kHz per clip) |
+| Audio | `cpal` (device-rate mono ring buffer, pre-roll + tail, resampled to 16 kHz per clip; a live stream goes straight to the provider's rate) |
 | Push-to-talk | Native low-level hooks: **`WH_KEYBOARD_LL` (Windows), `CGEventTap` (macOS), `evdev` on `/dev/input` (Linux)** — NOT the `global-hotkey` crate, and NOT an X11 grab (invisible under Wayland) |
-| STT (cloud, primary) | **BYOK cloud via an `SttProvider` trait**: Deepgram; Whisper-family OpenAI-compatible endpoints; OpenAI `gpt-transcribe`; Gemini Live (`gemini-3.5-transcribe-live`) |
+| STT (cloud, primary) | **BYOK cloud via an `SttProvider` trait**: Deepgram; Whisper-family OpenAI-compatible endpoints; OpenAI `gpt-transcribe`, or `gpt-live-transcribe` with `[provider] live = true` (same key); Gemini Live (`gemini-3.5-transcribe-live`) |
 | STT (on-device, optional) | `hark-local-stt`: sherpa-onnx Parakeet, behind the `engine` feature — **on by default** via `hark-app`'s `local-engine`. Off/Backup/Primary per `[local_stt] mode`. Never on the cloud hot path unless selected |
-| STT transport | Blocking `reqwest` + rustls on pipeline workers; Gemini Live owns a private `current_thread` Tokio/WebSocket runtime; **no global runtime** |
+| STT transport | Blocking `reqwest` + rustls on pipeline workers; each live adapter (Gemini Live, OpenAI live) owns a private `current_thread` Tokio/WebSocket runtime; **no global runtime** |
 | Spellbook | Phonetic post-correction (primary, provider-agnostic) + per-provider biasing (`prompt`, `keywords[]`, `keyterm`, or Gemini `customVocabulary`) |
 | Invocations | Trigger phrase → canned text (`hark_spellbook::Expander`); same guarded matcher as the spellbook at a **0.90** confirm threshold vs 0.85. A fired invocation **must** skip cleanup — control flow, never a prompt clause |
 | Voices / cleanup | BYOK OpenAI-compatible endpoint (optional); Gemini is supported, and Live Smart mode can return provider-cleaned text in the STT turn |
@@ -27,23 +27,22 @@ Full rationale and phases: [`tasks/plan-repo.md`](tasks/plan-repo.md). UI/latenc
 
 - **macOS requires all UI on the main thread.** The main thread owns the tray + egui event loop; the dictation pipeline (hotkey, audio, STT, HTTP, injection) runs on **worker threads only**. Getting this wrong causes hangs that surface only on Mac.
 - **The Linux tray is the single, deliberate exception, and it is not a loophole.** `tray-icon` renders a Linux tray through libappindicator, i.e. GTK widgets, which are `!Send`, need `gtk::init()` on their own thread, and only do anything while a GTK main loop iterates — and winit already owns the main thread's loop. So `hark-app/src/tray/surface_gtk.rs` runs them on a dedicated thread. That is legal precisely because the main-thread rule is an **AppKit** rule: `surface_gtk.rs` never compiles on macOS, and nothing on Linux requires the tray to share the window's thread. Do not generalise this into "UI can go on worker threads".
-- **Latency is the product.** All perceived latency is release-to-inject. Batch adapters reuse one long-lived HTTP client; Gemini Live uploads during the hold and only finalizes after release. At most one retry/replay is allowed; history/stats writes happen after injection, off the hot path.
+- **Latency is the product.** All perceived latency is release-to-inject. Batch adapters reuse one long-lived HTTP client; the live adapters (Gemini Live, OpenAI live) upload during the hold and only finalize after release. At most one retry/replay is allowed; history/stats writes happen after injection, off the hot path.
 
 ## Stack gotchas (verified 2026-07-15, re-check before relying on them)
 
 Full detail + citations: `.claude/agent-memory/explorer/hark_cloud_stt_providers.md`, `hark_cloud_stt_rust_stack.md`, and [`tasks/plan-repo.md`](tasks/plan-repo.md) §11. The load-bearing ones:
 
-- **OpenAI and Groq share the multipart `/audio/transcriptions` contract**; one adapter covers both. Deepgram is its own adapter (`/v1/listen`, `Token` auth, raw `audio/wav` body).
-- **Groq bills a 10 s minimum per transcription request**; every short utterance costs as 10 s.
-- **Deepgram `keyterm` (nova-3+, unweighted) and legacy weighted `keywords` (nova-2) are mutually exclusive by model generation.**
-- **Batch transport is `reqwest` blocking on worker threads.** Gemini Live is the scoped exception: its adapter owns a private current-thread Tokio runtime and never exposes it process-wide. The `deepgram` crate is pre-1.0 and drags in full tokio (call its REST API directly instead).
+- **Deepgram `keyterm` (nova-3+, unweighted) and legacy weighted `keywords` (nova-2) are mutually exclusive by model generation.** Deepgram is its own adapter (`/v1/listen`, `Token` auth, raw `audio/wav` body).
+- **OpenAI realtime (CP0, 2026-10-29) accepts only 24 kHz PCM**, so the live input rate is per provider (`LiveStt::input_rate()`) and the batch clip stays 16 kHz. A bad key passes the WebSocket handshake and fails as an `error` event; a commit needs ≥ 100 ms of audio.
+- **Batch transport is `reqwest` blocking on worker threads.** The two live adapters are the scoped exception: each owns a private current-thread Tokio runtime and never exposes it process-wide. The `deepgram` crate is pre-1.0 and drags in full tokio (call its REST API directly instead).
 - **Never log API keys or raw audio**; errors must not echo Authorization headers or request bodies.
 - **Windows tray binary has no console:** any console child process must set `CREATE_NO_WINDOW` (0x0800_0000) or a console flashes and steals focus (LL-G `kb/rust/gui-subsystem-console-child-window.md`).
 - **On Linux there is no `LLKHF_INJECTED`.** A uinput device is indistinguishable from real hardware once its events reach `/dev/input`, so our own synthesized Ctrl+V would feed straight back into the chord tracker — on a Ctrl-containing chord, a dictation that re-triggers itself forever. The filter is the device *name*: `hark-inject` names its keyboard `Hark Virtual Keyboard`, `hark-hotkey` skips any device whose name starts with `Hark`. Both ends key off the app name so they cannot drift; each has a test pinning it.
 - **`libappindicator` is `dlopen`ed, not linked** (libappindicator-sys uses `libloading`), so it never appears in the binary's `DT_NEEDED` and neither `dpkg-shlibdeps` nor rpm's `auto-req` can infer it. The `.deb`/`.rpm`/PKGBUILD name it explicitly; drop that and the packages still build, still install, and the tray silently never appears. `release.yml` gates on it.
 - **Linux cannot swallow one key.** Suppressing a keystroke needs `EVIOCGRAB`, which takes the whole device exclusively and would stop every other key reaching the focused app. `[hotkey] swallow_lock_keys` is therefore inert on Linux and logs that it is; do not "fix" it with a grab.
 - **Linux does not self-update.** The binary belongs to `dpkg`/`rpm`/`pacman`; overwriting it in place fails their integrity checks and is reverted by the next upgrade. `hark-update` checks and reports; the package manager installs.
-- **Gemini Live's runtime boundary is load-bearing.** Keep it scoped to the adapter, keep blocking `reqwest` off it, preserve the finished-clip replay path, and never open a cloud session in primary on-device mode (LL-G `kb/rust/blocking-io-on-tokio.md`).
+- **The live adapters' runtime boundary is load-bearing (Gemini Live and OpenAI live).** Keep each runtime scoped to its adapter, keep blocking `reqwest` and CPU work off it, preserve the finished-clip replay path, and never open a cloud session in primary on-device mode (LL-G `kb/rust/blocking-io-on-tokio.md`).
 
 ## Coding standards
 

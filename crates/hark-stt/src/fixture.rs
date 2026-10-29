@@ -7,9 +7,7 @@
 //! `fixtures/` so the two can never drift.
 //!
 //! The clip is ~10 s of 16 kHz mono speech (`fixtures/expected.txt` holds the
-//! reference transcript used by the spike's Levenshtein check). Note for
-//! Groq: 10 s is exactly its per-request billing minimum, so a test costs the
-//! same as any short dictation.
+//! reference transcript used by the spike's Levenshtein check).
 
 /// Complete WAV bytes, ready for [`crate::SttProvider::transcribe`].
 pub const SPIKE_WAV: &[u8] = include_bytes!("../fixtures/spike_clip.wav");
