@@ -207,3 +207,12 @@ fn solarized_uses_official_base_fills_and_cyan_charts() {
         assert_ne!(chart(&v), chart_soft(&v));
     }
 }
+
+/// Tip text is only contrast-checked because the tip reuses `tint`; a new
+/// fill would need its own row in the WCAG test above.
+#[test]
+fn tip_fill_is_the_contrast_tested_tint() {
+    for (name, v) in palettes() {
+        assert_eq!(tip_frame(&v).fill, tint(&v), "{name}");
+    }
+}

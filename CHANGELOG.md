@@ -6,6 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.63.3] - 2026-10-29
+
+### Changed
+
+- Groundwork for choosing a transcription setup in Settings: a one-line description and a "Get a key" page for each speech-to-text provider, and the rules for when Hark suggests on-device transcription. Nothing changes on screen yet.
+- Hark's notes about the on-device model no longer call Parakeet TDT 0.6B v3 the latest version. It is the multilingual build Hark ships. Newer English-only builds exist, and Hark keeps v3 for now.
+
 ## [0.63.2] - 2026-10-29
 
 ### Fixed

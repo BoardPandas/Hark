@@ -14,7 +14,13 @@ pub mod local;
 pub mod meetings;
 mod onboarding;
 mod preferences;
+// Wired into the Speech to text card in the next checkpoint; until then only
+// the tests use them, and this is a binary crate, so `pub` does not hide it.
+#[allow(dead_code)]
+mod provider_help;
 mod sections;
+#[allow(dead_code)]
+mod stt_card;
 pub mod test;
 pub mod updates;
 pub use sections::Section;
