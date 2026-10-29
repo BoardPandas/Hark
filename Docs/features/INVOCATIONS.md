@@ -14,6 +14,7 @@ The following files were used as evidence for this page:
 - [crates/hark-app/src/ui/invocations/mod.rs](../../crates/hark-app/src/ui/invocations/mod.rs)
 - [crates/hark-app/src/ui/invocations/editor.rs](../../crates/hark-app/src/ui/invocations/editor.rs)
 - [crates/hark-app/src/ui/invocations/aliases.rs](../../crates/hark-app/src/ui/invocations/aliases.rs)
+- [crates/hark-app/src/ui/invocations/book.rs](../../crates/hark-app/src/ui/invocations/book.rs) and [crates/hark-app/src/ui/book.rs](../../crates/hark-app/src/ui/book.rs)
 - [config/default-config.toml](../../config/default-config.toml)
 
 </details>
@@ -176,7 +177,7 @@ Sources: [invocations.rs:1-60](https://github.com/BoardPandas/Hark/blob/bcfcc3fe
 <!-- BEGIN:AUTOGEN hark_08b_invocations_ui -->
 ## The Invocations Page
 
-Invocations sits with Spellbook in the sidebar’s personal tools group and uses the `LIGHTNING` glyph ([navigation](../../crates/hark-app/src/ui/navigation.rs)). The page splits the list, main editor, and alternate-phrase widget across sibling modules so no UI file crosses the hard size cap ([aliases.rs](../../crates/hark-app/src/ui/invocations/aliases.rs)).
+Invocations sits with Spellbook in the sidebar’s personal tools group and uses the `LIGHTNING` glyph, drawn in the page’s Rose hue in the sidebar, the page header and before each phrase in the list ([navigation](../../crates/hark-app/src/ui/navigation.rs), [pages.rs `Page::hue`](../../crates/hark-app/src/ui/pages.rs)). The page splits the list, main editor, and alternate-phrase widget across sibling modules so no UI file crosses the hard size cap ([aliases.rs](../../crates/hark-app/src/ui/invocations/aliases.rs)).
 
 The list uses a plain `ScrollArea::vertical().show()`, never `show_rows()`. Rows are non-uniform because a warning line appears only on entries that cannot fire, and `show_rows`'s `row_height * count` arithmetic desynchronizes the scrollbar and shifts rows under the cursor for heterogeneous lists ([mod.rs:83-95](https://github.com/BoardPandas/Hark/blob/bcfcc3fef6f02252870fc3f06440d99992818ade/crates/hark-app/src/ui/invocations/mod.rs#L83-L95)).
 
@@ -248,3 +249,9 @@ Detailed Insights retain invocation flags and counts independently of transcript
 <!-- END:AUTOGEN hark_08b_invocations_edge -->
 
 ---
+
+## Book view
+
+The **List | Book** switch beside **New invocation** (saved as `hark-invocations-view-v1`, List by default) shows the invocations as a book; see [Desktop UI](DESKTOP_UI.md#book-view) for page turning, layout and keyboard. Each entry opens with a drop cap in the page's Rose, then its scope as a chip, its alternates ("Also: …"), the expansion written out in full with its line breaks, the existing `skip_reason` warning (warning icon and text in the warning color, on its own line), and **Edit** and **Delete** ([book.rs](../../crates/hark-app/src/ui/invocations/book.rs)).
+
+Editing lays the book flat: **Edit**, or **New invocation**, opens the same `editor::Draft` across the whole spread inside the book frame, and the page-turn row stays in place but disabled until the draft closes. **New invocation** is disabled while a draft is open in the book, so a second click cannot throw away what is being written. The draft's Save, Cancel and Delete go through `apply_outcome`, the same function the list's full-page editor uses, so both views produce the same `entries`; afterwards the book opens on the saved entry, or where a deleted one was ([mod.rs `apply_outcome`](../../crates/hark-app/src/ui/invocations/mod.rs)). Saving stays explicit, never on lost focus, because each commit restarts the pipeline. Switching views keeps an open draft: the list shows it as its full-page editor.

@@ -106,7 +106,15 @@ The `Settings` struct is the single source of truth for the config schema; every
 
 `[insights]` is additive within schema 6: older configurations omit it and receive both opt-ins as `false`; explicit values round-trip independently of history capture. Changes follow Settings' Save/Discard behavior. Turning app tracking off leaves previous numeric app labels until expiry or Reset stats. Text analysis needs retained history; disabling capture does not erase existing transcripts.
 
-Appearance is intentionally outside `config.toml`: System, Light, Dark, Solarized Light, and Solarized Dark persist in egui memory, apply immediately, and are independent of the settings draft ([appearance persistence](../../crates/hark-app/src/theme/appearance.rs), [privacy controls](../../crates/hark-app/src/ui/settings/preferences.rs)).
+Appearance is intentionally outside `config.toml`. These preferences persist in egui memory (which eframe saves with the window state), apply immediately, and are independent of the settings draft:
+
+| egui-memory key | Values | Default |
+|---|---|---|
+| `hark-appearance-v1` | `system`, `light`, `dark`, `solarized-light`, `solarized-dark`, `parchment` | The saved egui Light/Dark/System preference |
+| `hark-lettering-v1` | `modern`, `wizard` | Unset: Wizard on Parchment, Modern elsewhere. Never written until the user ticks or unticks **Wizard lettering** |
+| `hark-spellbook-view-v1`, `hark-invocations-view-v1` | `list`, `book` | `list` |
+
+An unknown value (from a newer build) keeps the default or derived value and never resets another preference; an older build reading `parchment` keeps Light ([appearance](../../crates/hark-app/src/theme/appearance.rs), [lettering](../../crates/hark-app/src/theme/lettering.rs), [book view](../../crates/hark-app/src/ui/book.rs), [privacy controls](../../crates/hark-app/src/ui/settings/preferences.rs)).
 
 `[meeting]` is additive: it was added after `[local_stt]` and before `[[invocations.entries]]`, and a config file written before it existed loads unchanged, filling every key from `Meeting::default()` via `#[serde(default)]` ([meeting.rs](../../crates/hark-config/src/meeting.rs), [lib.rs](../../crates/hark-config/src/lib.rs)). An out-of-range `audio_cap_mb` is clamped in place with a logged warning rather than rejected outright, on the same "typo, not a reason to refuse to start" reasoning `Settings::from_toml` already applies to the spellbook migration ([meeting.rs](../../crates/hark-config/src/meeting.rs), [lib.rs](../../crates/hark-config/src/lib.rs)).
 

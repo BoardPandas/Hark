@@ -2,7 +2,9 @@
 <details>
 <summary>Relevant source files</summary>
 
-- [Theme and elevation](../../crates/hark-app/src/theme.rs), [palettes](../../crates/hark-app/src/theme/palette.rs), and [appearance persistence](../../crates/hark-app/src/theme/appearance.rs)
+- [Theme and elevation](../../crates/hark-app/src/theme.rs), [palettes](../../crates/hark-app/src/theme/palette.rs), [categorical hues](../../crates/hark-app/src/theme/hues.rs), and [appearance persistence](../../crates/hark-app/src/theme/appearance.rs)
+- [Lettering](../../crates/hark-app/src/theme/lettering.rs) and [font families](../../crates/hark-app/src/theme/fonts.rs)
+- [Book view](../../crates/hark-app/src/ui/book.rs) and [pagination](../../crates/hark-app/src/ui/book/paginate.rs)
 - [Navigation](../../crates/hark-app/src/ui/navigation.rs), [Home](../../crates/hark-app/src/ui/home.rs), and [Insights](../../crates/hark-app/src/ui/stats.rs)
 - [Insights worker cache](../../crates/hark-app/src/ui/insights_cache.rs) and [local aggregates](../../crates/hark-store/src/insights/mod.rs)
 - [Window shell](../../crates/hark-app/src/ui/shell.rs)
@@ -105,10 +107,10 @@ Sources: [navigation](../../crates/hark-app/src/ui/navigation.rs), [shell](../..
 ## Home, Insights, and Editors
 
 - **Home** shows the actual configured push-to-talk shortcut, pipeline state, today's recorded numeric progress, and recent retained dictations with copy/delete actions. Partial-day coverage is labeled when earlier activity may be missing. Links open full History or Insights. Empty and unavailable-storage states use real status rather than sample content. Visible Home and Insights schedule a refresh at local midnight, including daylight-saving transitions.
-- **History** keeps grouped days, search, copy/delete actions, expandable raw transcripts, timing, and Spellbook selection handoff. Wide rows separate timestamps from content. Captions name the actual provider/model and show cleanup only when it ran. Clearing history preserves lifetime counters and retained numeric Insights.
+- **History** keeps grouped days, search, copy/delete actions, expandable raw transcripts, timing, and Spellbook selection handoff. Wide rows separate timestamps from content. Each row names the provider that wrote it in a provider chip (Deepgram, OpenAI, Gemini, OpenAI-compatible, On-device or On-device backup) and marks a fired invocation with an **Invocation** chip; the caption carries voice, model and cleanup (only when it ran), plus the raw provider label for one this build does not know ([row.rs `chips`, `caption`](../../crates/hark-app/src/ui/history/row.rs)). Clearing history preserves lifetime counters and retained numeric Insights.
 - **Meetings** (Windows, Linux, and macOS 14.2+) is shaped like History: a searchable list of past meetings by title/date/duration, and a detail view with the transcript (speaker chips, timestamps), notes with checkable action items, speaker rename, a Share menu for text, Word, subtitles, audio excerpts, and Windows text sharing, and delete. While a meeting is recording, the page instead shows a live pane: the rolling Me/Them transcript, elapsed time, and a Stop button. A first-run notice reminds the user that some places require every party's consent to record a call; an optional button pastes a canned "I'm using Hark to transcribe this meeting" line into the focused chat.
-- **Spellbook** has a raised vocabulary surface, editable terms, aliases, the advanced mishearing control, and undo for the most recent addition. Edits still persist immediately.
-- **Invocations** retains trigger scope, expansion text, validation, and explicit Save. Each invocation can also list exact alternate phrases for repeatable transcription errors. The raised test panel reports whether a typed phrase would fire using the real matcher.
+- **Spellbook** has a raised vocabulary surface, editable terms, aliases (counted in a chip that opens them), the advanced mishearing control, and undo for the most recent addition. Edits still persist immediately. A **List | Book** switch shows the same entries as a book (see [Book view](#book-view)).
+- **Invocations** retains trigger scope (now a chip), expansion text, validation, and explicit Save. Each invocation can also list exact alternate phrases for repeatable transcription errors. The raised test panel reports whether a typed phrase would fire using the real matcher. The same **List | Book** switch sits beside **New invocation**.
 - **Insights** has Overview, Your voice, and Performance tabs with 7-, 30-, or 90-day ranges. Overview combines words/dictations, estimated pace and time saved, median latency, daily bars, local-calendar activity/streaks, and optional app usage. Your voice shows vocabulary size, measured Spellbook replacements, invocation usage/output words, busiest local hour, and opt-in retained-history word/phrase analysis. Performance compares median/p95 completion latency and provider/voice usage. The first ten dictations have an introductory progress card; measured panels are available from the first dictation. Lifetime totals are available below the selected range.
 
 Meeting deletion is asynchronous and acknowledged. After confirmation, the detail view shows **Deleting meeting…** and disables conflicting actions while the storage worker removes audio and then the database record. It returns to the list automatically only on a success reply. Audio-removal failures keep the meeting record and show guidance to close any player, check file access, and retry. An unavailable worker or lost reply is displayed as unconfirmed deletion rather than success ([detail view and reply tests](../../crates/hark-app/src/ui/meetings/detail.rs), [storage deletion](../../crates/hark-app/src/storage/meetings.rs)).
@@ -127,7 +129,7 @@ Queries and text aggregation run on the storage worker. The UI caches results by
 
 | Section | Controls |
 |---|---|
-| General | Launch at startup, always on top, exit when the window is closed, appearance, Close Program |
+| General | Launch at startup, always on top, exit when the window is closed, appearance (theme and **Wizard lettering**), Close Program |
 | Dictation | Speech to text card: provider with a one-line description, key with a Get a key link until one is stored, a no-key on-device suggestion, connection test, Model and endpoint (optional); then the on-device toggle (Backup or Primary) with model download/progress/cancel/delete. Primary hides the cloud controls. Voice, cleanup, and a privacy line that follows the mode |
 | Audio & shortcut | Shortcut recording/manual entry, microphone picker and input meter |
 | Meetings | Take notes toggle, optional Windows start/stop shortcut, microphone, detection (off/ask/auto, auto-stop delay, app list), speaker labels (Deepgram key, independent of the dictation key), storage cap and usage, delete all meeting audio |
@@ -160,25 +162,58 @@ Permission guidance explains microphone and keyboard/insertion access without cl
 <!-- BEGIN:AUTOGEN hark_12_desktop_ui_theme -->
 ## Theming
 
-The visual system combines warm neutral surfaces, restrained forest/sage accents, rounded cards, and a labeled sidebar. Inter remains the interface font; embedded Lora Regular provides editorial Home headings and the brand. JetBrains Mono handles technical values. Phosphor icons keep a dedicated font family so Inter's private-use glyphs cannot replace them. Fonts are bundled locally with their licenses; nothing is fetched at runtime.
+The visual system combines warm neutral surfaces, restrained forest/sage accents, rounded cards, and a labeled sidebar. Every color, size and font is a token in [`theme.rs`](../../crates/hark-app/src/theme.rs); no page sets one inline. Fonts are bundled locally with their licenses; nothing is fetched at runtime.
 
-| Token | Light | Dark | Solarized Light | Solarized Dark |
-|---|---|---|---|---|
-| Canvas | `#F7F7F3` | `#171C19` | `#FDF6E3` | `#002B36` |
-| Sidebar | `#EEEFE9` | `#131814` | `#EEE8D5` | `#073642` |
-| Card | `#FFFFFF` | `#202722` | `#FDF6E3` | `#073642` |
-| Main text | `#252E29` | `#E9EEE4` | `#526A71` | `#EEE8D5` |
-| Secondary text | `#616B63` | `#A4B1A4` | `#526A71` | `#93A1A1` |
-| Action accent | `#376C58` | `#B5CCA1` | `#526A71` | `#93A1A1` |
-| Chart accent | `#527E69` | `#A8C99A` | `#2AA198` | `#2AA198` |
+| Token | Light | Dark | Solarized Light | Solarized Dark | Parchment |
+|---|---|---|---|---|---|
+| Canvas | `#F7F7F3` | `#171C19` | `#FDF6E3` | `#002B36` | `#F4EAD5` |
+| Sidebar | `#EEEFE9` | `#131814` | `#EEE8D5` | `#073642` | `#EADCBF` |
+| Card | `#FFFFFF` | `#202722` | `#FDF6E3` | `#073642` | `#FBF6EA` |
+| Main text | `#252E29` | `#E9EEE4` | `#526A71` | `#EEE8D5` | `#3D3024` |
+| Secondary text | `#616B63` | `#A4B1A4` | `#526A71` | `#93A1A1` | `#65533D` |
+| Action accent | `#376C58` | `#B5CCA1` | `#526A71` | `#93A1A1` | `#2E4C84` |
+| Chart accent | `#527E69` | `#A8C99A` | `#2AA198` | `#2AA198` | `#2E4C84` |
 
 The two Solarized palettes use [Ethan Schoonover's published base fills and cyan](https://ethanschoonover.com/solarized/), with derived supporting borders. Solarized Light body/action text blends base01 8% toward base02 because the original base01/base2 pair falls below 4.5:1 on the sidebar and hero. Light secondary text is similarly adjusted for those tinted surfaces.
 
-System, Light, Dark, Solarized Light, and Solarized Dark apply immediately and persist independently of the TOML settings draft. A stable egui-memory palette key preserves explicit choices; absent or unknown palette keys respect the previously saved Light/Dark/System preference. Returning to System restores both neutral palettes before following OS changes.
+**Parchment** is aged paper and iron-gall ink, light only: choosing it sets the egui preference to Light and installs Parchment in both the light and dark slots, so a dark desktop still gets a light window. Its accent is lapis rather than red, so focus rings and links never read as errors. Each palette carries its own error, success and warning colors; Light, Dark and both Solarized themes keep their earlier values ([palette.rs](../../crates/hark-app/src/theme/palette.rs)).
 
-Tests cover serialized appearance restoration, legacy preferences, text and semantic colors across canvas/cards/sidebar/hero, primary labels, and visible focus rings. The tray and overlay keep fixed, readable dark-background colors because they sit over arbitrary desktop content. Actual native window composition, microphone capture, global shortcuts, and text insertion still require target-platform smoke tests.
+System, Light, Dark, Solarized Light, Solarized Dark and Parchment apply immediately and persist independently of the TOML settings draft. A stable egui-memory palette key preserves explicit choices; absent or unknown palette keys respect the previously saved Light/Dark/System preference, so an older build reading `"parchment"` keeps Light. Returning to System restores both neutral palettes before following OS changes. `palette()` finds the installed palette by its canvas color, walking `palette::ALL`; the canvas colors are unique, and a test fails if an appearance installs a palette outside that list ([appearance.rs `Appearance::pair`](../../crates/hark-app/src/theme/appearance.rs)).
 
-Sources: [tokens](../../crates/hark-app/src/theme.rs), [palettes](../../crates/hark-app/src/theme/palette.rs), [persistence](../../crates/hark-app/src/theme/appearance.rs), [fonts and licenses](../../crates/hark-app/assets/README.md), [theme tests](../../crates/hark-app/src/theme/tests.rs).
+### Lettering
+
+**Modern** lettering is Inter for text, Lora Regular for the Home headline, hero figures and brand, and JetBrains Mono for key names, timings and literal aliases. **Wizard** lettering sets text in Alegreya (one variable file, pinned at weights 400, 500 and 600 with `FontTweak::coords`) and page titles, dialog titles, the hero, the brand and book drop caps in Cinzel Decorative; Body grows from 14 to 15 points because Alegreya reads smaller. Monospace and icons do not change. Font families are named for their role (`Medium`, `SemiBold`, `Serif`, `DropCap`) rather than their font, and every font is registered in both letterings, so a switch only changes family lists ([fonts.rs](../../crates/hark-app/src/theme/fonts.rs)).
+
+The **Wizard lettering** checkbox in Settings → General applies immediately and is stored in egui memory (`hark-lettering-v1`). Until it is set, lettering follows the theme: Wizard on Parchment, Modern elsewhere. Nothing is written at startup, so "follows the theme" survives restarts; once set, the choice holds on every theme. Changing the theme reinstalls fonts only when the effective lettering changes, because `set_fonts` rebuilds the atlas ([lettering.rs](../../crates/hark-app/src/theme/lettering.rs)).
+
+Phosphor icons keep a dedicated `Icon` family in both letterings so Inter's private-use glyphs cannot replace them, and Phosphor stays second in every text family. Cinzel Decorative maps neither the no-break space nor the micro sign; the Wizard serif families list Alegreya after Phosphor so those two still render in a book face. The bundled fonts are never subset or modified: Cinzel's licence reserves its name ([assets/README.md](../../crates/hark-app/assets/README.md)).
+
+### Color
+
+Each palette defines six categorical hues, Blue, Teal, Green, Gold, Rose and Violet, as an ink (text and icons) and a wash (chip fill) ([hues.rs](../../crates/hark-app/src/theme/hues.rs)). Hues name categories and never states: a hued element is always paired with its words, never carries a check, warning or X glyph, and status colors are never used for categories.
+
+| Where | What is colored |
+|---|---|
+| Sidebar and narrow top bar | Each page's icon in its hue: Home Green, Insights Blue, History Gold, Meetings Teal, Spellbook Violet, Invocations Rose, Settings accent. Labels keep the text color; the selected page is still the fill and highlight |
+| Page header | The page icon in its hue before the title, and a 40 × 2 point hue rule under it ([pages.rs `header`](../../crates/hark-app/src/ui/pages.rs)) |
+| Home | The status icon in the matching status color (ready, working, problem) |
+| Insights | Each metric tile's icon in its own hue; app and cleanup-voice bars one hue per series, with their labels; provider chips in Performance |
+| History | Provider chips and the **Invocation** chip |
+| Meetings | Speaker chips, line rules and swatches (`theme::speaker_hue`; see [Meetings](MEETINGS.md)) |
+| Spellbook and Invocations | Alias-count chip, scope chips, the Rose lightning glyph before each phrase, drop caps in the book |
+| Settings | A fixed hue per section icon, the provider chip above each key's status line, and the on-device engine chip |
+
+The footer, the update banner and every status line keep their status colors. `theme::chip` is the only way a hue reaches a chip, so ink and wash always stay a tested pair; `provider_chip` maps stored provider labels to their chip.
+
+### Book view
+
+Spellbook and Invocations each have a **List | Book** switch, saved per page in egui memory (`hark-spellbook-view-v1`, `hark-invocations-view-v1`); List is the default. The book packs entries onto facing pages in order (one page in columns under 704 points), never splitting an entry; one taller than a page gets a page of its own that scrolls. Its place is an anchor entry, not a page number, so resizing, a lettering switch, adding or deleting keep the same entry in view. Previous / Next and PageUp, PageDown, Home and End turn spreads while no text field has focus; arrow keys stay with focus navigation, and page turns are instant ([book.rs](../../crates/hark-app/src/ui/book.rs), [paginate.rs](../../crates/hark-app/src/ui/book/paginate.rs)).
+
+Pages draw only theme tokens, so the book works in every theme; it looks most like a book in Parchment with Wizard lettering. Each entry opens with a drop cap in the page's hue. Pagination uses each entry's painted height once it has been painted at that width, and lays the frame out again when an estimate was wrong, so an open editor never overflows its page unnoticed. See [Spellbook](SPELLBOOK.md#book-view) and [Invocations](INVOCATIONS.md#book-view) for what each page puts in it.
+
+Tests cover serialized appearance and lettering restoration, legacy and unknown preferences, every text role and hue ink at 4.5:1 on canvas, cards, sidebar and hero in every palette, the inks also on hover fills, ink on wash, OKLab distinctness of the six inks, focus rings, both letterings' font families and glyph coverage, pagination over 200 random sets, and the book's page keys. The tray and overlay keep fixed, readable dark-background colors because they sit over arbitrary desktop content. Actual native window composition, microphone capture, global shortcuts, and text insertion still require target-platform smoke tests.
+
+Sources: [tokens](../../crates/hark-app/src/theme.rs), [palettes](../../crates/hark-app/src/theme/palette.rs), [hues](../../crates/hark-app/src/theme/hues.rs), [persistence](../../crates/hark-app/src/theme/appearance.rs), [lettering](../../crates/hark-app/src/theme/lettering.rs), [fonts](../../crates/hark-app/src/theme/fonts.rs), [fonts and licenses](../../crates/hark-app/assets/README.md), [theme tests](../../crates/hark-app/src/theme/tests.rs), [book](../../crates/hark-app/src/ui/book.rs).
 <!-- END:AUTOGEN hark_12_desktop_ui_theme -->
 
 ---

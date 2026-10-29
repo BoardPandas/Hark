@@ -2,7 +2,7 @@
 
 - **Intent:** ./intent.md
 - **Plan:** [../../tasks/the-wizard-theme-feels-half-finished-plan.md](../../tasks/the-wizard-theme-feels-half-finished-plan.md)
-- **Status:** Draft, awaiting product-owner review
+- **Status:** Implemented 2026-10-29 (Foundation, Core and Polish; released in 0.67.0 and 0.68.0). On-hardware review H1–H6 is still to run.
 - **Written:** 2026-10-29
 - **Size:** Medium to large. It touches the theme system, fonts and assets, two pages that gain a
   second renderer, and a color pass across every page.

@@ -52,6 +52,25 @@ impl Page {
         }
     }
 
+    /// The page's category hue (spec §6). Settings has none and uses accent.
+    pub fn hue(self) -> Option<theme::Hue> {
+        match self {
+            Self::Home => Some(theme::Hue::Green),
+            Self::Stats => Some(theme::Hue::Blue),
+            Self::History => Some(theme::Hue::Gold),
+            Self::Meetings => Some(theme::Hue::Teal),
+            Self::Spellbook => Some(theme::Hue::Violet),
+            Self::Invocations => Some(theme::Hue::Rose),
+            Self::Settings => None,
+        }
+    }
+
+    /// The color the page's icon is drawn in, wherever it appears.
+    pub fn ink(self, v: &egui::Visuals) -> egui::Color32 {
+        self.hue()
+            .map_or_else(|| theme::accent(v), |hue| theme::hue(v, hue))
+    }
+
     pub fn label(self) -> &'static str {
         match self {
             Page::Home => "Home",
@@ -108,13 +127,7 @@ pub fn show(
         ui.vertical(|ui| {
             ui.set_max_width(column);
             if *page != Page::Home {
-                ui.heading(if *page == Page::Stats {
-                    "Small habits. Big impact."
-                } else {
-                    page.label()
-                });
-                ui.label(RichText::new(page.description()).weak());
-                ui.add_space(theme::SECTION_GAP);
+                header(ui, *page);
             }
             match *page {
                 Page::Home => {
@@ -193,6 +206,31 @@ pub fn show(
     });
 }
 
+/// The page icon in its hue, the title, a short hue rule, the description.
+/// The icon and rule are decorative: the title says which page this is.
+fn header(ui: &mut Ui, page: Page) {
+    let ink = page.ink(ui.visuals());
+    ui.horizontal(|ui| {
+        ui.label(
+            theme::icon_text(page.icon())
+                .size(theme::PAGE_ICON_SIZE)
+                .color(ink),
+        );
+        ui.heading(if page == Page::Stats {
+            "Small habits. Big impact."
+        } else {
+            page.label()
+        });
+    });
+    let (rule, _) = ui.allocate_exact_size(
+        egui::vec2(theme::HEADER_RULE_WIDTH, theme::HEADER_RULE_HEIGHT),
+        egui::Sense::hover(),
+    );
+    ui.painter().rect_filled(rule, 1.0, ink);
+    ui.label(RichText::new(page.description()).weak());
+    ui.add_space(theme::SECTION_GAP);
+}
+
 /// Spellbook edits persist immediately and restart the pipeline (bias
 /// terms are baked in at start). The settings draft mirrors the change so a
 /// later Save does not resurrect deleted terms.
@@ -231,5 +269,80 @@ fn invocations(
         // Settings and pressing Save would resurrect every deleted
         // invocation -- silent data loss with no error to notice.
         views.settings.draft.invocations = settings.invocations.clone();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Spec AC14 (T16): six hued pages, six different hues, and Settings in
+    /// accent instead.
+    #[test]
+    fn each_page_but_settings_has_its_own_hue() {
+        let hues: Vec<theme::Hue> = Page::ALL.iter().filter_map(|page| page.hue()).collect();
+        assert_eq!(hues.len(), 6);
+        for (i, hue) in hues.iter().enumerate() {
+            assert!(!hues[i + 1..].contains(hue), "{hue:?} is used twice");
+        }
+        assert_eq!(Page::Settings.hue(), None);
+        let v = egui::Visuals::light();
+        assert_eq!(Page::Settings.ink(&v), theme::accent(&v));
+    }
+
+    /// Every nav button draws its icon in the page's ink and its label in the
+    /// widget's own text color, in every theme.
+    #[test]
+    fn nav_icons_wear_their_page_hue_in_every_theme() {
+        for appearance in theme::Appearance::ALL {
+            let ctx = egui::Context::default();
+            theme::apply(&ctx);
+            theme::set_appearance(&ctx, appearance);
+            let mut page = Page::Home;
+            let mut visuals = egui::Visuals::default();
+            let mut jobs = Vec::new();
+            for _ in 0..2 {
+                let mut output = ctx.run_ui(
+                    egui::RawInput {
+                        screen_rect: Some(egui::Rect::from_min_size(
+                            egui::Pos2::ZERO,
+                            egui::vec2(1000.0, 700.0),
+                        )),
+                        ..Default::default()
+                    },
+                    |ui| {
+                        visuals = ui.visuals().clone();
+                        crate::ui::navigation::show(ui, &mut page);
+                    },
+                );
+                output.textures_delta.clear();
+                jobs = output
+                    .shapes
+                    .iter()
+                    .filter_map(|clipped| match &clipped.shape {
+                        egui::Shape::Text(t) => Some(t.galley.job.clone()),
+                        _ => None,
+                    })
+                    .collect();
+            }
+            for target in Page::ALL {
+                if target == Page::Meetings && !hark_pipeline::meeting::meetings_supported() {
+                    continue;
+                }
+                let job = jobs
+                    .iter()
+                    .find(|job| job.text == format!("{}{}", target.icon(), target.label()))
+                    .unwrap_or_else(|| {
+                        panic!("{appearance:?}: no nav button for {}", target.label())
+                    });
+                assert_eq!(
+                    job.sections[0].format.color,
+                    target.ink(&visuals),
+                    "{appearance:?} {}",
+                    target.label()
+                );
+                assert_eq!(job.sections[1].format.color, egui::Color32::PLACEHOLDER);
+            }
+        }
     }
 }

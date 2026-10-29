@@ -15,7 +15,7 @@ mod lettering;
 mod palette;
 pub use appearance::{appearance, appearance_picker, set_appearance, Appearance};
 use fonts::font_definitions;
-pub use fonts::{icon, icon_label_job, icon_text, label_icon_job};
+pub use fonts::{hued_icon_label_job, icon, icon_label_job, icon_text, label_icon_job};
 #[cfg(test)]
 pub(crate) use lettering::set_lettering;
 pub use lettering::{lettering, lettering_toggle, Lettering};
@@ -134,9 +134,7 @@ pub const DIALOG_TITLE_SIZE: f32 = 20.0;
 pub const TOOLBAR_SEARCH_WIDTH: f32 = 320.0;
 pub const LIST_ACTIONS_WIDTH: f32 = 116.0;
 pub const MIN_CARD_WIDTH: f32 = 240.0;
-#[allow(dead_code)] // first drawn by the color pass (plan P1) and meeting speakers
 pub const CHIP_RADIUS: u8 = 10;
-#[allow(dead_code)] // first drawn by the color pass (plan P1) and meeting speakers
 pub const CHIP_PADDING: Margin = Margin::symmetric(8, 2);
 /// A book page is never narrower than this; two of them plus the gutter
 /// make a spread, and a narrower column shows one page at a time.
@@ -185,7 +183,6 @@ pub fn chart_soft(v: &Visuals) -> Color32 {
 /// never used for categories. Every hued element also has a text label.
 ///
 /// [`speaker_hue`] is the one place meeting speakers map onto these.
-#[allow(dead_code)] // first drawn by the color pass (plan P1) and meeting speakers
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
 pub enum Hue {
     Blue,
@@ -196,7 +193,6 @@ pub enum Hue {
     Violet,
 }
 
-#[allow(dead_code)] // first drawn by the color pass (plan P1) and meeting speakers
 impl Hue {
     pub const ALL: [Self; 6] = [
         Self::Blue,
@@ -209,13 +205,11 @@ impl Hue {
 }
 
 /// The hue's ink: text and icons, at least 4.5:1 on every fill of the theme.
-#[allow(dead_code)] // first drawn by the color pass (plan P1) and meeting speakers
 pub fn hue(v: &Visuals, hue: Hue) -> Color32 {
     palette(v).hues[hue as usize].ink
 }
 
 /// The hue's wash: chip and badge fill, with `hue()` at least 4.5:1 on it.
-#[allow(dead_code)] // first drawn by the color pass (plan P1) and meeting speakers
 pub fn hue_wash(v: &Visuals, hue: Hue) -> Color32 {
     palette(v).hues[hue as usize].wash
 }
@@ -234,6 +228,30 @@ pub fn speaker_hue(slot: usize) -> Hue {
         n => SPEAKER_HUES[(n - 1) % SPEAKER_HUES.len()],
     }
 }
+
+/// A speech-to-text provider's chip, from the label a dictation record or key
+/// account stores (`ProviderKind::label`, plus the on-device engine's own
+/// labels). `None` for a label this build does not know: that row shows the
+/// plain label and no chip, rather than a hue that means nothing.
+pub fn provider_chip(label: &str) -> Option<(Hue, &'static str)> {
+    Some(match label {
+        "deepgram" => (Hue::Teal, "Deepgram"),
+        "openai" => (Hue::Green, "OpenAI"),
+        // Groq configs migrated to openai-compatible, so they share a hue.
+        "groq" => (Hue::Gold, "Groq"),
+        "openai-compatible" => (Hue::Gold, "OpenAI-compatible"),
+        "gemini" => (Hue::Blue, "Gemini"),
+        "local" => (Hue::Violet, "On-device"),
+        "local (fallback)" => (Hue::Violet, "On-device backup"),
+        _ => return None,
+    })
+}
+
+/// The page icon beside each page title, in the page's hue.
+pub const PAGE_ICON_SIZE: f32 = 24.0;
+/// The short hue rule under a page title.
+pub const HEADER_RULE_WIDTH: f32 = 40.0;
+pub const HEADER_RULE_HEIGHT: f32 = 2.0;
 
 /// The Light palette's ink for `hue`: documents are white whatever the app's
 /// theme, so the Word export colors speakers with this.
@@ -293,7 +311,6 @@ pub fn swatch(ui: &mut Ui, hue: Hue) -> egui::Response {
 /// A pill in the hue's wash with an ink label and an optional icon. This is
 /// the only way a hue reaches a chip, so ink and wash always stay a tested
 /// pair. The label is required: hue alone never carries meaning.
-#[allow(dead_code)] // first drawn by the color pass (plan P1) and meeting speakers
 pub fn chip(ui: &mut Ui, hue: Hue, glyph: Option<&str>, text: &str) -> egui::Response {
     use egui::text::{LayoutJob, TextFormat};
     let ink = self::hue(ui.visuals(), hue);

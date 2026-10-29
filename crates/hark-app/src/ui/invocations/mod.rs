@@ -134,12 +134,12 @@ impl InvocationsPage {
                             ui.horizontal_wrapped(|ui| {
                                 ui.label(
                                     theme::icon_text(theme::icons::LIGHTNING)
-                                        .color(theme::accent(ui.visuals())),
+                                        .color(theme::hue(ui.visuals(), theme::Hue::Rose)),
                                 );
                                 ui.label(
                                     RichText::new(&entry.phrase).text_style(theme::subheading()),
                                 );
-                                ui.label(RichText::new(entry.scope.label()).small().weak());
+                                theme::chip(ui, theme::Hue::Rose, None, entry.scope.label());
                                 match entry.aliases.len() {
                                     0 => {}
                                     1 => {

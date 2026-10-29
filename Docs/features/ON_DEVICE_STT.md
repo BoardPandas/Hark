@@ -18,7 +18,7 @@ would rather not send audio to a provider at all, it removes the cloud entirely.
 
 ## The three modes
 
-Set in Settings → Dictation → Speech to text, below the cloud provider: the **Use on-device transcription** toggle with **Primary** and **Backup** ([ui/settings/local.rs:17-87](../../crates/hark-app/src/ui/settings/local.rs#L17-L87)), inside the card that also hides the cloud controls in Primary and suggests on-device when no cloud key is stored ([ui/settings/stt_card.rs:17-95](../../crates/hark-app/src/ui/settings/stt_card.rs#L17-L95)). Stored as `[local_stt] mode` ([hark-config/src/local.rs:14-30](../../crates/hark-config/src/local.rs#L14-L30)). Turning the toggle on picks Backup when a cloud key is stored and Primary when none is; the download still starts only from the model card's own button.
+Set in Settings → Dictation → Speech to text, below the cloud provider: the **Use on-device transcription** toggle with **Primary** and **Backup**, under a chip naming the engine in the on-device hue History also uses ([ui/settings/local.rs:17-89](../../crates/hark-app/src/ui/settings/local.rs#L17-L89)), inside the card that also hides the cloud controls in Primary and suggests on-device when no cloud key is stored ([ui/settings/stt_card.rs:17-95](../../crates/hark-app/src/ui/settings/stt_card.rs#L17-L95)). Stored as `[local_stt] mode` ([hark-config/src/local.rs:14-30](../../crates/hark-config/src/local.rs#L14-L30)). Turning the toggle on picks Backup when a cloud key is stored and Primary when none is; the download still starts only from the model card's own button.
 
 | Mode | Behavior | API key needed |
 |---|---|---|
@@ -119,7 +119,7 @@ Without the feature, the model-management half still compiles and tests
 normally, `LocalEngine::load` returns `EngineUnavailable`
 ([engine.rs:100-107](../../crates/hark-local-stt/src/engine.rs#L100-L107)), and the Settings
 section says so plainly instead of offering a toggle that cannot work
-([ui/settings/local.rs:89-103](../../crates/hark-app/src/ui/settings/local.rs#L89-L103)).
+([ui/settings/local.rs:91-105](../../crates/hark-app/src/ui/settings/local.rs#L91-L105)).
 
 ## Crate layout
 

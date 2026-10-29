@@ -6,6 +6,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.68.0] - 2026-10-29
+
+### Added
+
+- **More color on every page, in every theme.** Each page now has its own color: Home green, Insights blue, History gold, Meetings teal, Spellbook violet and Invocations rose (Settings keeps the theme's accent). It tints the page's icon in the sidebar and the top bar, and the icon and a short line under each page title.
+- **History** marks each dictation with a colored chip naming the provider that wrote it (Deepgram, OpenAI, Gemini, OpenAI-compatible, On-device), and a rose "Invocation" chip when an invocation fired.
+- **Insights** gives every number tile its own colored icon, colors the app and cleanup-voice bars one color per row, and shows provider chips under Performance.
+- **Settings** gives each section its own icon color, shows which provider a key belongs to as a chip above the key's status, and names the on-device engine in a chip.
+- The Spellbook list shows the alias count as a violet chip, and the Invocations list shows the lightning mark in rose and the scope as a chip.
+
+### Changed
+
+- The status icon on Home now takes the status color: green when ready, the accent while listening or working, and amber when something needs attention. The words next to it are unchanged.
+- Colors stay readable in all six themes: every new color is checked against each theme's backgrounds, and colors that mean a category are never used to show a status.
+
 ## [0.67.2] - 2026-10-29
 
 ### Changed

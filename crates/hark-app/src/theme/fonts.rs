@@ -147,21 +147,31 @@ pub fn icon_text(glyph: &str) -> RichText {
 /// string, because the icon and the text need different families and a single
 /// `format!` can only have one.
 pub fn icon_label_job(style: &egui::Style, glyph: &str, text: &str) -> egui::text::LayoutJob {
-    use egui::text::{LayoutJob, TextFormat};
-    let size = TextStyle::Button.resolve(style).size;
     // PLACEHOLDER lets a caller recolour the whole job (primary_button tints
     // it accent); a concrete colour here would win and ignore them.
-    let color = Color32::PLACEHOLDER;
+    hued_icon_label_job(style, glyph, text, Color32::PLACEHOLDER)
+}
+
+/// `icon_label_job` with the icon alone in `ink` (a page or section hue); the
+/// label keeps the widget's text color, so it reads the same in every hue.
+pub fn hued_icon_label_job(
+    style: &egui::Style,
+    glyph: &str,
+    text: &str,
+    ink: Color32,
+) -> egui::text::LayoutJob {
+    use egui::text::{LayoutJob, TextFormat};
+    let size = TextStyle::Button.resolve(style).size;
     let mut job = LayoutJob::default();
     job.append(
         glyph,
         0.0,
-        TextFormat::simple(FontId::new(size, icon()), color),
+        TextFormat::simple(FontId::new(size, icon()), ink),
     );
     job.append(
         text,
         6.0,
-        TextFormat::simple(FontId::new(size, medium()), color),
+        TextFormat::simple(FontId::new(size, medium()), Color32::PLACEHOLDER),
     );
     job
 }

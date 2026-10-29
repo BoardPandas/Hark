@@ -7,8 +7,32 @@ use hark_store::{InsightSummary, Insights, Stats};
 
 struct Metric {
     label: &'static str,
+    /// Drawn in `hue` before the label; the label names the metric.
+    icon: &'static str,
+    hue: theme::Hue,
     value: String,
     note: String,
+}
+
+/// The tile's label line: its icon in the tile's hue, then the label, weak.
+fn metric_label(ui: &Ui, metric: &Metric) -> egui::text::LayoutJob {
+    use egui::text::{LayoutJob, TextFormat};
+    let small = egui::TextStyle::Small.resolve(ui.style());
+    let mut job = LayoutJob::default();
+    job.append(
+        metric.icon,
+        0.0,
+        TextFormat::simple(
+            egui::FontId::new(small.size, theme::icon()),
+            theme::hue(ui.visuals(), metric.hue),
+        ),
+    );
+    job.append(
+        metric.label,
+        6.0,
+        TextFormat::simple(small, ui.visuals().weak_text_color()),
+    );
+    job
 }
 
 fn metrics(ui: &mut Ui, values: &[Metric]) {
@@ -23,7 +47,7 @@ fn metrics(ui: &mut Ui, values: &[Metric]) {
         ui.columns(row.len(), |columns| {
             for (ui, metric) in columns.iter_mut().zip(row) {
                 theme::card(ui, |ui| {
-                    ui.label(RichText::new(metric.label).small().weak());
+                    ui.label(metric_label(ui, metric));
                     ui.add_space(theme::ROW_GAP);
                     ui.label(RichText::new(&metric.value).size(theme::STAT_SIZE));
                     ui.add_space(theme::GAP);
@@ -50,11 +74,15 @@ pub fn overview_metrics(ui: &mut Ui, s: &InsightSummary) {
         &[
             Metric {
                 label: "Words dictated",
+                icon: theme::icons::WAVEFORM,
+                hue: theme::Hue::Blue,
                 value: format::count(s.words),
                 note: format!("{} dictations", format::count(s.dictations)),
             },
             Metric {
                 label: "Time saved",
+                icon: theme::icons::CLOCK,
+                hue: theme::Hue::Green,
                 value: s
                     .estimated_saved_ms()
                     .map(format::duration)
@@ -66,6 +94,8 @@ pub fn overview_metrics(ui: &mut Ui, s: &InsightSummary) {
             },
             Metric {
                 label: "Dictation pace",
+                icon: theme::icons::CHART_BAR,
+                hue: theme::Hue::Teal,
                 value: s
                     .estimated_wpm()
                     .map_or_else(|| "—".into(), |v| format!("{v:.0} wpm")),
@@ -73,6 +103,8 @@ pub fn overview_metrics(ui: &mut Ui, s: &InsightSummary) {
             },
             Metric {
                 label: "Median latency",
+                icon: theme::icons::CLOCK_COUNTER_CLOCKWISE,
+                hue: theme::Hue::Gold,
                 value: ms(s.median_ms),
                 note: "Release → text at cursor".into(),
             },
@@ -92,7 +124,8 @@ pub fn apps(ui: &mut Ui, data: &Insights, settings: &Settings) -> bool {
         ui.label(if settings.insights.track_apps { "No app labels have been recorded yet. Detection may be unavailable on your desktop." }
             else { "App statistics are off. Enable optional local app tracking in Privacy to see them here." });
     } else {
-        for app in data.apps.iter().take(5) {
+        // One hue per series; the label above each bar names it.
+        for (app, hue) in data.apps.iter().take(5).zip(theme::Hue::ALL) {
             let share = app.dictations as f32 / data.period.dictations.max(1) as f32;
             ui.label(format!(
                 "{} · {} dictations ({:.0}%)",
@@ -102,7 +135,7 @@ pub fn apps(ui: &mut Ui, data: &Insights, settings: &Settings) -> bool {
             ));
             ui.add(
                 egui::ProgressBar::new(share)
-                    .fill(theme::chart(ui.visuals()))
+                    .fill(theme::hue(ui.visuals(), hue))
                     .desired_height(theme::GAP),
             );
             ui.add_space(theme::GAP);
@@ -165,11 +198,15 @@ pub fn voice(ui: &mut Ui, data: &Insights, settings: &Settings) -> bool {
         &[
             Metric {
                 label: "Spellbook terms",
+                icon: theme::icons::BOOK_OPEN,
+                hue: theme::Hue::Violet,
                 value: format::count(settings.spellbook.entries.len() as i64),
                 note: "Your current vocabulary".into(),
             },
             Metric {
                 label: "Dictionary corrections",
+                icon: theme::icons::PENCIL_SIMPLE,
+                hue: theme::Hue::Teal,
                 value: if s.measured_corrections > 0 {
                     format::count(s.corrections)
                 } else {
@@ -182,11 +219,15 @@ pub fn voice(ui: &mut Ui, data: &Insights, settings: &Settings) -> bool {
             },
             Metric {
                 label: "Invocations used",
+                icon: theme::icons::LIGHTNING,
+                hue: theme::Hue::Rose,
                 value: format::count(s.invocations),
                 note: "Selected period".into(),
             },
             Metric {
                 label: "Invocation output",
+                icon: theme::icons::COPY,
+                hue: theme::Hue::Gold,
                 value: format::count(s.expanded_words),
                 note: "Output words, including surrounding speech".into(),
             },
@@ -241,21 +282,29 @@ pub fn performance(ui: &mut Ui, data: &Insights) {
         &[
             Metric {
                 label: "Median latency",
+                icon: theme::icons::CLOCK_COUNTER_CLOCKWISE,
+                hue: theme::Hue::Gold,
                 value: ms(s.median_ms),
                 note: "Half of recorded completions".into(),
             },
             Metric {
                 label: "95th percentile",
+                icon: theme::icons::CHART_BAR,
+                hue: theme::Hue::Rose,
                 value: ms(s.p95_ms),
                 note: "95% of recorded completions".into(),
             },
             Metric {
                 label: "Completed dictations",
+                icon: theme::icons::MICROPHONE,
+                hue: theme::Hue::Blue,
                 value: format::count(s.dictations),
                 note: "Selected period".into(),
             },
             Metric {
                 label: "Average clip",
+                icon: theme::icons::WAVEFORM,
+                hue: theme::Hue::Violet,
                 value: s
                     .mean_clip_ms()
                     .map(format::duration)
@@ -277,7 +326,14 @@ pub fn performance(ui: &mut Ui, data: &Insights) {
         for provider in &data.providers {
             ui.separator();
             ui.horizontal_wrapped(|ui| {
-                ui.label(RichText::new(&provider.label).strong());
+                match theme::provider_chip(&provider.label) {
+                    Some((hue, name)) => {
+                        theme::chip(ui, hue, None, name);
+                    }
+                    None => {
+                        ui.label(RichText::new(&provider.label).strong());
+                    }
+                }
                 ui.label(format!(
                     "{} dictations · median {} · p95 {}",
                     format::count(provider.dictations),
@@ -291,12 +347,19 @@ pub fn performance(ui: &mut Ui, data: &Insights) {
     ui.add_space(theme::ROW_GAP);
     theme::card(ui, |ui| {
         ui.label(RichText::new("Your cleanup voices").text_style(theme::subheading()));
-        for voice in &data.voices {
+        // Same bars as the app breakdown: one hue per voice, named above it.
+        for (voice, hue) in data.voices.iter().zip(theme::Hue::ALL.into_iter().cycle()) {
             ui.label(format!(
                 "{} · {} dictations",
                 voice.label,
                 format::count(voice.dictations)
             ));
+            let share = voice.dictations as f32 / data.period.dictations.max(1) as f32;
+            ui.add(
+                egui::ProgressBar::new(share)
+                    .fill(theme::hue(ui.visuals(), hue))
+                    .desired_height(theme::GAP),
+            );
         }
     });
 }

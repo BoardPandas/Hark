@@ -4,7 +4,7 @@ The desktop binary: eframe window (tray from CP5) on the **main thread**, the
 dictation pipeline on worker threads via `PipelineController`. Root
 `CLAUDE.md` threading rule applies with no exceptions.
 
-## eframe 0.35 conventions (verified against registry source 2026-07-16)
+## eframe conventions (verified against 0.35 source 2026-07-16; the workspace pins 0.36.2 since 2026-10-29)
 
 - `App::ui(&mut self, ui: &mut egui::Ui, frame)` is the only required
   method; the root `Ui` has no margin or background. `App::logic(ctx, frame)`
@@ -42,7 +42,7 @@ dictation pipeline on worker threads via `PipelineController`. Root
   contrast test when they carry text.
 - Icons are the vendored Phosphor glyphs in `theme::icons` (constants match
   the embedded `Phosphor.ttf`; see `assets/README.md` before touching
-  either). If egui-phosphor ships an egui-0.35 release, swapping back is a
+  either). If egui-phosphor ships an egui-0.36 release, swapping back is a
   drop-in.
 - **Render every icon with `theme::icon_text` (or `icon_label_job` when it
   sits next to a label), never `RichText::new(icons::X)`.** Inter ships 745
@@ -54,6 +54,13 @@ dictation pipeline on worker threads via `PipelineController`. Root
   a..z and would swallow ordinary lowercase text. Hence a separate `icon()`
   family, pinned by tests in `theme.rs`.
 - Status is never conveyed by color alone: icon + label, always.
+- **Hues are categories, never states** (`theme::Hue`, six per palette): a hued
+  element always has its words, never sits beside a CHECK/WARNING/X glyph, and
+  reaches a chip only through `theme::chip`/`chip_button`. Pages: `Page::hue()`.
+- **Lettering** (Modern | Wizard) is a switch independent of the theme. Font
+  families are named by role (`Medium`, `SemiBold`, `Serif`, `DropCap`), never
+  by font. Never subset or modify the bundled fonts (Cinzel's Reserved Font
+  Name; `assets/README.md`).
 - UI modules stay under ~300 lines; split panels into widgets.
 
 ## Content hygiene
