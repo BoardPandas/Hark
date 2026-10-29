@@ -17,12 +17,13 @@ pub use paginate::clamp_anchor;
 
 use crate::theme;
 use egui::{
-    Align, Context, Direction, Id, Key, Layout, Modifiers, Rect, RichText, Sense, TextStyle, Ui,
-    UiBuilder, Vec2,
+    Align, Context, Direction, Galley, Id, Key, Layout, Modifiers, Rect, RichText, Sense,
+    TextStyle, Ui, UiBuilder, Vec2,
 };
 use paginate::{paginate, spread_count, spread_of};
 use std::collections::HashMap;
 use std::ops::Range;
+use std::sync::Arc;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum BookView {
@@ -104,7 +105,7 @@ pub struct Book {
     painted: HashMap<usize, f32>,
     /// (entry count, page width) the painted heights belong to.
     painted_at: (usize, f32),
-    /// The page-turn row's text, as last drawn.
+    /// The page-turn row's text, kept for the disabled row of `show_flat`.
     pages_label: String,
 }
 
@@ -114,6 +115,28 @@ impl Book {
         let turn = page_keys(ui);
         self.with_height(ui, |book, ui, height| {
             book.spread(ui, head, entries, height, turn)
+        });
+    }
+
+    /// The book lying flat: one writing surface across the whole spread, for
+    /// an editor that must not be split across pages. The page-turn row stays
+    /// in place, disabled, so nothing shifts when the editor closes.
+    pub fn show_flat(&mut self, ui: &mut Ui, head: &str, body: impl FnOnce(&mut Ui)) {
+        self.with_height(ui, |book, ui, height| {
+            let width = ui.available_width();
+            let (rect, _) = ui.allocate_exact_size(Vec2::new(width, height), Sense::hover());
+            ui.add_space(theme::GAP);
+            let (row, _) =
+                ui.allocate_exact_size(Vec2::new(width, theme::CONTROL_HEIGHT), Sense::hover());
+            turn_row(ui, row, &book.pages_label, false, false);
+            let inner = page_frame(ui, rect, head, None);
+            ui.scope_builder(
+                UiBuilder::new()
+                    .id_salt("book-flat")
+                    .max_rect(inner)
+                    .layout(Layout::top_down(Align::Min)),
+                body,
+            );
         });
     }
 
@@ -370,6 +393,63 @@ fn turn_row(ui: &mut Ui, rect: Rect, label: &str, back: bool, forward: bool) -> 
         },
     );
     turn
+}
+
+/// An entry heading: its first letter as a drop cap in the page's hue, the
+/// rest in the serif role, bottom-aligned on the first line.
+pub struct Heading {
+    cap: Arc<Galley>,
+    rest: Arc<Galley>,
+    /// How far the rest sits below the top of the cap.
+    offset: f32,
+    pub height: f32,
+}
+
+/// Laid out the same way for `estimate` and `paint`, so the measured galleys
+/// are the painted ones (egui's galley cache makes the second call free).
+pub fn heading(ui: &Ui, text: &str, hue: theme::Hue, width: f32) -> Heading {
+    let v = ui.visuals();
+    let mut chars = text.chars();
+    // A drop cap is a capital even when the phrase is not ("access granted");
+    // only the display changes, and `paint_heading` reports the real text.
+    let first: String = chars
+        .next()
+        .map(char::to_uppercase)
+        .into_iter()
+        .flatten()
+        .collect();
+    let painter = ui.painter();
+    let cap = painter.layout_no_wrap(first, theme::drop_cap_font(), theme::hue(v, hue));
+    let font = theme::book_heading_font();
+    let line = painter.fonts_mut(|f| f.row_height(&font));
+    let rest = painter.layout(
+        chars.as_str().to_owned(),
+        font,
+        v.strong_text_color(),
+        (width - cap.size().x - 2.0).max(1.0),
+    );
+    let offset = (cap.size().y - line).max(0.0);
+    Heading {
+        height: cap.size().y.max(offset + rest.size().y),
+        cap,
+        rest,
+        offset,
+    }
+}
+
+pub fn paint_heading(ui: &mut Ui, text: &str, hue: theme::Hue, width: f32) {
+    let heading = heading(ui, text, hue, width);
+    let (rect, response) = ui.allocate_exact_size(Vec2::new(width, heading.height), Sense::hover());
+    // Painted as two galleys, so tell assistive tech the whole heading.
+    response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Label, true, text));
+    let ink = ui.visuals().strong_text_color();
+    let cap_width = heading.cap.size().x;
+    ui.painter().galley(rect.min, heading.cap, ink);
+    ui.painter().galley(
+        rect.min + Vec2::new(cap_width + 2.0, heading.offset),
+        heading.rest,
+        ink,
+    );
 }
 
 #[cfg(test)]

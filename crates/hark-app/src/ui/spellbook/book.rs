@@ -6,7 +6,7 @@
 use super::*;
 use crate::ui::book::Entries;
 use egui::text::{LayoutJob, TextFormat};
-use egui::{Galley, Sense, Vec2};
+use egui::Galley;
 use std::sync::Arc;
 
 pub(super) struct SpellbookEntries<'a> {
@@ -66,7 +66,7 @@ impl Entries for SpellbookEntries<'_> {
         let mut height = if self.page.edit.as_ref().is_some_and(|(i, _)| *i == index) {
             theme::CONTROL_HEIGHT
         } else {
-            heading(ui, &entry.term, width).height
+            crate::ui::book::heading(ui, &entry.term, theme::Hue::Violet, width).height
         };
         if self.is_new(index) {
             height += theme::GAP + ui.text_style_height(&egui::TextStyle::Small) + 4.0;
@@ -88,7 +88,12 @@ impl Entries for SpellbookEntries<'_> {
         if self.page.edit.as_ref().is_some_and(|(i, _)| *i == index) {
             self.changed |= self.page.edit_term(ui, self.entries, width);
         } else {
-            paint_heading(ui, &self.entries[index].term, width);
+            crate::ui::book::paint_heading(
+                ui,
+                &self.entries[index].term,
+                theme::Hue::Violet,
+                width,
+            );
         }
         if self.is_new(index) {
             theme::chip(ui, theme::Hue::Violet, None, "New");
@@ -144,60 +149,6 @@ impl Entries for SpellbookEntries<'_> {
             "Add names and terms your provider keeps missing.",
         );
     }
-}
-
-/// A term's heading: its first letter as a drop cap in the Spellbook's hue,
-/// the rest in the serif role, both bottom-aligned on the first line.
-struct Heading {
-    cap: Arc<Galley>,
-    rest: Arc<Galley>,
-    /// How far the rest sits below the top of the cap.
-    offset: f32,
-    height: f32,
-}
-
-/// Laid out the same way for `estimate` and `paint`, so the measured galleys
-/// are the painted ones (egui's galley cache makes the second call free).
-fn heading(ui: &Ui, term: &str, width: f32) -> Heading {
-    let v = ui.visuals();
-    let mut chars = term.chars();
-    let first = chars.next().map(String::from).unwrap_or_default();
-    let painter = ui.painter();
-    let cap = painter.layout_no_wrap(
-        first,
-        theme::drop_cap_font(),
-        theme::hue(v, theme::Hue::Violet),
-    );
-    let font = theme::book_heading_font();
-    let line = painter.fonts_mut(|f| f.row_height(&font));
-    let rest = painter.layout(
-        chars.as_str().to_owned(),
-        font,
-        v.strong_text_color(),
-        (width - cap.size().x - 2.0).max(1.0),
-    );
-    let offset = (cap.size().y - line).max(0.0);
-    Heading {
-        height: cap.size().y.max(offset + rest.size().y),
-        cap,
-        rest,
-        offset,
-    }
-}
-
-fn paint_heading(ui: &mut Ui, term: &str, width: f32) {
-    let heading = heading(ui, term, width);
-    let (rect, response) = ui.allocate_exact_size(Vec2::new(width, heading.height), Sense::hover());
-    // Painted as two galleys, so tell assistive tech the whole term.
-    response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Label, true, term));
-    let text = ui.visuals().strong_text_color();
-    let cap_width = heading.cap.size().x;
-    ui.painter().galley(rect.min, heading.cap, text);
-    ui.painter().galley(
-        rect.min + Vec2::new(cap_width + 2.0, heading.offset),
-        heading.rest,
-        text,
-    );
 }
 
 /// "Also heard as: a, b", the aliases in monospace as in the list.
@@ -270,7 +221,7 @@ mod tests {
                 egui::RawInput {
                     screen_rect: Some(egui::Rect::from_min_size(
                         egui::Pos2::ZERO,
-                        Vec2::new(1000.0, 700.0),
+                        egui::Vec2::new(1000.0, 700.0),
                     )),
                     ..Default::default()
                 },

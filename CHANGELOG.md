@@ -6,6 +6,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.67.0] - 2026-10-29
+
+### Added
+
+- **Book view for Invocations.** The same List | Book switch now sits beside "New invocation". In the book, each trigger phrase starts with a large colored capital, followed by its scope, its alternates, and the full text it types with line breaks kept. If an invocation cannot fire, the reason is shown with a warning icon.
+- Edit or create an invocation without leaving the book: the editor opens across both pages, and page turning pauses until you save or cancel. Saving works exactly as before (only on Save), and the book then opens to the invocation you saved.
+
+### Changed
+
+- In the book view, the first letter of every Spellbook term and invocation phrase is shown as a capital. Your terms and phrases are not changed.
+
 ## [0.66.0] - 2026-10-29
 
 ### Added
