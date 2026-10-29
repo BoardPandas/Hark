@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.64.0] - 2026-10-29
+
+### Added
+
+- **New Parchment theme.** Aged paper with dark-brown ink and lapis-blue accents. Pick it from the theme menu in the top bar or in Settings → Appearance. It is a light theme only, so it stays light even when your computer is set to dark mode. Every color in it is checked to stay readable.
+
 ## [0.63.4] - 2026-10-29
 
 ### Added

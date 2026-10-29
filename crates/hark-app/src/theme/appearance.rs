@@ -1,5 +1,6 @@
 //! egui persists its built-in Light/Dark/System choice. Store the palette
-//! separately so Solarized survives restarts and old preferences still work.
+//! separately so Solarized and Parchment survive restarts and old preferences
+//! still work.
 use super::*;
 use egui::{Id, Theme, ThemePreference};
 
@@ -10,15 +11,17 @@ pub enum Appearance {
     Dark,
     SolarizedLight,
     SolarizedDark,
+    Parchment,
 }
 
 impl Appearance {
-    pub const ALL: [Self; 5] = [
+    pub const ALL: [Self; 6] = [
         Self::System,
         Self::Light,
         Self::Dark,
         Self::SolarizedLight,
         Self::SolarizedDark,
+        Self::Parchment,
     ];
 
     pub fn label(self) -> &'static str {
@@ -28,6 +31,7 @@ impl Appearance {
             Self::Dark => "Dark",
             Self::SolarizedLight => "Solarized Light",
             Self::SolarizedDark => "Solarized Dark",
+            Self::Parchment => "Parchment",
         }
     }
 
@@ -38,14 +42,30 @@ impl Appearance {
             Self::Dark => "dark",
             Self::SolarizedLight => "solarized-light",
             Self::SolarizedDark => "solarized-dark",
+            Self::Parchment => "parchment",
         }
     }
 
     fn preference(self) -> ThemePreference {
         match self {
             Self::System => ThemePreference::System,
-            Self::Light | Self::SolarizedLight => ThemePreference::Light,
+            Self::Light | Self::SolarizedLight | Self::Parchment => ThemePreference::Light,
             Self::Dark | Self::SolarizedDark => ThemePreference::Dark,
+        }
+    }
+
+    /// The (light, dark) palettes this appearance installs. Both slots are
+    /// always written, so returning to System cannot leave a Solarized or
+    /// Parchment palette behind after the OS changes appearance. Parchment
+    /// has no dark variant and fills both, so a stray dark resolution still
+    /// draws Parchment.
+    pub(super) fn pair(self) -> (&'static palette::Palette, &'static palette::Palette) {
+        match self {
+            Self::System | Self::Light | Self::Dark => (&LIGHT, &DARK),
+            Self::SolarizedLight | Self::SolarizedDark => {
+                (&palette::SOLARIZED_LIGHT, &palette::SOLARIZED_DARK)
+            }
+            Self::Parchment => (&palette::PARCHMENT, &palette::PARCHMENT),
         }
     }
 }
@@ -79,17 +99,7 @@ pub fn set_appearance(ctx: &Context, value: Appearance) {
 }
 
 pub(super) fn install(ctx: &Context, value: Appearance) {
-    let solarized = matches!(
-        value,
-        Appearance::SolarizedLight | Appearance::SolarizedDark
-    );
-    // Reset both variants, so returning from Solarized to System cannot
-    // leave a Solarized palette behind after the OS changes appearance.
-    let (light, dark) = if solarized {
-        (&palette::SOLARIZED_LIGHT, &palette::SOLARIZED_DARK)
-    } else {
-        (&LIGHT, &DARK)
-    };
+    let (light, dark) = value.pair();
     ctx.set_visuals_of(Theme::Light, palette::visuals(light));
     ctx.set_visuals_of(Theme::Dark, palette::visuals(dark));
     ctx.set_theme(value.preference());
@@ -182,10 +192,43 @@ mod tests {
     }
 
     #[test]
+    fn parchment_is_light_only_and_fills_both_slots() {
+        let ctx = Context::default();
+        apply(&ctx);
+        set_appearance(&ctx, Appearance::Parchment);
+        assert_eq!(ctx.options(|o| o.theme_preference), ThemePreference::Light);
+        for variant in [Theme::Light, Theme::Dark] {
+            assert_eq!(
+                ctx.style_of(variant).visuals.panel_fill,
+                palette::PARCHMENT.window,
+                "{variant:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn every_appearance_pairs_palettes_from_the_tested_list() {
+        for value in Appearance::ALL {
+            let (light, dark) = value.pair();
+            for p in [light, dark] {
+                assert!(
+                    palette::ALL.contains(&p),
+                    "{value:?} installs a palette outside palette::ALL"
+                );
+            }
+            assert!(!light.dark, "{value:?} light slot");
+        }
+    }
+
+    #[test]
     fn switching_back_to_system_restores_both_neutral_palettes() {
         let ctx = Context::default();
         apply(&ctx);
-        for solarized in [Appearance::SolarizedDark, Appearance::SolarizedLight] {
+        for solarized in [
+            Appearance::SolarizedDark,
+            Appearance::SolarizedLight,
+            Appearance::Parchment,
+        ] {
             set_appearance(&ctx, solarized);
             set_appearance(&ctx, Appearance::System);
             assert_eq!(ctx.style_of(Theme::Light).visuals.panel_fill, LIGHT.window);

@@ -1,4 +1,4 @@
-//! Hark's visual identity: the four palettes, embedded fonts, type scale,
+//! Hark's visual identity: the palettes, embedded fonts, type scale,
 //! spacing, and icon glyphs. Panels consume these tokens so the native UI
 //! changes appearance consistently without per-panel color overrides.
 
