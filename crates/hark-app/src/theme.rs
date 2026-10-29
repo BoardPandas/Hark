@@ -324,6 +324,35 @@ pub(crate) fn focus_ring(ui: &Ui, response: &egui::Response) {
     }
 }
 
+/// Inner padding of a `tip`; tighter than a card's because a tip sits inside one.
+pub const TIP_PADDING: i8 = 10;
+
+/// A tip fills with `tint`, whose text contrast is already tested in every
+/// palette, so a tip needs no color pair of its own. A test pins this.
+pub fn tip_frame(v: &Visuals) -> egui::Frame {
+    egui::Frame::new()
+        .fill(tint(v))
+        .corner_radius(CONTROL_RADIUS)
+        .inner_margin(Margin::same(TIP_PADDING))
+}
+
+/// A short suggestion at the point of decision. The leading icon means it is
+/// never carried by the fill color alone.
+pub fn tip<R>(
+    ui: &mut Ui,
+    glyph: &str,
+    add_contents: impl FnOnce(&mut Ui) -> R,
+) -> egui::InnerResponse<R> {
+    tip_frame(ui.visuals()).show(ui, |ui| {
+        ui.set_min_width(ui.available_width());
+        ui.horizontal_top(|ui| {
+            ui.label(icon_text(glyph).color(accent(ui.visuals())));
+            ui.vertical(add_contents).inner
+        })
+        .inner
+    })
+}
+
 /// Install fonts and tokens once, restoring the explicit palette or the
 /// legacy Light/Dark/System preference already loaded by eframe.
 pub fn apply(ctx: &Context) {

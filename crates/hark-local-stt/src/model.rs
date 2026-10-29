@@ -110,7 +110,12 @@ pub fn part_path(final_path: &Path) -> PathBuf {
     PathBuf::from(s)
 }
 
-/// Parakeet TDT 0.6B v3, int8 ONNX. Latest revision; 25 languages.
+/// Parakeet TDT 0.6B v3, int8 ONNX: the pinned multilingual build (25
+/// languages). It is not the newest Parakeet: the English-only v2 and
+/// `parakeet-unified-en-0.6b` (2026-04) also exist. Keeping v3 was decided on
+/// 2026-10-29 without an A/B test (Track B of
+/// `intent/new-users-cannot-choose-a-transcription-setup/spec.md`); a switch
+/// needs its own plan and a new pinned `ModelSpec`.
 pub static PARAKEET_V3_INT8: ModelSpec = ModelSpec {
     id: "parakeet-tdt-0.6b-v3-int8",
     display_name: "Parakeet TDT 0.6B v3 (int8)",

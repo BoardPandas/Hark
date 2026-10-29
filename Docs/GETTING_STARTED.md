@@ -22,7 +22,7 @@ The following files were used as evidence for this page:
 <!-- BEGIN:AUTOGEN hark_03_getting_started_prerequisites -->
 ## Prerequisites
 
-Hark is a native Rust desktop app. Cloud transcription is BYOK by default; the optional on-device Parakeet model can be downloaded after install and used without a provider key for dictation and live meeting chunks ([README: On-device transcription](../README.md#on-device-transcription)). Meetings is available on Windows and has separate Deepgram final-pass and LLM notes settings; local Primary alone does not disable those provider requests ([README: Privacy](../README.md#privacy)).
+Hark is a native Rust desktop app. Cloud transcription is BYOK by default; the optional on-device Parakeet model can be downloaded after install and used without a provider key for dictation and live meeting chunks. Both are chosen in Settings → Dictation → Speech to text, which suggests on-device when no cloud key is stored ([README: On-device transcription](../README.md#on-device-transcription)). Meetings is available on Windows and has separate Deepgram final-pass and LLM notes settings; local Primary alone does not disable those provider requests ([README: Privacy](../README.md#privacy)).
 
 | Requirement | Details |
 |---|---|
@@ -77,8 +77,8 @@ cd Hark
 cargo build
 cargo run
 
-# Add a provider key in Settings, or download the optional local model and
-# select it as the primary engine.
+# Add a provider key in Settings -> Dictation -> Speech to text, or turn on
+# "Use on-device transcription" there, choose Primary, and download the model.
 ```
 
 Sources: [README: Build from source](../README.md#build-from-source), [README: On-device transcription](../README.md#on-device-transcription)

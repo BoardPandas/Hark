@@ -204,8 +204,9 @@ No web env vars. Settings and secrets live in OS-standard locations:
 ## On-device transcription
 
 Optional, off by default, and included in every stock build. Under **Settings →
-On-device** you can download a Parakeet model (~670 MB) and then run it in
-one of two modes:
+Dictation → Speech to text**, turn on **Use on-device transcription**, download
+the Parakeet model (~670 MB), and run it in one of two modes. With no cloud key
+stored, the card suggests it with a **Use on-device instead** button:
 
 - **Backup** — the cloud provider stays primary; Hark falls back to the local
   model when the network or the provider fails, so you do not lose the sentence

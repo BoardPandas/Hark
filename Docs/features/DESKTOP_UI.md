@@ -128,9 +128,8 @@ Queries and text aggregation run on the storage worker. The UI caches results by
 | Section | Controls |
 |---|---|
 | General | Launch at startup, always on top, exit when the window is closed, appearance, Close Program |
-| Dictation | Speech provider, key, connection test, model/endpoint, voice, cleanup |
+| Dictation | Speech to text card: provider with a one-line description, key with a Get a key link until one is stored, a no-key on-device suggestion, connection test, Model and endpoint (optional); then the on-device toggle (Backup or Primary) with model download/progress/cancel/delete. Primary hides the cloud controls. Voice, cleanup, and a privacy line that follows the mode |
 | Audio & shortcut | Shortcut recording/manual entry, microphone picker and input meter |
-| On-device | Off/Backup/Primary modes, model download/progress/cancel/delete |
 | Meetings | Take notes toggle, optional Windows start/stop shortcut, microphone, detection (off/ask/auto, auto-stop delay, app list), speaker labels (Deepgram key, independent of the dictation key), storage cap and usage, delete all meeting audio |
 | Behavior | Cleanup limits, single-word punctuation |
 | Privacy | History capture/retention, optional local app tracking, optional retained-history word/phrase analysis, numeric retention and provider disclosures |
@@ -151,7 +150,7 @@ Within Settings, General is the initial section after setup. Startup and window 
 
 ### First run
 
-Setup offers cloud or on-device transcription, then configuration, platform-specific permission guidance, and a first dictation. The local choice downloads the real model and uses Verbatim voice to keep setup offline. The cloud choice requires a successful test of the current provider configuration; changing a stored key invalidates that test. Testing does not save the draft. **Save & continue** is explicit.
+Setup offers cloud or on-device transcription, with a tip that suggests on-device to anyone without a paid key, then configuration, platform-specific permission guidance, and a first dictation. The local choice downloads the real model and uses Verbatim voice to keep setup offline. Readiness follows the draft's mode, not the first choice: on-device Primary (chosen up front, or by the Speech to text toggle or its no-key suggestion during configuration) waits for the model download, while cloud and Backup require a successful test of the current provider configuration; changing a stored key invalidates that test ([onboarding.rs](../../crates/hark-app/src/ui/settings/onboarding.rs), [get_started.rs](../../crates/hark-app/src/ui/settings/get_started.rs)). Testing does not save the draft. **Save & continue** is explicit.
 
 Permission guidance explains microphone and keyboard/insertion access without claiming permission has been granted. The final step uses the saved shortcut and retires after an actual successful insertion. Users can skip setup, return to configuration, or change their shortcut.
 <!-- END:AUTOGEN hark_12_desktop_ui_pages -->

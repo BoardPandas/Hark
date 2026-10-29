@@ -1,22 +1,30 @@
 //! The cleanup-provider section (spec §3.6): inherited display by default,
 //! explicit override expandable, and its own key section when the keychain
-//! account differs from the STT provider's.
+//! account differs from the STT provider's. In on-device Primary the Speech
+//! to text key box is hidden, so a voice that reuses that key shows it here.
 
 use crate::theme;
 use crate::ui::settings::form::{inline_error, none_if_empty, FormBufs};
 use crate::ui::settings::keys::KeySection;
 use crate::ui::settings::test::{cleanup_test, CleanupPass};
 use egui::{CollapsingHeader, RichText, TextEdit, Ui};
-use hark_config::{CleanupResolution, ProviderKind, Settings, VoiceName, VoiceProvider};
+use hark_config::{
+    CleanupKeySource, CleanupResolution, LocalMode, ProviderKind, Settings, VoiceName,
+    VoiceProvider,
+};
 use std::sync::mpsc::{self, Receiver};
 
+/// Returns true when the STT key changed here (Primary only, R14).
 pub fn section(
     ui: &mut Ui,
     draft: &mut Settings,
     bufs: &mut FormBufs,
     cleanup_keys: &mut Option<KeySection>,
+    stt_keys: &mut KeySection,
     test: &mut CleanupTest,
-) {
+) -> bool {
+    let primary = draft.local_stt.mode == LocalMode::Primary;
+    let mut stt_key_changed = false;
     CollapsingHeader::new("Cleanup provider")
         .default_open(false)
         .show(ui, |ui| {
@@ -94,7 +102,12 @@ pub fn section(
                     .key_account
                     .clone()
                     .unwrap_or_else(|| p.kind.label().to_string());
-                if account == stt_account {
+                if account == stt_account && primary {
+                    // The same section as the hidden Speech to text box, so
+                    // its cached status (and the no-key callout) stays true.
+                    stt_key_changed = stt_keys.show(ui);
+                    *cleanup_keys = None;
+                } else if account == stt_account {
                     ui.label(
                         RichText::new(format!(
                             "Uses the \"{account}\" key already stored for speech to text."
@@ -112,11 +125,22 @@ pub fn section(
             } else {
                 *cleanup_keys = None;
                 inherited_line(ui, draft);
+                if primary && reuses_stt_key(draft) {
+                    stt_key_changed = stt_keys.show(ui);
+                }
             }
 
             ui.add_space(6.0);
             test.show(ui, draft);
         });
+    stt_key_changed
+}
+
+fn reuses_stt_key(draft: &Settings) -> bool {
+    matches!(
+        hark_config::resolve_cleanup_provider(&draft.provider, &draft.voice, draft.voice.default),
+        CleanupResolution::Resolved(r) if r.key_source == CleanupKeySource::ReuseSttKey
+    )
 }
 
 /// The cleanup section's own test button: one tiny chat call against

@@ -1,4 +1,6 @@
-//! First-run state: progress follows actual provider/model readiness.
+//! First-run state: progress follows actual provider/model readiness. Which
+//! engine is set up is read from the draft's mode, never stored here, so the
+//! Speech to text card's toggle and callout can change it during Configure.
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum Step {
@@ -13,7 +15,6 @@ pub struct GetStarted {
     pub active: bool,
     pub dismissed: bool,
     pub step: Step,
-    pub local: bool,
 }
 
 impl GetStarted {
@@ -22,7 +23,6 @@ impl GetStarted {
             active,
             dismissed: false,
             step: Step::Choose,
-            local: false,
         }
     }
 

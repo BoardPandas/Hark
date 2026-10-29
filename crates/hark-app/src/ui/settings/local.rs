@@ -1,54 +1,88 @@
-//! The Settings "On-device model" section: the off/fallback/primary choice,
-//! the model card with its download state, and the download/cancel/delete
-//! controls.
+//! The on-device half of the Speech to text card: the toggle, Primary or
+//! Backup, the model card with its download state, and the
+//! download/cancel/delete controls.
 //!
-//! The mode radio persists through the settings draft on Save (like every
-//! other field here); the download itself is immediate, because a 670 MB
-//! transfer behind a Save button would be a surprising thing to trigger.
+//! The mode persists through the settings draft on Save (like every other
+//! field here); the download itself is immediate, because a 670 MB transfer
+//! behind a Save button would be a surprising thing to trigger. Nothing here
+//! starts it except the card's own button.
 
+use super::stt_card;
 use crate::model_download::{ModelDownload, Phase};
 use crate::theme;
 use egui::{RichText, Ui};
 use hark_config::{LocalMode, Settings};
 use hark_local_stt::{format_bytes, ModelStatus};
 
-pub fn section(ui: &mut Ui, draft: &mut Settings, download: &mut ModelDownload) {
-    ui.add_space(8.0);
-    ui.label(RichText::new("On-device model").text_style(theme::subheading()));
-    ui.label(
-        RichText::new(
-            "Transcribe without the internet. Runs entirely on this computer; \
-             audio stays here. Optional cleanup may still send text to your cleanup provider.",
-        )
-        .small()
-        .weak(),
-    );
-
+/// R4-R8. `key_stored` decides what turning the toggle on means.
+pub(super) fn on_device_block(
+    ui: &mut Ui,
+    draft: &mut Settings,
+    download: &mut ModelDownload,
+    key_stored: bool,
+) {
     if !hark_local_stt::LocalEngine::is_available() {
         unavailable(ui);
         return;
     }
 
-    ui.add_space(4.0);
     let before = draft.local_stt.mode;
-    ui.radio_value(&mut draft.local_stt.mode, LocalMode::Off, "Off");
-    ui.radio_value(
-        &mut draft.local_stt.mode,
-        LocalMode::Fallback,
-        "Use as a backup when the cloud fails or times out",
-    );
-    ui.radio_value(
-        &mut draft.local_stt.mode,
-        LocalMode::Primary,
-        "Use as my primary engine (no cloud, no API key needed)",
-    );
-    if draft.local_stt.mode != before {
-        download.refresh_status();
+    // Derived from the draft every frame: a stored bool would drift from it
+    // the moment the callout or Discard changed the mode.
+    let mut enabled = before.uses_local();
+    if ui
+        .checkbox(&mut enabled, "Use on-device transcription")
+        .changed()
+    {
+        draft.local_stt.mode = if enabled {
+            stt_card::mode_when_enabled(key_stored)
+        } else {
+            LocalMode::Off
+        };
     }
 
-    if draft.local_stt.mode.uses_local() {
-        ui.add_space(6.0);
-        card(ui, draft, download);
+    ui.indent("on-device-mode", |ui| {
+        if draft.local_stt.mode.uses_local() {
+            ui.radio_value(
+                &mut draft.local_stt.mode,
+                LocalMode::Primary,
+                "Primary: offline, no key needed",
+            )
+            .on_hover_text(stt_card::PRIMARY_HOVER);
+            ui.radio_value(
+                &mut draft.local_stt.mode,
+                LocalMode::Fallback,
+                "Backup: when the cloud fails or is slow",
+            );
+            if let Some(line) =
+                stt_card::mode_line(draft.local_stt.mode, draft.local_stt.fallback_after_ms)
+            {
+                ui.label(RichText::new(line).small().weak());
+            }
+            ui.add_space(6.0);
+            card(ui, draft, download);
+        } else {
+            ui.label(
+                RichText::new(format!(
+                    "Runs on this computer, so audio never leaves it. One-time {} download.",
+                    format_bytes(download.spec().total_bytes())
+                ))
+                .small()
+                .weak(),
+            );
+            // Turning the toggle off does not stop a transfer; a hidden
+            // 670 MB download would be a silent behavior (R8).
+            if download.is_busy() {
+                state_line(ui, download, download.status());
+                if ui.button("Cancel").clicked() {
+                    download.cancel();
+                }
+            }
+        }
+    });
+
+    if draft.local_stt.mode != before {
+        download.refresh_status();
     }
 }
 

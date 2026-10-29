@@ -6,6 +6,32 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.65.0] - 2026-10-29
+
+### Added
+
+- **Choose cloud or on-device transcription in one place.** Settings → Dictation → Speech to text now holds the whole choice. Your cloud provider comes first. Below it, **Use on-device transcription** turns on the on-device model, as **Primary** (offline, no key needed) or **Backup** (used when the cloud fails or is slow). A line under the choice says where your audio goes. Turning it on picks Backup if you have a cloud key stored and Primary if you do not. In Primary, the cloud controls are hidden.
+- **A suggestion when you have no key.** With no cloud key stored, the card offers "No paid AI key? Use on-device." and a **Use on-device instead** button. The button switches to on-device but does not start the download; that stays behind the model's own **Download** button.
+- Each provider now has a one-line description under its name (also shown when you hover it), and a **Get a key** link next to "No key for … yet" that opens the provider's key page. The link goes away once a key is stored.
+- If you turn on-device off while the model is still downloading, the download's progress and a **Cancel** button stay visible.
+
+### Changed
+
+- Groundwork for choosing a transcription setup in Settings: a one-line description and a "Get a key" page for each speech-to-text provider, and the rules for when Hark suggests on-device transcription. Nothing changes on screen yet.
+- Hark's notes about the on-device model no longer call Parakeet TDT 0.6B v3 the latest version. It is the multilingual build Hark ships. Newer English-only builds exist, and Hark keeps v3 for now.
+- The separate **On-device** page in Settings is gone; its controls moved into Speech to text.
+- "Model & endpoint" is now **Model and endpoint (optional)**, or **(required)** for an OpenAI-compatible server, with a note that leaving it blank uses the recommended model.
+- The privacy note under Dictation now matches your mode: cloud, cloud with on-device backup, or on-device only.
+- In on-device Primary, a cleanup voice that reuses your speech-to-text key now shows that key's status and a field to store it under **Cleanup provider**, since the Speech to text key box is hidden.
+- First-run setup now suggests "No paid AI key? Choose on-device. You can add a cloud provider later in Settings." under the two choices, and the on-device choice shows the download size.
+- The README and docs now point to Settings → Dictation → Speech to text for on-device transcription, and describe the first-run tip and the "Use on-device instead" suggestion.
+
+### Fixed
+
+- Saving on-device Primary before the model has downloaded no longer says "Saved. Dictation is ready." It now says dictation works once the download finishes.
+- In first-run setup, switching to on-device Primary from the cloud screen (with the new toggle or the "Use on-device instead" button) now shows the on-device setup and waits for the model download, instead of still asking for a cloud key and a passed test. Choosing Backup still needs a passed test.
+- If your settings say on-device Primary but your build of Hark has no on-device engine, the Speech to text card now still shows the cloud controls. Before, it hid them along with the on-device controls, so nothing on the card could change the setting.
+
 ## [0.64.0] - 2026-10-29
 
 ### Added
