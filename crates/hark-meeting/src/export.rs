@@ -3,7 +3,7 @@
 //! all go through [`to_markdown`] or [`to_text`] over an [`ExportMeeting`].
 //!
 //! Pure by construction: no clock, no filesystem, no clipboard. The caller
-//! (`hark-app`) resolves speaker labels with [`speaker_label`], formats
+//! (`hark-app`) resolves speaker labels through a [`crate::Roster`], formats
 //! `started` in the user's local time, and does the actual file write or
 //! clipboard set on a worker thread.
 //!
@@ -11,6 +11,7 @@
 //! transcript line can never turn into a heading, list item or link by
 //! accident. Plain text has no markup to escape.
 
+use crate::speakers::{default_label, SpeakerKey};
 use crate::Channel;
 
 mod subtitles;
@@ -27,12 +28,15 @@ pub struct ExportMeeting {
     pub notes: Option<ExportNotes>,
 }
 
-/// One transcript line. `speaker` is already resolved (see [`speaker_label`]);
-/// this module never sees a raw speaker id.
+/// One transcript line. `speaker` is already resolved through the meeting's
+/// [`crate::Roster`]; this module never sees a raw speaker id.
 pub struct ExportLine {
     pub at_ms: u64,
     pub end_ms: u64,
     pub speaker: String,
+    /// The speaker's color slot (`Roster::slot`). Only the Word export draws
+    /// color; text formats carry the name alone.
+    pub slot: usize,
     pub text: String,
 }
 
@@ -309,30 +313,17 @@ pub fn format_duration(ms: u64) -> String {
     }
 }
 
-/// The label for a transcript line. `Me` is always "Me" (the caller
-/// substitutes the user's own display name, if set, on top of this). `Them`
-/// with no diarized speaker is "Them"; a diarized speaker is its rename if
-/// one exists, else `"Speaker {n+1}"` for the 0-based id Deepgram returns.
+/// The label for a transcript line from the pre-roster rename list: `Me` is
+/// always "Me", a diarized speaker is its rename if one exists, and anything
+/// else is [`default_label`]. New readers go through [`crate::Roster`].
 pub fn speaker_label(channel: Channel, speaker: Option<u32>, renames: &[(u32, String)]) -> String {
-    if channel == Channel::Me {
-        return "Me".to_string();
+    let key = SpeakerKey::transcribed(u8::from(channel == Channel::Them), speaker);
+    if let SpeakerKey::Diarized(id) = key {
+        if let Some((_, name)) = renames.iter().find(|(rid, _)| *rid == id) {
+            return name.clone();
+        }
     }
-    match speaker {
-        None => "Them".to_string(),
-        Some(id) => renames
-            .iter()
-            .find(|(rid, _)| *rid == id)
-            .map(|(_, name)| name.clone())
-            .unwrap_or_else(|| {
-                if id & 0x8000_0000 != 0 {
-                    let window = (id & 0x7fff_ffff) >> 10;
-                    let speaker = id & 0x3ff;
-                    format!("Window {} · Speaker {}", window + 1, speaker + 1)
-                } else {
-                    format!("Speaker {}", id + 1)
-                }
-            }),
-    }
+    default_label(key)
 }
 
 /// Windows device names reserved regardless of extension (`CON.txt` collides
@@ -392,12 +383,14 @@ mod tests {
                     at_ms: 0,
                     end_ms: 10_000,
                     speaker: "Me".to_string(),
+                    slot: 0,
                     text: "Let's get started.".to_string(),
                 },
                 ExportLine {
                     at_ms: 12_000,
                     end_ms: 14_000,
                     speaker: "Dana".to_string(),
+                    slot: 0,
                     text: "Sounds good.".to_string(),
                 },
             ],
@@ -638,18 +631,21 @@ mod tests {
                 at_ms: 0,
                 end_ms: 1_000,
                 speaker: "Me".to_string(),
+                slot: 0,
                 text: "# not a heading".to_string(),
             },
             ExportLine {
                 at_ms: 1_000,
                 end_ms: 2_000,
                 speaker: "Me".to_string(),
+                slot: 0,
                 text: "1. item".to_string(),
             },
             ExportLine {
                 at_ms: 2_000,
                 end_ms: 3_000,
                 speaker: "Me".to_string(),
+                slot: 0,
                 text: "[link](x)".to_string(),
             },
         ];

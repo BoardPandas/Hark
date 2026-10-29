@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.64.0] - 2026-10-29
+
+### Changed
+
+- Groundwork for telling meeting speakers apart: every speaker in a meeting, "Me" included, now has one identity that labels, colors and exports will all read from. Nothing looks different yet.
+
 ## [0.63.2] - 2026-10-29
 
 ### Fixed

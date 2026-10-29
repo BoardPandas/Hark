@@ -118,6 +118,7 @@ pub(super) fn export_of(
                     seg.speaker,
                     &detail.speakers,
                 ),
+                slot: 0,
                 text: seg.text.clone(),
             })
             .collect(),

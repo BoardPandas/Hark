@@ -11,6 +11,8 @@
 //! - [`storage`]: which recordings' audio to evict to stay under the cap.
 //! - [`export`]: renders a meeting as Markdown or plain text for the Share
 //!   menu.
+//! - [`speakers`]: the speaker-key vocabulary and the roster that turns keys
+//!   into labels and color slots.
 //!
 //! The exceptions to "pure" are small and fenced: [`storage_fs`] (measure
 //! and delete meeting audio, behind a path guard) and [`probe`] (read who
@@ -28,6 +30,7 @@ pub mod export;
 pub mod merge;
 pub mod probe;
 pub mod session;
+pub mod speakers;
 pub mod storage;
 pub mod storage_fs;
 
@@ -35,6 +38,7 @@ pub use chunker::{Chunk, ChunkParams, Chunker};
 pub use detect::{Answer, DetectConfig, DetectMode, Detector, Verdict};
 pub use merge::{Segment, Transcript};
 pub use session::{advance, Action, Event, Failure, SessionState};
+pub use speakers::{default_label, Person, Roster, SpeakerKey};
 pub use storage::{plan_eviction, EvictionPlan, StoredAudio};
 
 /// The session timeline's rate: every offset in this crate is a count of

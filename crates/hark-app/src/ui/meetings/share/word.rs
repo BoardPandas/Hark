@@ -122,6 +122,7 @@ mod tests {
                 at_ms: 0,
                 end_ms: 1000,
                 speaker: "Zoë".into(),
+                slot: 0,
                 text: "alpha\nbeta\0".into(),
             }],
             notes: None,
