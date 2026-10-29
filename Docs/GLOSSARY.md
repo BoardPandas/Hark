@@ -97,7 +97,9 @@ same person ([meeting labels](features/MEETINGS.md#gemini-files-final-pass)).
 **AEC (acoustic echo cancellation):** processing that uses playback audio as a
 reference to reduce its echo in microphone input. Hark's
 [standalone comparison](../tools/meeting-aec-bakeoff/RESULTS.md) measures candidate
-engines; production AEC remains disabled pending listening/build/alignment work.
+engines. The shipped engine runs only when the optional **Reduce speaker echo**
+setting is on, and it defaults off
+([echo_cancellation](../crates/hark-config/src/meeting.rs#L127)).
 
 ## Mac native integration
 

@@ -32,8 +32,9 @@ preserving explicit meeting preferences and the schema-5 Gemini model setting.
 Config schema 7 retires the Groq preset, rewriting saved Groq tables as
 `openai-compatible` ([Configuration](CONFIGURATION.md#groq-retirement-schema-7)).
 The TOML is at schema 7. The separate SQLite schema is versioned on its own
-(migrations 001-006, including 005 for bounded numeric Insights and a
-tracking-coverage timestamp); schema 7 does not touch it.
+(migrations 001-007, including 005 for bounded numeric Insights and a
+tracking-coverage timestamp, and 007 for meeting speaker names, per-line
+speaker overrides and the stale-notes stamp); schema 7 does not touch it.
 Migration attempts a versioned TOML backup before saving; failure keeps
 the in-memory settings usable, and a failed backup leaves the original file alone
 ([config persistence](../../crates/hark-config/src/lib.rs),
@@ -227,6 +228,6 @@ Gemini playback-speaker IDs reserve the high bit and encode the five-minute wind
 alongside its local speaker number. They remain separate identities in storage,
 rename controls, and exports; no cross-window match is implied
 ([parse](../../crates/hark-stt/src/meeting_gemini.rs),
-[label](../../crates/hark-meeting/src/export.rs)).
+[label](../../crates/hark-meeting/src/speakers.rs#L98-L110)).
 
 Mac native capture and UI use the same local history and meeting storage workers as Windows. Permission changes restart capture without replacing the data directory. Updates stage their DMG outside the signed app and replace only the app bundle; settings, keychain credentials, meeting audio and history remain in their existing OS locations ([app lifecycle](../../crates/hark-app/src/app.rs), [Mac updater](../../crates/hark-update/src/macos.rs)).

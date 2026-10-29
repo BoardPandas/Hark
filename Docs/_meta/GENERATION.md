@@ -19,10 +19,10 @@
   - `check:docs` passes for all 17 mapped pages, and `check:claude` passes.
   - The `check-docs-sync` unit tests pass (6 of 6). No relative link in the changed pages is broken.
   - `mmdc` is not installed, so the edited Meetings diagram got only the static check: `graph TD`, all node text quoted.
-- **Left for a person:** these sit outside AUTOGEN markers, which update mode does not edit.
-  - The Data Storage intro still says "migrations 001-006".
-  - The trailing Meetings paragraph links "label" to `export.rs`, where `speaker_label` no longer exists.
-  - The Glossary AEC paragraph says production AEC "remains disabled", but the AEC term itself says Reduce speaker echo exists and defaults off.
+- **Manual text, fixed by hand in 0.67.3:** these sit outside AUTOGEN markers, which update mode does not edit.
+  - The Data Storage intro said "migrations 001-006". It now says 001-007 and describes 007.
+  - The trailing Data Storage paragraph linked "label" to `export.rs`, where `speaker_label` no longer exists. It now points to `speakers.rs` `default_label`. An earlier version of this entry named the Meetings page by mistake.
+  - The Glossary AEC paragraph said production AEC "remains disabled". It now says the shipped engine runs only when Reduce speaker echo is on, and that it defaults off.
 
 ## Speech to text card and first-run tips — 2026-10-29 (0.65.0)
 

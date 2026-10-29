@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.67.3] - 2026-10-29
+
+### Fixed
+
+- Three stale lines in the project docs are now correct:
+  - Data Storage now lists migration 007 (meeting speakers).
+  - Data Storage links Gemini window speaker labels to the code that builds them now.
+  - The Glossary no longer says echo reduction is disabled. It is an optional setting, off by default.
+
 ## [0.67.2] - 2026-10-29
 
 ### Fixed
