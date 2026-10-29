@@ -12,6 +12,26 @@ use std::path::Path;
 
 pub const ASSIGN_FAILED: &str = "This line could not be moved. Try again.";
 
+/// The rewritten notes with the stored notes' ticks carried over. Default
+/// labels are ignored when matching items, so "Speaker 2 sends the deck"
+/// still matches "{{them:1}} sends the deck".
+fn carry_ticks(fresh: &str, stored: &str, roster: &Roster) -> String {
+    use hark_voice::MeetingNotes;
+    let (Ok(mut fresh_notes), Ok(old)) = (
+        MeetingNotes::from_json(fresh),
+        MeetingNotes::from_json(stored),
+    ) else {
+        return fresh.to_string();
+    };
+    let names = roster.notes_names();
+    let strip: Vec<&str> = names
+        .iter()
+        .flat_map(|(_, default, display)| [default.as_str(), display.as_str()])
+        .collect();
+    fresh_notes.carry_done_from(&old, &strip);
+    fresh_notes.to_json()
+}
+
 /// A generated title with its `{{key}}` speaker tokens written out.
 fn resolve_title(title: &str, roster: &Roster) -> String {
     hark_voice::MeetingNotes {
@@ -63,6 +83,15 @@ pub enum MeetingCmd {
         id: String,
         notes_json: String,
         title: String,
+    },
+    /// Notes rewritten after moved lines or a re-run. Ticks carry over from
+    /// the notes as stored now; the stale stamp clears only if it is not
+    /// newer than `requested_ms`; the title never changes; a meeting with no
+    /// notes is left without.
+    RefreshedNotes {
+        id: String,
+        notes_json: String,
+        requested_ms: i64,
     },
     /// Notes edited in the UI (an action item ticked).
     UpdateNotes {
@@ -128,7 +157,13 @@ pub fn apply(store: &mut Store, dir: &Path, cmd: MeetingCmd) -> Result<bool, Sto
             segments,
             reply,
         } => {
-            let result = store.reprocess_meeting_segments(&id, &segments, None);
+            // The old names go with the old diarization: bake them into the
+            // notes in the same transaction that replaces the transcript.
+            let baked = store.meeting(&id)?.and_then(|m| {
+                let notes = hark_voice::MeetingNotes::from_json(m.notes_json.as_deref()?).ok()?;
+                Some(notes.bake(&roster_of(&m).notes_names()).to_json())
+            });
+            let result = store.reprocess_meeting_segments(&id, &segments, baked.as_deref());
             let _ = reply.send(result.as_ref().map(|_| ()).map_err(|_| "The replacement transcript could not be saved. The previous transcript was kept.".into()));
             result.map(|_| true)
         }
@@ -161,6 +196,21 @@ pub fn apply(store: &mut Store, dir: &Path, cmd: MeetingCmd) -> Result<bool, Sto
                 store.set_meeting_title(&id, title.trim())?;
             }
             Ok(true)
+        }
+        MeetingCmd::RefreshedNotes {
+            id,
+            notes_json,
+            requested_ms,
+        } => {
+            let Some(meeting) = store.meeting(&id)? else {
+                return Ok(false);
+            };
+            let Some(old) = meeting.notes_json.as_deref() else {
+                log::info!("meeting {id}: rewritten notes dropped; the meeting has none");
+                return Ok(false);
+            };
+            let json = carry_ticks(&notes_json, old, &roster_of(&meeting));
+            store.set_refreshed_notes(&id, &json, requested_ms)
         }
         MeetingCmd::UpdateNotes { id, notes_json } => store
             .set_meeting_notes(&id, Some(&notes_json))
@@ -494,6 +544,98 @@ mod tests {
         let roster = roster_of(&store.meeting("m").unwrap().unwrap());
         assert_eq!(roster.label(hark_meeting::SpeakerKey::Me), "Chaz");
         assert_eq!(roster.label(hark_meeting::SpeakerKey::Diarized(0)), "Dana");
+    }
+
+    fn notes(items: &[(&str, bool)]) -> String {
+        hark_voice::MeetingNotes {
+            summary: "s".into(),
+            action_items: items
+                .iter()
+                .map(|(text, done)| hark_voice::ActionItem {
+                    text: (*text).into(),
+                    owner: None,
+                    done: *done,
+                })
+                .collect(),
+            speaker_refs: hark_voice::SpeakerRefs::Tokens,
+            ..Default::default()
+        }
+        .to_json()
+    }
+
+    #[test]
+    fn rewritten_notes_keep_ticks_and_never_reach_a_meeting_without_notes() {
+        let mut store = Store::open_in_memory().unwrap();
+        let [_, them] = two_lines(&mut store, "m");
+        let dir = tempfile::tempdir().unwrap();
+        store.set_meeting_title("m", "Kept").unwrap();
+        store
+            .set_meeting_notes("m", Some(&notes(&[("Speaker 1 sends the deck", true)])))
+            .unwrap();
+        store
+            .assign_segment_speaker("m", them, Some("me"), 5_000)
+            .unwrap();
+        let cmd = MeetingCmd::RefreshedNotes {
+            id: "m".into(),
+            notes_json: notes(&[("{{me}} sends the deck", false), ("Book a room", false)]),
+            requested_ms: 6_000,
+        };
+        assert!(apply(&mut store, dir.path(), cmd).unwrap());
+        let d = store.meeting("m").unwrap().unwrap();
+        let written =
+            hark_voice::MeetingNotes::from_json(d.notes_json.as_deref().unwrap()).unwrap();
+        let ticks: Vec<bool> = written.action_items.iter().map(|a| a.done).collect();
+        assert_eq!(ticks, [true, false]);
+        assert_eq!(d.notes_stale_ms, None);
+        assert_eq!(d.summary.title.as_deref(), Some("Kept"));
+
+        two_lines(&mut store, "bare");
+        let cmd = MeetingCmd::RefreshedNotes {
+            id: "bare".into(),
+            notes_json: notes(&[]),
+            requested_ms: 1,
+        };
+        assert!(!apply(&mut store, dir.path(), cmd).unwrap());
+        assert!(store.meeting("bare").unwrap().unwrap().notes_json.is_none());
+    }
+
+    #[test]
+    fn a_reprocess_bakes_the_old_names_into_the_notes() {
+        let mut store = Store::open_in_memory().unwrap();
+        two_lines(&mut store, "m");
+        store.set_speaker_name("m", "them:0", "Dana").unwrap();
+        let tokens = hark_voice::parse_notes(
+            r#"{"title":"t","summary":"{Speaker 1} presented."}"#,
+            &[("Speaker 1".to_string(), "them:0".to_string())],
+        )
+        .unwrap();
+        store
+            .set_meeting_notes("m", Some(&tokens.to_json()))
+            .unwrap();
+        let (reply, done) = std::sync::mpsc::channel();
+        let dir = tempfile::tempdir().unwrap();
+        let cmd = MeetingCmd::Reprocessed {
+            id: "m".into(),
+            segments: vec![MeetingSegment {
+                start_ms: 0,
+                end_ms: 1,
+                channel: 1,
+                speaker: Some(4),
+                text: "new".into(),
+            }],
+            reply,
+        };
+        apply(&mut store, dir.path(), cmd).unwrap();
+        assert_eq!(done.try_recv().unwrap(), Ok(()));
+        let d = store.meeting("m").unwrap().unwrap();
+        assert!(d.speakers.is_empty());
+        let baked = hark_voice::MeetingNotes::from_json(d.notes_json.as_deref().unwrap()).unwrap();
+        assert_eq!(baked.speaker_refs, hark_voice::SpeakerRefs::Frozen);
+        // Speaker 1 is someone else after the re-run; the notes keep Dana.
+        assert_eq!(
+            baked.render(&roster_of(&d).notes_names()).summary,
+            "Dana presented."
+        );
     }
 
     #[test]

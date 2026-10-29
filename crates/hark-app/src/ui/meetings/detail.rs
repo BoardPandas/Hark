@@ -2,6 +2,7 @@
 //! transcript, sharing, and delete. Cached on (write generation, id).
 
 use super::assign::Assignments;
+use super::notes;
 use super::share::{self, ShareAction, Sharing};
 use super::speakers::SpeakersCard;
 use super::transcript::TranscriptView;
@@ -37,6 +38,8 @@ pub(super) struct DetailView {
     deleting: Option<(String, Receiver<Result<(), String>>)>,
     delete_error: Option<(String, String)>,
     deleted: Option<String>,
+    /// Meetings whose notes a move just made stale: rewrite them next frame.
+    refresh_due: Vec<String>,
 }
 
 impl DetailView {
@@ -58,12 +61,14 @@ impl DetailView {
             deleting: None,
             delete_error: None,
             deleted: None,
+            refresh_due: Vec::new(),
         }
     }
 
     pub fn poll(&mut self) {
         self.sharing.poll();
-        self.assignments.poll();
+        let stale = self.assignments.poll();
+        self.refresh_due.extend(stale);
         if let Some((id, reply)) = &self.deleting {
             let result = match reply.try_recv() {
                 Ok(result) => result,
@@ -90,6 +95,13 @@ impl DetailView {
         if self.deleted.as_deref() == Some(id) {
             self.deleted = None;
             return true;
+        }
+        // Read what the storage worker just committed: the request names
+        // every line by the speaker it is shown as now.
+        for due in std::mem::take(&mut self.refresh_due) {
+            if let Ok(Some(fresh)) = storage.reader().meeting(&due) {
+                meetings.refresh_notes(notes::request(&fresh));
+            }
         }
         self.refresh(storage, id);
         let back = ui.button("‹ All meetings").clicked();
@@ -239,8 +251,13 @@ impl DetailView {
         ui.add_space(theme::SECTION_GAP);
 
         if let Some(rendered) = &self.rendered {
-            if let Some((index, done)) = notes_card(ui, rendered) {
+            let stale = notes::stale_line(detail, meetings.notes_status(id));
+            let action = notes::card(ui, rendered, stale);
+            if let Some((index, done)) = action.toggled {
                 self.tick(storage, id, index, done);
+            }
+            if action.update {
+                meetings.refresh_notes(notes::request(detail));
             }
             ui.add_space(theme::SECTION_GAP);
         }
@@ -334,7 +351,7 @@ impl DetailView {
         let (Some(stored), Some(rendered)) = (&mut self.notes, &mut self.rendered) else {
             return;
         };
-        if let Some(notes_json) = ticked(stored, index, done) {
+        if let Some(notes_json) = notes::ticked(stored, index, done) {
             rendered.action_items[index].done = done;
             storage.send(StorageCmd::Meeting(MeetingCmd::UpdateNotes {
                 id: id.to_string(),
@@ -353,49 +370,6 @@ impl DetailView {
     ) {
         let export = share::export_of(detail, self.notes.as_ref(), &self.title, tz);
         self.sharing.run(ctx, action, id, export);
-    }
-}
-
-/// The notes as rendered; returns an action item the user ticked or unticked.
-fn notes_card(ui: &mut Ui, notes: &MeetingNotes) -> Option<(usize, bool)> {
-    let mut toggled = None;
-    theme::card(ui, |ui| {
-        ui.label(RichText::new("Summary").text_style(theme::subheading()));
-        ui.label(&notes.summary);
-        list(ui, "Key points", &notes.key_points);
-        list(ui, "Decisions", &notes.decisions);
-        if !notes.action_items.is_empty() {
-            ui.add_space(theme::GAP);
-            ui.label(RichText::new("Action items").strong());
-            for (i, item) in notes.action_items.iter().enumerate() {
-                let label = match &item.owner {
-                    Some(owner) => format!("{} ({owner})", item.text),
-                    None => item.text.clone(),
-                };
-                let mut done = item.done;
-                if ui.checkbox(&mut done, label).changed() {
-                    toggled = Some((i, done));
-                }
-            }
-        }
-    });
-    toggled
-}
-
-/// The stored notes' JSON with one action item's tick changed.
-fn ticked(stored: &mut MeetingNotes, index: usize, done: bool) -> Option<String> {
-    stored.action_items.get_mut(index)?.done = done;
-    Some(stored.to_json())
-}
-
-fn list(ui: &mut Ui, heading: &str, items: &[String]) {
-    if items.is_empty() {
-        return;
-    }
-    ui.add_space(theme::GAP);
-    ui.label(RichText::new(heading).strong());
-    for item in items {
-        ui.label(format!("• {item}"));
     }
 }
 
@@ -419,7 +393,7 @@ impl FinalPassAction {
             FinalPassAction {
                 label: "Re-run final pass",
                 title: "Re-run the final pass with Deepgram?",
-                body: "Uploads this recording to Deepgram using your key. On success, it replaces the transcript and resets speaker names. Notes and audio stay. Provider usage charges apply.",
+                body: "Uploads this recording to Deepgram using your key. On success, it replaces the transcript, guesses speaker names again and rewrites the notes. Audio stays. Provider usage charges apply.",
             }
         }
     }
@@ -505,23 +479,6 @@ mod tests {
         reply.send(Ok(())).unwrap();
         view.poll();
         assert_eq!(view.deleted.as_deref(), Some("m1"));
-    }
-
-    #[test]
-    fn a_tick_writes_the_stored_token_notes_never_the_rendered_names() {
-        let mut stored = hark_voice::parse_notes(
-            r#"{"title":"t","summary":"s","action_items":[{"text":"Call {Me}"}]}"#,
-            &[("Me".to_string(), "me".to_string())],
-        )
-        .unwrap();
-        let shown = stored.render(&[("me".into(), "Me".into(), "Chaz".into())]);
-        assert_eq!(shown.action_items[0].text, "Call Chaz");
-        let json = ticked(&mut stored, 0, true).unwrap();
-        let written = MeetingNotes::from_json(&json).unwrap();
-        assert_eq!(written.action_items[0].text, "Call {{me}}");
-        assert!(written.action_items[0].done);
-        assert_eq!(written.speaker_refs, hark_voice::SpeakerRefs::Tokens);
-        assert!(ticked(&mut stored, 5, true).is_none());
     }
 
     #[test]

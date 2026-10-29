@@ -6,6 +6,7 @@
 
 use super::finish::{self, FinishJob, FINISHING_MARKER};
 use super::live::{self, Engine};
+use super::notes_refresh::{NotesRequest, Refreshes};
 use super::pending::{self, Retries};
 use super::recorder::Recorder;
 use super::{app_display_name, meetings_supported, Answer, MeetingEvent, StartedMeeting, Trigger};
@@ -35,6 +36,7 @@ enum Command {
     Stop,
     Toggle,
     Rerun { id: String, audio_ms: u64 },
+    RefreshNotes(Box<NotesRequest>),
     Answer(Answer),
     Settings(Box<Settings>),
     DetectionChanged,
@@ -70,6 +72,12 @@ impl MeetingHandle {
             id: id.into(),
             audio_ms,
         });
+    }
+
+    /// Rewrite a meeting's notes from the speakers its lines show now. At
+    /// most one runs per meeting; a newer request replaces a waiting one.
+    pub fn refresh_notes(&self, request: NotesRequest) {
+        self.send(Command::RefreshNotes(Box::new(request)));
     }
 
     pub fn answer(&self, answer: Answer) {
@@ -149,6 +157,7 @@ pub fn run(settings: &Settings, events: Sender<MeetingEvent>) -> Result<MeetingH
                     prompted: None,
                     protected,
                     retries,
+                    refreshes: Refreshes::default(),
                     probe_failed: false,
                     probe_failing: false,
                 };
@@ -194,6 +203,8 @@ struct Coordinator {
     protected: Arc<Mutex<Vec<String>>>,
     /// Final passes waiting for a connection.
     retries: Retries,
+    /// Notes rewrites, coalesced per meeting.
+    refreshes: Refreshes,
     /// This platform has no mic probe; stop polling it (logged once).
     probe_failed: bool,
     /// The last probe failed (logged once). Retried at each backstop poll,
@@ -334,6 +345,9 @@ impl Coordinator {
                 }
                 protected.push(id.clone());
                 drop(protected);
+                // Speaker numbers are about to mean different people: a
+                // rewrite from before the re-run must never land after it.
+                self.refreshes.cancel(&id);
                 super::rerun::spawn(super::rerun::Job {
                     id,
                     audio_ms,
@@ -341,7 +355,12 @@ impl Coordinator {
                     settings: self.settings.clone(),
                     events: self.events.clone(),
                     protected: self.protected.clone(),
+                    refreshes: self.refreshes.clone(),
                 });
+            }
+            Command::RefreshNotes(request) => {
+                self.refreshes
+                    .request(*request, &self.settings, &self.events)
             }
             Command::Toggle => {
                 // Decide on this thread's current state, not an asynchronously
@@ -1143,6 +1162,7 @@ mod tests {
             prompted: None,
             protected: Arc::new(Mutex::new(Vec::new())),
             retries: Retries::disabled(),
+            refreshes: Refreshes::default(),
             probe_failed: false,
             probe_failing: false,
         };

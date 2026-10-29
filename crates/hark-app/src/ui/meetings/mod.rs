@@ -8,6 +8,7 @@
 
 mod assign;
 mod detail;
+mod notes;
 mod share;
 mod speakers;
 mod transcript;

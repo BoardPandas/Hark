@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.64.7] - 2026-10-29
+
+### Changed
+
+- **Moving a line rewrites the notes to match.** When you move transcript lines to another speaker in a meeting that has notes, Hark asks your text provider for new notes in the background ("Updating notes…"). Several quick moves cause at most two rewrites, and you see the result of the last one. Action items you ticked stay ticked, even if their wording changes a little; a ticked item the new notes leave out is kept. The meeting title never changes.
+- If the notes cannot be rewritten (no text provider key, notes turned off, or the provider did not answer), the old notes stay and a line under Summary says why: "Notes still credit the earlier speaker for 3 moved lines." Choose **Update notes** to try again.
+- **Re-running the final pass now guesses speaker names again and rewrites the notes.** The notes keep the names they had until the rewrite lands, so they never credit the wrong person after speakers are renumbered. The confirmation explains this before anything is sent.
+
 ## [0.64.6] - 2026-10-29
 
 ### Added

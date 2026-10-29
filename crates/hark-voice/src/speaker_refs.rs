@@ -130,33 +130,47 @@ pub(crate) fn render_text(text: &str, names: &[(String, String, String)], tokens
     out
 }
 
-/// The words an action item is matched on: lowercased, with tokens, the
-/// given speaker phrases and punctuation removed.
+/// The words an action item is matched on: lowercased, with tokens,
+/// punctuation and the given speaker phrases removed. Phrases are removed as
+/// whole words, so stripping "Me" leaves "meeting" alone.
 pub(crate) fn match_words(text: &str, strip: &[&str]) -> std::collections::BTreeSet<String> {
     let mut plain = String::with_capacity(text.len());
     let mut rest = text;
     while let Some(open) = rest.find("{{") {
         plain.push_str(&rest[..open]);
-        match rest[open + 2..].find("}}") {
-            Some(end) => rest = &rest[open + 2 + end + 2..],
-            None => {
-                rest = &rest[open + 2..];
-            }
-        }
+        rest = match rest[open + 2..].find("}}") {
+            Some(end) => &rest[open + 2 + end + 2..],
+            None => &rest[open + 2..],
+        };
     }
     plain.push_str(rest);
-    let mut lower = plain.to_lowercase();
-    for phrase in strip {
-        let phrase = phrase.trim().to_lowercase();
-        if !phrase.is_empty() {
-            lower = lower.replace(&phrase, " ");
+    let split = |s: &str| -> Vec<String> {
+        s.to_lowercase()
+            .split(|c: char| !c.is_alphanumeric())
+            .filter(|w| !w.is_empty())
+            .map(str::to_string)
+            .collect()
+    };
+    let words = split(&plain);
+    let mut phrases: Vec<Vec<String>> = strip
+        .iter()
+        .map(|p| split(p))
+        .filter(|p| !p.is_empty())
+        .collect();
+    phrases.sort_by_key(|p| std::cmp::Reverse(p.len()));
+    let mut out = std::collections::BTreeSet::new();
+    let mut i = 0;
+    'words: while i < words.len() {
+        for phrase in &phrases {
+            if words[i..].starts_with(phrase) {
+                i += phrase.len();
+                continue 'words;
+            }
         }
+        out.insert(words[i].clone());
+        i += 1;
     }
-    lower
-        .split(|c: char| !c.is_alphanumeric())
-        .filter(|w| !w.is_empty())
-        .map(str::to_string)
-        .collect()
+    out
 }
 
 /// Token-set Jaccard similarity; two empty sets are not a match.
@@ -283,6 +297,8 @@ mod tests {
         let b = match_words("Speaker 2 will send the deck today", &["Speaker 2"]);
         assert_eq!(a, b);
         assert!((jaccard(&a, &b) - 1.0).abs() < 1e-9);
+        let meeting = match_words("Me books the meeting room", &["Me"]);
+        assert!(meeting.contains("meeting") && !meeting.contains("me"));
         assert_eq!(jaccard(&match_words("", &[]), &match_words("!", &[])), 0.0);
     }
 }
