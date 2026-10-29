@@ -41,9 +41,17 @@ use tray_icon::TrayIconEvent;
 const OPEN_SETTINGS_ID: &str = "open-settings";
 const QUIT_ID: &str = "quit";
 const VOICE_ID_PREFIX: &str = "voice:";
-/// Start or stop meeting notes. Only built where meetings exist (Windows for
+/// Start and stop meeting notes. Only built where meetings exist (Windows for
 /// now): a menu entry that can never work is worse than none.
-const MEETING_ID: &str = "meeting-toggle";
+///
+/// **Two entries, never one toggle.** A Windows tray menu does not repaint
+/// while it is open, so one entry whose label flips can be clicked under a
+/// stale label: the call ended and auto-stop fired while the menu still said
+/// "Stop meeting notes", and the click then *started* a new meeting nobody
+/// asked for. With an id per intent, a stale "Stop" can only stop (a no-op
+/// once nothing records), and a stale "Start" can only start.
+const MEETING_START_ID: &str = "meeting-start";
+const MEETING_STOP_ID: &str = "meeting-stop";
 /// Linux only, and not a gratuitous difference: libappindicator exposes no
 /// click or double-click event at all, so [`TrayAction::ShowWindow`] — which
 /// Windows and macOS raise from a double-click on the icon — is unreachable
@@ -60,15 +68,17 @@ pub enum TrayAction {
     OpenSettings,
     /// Double-click on the icon: bring the window back, current page.
     ShowWindow,
-    /// "Start meeting notes" / "Stop meeting notes".
-    ToggleMeeting,
+    /// "Start meeting notes".
+    StartMeeting,
+    /// "Stop meeting notes".
+    StopMeeting,
     Quit,
 }
 
-/// What the meeting menu entry says.
+/// What the meeting menu entries say.
 #[derive(Clone, PartialEq, Eq)]
 pub enum MeetingTray {
-    /// Turned off, or failed to start: the entry shows but is disabled.
+    /// Turned off, or failed to start: the entries show but are disabled.
     Unavailable,
     Idle,
     /// Recording since this local time ("14:30"). A start time needs no
@@ -80,11 +90,21 @@ pub enum MeetingTray {
     },
 }
 
+const START_MEETING_LABEL: &str = "Start meeting notes";
+
 impl MeetingTray {
-    fn label(&self) -> String {
+    fn stop_label(&self) -> String {
         match self {
-            MeetingTray::Unavailable | MeetingTray::Idle => "Start meeting notes".to_string(),
+            MeetingTray::Unavailable | MeetingTray::Idle => "Stop meeting notes".to_string(),
             MeetingTray::Recording { since, .. } => format!("Stop meeting notes (since {since})"),
+        }
+    }
+
+    fn update(&self) -> TrayUpdate {
+        TrayUpdate::Meeting {
+            start_enabled: *self == MeetingTray::Idle,
+            stop_label: self.stop_label(),
+            stop_enabled: matches!(self, MeetingTray::Recording { .. }),
         }
     }
 }
@@ -95,11 +115,18 @@ pub(crate) enum TrayUpdate {
     Icon(icon::TrayState),
     Tooltip(String),
     Voice(VoiceName),
-    /// The meeting entry's text and whether it is clickable.
+    /// Which meeting entry is clickable, and the stop entry's text.
     Meeting {
-        label: String,
-        enabled: bool,
+        start_enabled: bool,
+        stop_label: String,
+        stop_enabled: bool,
     },
+}
+
+/// The two meeting entries (see [`MEETING_START_ID`]).
+pub(crate) struct MeetingItems {
+    pub start: MenuItem,
+    pub stop: MenuItem,
 }
 
 pub struct Tray {
@@ -168,10 +195,7 @@ impl Tray {
             self.set_voice(voice);
         }
         if *meeting != self.meeting {
-            self.surface.apply(TrayUpdate::Meeting {
-                label: meeting.label(),
-                enabled: *meeting != MeetingTray::Unavailable,
-            });
+            self.surface.apply(meeting.update());
             self.meeting = meeting.clone();
         }
     }
@@ -211,11 +235,11 @@ fn with_meeting(
 /// checkmarks can be set later. Shared by both surfaces: the layout and the
 /// ids are what [`action_for_id`] decodes, so they must not diverge by
 /// platform.
-/// Also hands back the meeting entry where meetings exist.
+/// Also hands back the meeting entries where meetings exist.
 #[allow(clippy::type_complexity)]
 fn build_menu(
     voice: VoiceName,
-) -> Result<(Menu, Vec<(VoiceName, CheckMenuItem)>, Option<MenuItem>), String> {
+) -> Result<(Menu, Vec<(VoiceName, CheckMenuItem)>, Option<MeetingItems>), String> {
     let err = |e: &dyn std::fmt::Display| e.to_string();
     let menu = Menu::new();
     menu.append(&MenuItem::new("Voice", false, None))
@@ -235,11 +259,20 @@ fn build_menu(
     menu.append(&PredefinedMenuItem::separator())
         .map_err(|e| err(&e))?;
     let meeting = if hark_pipeline::meeting::meetings_supported() {
-        let item = MenuItem::with_id(MEETING_ID, MeetingTray::Unavailable.label(), false, None);
-        menu.append(&item).map_err(|e| err(&e))?;
+        let items = MeetingItems {
+            start: MenuItem::with_id(MEETING_START_ID, START_MEETING_LABEL, false, None),
+            stop: MenuItem::with_id(
+                MEETING_STOP_ID,
+                MeetingTray::Unavailable.stop_label(),
+                false,
+                None,
+            ),
+        };
+        menu.append(&items.start).map_err(|e| err(&e))?;
+        menu.append(&items.stop).map_err(|e| err(&e))?;
         menu.append(&PredefinedMenuItem::separator())
             .map_err(|e| err(&e))?;
-        Some(item)
+        Some(items)
     } else {
         None
     };
@@ -308,8 +341,11 @@ fn action_for_id(id: &str) -> Option<TrayAction> {
     if id == QUIT_ID {
         return Some(TrayAction::Quit);
     }
-    if id == MEETING_ID {
-        return Some(TrayAction::ToggleMeeting);
+    if id == MEETING_START_ID {
+        return Some(TrayAction::StartMeeting);
+    }
+    if id == MEETING_STOP_ID {
+        return Some(TrayAction::StopMeeting);
     }
     let label = id.strip_prefix(VOICE_ID_PREFIX)?;
     VOICES
@@ -339,9 +375,11 @@ mod tests {
         assert_eq!(action_for_id("quit"), Some(TrayAction::Quit));
         assert_eq!(action_for_id("show-window"), Some(TrayAction::ShowWindow));
         assert_eq!(
-            action_for_id("meeting-toggle"),
-            Some(TrayAction::ToggleMeeting)
+            action_for_id("meeting-start"),
+            Some(TrayAction::StartMeeting)
         );
+        assert_eq!(action_for_id("meeting-stop"), Some(TrayAction::StopMeeting));
+        assert_eq!(action_for_id("meeting-toggle"), None);
     }
 
     #[test]
@@ -370,14 +408,37 @@ mod tests {
         assert!(tooltip.contains("stop at 14:52:07"), "{tooltip}");
     }
 
+    fn meeting_update(m: &MeetingTray) -> (bool, String, bool) {
+        match m.update() {
+            TrayUpdate::Meeting {
+                start_enabled,
+                stop_label,
+                stop_enabled,
+            } => (start_enabled, stop_label, stop_enabled),
+            _ => unreachable!("MeetingTray::update builds a Meeting update"),
+        }
+    }
+
     #[test]
-    fn the_meeting_entry_names_its_start_time() {
-        assert_eq!(MeetingTray::Idle.label(), "Start meeting notes");
+    fn the_stop_entry_names_its_start_time() {
         let recording = MeetingTray::Recording {
             since: "09:05".to_string(),
             stops_at: None,
         };
-        assert_eq!(recording.label(), "Stop meeting notes (since 09:05)");
+        assert_eq!(
+            meeting_update(&recording),
+            (false, "Stop meeting notes (since 09:05)".to_string(), true)
+        );
+    }
+
+    #[test]
+    fn exactly_one_meeting_entry_is_clickable_and_none_when_unavailable() {
+        assert_eq!(
+            meeting_update(&MeetingTray::Idle),
+            (true, "Stop meeting notes".to_string(), false)
+        );
+        let (start, _, stop) = meeting_update(&MeetingTray::Unavailable);
+        assert!(!start && !stop);
     }
 
     #[cfg(target_os = "linux")]

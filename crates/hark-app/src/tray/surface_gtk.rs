@@ -175,8 +175,6 @@ fn apply_on_gtk_thread(
         }
         // Meetings are not built on Linux yet (D4), so there is no entry to
         // update; the fields are read only by the native surface.
-        TrayUpdate::Meeting { label, enabled } => {
-            let _ = (label, enabled);
-        }
+        TrayUpdate::Meeting { .. } => {}
     }
 }

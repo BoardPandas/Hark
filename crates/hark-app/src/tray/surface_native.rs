@@ -6,18 +6,18 @@
 //! messages, which the eframe event loop does. The Linux surface cannot use
 //! this shape at all -- see `surface_gtk.rs`.
 
-use super::{build_menu, TrayUpdate};
+use super::{build_menu, MeetingItems, TrayUpdate};
 use crate::pipeline::PipelineStatus;
 use crate::tray::icon;
 use hark_config::VoiceName;
-use tray_icon::menu::{CheckMenuItem, MenuItem};
+use tray_icon::menu::CheckMenuItem;
 use tray_icon::{TrayIcon, TrayIconBuilder};
 
 pub(super) struct Surface {
     /// Keeps the OS icon alive; dropping it removes the tray entry.
     tray: TrayIcon,
     voices: Vec<(VoiceName, CheckMenuItem)>,
-    meeting: Option<MenuItem>,
+    meeting: Option<MeetingItems>,
 }
 
 impl Surface {
@@ -59,10 +59,15 @@ impl Surface {
                     item.set_checked(*v == voice);
                 }
             }
-            TrayUpdate::Meeting { label, enabled } => {
-                if let Some(item) = &self.meeting {
-                    item.set_text(label);
-                    item.set_enabled(enabled);
+            TrayUpdate::Meeting {
+                start_enabled,
+                stop_label,
+                stop_enabled,
+            } => {
+                if let Some(items) = &self.meeting {
+                    items.start.set_enabled(start_enabled);
+                    items.stop.set_text(stop_label);
+                    items.stop.set_enabled(stop_enabled);
                 }
             }
         }

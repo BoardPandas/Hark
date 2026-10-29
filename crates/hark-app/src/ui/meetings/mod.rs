@@ -14,7 +14,7 @@ use crate::storage::StorageHandle;
 use crate::theme;
 use crate::ui::{format, widgets};
 use egui::{RichText, ScrollArea, TextEdit, Ui};
-use hark_config::Settings;
+use hark_config::{AutoDetect, Settings};
 use hark_store::{MeetingSummary, StoreError};
 use jiff::tz::TimeZone;
 
@@ -99,7 +99,9 @@ impl MeetingsPage {
             intent = consent_notice(ui).or(intent);
             ui.add_space(theme::SECTION_GAP);
         }
-        intent = self.control_card(ui, meetings).or(intent);
+        intent = self
+            .control_card(ui, meetings, settings.meeting.auto_detect)
+            .or(intent);
         ui.add_space(theme::SECTION_GAP);
 
         let Some(storage) = storage else {
@@ -121,6 +123,7 @@ impl MeetingsPage {
         &mut self,
         ui: &mut Ui,
         meetings: &mut MeetingController,
+        detect: AutoDetect,
     ) -> Option<PageIntent> {
         let mut intent = None;
         theme::card(ui, |ui| match meetings.status().clone() {
@@ -143,13 +146,11 @@ impl MeetingsPage {
                     {
                         meetings.start_manual();
                     }
-                    ui.label(
-                        RichText::new(
-                            "Or let Hark notice when a call starts (Settings > Meetings).",
-                        )
-                        .small()
-                        .weak(),
-                    );
+                    ui.label(RichText::new(detect_line(detect)).small().weak());
+                    // The setting lives in Settings, not here: say where, and go there.
+                    if ui.link(RichText::new("Meeting settings").small()).clicked() {
+                        intent = Some(PageIntent::OpenSettings);
+                    }
                 });
                 ui.label(
                     RichText::new(
@@ -362,6 +363,16 @@ fn consent_notice(ui: &mut Ui) -> Option<PageIntent> {
         });
     });
     intent
+}
+
+/// What happens when a call starts without a click, so a meeting that began
+/// from the prompt (or on its own) is never a surprise.
+fn detect_line(detect: AutoDetect) -> &'static str {
+    match detect {
+        AutoDetect::Off => "Hark never starts notes on its own.",
+        AutoDetect::Ask => "When a call takes your mic, Hark asks first.",
+        AutoDetect::Auto => "When a call takes your mic, Hark starts notes on its own.",
+    }
 }
 
 fn title_of(m: &MeetingSummary) -> String {

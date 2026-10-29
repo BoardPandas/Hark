@@ -6,6 +6,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.63.2] - 2026-10-29
+
+### Fixed
+
+- **The tray's meeting menu no longer starts notes you did not ask for.** If a call ended and the notes stopped while the tray menu was open, the menu still said "Stop meeting notes", and clicking it started a new meeting. The menu now has separate "Start meeting notes" and "Stop meeting notes" entries, and only the one that applies can be clicked. A late "Stop" click does nothing.
+
+### Changed
+
+- The Meetings page now says what Hark does when a call takes your mic: it asks first, starts notes on its own, or never starts them. A "Meeting settings" link goes straight to that setting.
+
 ## [0.63.1] - 2026-10-29
 
 ### Fixed

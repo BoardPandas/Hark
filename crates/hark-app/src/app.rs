@@ -201,13 +201,10 @@ impl HarkApp {
                     show_window(ctx);
                 }
                 tray::TrayAction::ShowWindow => show_window(ctx),
-                tray::TrayAction::ToggleMeeting => {
-                    if self.meetings.is_recording() {
-                        self.meetings.stop();
-                    } else {
-                        self.meetings.start_manual();
-                    }
-                }
+                // Never decided from the current status: the click may come
+                // from a menu opened before the status changed (tray docs).
+                tray::TrayAction::StartMeeting => self.meetings.start_manual(),
+                tray::TrayAction::StopMeeting => self.meetings.stop(),
                 tray::TrayAction::Quit => {
                     self.window_behavior.quit(ctx);
                 }
