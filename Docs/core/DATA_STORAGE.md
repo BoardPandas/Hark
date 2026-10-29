@@ -9,6 +9,8 @@ The following files were used as evidence for this page:
 - [crates/hark-store/migrations/002_stats_total_ms.sql:1-8](../../crates/hark-store/migrations/002_stats_total_ms.sql#L1-L8)
 - [crates/hark-store/migrations/003_entries_invocation.sql:1-6](../../crates/hark-store/migrations/003_entries_invocation.sql#L1-L6)
 - [crates/hark-store/migrations/004_meetings.sql](../../crates/hark-store/migrations/004_meetings.sql)
+- [crates/hark-store/migrations/007_meeting_speakers.sql](../../crates/hark-store/migrations/007_meeting_speakers.sql)
+- [crates/hark-store/tests/meeting_speakers.rs](../../crates/hark-store/tests/meeting_speakers.rs)
 - [Numeric Insights migration](../../crates/hark-store/migrations/005_insight_events.sql), [persistence](../../crates/hark-store/src/insights/persistence.rs), [queries](../../crates/hark-store/src/insights/query.rs), and [word analysis](../../crates/hark-store/src/insights/patterns.rs)
 - [Insights regression tests](../../crates/hark-store/tests/insights.rs)
 - [crates/hark-store/src/meetings.rs](../../crates/hark-store/src/meetings.rs)
@@ -29,8 +31,8 @@ preserving explicit meeting preferences and the schema-5 Gemini model setting.
 Config schema 7 retires the Groq preset, rewriting saved Groq tables as
 `openai-compatible` ([Configuration](CONFIGURATION.md#groq-retirement-schema-7)).
 The TOML is at schema 7. The separate SQLite schema is versioned on its own
-(migrations 001-006, including 005 for bounded numeric Insights and a
-tracking-coverage timestamp); schema 7 does not touch it.
+(migrations 001-007, including 005 for bounded numeric Insights and a
+tracking-coverage timestamp, and 007 for meeting speaker names); schema 7 does not touch it.
 Migration attempts a versioned TOML backup before saving; failure keeps
 the in-memory settings usable, and a failed backup leaves the original file alone
 ([config persistence](../../crates/hark-config/src/lib.rs),
@@ -65,7 +67,7 @@ Sources: [crates/hark-store/src/lib.rs:1-15](../../crates/hark-store/src/lib.rs#
 <!-- BEGIN:AUTOGEN hark_05_data_storage_schema -->
 ## Schema
 
-The schema is an append-only sequence of six embedded migrations. `PRAGMA user_version` records how many have been applied; opening an older database runs only the remaining migrations, each in its own transaction ([lib.rs:34-41](../../crates/hark-store/src/lib.rs#L34-L41), [lib.rs:184-198](../../crates/hark-store/src/lib.rs#L184-L198)).
+The schema is an append-only sequence of seven embedded migrations. `PRAGMA user_version` records how many have been applied; opening an older database runs only the remaining migrations, each in its own transaction ([lib.rs:35-46](../../crates/hark-store/src/lib.rs#L35-L46), [lib.rs:188-202](../../crates/hark-store/src/lib.rs#L188-L202)).
 
 | Migration | Change | Compatibility behavior |
 |---|---|---|
@@ -75,6 +77,7 @@ The schema is an append-only sequence of six embedded migrations. `PRAGMA user_v
 | `004_meetings.sql` | Adds `meetings`, `meeting_segments`, `meeting_speakers`, and an external-content FTS5 index over segment text | A fresh table set; nothing pre-existing to migrate. `meeting_segments`/`meeting_speakers` cascade-delete with their meeting, which only takes effect because `Store::init` now turns `PRAGMA foreign_keys` on for every connection ([004_meetings.sql](../../crates/hark-store/migrations/004_meetings.sql), [lib.rs:152-154](../../crates/hark-store/src/lib.rs#L152-L154)) |
 | `005_insight_events.sql` | Adds indexed `insight_events` and singleton `insight_tracking` | Backfills retained, post-reset history within 366 days; keeps historical duration, corrections, and app identity NULL. Does not increment existing lifetime counters ([migration](../../crates/hark-store/migrations/005_insight_events.sql), [backfill](../../crates/hark-store/src/insights/persistence.rs)) |
 | `006_meeting_transcript_status.sql` | Adds nullable `meetings.transcript_status`: `pending` or `pending:<unix ms>` while a final-pass retry is scheduled, `failed:<reason>` once Hark stops trying, NULL when nothing is outstanding | No default and no backfill: every earlier meeting reads NULL. The stored text is a label, never transcript content; `hark-pipeline` owns the vocabulary and the store only reads and writes it ([migration](../../crates/hark-store/migrations/006_meeting_transcript_status.sql), [meetings.rs:220-230](../../crates/hark-store/src/meetings.rs#L220-L230)) |
+| `007_meeting_speakers.sql` | Adds `meeting_speaker_names` (`meeting_id`, `speaker_key`, `display_name`, `source` = `user` or `guess`, `evidence_ms`; keyed by meeting and speaker key, never by name), nullable `meeting_segments.speaker_override` (the key a line was moved to; NULL = as transcribed) and nullable `meetings.notes_stale_ms` | Copies every 004 rename in SQL inside the migration transaction, as `them:<n>` with source `user`, so dormant meetings migrate too. `meeting_speakers` is kept, frozen and unread, so a build rolled back to 006 still opens the database and shows the renames as they were; a later migration drops it. Speaker keys are opaque text here: `hark_meeting::speakers` owns the vocabulary ([007_meeting_speakers.sql](../../crates/hark-store/migrations/007_meeting_speakers.sql), [meeting_speakers.rs](../../crates/hark-store/tests/meeting_speakers.rs)) |
 
 Meeting search does not need a `LIKE` fallback: the FTS5 module is compiled into the SQLite Hark bundles, which `hark-store/tests/meetings.rs` asserts directly rather than assuming ([meetings.rs](../../crates/hark-store/src/meetings.rs)). `meeting_segments_fts` is kept in sync by the standard insert/delete/update trigger trio rather than by application code, so a segment written through any path is searchable ([004_meetings.sql](../../crates/hark-store/migrations/004_meetings.sql)).
 
@@ -110,7 +113,9 @@ erDiagram
 
 Sources: [crates/hark-store/src/lib.rs:22-28](../../crates/hark-store/src/lib.rs#L22-L28), [crates/hark-store/src/lib.rs:139-168](../../crates/hark-store/src/lib.rs#L139-L168), [crates/hark-store/migrations/001_init.sql:1-31](../../crates/hark-store/migrations/001_init.sql#L1-L31), [crates/hark-store/migrations/002_stats_total_ms.sql:1-8](../../crates/hark-store/migrations/002_stats_total_ms.sql#L1-L8), [crates/hark-store/migrations/003_entries_invocation.sql:1-6](../../crates/hark-store/migrations/003_entries_invocation.sql#L1-L6), [crates/hark-store/migrations/004_meetings.sql](../../crates/hark-store/migrations/004_meetings.sql), [crates/hark-store/migrations/006_meeting_transcript_status.sql](../../crates/hark-store/migrations/006_meeting_transcript_status.sql), [crates/hark-store/src/meetings.rs](../../crates/hark-store/src/meetings.rs)
 
-Explicit meeting reprocessing uses `reprocess_meeting_segments`: segment replacement and deletion of old speaker renames happen in the same transaction, with FTS updated by the segment triggers. Notes and title are untouched. A failed insert rolls the whole transaction back. The app's storage worker acknowledges this commit before the meeting UI reports rerun success. `set_meeting_transcript_status` writes the final-pass status through the same worker (`MeetingCmd::TranscriptStatus`); it mirrors the retry marker the pipeline keeps in the meeting folder, so the database is what the UI reads after a restart and never what drives a retry ([store implementation](../../crates/hark-store/src/meetings.rs), [rollback and preservation tests](../../crates/hark-store/tests/meetings.rs), [storage acknowledgement](../../crates/hark-app/src/storage/meetings.rs)).
+Explicit meeting reprocessing uses `reprocess_meeting_segments`: segment replacement, deletion of every speaker name (and of the frozen `meeting_speakers` rows, so a rolled-back build does not show old names either), clearing the notes-stale stamp, and writing the notes with the old names baked in happen in one transaction, with FTS updated by the segment triggers. The title is untouched. A failed insert rolls the whole transaction back, notes included ([meetings.rs:200-260](../../crates/hark-store/src/meetings.rs#L200-L260)).
+
+The speaker API keeps the user's choices safe: `set_speaker_name` writes a user row (an empty name deletes it); `apply_speaker_names` upserts guesses and the "Your name" row with `WHERE meeting_speaker_names.source = 'guess'`, so a user's name is never overwritten; `assign_segment_speaker` updates the override only `WHERE id = ? AND meeting_id = ?` and, in the same transaction, stamps `notes_stale_ms` when notes exist, returning `None` for another meeting's line; `set_refreshed_notes` writes rewritten notes and clears the stamp only when it is not newer than the request ([meetings.rs:333-430](../../crates/hark-store/src/meetings.rs#L333-L430)). The app's storage worker acknowledges this commit before the meeting UI reports rerun success. `set_meeting_transcript_status` writes the final-pass status through the same worker (`MeetingCmd::TranscriptStatus`); it mirrors the retry marker the pipeline keeps in the meeting folder, so the database is what the UI reads after a restart and never what drives a retry ([store implementation](../../crates/hark-store/src/meetings.rs), [rollback and preservation tests](../../crates/hark-store/tests/meetings.rs), [storage acknowledgement](../../crates/hark-app/src/storage/meetings.rs)).
 <!-- END:AUTOGEN hark_05_data_storage_schema -->
 
 ---
@@ -199,6 +204,8 @@ Shutdown is bounded. Dropping `StorageHandle` removes its sender and normally jo
 
 `StorageCmd::Meeting` carries the same guarantee for meeting rows and audio: `storage::meetings::apply` is the one function that touches both the `meetings`/`meeting_segments` tables and the `<data_dir>/meetings/<id>/` folder, called from the same worker thread and after the same generation bump, so the Meetings page never has to reconcile two write paths ([storage/mod.rs:9-10](../../crates/hark-app/src/storage/mod.rs#L9-L10), [storage/mod.rs:52-53](../../crates/hark-app/src/storage/mod.rs#L52-L53), [storage/meetings.rs](../../crates/hark-app/src/storage/meetings.rs), [storage/meetings.rs](../../crates/hark-app/src/storage/meetings.rs)).
 
+`MeetingCmd::AssignSpeaker` (moving one transcript line) also replies: `Ok(true)` when the move left the notes stale, which is the page's cue to request a rewrite, or a sentence for the user; a lost reply counts as a failure. `SpeakerNames` applies the pipeline's guesses, `RefreshedNotes` carries the stored ticks onto rewritten notes before writing them, and `Reprocessed` builds the meeting's `Roster` to bake the old names into its notes. Every reader builds labels through `roster_of` ([storage/meetings.rs](../../crates/hark-app/src/storage/meetings.rs)).
+
 Meeting deletion has an explicit reply channel. The worker deletes the recording directory before the database row, treating only an already-absent recording directory as benign. Filesystem failure preserves the meeting row and its relation to any remaining audio, permitting a retry instead of leaving unknown orphaned audio. Filesystem removal and the database write are not one transaction: partial audio removal cannot be undone, and a later database failure is reported separately so a retry can finish the row deletion. The worker wakes the root viewport even when deletion fails without changing the generation; the detail view waits for acknowledgement before claiming success ([deletion implementation and fixtures](../../crates/hark-app/src/storage/meetings.rs), [worker wakeup](../../crates/hark-app/src/storage/mod.rs), [UI reply handling](../../crates/hark-app/src/ui/meetings/detail.rs)).
 
 Sources: [crates/hark-app/src/storage/mod.rs:1-249](../../crates/hark-app/src/storage/mod.rs#L1-L249), [crates/hark-app/src/storage/mod.rs:289-317](../../crates/hark-app/src/storage/mod.rs#L289-L317), [crates/hark-app/src/storage/meetings.rs](../../crates/hark-app/src/storage/meetings.rs), [crates/hark-pipeline/src/events.rs:75-90](../../crates/hark-pipeline/src/events.rs#L75-L90)
@@ -207,9 +214,10 @@ Sources: [crates/hark-app/src/storage/mod.rs:1-249](../../crates/hark-app/src/st
 ---
 
 Gemini playback-speaker IDs reserve the high bit and encode the five-minute window
-alongside its local speaker number. They remain separate identities in storage,
-rename controls, and exports; no cross-window match is implied
+alongside its local speaker number. They are stored as `them:<id>` speaker keys
+and remain separate identities in storage, rename controls, and exports; only
+giving two of them the same name shows them as one person
 ([parse](../../crates/hark-stt/src/meeting_gemini.rs),
-[label](../../crates/hark-meeting/src/export.rs)).
+[label](../../crates/hark-meeting/src/speakers.rs)).
 
 Mac native capture and UI use the same local history and meeting storage workers as Windows. Permission changes restart capture without replacing the data directory. Updates stage their DMG outside the signed app and replace only the app bundle; settings, keychain credentials, meeting audio and history remain in their existing OS locations ([app lifecycle](../../crates/hark-app/src/app.rs), [Mac updater](../../crates/hark-update/src/macos.rs)).

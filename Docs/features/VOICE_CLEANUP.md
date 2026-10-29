@@ -9,6 +9,9 @@ The following files were used as evidence for this page:
 - [crates/hark-voice/src/openai_compatible.rs:1-286](../../crates/hark-voice/src/openai_compatible.rs#L1-L286)
 - [crates/hark-voice/src/error.rs:1-160](../../crates/hark-voice/src/error.rs#L1-L160)
 - [crates/hark-voice/src/summary.rs:1-45](../../crates/hark-voice/src/summary.rs#L1-L45)
+- [crates/hark-voice/src/speaker_refs.rs](../../crates/hark-voice/src/speaker_refs.rs)
+- [crates/hark-voice/src/speaker_names.rs](../../crates/hark-voice/src/speaker_names.rs)
+- [crates/hark-pipeline/src/meeting/speakers.rs](../../crates/hark-pipeline/src/meeting/speakers.rs)
 - [crates/hark-config/src/voice.rs:1-337](../../crates/hark-config/src/voice.rs#L1-L337)
 - [crates/hark-config/src/lib.rs](../../crates/hark-config/src/lib.rs)
 - [crates/hark-pipeline/src/lib.rs](../../crates/hark-pipeline/src/lib.rs)
@@ -23,10 +26,12 @@ The following files were used as evidence for this page:
 
 Meeting notes are an independent post-transcription request. The selected
 Deepgram/Gemini final pass does not change the notes provider. An explicit re-run
-of a saved recording preserves its notes and checked action items; it does not
-regenerate them from the replacement transcript. Dictation's Verbatim setting
+of a saved recording first bakes the current names into its notes, then guesses
+speaker names again and rewrites the notes from the replacement transcript when
+notes are on; checked action items carry over. Dictation's Verbatim setting
 does not disable new-meeting summaries
 ([finisher](../../crates/hark-pipeline/src/meeting/finish.rs),
+[re-run](../../crates/hark-pipeline/src/meeting/rerun.rs),
 [replacement](../../crates/hark-store/src/meetings.rs)).
 
 > **Related Pages**: [Transcription](TRANSCRIPTION.md), [Spellbook](SPELLBOOK.md), [Invocations](INVOCATIONS.md), [Configuration and Secrets](../core/CONFIGURATION.md), [Meetings](MEETINGS.md)
@@ -107,7 +112,7 @@ The provider resolver supports these paths:
 
 The resolution rules and presets live in `hark-config`, while pipeline construction performs key lookup, builds the adapter, and converts every missing-key/build failure into `None` so STT still starts ([voice.rs:115-187](../../crates/hark-config/src/voice.rs#L115-L187), [voice.rs:223-337](../../crates/hark-config/src/voice.rs#L223-L337), [lib.rs](../../crates/hark-pipeline/src/lib.rs)).
 
-Meeting notes resolve the same way, through the same `resolve_cleanup_provider`, but ask for it as if a non-Verbatim voice were selected — a `Verbatim` dictation setup still has a text provider that can write notes, since the summary call is independent of the dictation cleanup voice ([finish.rs](../../crates/hark-pipeline/src/meeting/finish.rs)).
+Meeting notes resolve the same way, through the same `resolve_cleanup_provider`, but ask for it as if a non-Verbatim voice were selected — a `Verbatim` dictation setup still has a text provider that can write notes, since the summary call is independent of the dictation cleanup voice. `notes_provider` is the one resolver: the notes, the notes rewrite after moved lines, and speaker-name guessing all use it, so they reach the same provider under the same consent ([speakers.rs:51-77](../../crates/hark-pipeline/src/meeting/speakers.rs#L51-L77)).
 
 Each request builds a system prompt from the effective voice and terms present in that transcript, sends the transcript fenced in `<transcript>` tags, and opens the system prompt with `TRANSCRIPT_IS_DATA_CLAUSE`, which tells the model the fenced text is dictation to edit, never a request to answer. Without it, dictation that sounds like an instruction ("Proceed however you recommend...") was answered instead of edited. The adapter also strips an echoed fence from the response. It derives `max_completion_tokens` from input length with a 512-to-4096 clamp, applies a 10-second request timeout, and never retries ([openai_compatible.rs:20-85](../../crates/hark-voice/src/openai_compatible.rs#L20-L85), [openai_compatible.rs:236-281](../../crates/hark-voice/src/openai_compatible.rs#L236-L281)). `CleanupConfig` has a manual `Debug` implementation that redacts the API key and custom prompt and reports only the spellbook-term count ([openai_compatible.rs:146-190](../../crates/hark-voice/src/openai_compatible.rs#L146-L190)).
 
@@ -139,7 +144,7 @@ For an ordinary transcript with a cleanup plan:
 
 This control flow is implemented in `cleaned_text` and keeps history honest: cleanup metadata appears only when its response actually shaped the injected text ([worker.rs:542-618](../../crates/hark-pipeline/src/worker.rs#L542-L618)).
 
-Gemini Live has a distinct fused `smart` mode. In that mode the single returned string is put in both `Transcript.text` and `Transcript.cleaned`; the marker tells the worker to skip Hark's separate voice call. This reduces one round trip but cannot preserve a guaranteed verbatim transcript, which is why the configured default remains `verbatim` ([lib.rs](../../crates/hark-stt/src/lib.rs), [gemini_live.rs](../../crates/hark-stt/src/gemini_live.rs), [lib.rs](../../crates/hark-config/src/lib.rs)). History labels that result as voice `smart` and attributes the STT model as the cleanup model; ordinary skipped/failed cleanup is labeled `verbatim` with no cleanup model ([worker.rs:496-530](../../crates/hark-pipeline/src/worker.rs#L496-L530)). Because the voice never runs in Smart, choosing the Verbatim voice does not stop Smart rewriting text; the Voice picker says so whenever Smart is in effect, and the expanded History row heads that text "GEMINI SMART TEXT · NOT VERBATIM" rather than "RAW TRANSCRIPT" ([form.rs:402-419](../../crates/hark-app/src/ui/settings/form.rs#L402-L419), [row.rs:253-262](../../crates/hark-app/src/ui/history/row.rs#L253-L262)). A Smart turn that comes back as Gemini's canned refusal is replayed in Verbatim, and that replay does run the voice ([gemini_live.rs:449-499](../../crates/hark-stt/src/gemini_live.rs#L449-L499)).
+Gemini Live has a distinct fused `smart` mode. In that mode the single returned string is put in both `Transcript.text` and `Transcript.cleaned`; the marker tells the worker to skip Hark's separate voice call. This reduces one round trip but cannot preserve a guaranteed verbatim transcript, which is why the configured default remains `verbatim` ([lib.rs](../../crates/hark-stt/src/lib.rs), [gemini_live.rs](../../crates/hark-stt/src/gemini_live.rs), [lib.rs](../../crates/hark-config/src/lib.rs)). History labels that result as voice `smart` and attributes the STT model as the cleanup model; ordinary skipped/failed cleanup is labeled `verbatim` with no cleanup model ([worker.rs:496-530](../../crates/hark-pipeline/src/worker.rs#L496-L530)). Because the voice never runs in Smart, choosing the Verbatim voice does not stop Smart rewriting text; the Voice picker says so whenever Smart is in effect, and the expanded History row heads that text "GEMINI SMART TEXT · NOT VERBATIM" rather than "RAW TRANSCRIPT" ([form.rs:392-409](../../crates/hark-app/src/ui/settings/form.rs#L392-L409), [row.rs:253-262](../../crates/hark-app/src/ui/history/row.rs#L253-L262)). A Smart turn that comes back as Gemini's canned refusal is replayed in Verbatim, and that replay does run the voice ([gemini_live.rs:449-499](../../crates/hark-stt/src/gemini_live.rs#L449-L499)).
 
 Meeting mode never sees Gemini Live's fused `smart` result: the live transcriber uses the ordinary batch `SttProvider::transcribe` path per chunk (or the on-device engine), never the streaming session, so a meeting line always goes through the spellbook corrector as text, with no fused-cleanup shortcut to skip ([live.rs:60-77](../../crates/hark-pipeline/src/meeting/live.rs#L60-L77)).
 
@@ -169,11 +174,14 @@ The crate root keeps the reusable behavior small and provider-neutral ([lib.rs](
 | `skips_cleanup` / `over_expanded` / `reads_as_reply` | Pure pre-request and post-response gates |
 | `CleanupError` / mapping helpers | Log-safe error taxonomy and pure status/transport classification |
 | `CONNECT_TIMEOUT_MS` / `CLEANUP_TIMEOUT_MS` | 3-second connection bound and 10-second per-request bound |
-| `summarize` / `MeetingNotes` / `SummaryConfig` | Meeting-only: one long-context call over a full transcript, validated into structured notes; `SUMMARY_TIMEOUT_MS` is 120 s, not the dictation `CLEANUP_TIMEOUT_MS` ([summary.rs:37](../../crates/hark-voice/src/summary.rs#L37)) |
+| `summarize` / `MeetingNotes` / `SummaryConfig` | Meeting-only: one long-context call over a full transcript, validated into structured notes; `SUMMARY_TIMEOUT_MS` is 120 s, not the dictation `CLEANUP_TIMEOUT_MS` ([summary.rs:38](../../crates/hark-voice/src/summary.rs#L38)). `summarize` and `parse_notes` take the call's `(default label, key)` table: an always-appended `SPEAKER_REF_CLAUSE` asks for braced labels (`{Speaker 2}`), and parsing turns each into a `{{key}}` token ([summary.rs:54-62](../../crates/hark-voice/src/summary.rs#L54-L62), [summary.rs:431](../../crates/hark-voice/src/summary.rs#L431)) |
+| `MeetingNotes::render` / `bake` / `carry_done_from` | Deterministic, no call: `render` writes the roster's names over tokens (and, for notes stored before tokens, over whole default labels) and marks the copy `frozen`; `bake` is the stored form of that; `carry_done_from` keeps ticked action items across a rewrite (word-set Jaccard >= 0.6) ([summary.rs:113-175](../../crates/hark-voice/src/summary.rs#L113-L175)) |
+| `SpeakerRefs` / `speaker_spans` | `tokens`, `labels` (the serde default) or `frozen` (also any unknown value); `speaker_spans` splits a field into plain text and speaker names with exactly `render`'s text, for colored names ([speaker_refs.rs:13-105](../../crates/hark-voice/src/speaker_refs.rs#L13-L105)) |
+| `guess_speaker_names` / `build_guess_request` / `parse_guesses` | Meeting-only: one JSON call that names speakers from the transcript, given numbered lines with default labels only and the labels that may be named; 60 s (`GUESS_TIMEOUT_MS`); a cut-off list is salvaged; the caller validates every guess ([speaker_names.rs:1-60](../../crates/hark-voice/src/speaker_names.rs#L1-L60), [speaker_names.rs:197](../../crates/hark-voice/src/speaker_names.rs#L197)) |
 
 The concrete `CleanupConfig` and `OpenAiCompatibleChat` stay in the public `openai_compatible` module rather than being re-exported from the root. Construction rejects `Verbatim`, because reaching the adapter for a voice that promises no call is a caller bug handled by the pipeline's fail-open build path ([openai_compatible.rs:146-234](../../crates/hark-voice/src/openai_compatible.rs#L146-L234)). `summary` follows the same discipline in reverse: it reuses `openai_compatible`'s URL-building, response-parsing, and status/transport error mapping rather than duplicating them, so only the notes-specific prompt, JSON schema, and validation are new code ([summary.rs:6-12](../../crates/hark-voice/src/summary.rs#L6-L12)).
 
-Sources: [crates/hark-voice/src/lib.rs](../../crates/hark-voice/src/lib.rs), [crates/hark-voice/src/openai_compatible.rs:146-234](../../crates/hark-voice/src/openai_compatible.rs#L146-L234), [crates/hark-voice/src/summary.rs:1-45](../../crates/hark-voice/src/summary.rs#L1-L45)
+Sources: [crates/hark-voice/src/lib.rs](../../crates/hark-voice/src/lib.rs), [crates/hark-voice/src/openai_compatible.rs:146-234](../../crates/hark-voice/src/openai_compatible.rs#L146-L234), [crates/hark-voice/src/summary.rs:1-45](../../crates/hark-voice/src/summary.rs#L1-L45), [crates/hark-voice/src/speaker_refs.rs](../../crates/hark-voice/src/speaker_refs.rs), [crates/hark-voice/src/speaker_names.rs](../../crates/hark-voice/src/speaker_names.rs)
 <!-- END:AUTOGEN hark_09_voice_cleanup_api -->
 
 ---

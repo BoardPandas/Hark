@@ -1091,6 +1091,17 @@ pages:
       - "crates/hark-meeting/src/storage_fs.rs"
       - "crates/hark-meeting/src/export.rs"
       - "crates/hark-meeting/src/export/subtitles.rs"
+      - "crates/hark-meeting/src/speakers.rs"
+      - "crates/hark-meeting/src/speakers/guess.rs"
+      - "crates/hark-pipeline/src/meeting/speakers.rs"
+      - "crates/hark-pipeline/src/meeting/notes_refresh.rs"
+      - "crates/hark-store/migrations/007_meeting_speakers.sql"
+      - "crates/hark-voice/src/speaker_refs.rs"
+      - "crates/hark-voice/src/speaker_names.rs"
+      - "crates/hark-app/src/ui/meetings/speakers.rs"
+      - "crates/hark-app/src/ui/meetings/transcript.rs"
+      - "crates/hark-app/src/ui/meetings/notes.rs"
+      - "crates/hark-app/src/ui/meetings/assign.rs"
       - "crates/hark-pipeline/src/meeting/mod.rs"
       - "crates/hark-pipeline/src/meeting/coordinator.rs"
       - "crates/hark-pipeline/src/meeting/recorder.rs"
@@ -1190,12 +1201,28 @@ pages:
           - "crates/hark-stt/tests/meeting_upload.rs"
         diagrams_needed: false
         diagram_types: []
+      - id: hark_15_meetings_speakers
+        title: "Speakers"
+        autogen: true
+        source_files:
+          - "crates/hark-meeting/src/speakers.rs"
+          - "crates/hark-meeting/src/speakers/guess.rs"
+          - "crates/hark-pipeline/src/meeting/speakers.rs"
+          - "crates/hark-voice/src/speaker_names.rs"
+          - "crates/hark-app/src/ui/meetings/speakers.rs"
+          - "crates/hark-app/src/ui/meetings/transcript.rs"
+          - "crates/hark-app/src/ui/meetings/assign.rs"
+        diagrams_needed: false
+        diagram_types: []
       - id: hark_15_meetings_notes
         title: "Notes"
         autogen: true
         source_files:
           - "crates/hark-voice/src/summary.rs"
+          - "crates/hark-voice/src/speaker_refs.rs"
           - "crates/hark-pipeline/src/meeting/finish.rs"
+          - "crates/hark-pipeline/src/meeting/notes_refresh.rs"
+          - "crates/hark-app/src/ui/meetings/notes.rs"
         diagrams_needed: false
         diagram_types: []
       - id: hark_15_meetings_storage
