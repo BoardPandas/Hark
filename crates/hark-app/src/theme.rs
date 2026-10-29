@@ -11,10 +11,14 @@ use std::collections::BTreeMap;
 mod appearance;
 mod fonts;
 mod hues;
+mod lettering;
 mod palette;
 pub use appearance::{appearance, appearance_picker, set_appearance, Appearance};
 use fonts::font_definitions;
 pub use fonts::{icon, icon_label_job, icon_text};
+#[cfg(test)]
+pub(crate) use lettering::set_lettering;
+pub use lettering::{lettering, lettering_toggle, Lettering};
 use palette::{palette, DARK, LIGHT};
 
 /// Phosphor glyphs, vendored from the egui-phosphor 0.12.0 crate package
@@ -230,9 +234,10 @@ pub fn chip(ui: &mut Ui, hue: Hue, glyph: Option<&str>, text: &str) -> egui::Res
         .response
 }
 
-/// Editorial serif for the Home introduction and brand, embedded for all OSes.
+/// The editorial role: the Home introduction, brand and hero figures (Lora),
+/// plus page and dialog titles under Wizard lettering (Cinzel Decorative).
 pub fn serif() -> FontFamily {
-    FontFamily::Name("Lora".into())
+    FontFamily::Name("Serif".into())
 }
 pub fn hero_font() -> FontId {
     FontId::new(HERO_SIZE, serif())
@@ -302,17 +307,25 @@ pub fn nav_button(
     response
 }
 
-/// Section heads use Inter Medium; hierarchy comes from size and spacing.
+/// Section heads use the medium role; hierarchy comes from size and spacing.
 pub fn subheading() -> TextStyle {
     TextStyle::Name("Subheading".into())
 }
 
+/// Inter Medium, or Alegreya Medium under Wizard lettering.
 fn medium() -> FontFamily {
-    FontFamily::Name("InterMedium".into())
+    FontFamily::Name("Medium".into())
 }
 
+/// Inter SemiBold, or Alegreya SemiBold under Wizard lettering.
 fn semibold() -> FontFamily {
-    FontFamily::Name("InterSemiBold".into())
+    FontFamily::Name("SemiBold".into())
+}
+
+/// Lora, or Cinzel Decorative Bold under Wizard lettering: the first letter
+/// of a book entry.
+pub(crate) fn drop_cap() -> FontFamily {
+    FontFamily::Name("DropCap".into())
 }
 
 pub fn accent(visuals: &Visuals) -> Color32 {
@@ -389,27 +402,36 @@ pub(crate) fn focus_ring(ui: &Ui, response: &egui::Response) {
 }
 
 /// Install fonts and tokens once, restoring the explicit palette or the
-/// legacy Light/Dark/System preference already loaded by eframe.
+/// legacy Light/Dark/System preference already loaded by eframe. The
+/// lettering is read after the appearance, because with no saved choice it
+/// follows the theme.
 pub fn apply(ctx: &Context) {
-    ctx.set_fonts(font_definitions());
+    let selected: Appearance = appearance(ctx);
+    let lettering = lettering(ctx);
+    ctx.set_fonts(font_definitions(lettering));
     ctx.all_styles_mut(|style| {
-        style.text_styles = text_styles();
+        style.text_styles = text_styles(lettering);
         spacing(&mut style.spacing);
     });
-    let selected: Appearance = appearance(ctx);
     appearance::install(ctx, selected);
 }
 
-/// Inter hierarchy for readable text; JetBrains Mono for technical values.
-fn text_styles() -> BTreeMap<TextStyle, FontId> {
+/// Modern: the Inter hierarchy. Wizard: Alegreya one step larger, because it
+/// reads smaller than Inter at the same size, and Cinzel Decorative titles.
+/// JetBrains Mono for technical values in both.
+fn text_styles(lettering: Lettering) -> BTreeMap<TextStyle, FontId> {
+    let (heading, sub, body, button, small) = match lettering {
+        Lettering::Modern => (FontId::new(TITLE_SIZE, medium()), 15.0, 14.0, 13.0, 12.0),
+        Lettering::Wizard => (FontId::new(TITLE_SIZE, serif()), 16.0, 15.0, 14.0, 13.0),
+    };
     BTreeMap::from([
-        (TextStyle::Heading, FontId::new(TITLE_SIZE, medium())),
-        (subheading(), FontId::new(15.0, medium())),
-        (TextStyle::Body, FontId::new(14.0, FontFamily::Proportional)),
-        (TextStyle::Button, FontId::new(13.0, medium())),
+        (TextStyle::Heading, heading),
+        (subheading(), FontId::new(sub, medium())),
+        (TextStyle::Body, FontId::new(body, FontFamily::Proportional)),
+        (TextStyle::Button, FontId::new(button, medium())),
         (
             TextStyle::Small,
-            FontId::new(12.0, FontFamily::Proportional),
+            FontId::new(small, FontFamily::Proportional),
         ),
         (
             TextStyle::Monospace,

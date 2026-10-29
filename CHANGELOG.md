@@ -6,6 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.65.0] - 2026-10-29
+
+### Added
+
+- **Wizard lettering.** A new "Wizard lettering" checkbox in Settings → Appearance sets text in Alegreya, a calligraphic book face, and page titles, dialog titles and the Home headline in Cinzel Decorative. Body text is one size larger than before, because Alegreya reads smaller than Inter. Key names and timings stay in the monospace font, and icons do not change.
+- The Parchment theme turns Wizard lettering on until you choose for yourself. Once you tick or untick the box, your choice stays the same in every theme, and Hark remembers it on this device.
+
 ## [0.64.1] - 2026-10-29
 
 ### Added

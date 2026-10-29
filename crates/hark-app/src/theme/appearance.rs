@@ -93,8 +93,16 @@ pub fn appearance(ctx: &Context) -> Appearance {
 }
 
 pub fn set_appearance(ctx: &Context, value: Appearance) {
+    // With no saved lettering, the lettering follows the theme, so a theme
+    // change can change it. Reinstall fonts only then: `set_fonts` rebuilds
+    // the atlas.
+    let lettering = super::lettering(ctx);
     ctx.data_mut(|data| data.insert_persisted(preference_id(), value.key().to_owned()));
     install(ctx, value);
+    let now = super::lettering(ctx);
+    if now != lettering {
+        super::lettering::install(ctx, now);
+    }
     ctx.request_repaint();
 }
 
@@ -123,12 +131,12 @@ pub fn appearance_picker(ui: &mut Ui) {
 }
 
 #[cfg(test)]
-mod tests {
+pub(super) mod tests {
     use super::*;
     use std::collections::HashMap;
 
     #[derive(Default)]
-    struct MemoryStorage(HashMap<String, String>);
+    pub(in crate::theme) struct MemoryStorage(HashMap<String, String>);
 
     impl eframe::Storage for MemoryStorage {
         fn get_string(&self, key: &str) -> Option<String> {

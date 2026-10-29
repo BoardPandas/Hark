@@ -1,12 +1,20 @@
 use super::*;
-use egui::{FontData, FontDefinitions};
+use egui::epaint::text::VariationCoords;
+use egui::{FontData, FontDefinitions, FontTweak};
 use std::sync::Arc;
 
-/// Inter Regular/Medium/SemiBold each as their own family (egui cannot
-/// interpolate variable-font weights, emilk/egui#1862), JetBrains Mono for
-/// transcripts and latency figures, Phosphor for icons. egui's default
-/// fonts stay appended as emoji/coverage fallback.
-pub(super) fn font_definitions() -> FontDefinitions {
+const ALEGREYA: &[u8] = include_bytes!("../../assets/Alegreya[wght].ttf");
+
+/// Families are named for their role (`Medium`, `SemiBold`, `Serif`,
+/// `DropCap`), not their font, because the lettering decides which font
+/// leads them. Every font is registered under both letterings, so a switch
+/// changes family lists only. Modern: Inter Regular/Medium/SemiBold as static
+/// files, Lora for the hero, brand and drop caps. Wizard: Alegreya at three
+/// pinned weights for text, Cinzel Decorative for titles and drop caps.
+/// JetBrains Mono (key names, timings, literal aliases) and the Phosphor icon
+/// family are the same in both. egui's default fonts stay appended as
+/// emoji/coverage fallback.
+pub(super) fn font_definitions(lettering: Lettering) -> FontDefinitions {
     let mut fonts = FontDefinitions::default();
     for (name, bytes) in [
         (
@@ -27,10 +35,31 @@ pub(super) fn font_definitions() -> FontDefinitions {
         ),
         ("Phosphor", &include_bytes!("../../assets/Phosphor.ttf")[..]),
         ("Lora", &include_bytes!("../../assets/Lora-Regular.ttf")[..]),
+        (
+            "CinzelDecorative",
+            &include_bytes!("../../assets/CinzelDecorative-Regular.ttf")[..],
+        ),
+        (
+            "CinzelDecorativeBold",
+            &include_bytes!("../../assets/CinzelDecorative-Bold.ttf")[..],
+        ),
     ] {
         fonts
             .font_data
             .insert(name.to_string(), Arc::new(FontData::from_static(bytes)));
+    }
+    // One variable file, registered once per weight with its instance pinned
+    // (assets/README.md, "Weights"; the spike test proves the pin holds).
+    for (name, weight) in [
+        ("Alegreya", 400.0),
+        ("AlegreyaMedium", 500.0),
+        ("AlegreyaSemiBold", 600.0),
+    ] {
+        let data = FontData::from_static(ALEGREYA).tweak(FontTweak {
+            coords: VariationCoords::new([(b"wght", weight)]),
+            ..Default::default()
+        });
+        fonts.font_data.insert(name.to_string(), Arc::new(data));
     }
 
     let fallback = fonts
@@ -38,8 +67,11 @@ pub(super) fn font_definitions() -> FontDefinitions {
         .get(&FontFamily::Proportional)
         .cloned()
         .unwrap_or_default();
-    let with_fallback = |primary: &str| {
-        let mut list = vec![primary.to_string(), "Phosphor".to_string()];
+    // [lead, Phosphor, coverage..., egui defaults]. Phosphor stays second in
+    // every text family so an icon string that slips into one still resolves.
+    let with_fallback = |lead: &str, coverage: &[&str]| {
+        let mut list = vec![lead.to_string(), "Phosphor".to_string()];
+        list.extend(coverage.iter().map(|name| name.to_string()));
         list.extend(fallback.iter().cloned());
         list
     };
@@ -56,17 +88,40 @@ pub(super) fn font_definitions() -> FontDefinitions {
     icons.extend(fallback.iter().cloned());
     fonts.families.insert(icon(), icons);
 
-    fonts
-        .families
-        .insert(FontFamily::Proportional, with_fallback("Inter"));
-    fonts
-        .families
-        .insert(medium(), with_fallback("InterMedium"));
-    fonts
-        .families
-        .insert(semibold(), with_fallback("InterSemiBold"));
-    fonts.families.insert(serif(), with_fallback("Lora"));
-    let mut mono = with_fallback("JetBrainsMono");
+    let text_families = match lettering {
+        Lettering::Modern => [
+            (FontFamily::Proportional, with_fallback("Inter", &[])),
+            (medium(), with_fallback("InterMedium", &[])),
+            (semibold(), with_fallback("InterSemiBold", &[])),
+            (serif(), with_fallback("Lora", &[])),
+            (drop_cap(), with_fallback("Lora", &[])),
+        ],
+        // Inter after Phosphor keeps Modern's symbol coverage (arrows, ⌘)
+        // for anything Alegreya lacks.
+        // The serif families add Alegreya first, for the two characters
+        // Cinzel Decorative does not map (`CINZEL_GAPS` in the tests).
+        Lettering::Wizard => [
+            (
+                FontFamily::Proportional,
+                with_fallback("Alegreya", &["Inter"]),
+            ),
+            (medium(), with_fallback("AlegreyaMedium", &["InterMedium"])),
+            (
+                semibold(),
+                with_fallback("AlegreyaSemiBold", &["InterSemiBold"]),
+            ),
+            (
+                serif(),
+                with_fallback("CinzelDecorative", &["Alegreya", "Inter"]),
+            ),
+            (
+                drop_cap(),
+                with_fallback("CinzelDecorativeBold", &["Alegreya", "Inter"]),
+            ),
+        ],
+    };
+    fonts.families.extend(text_families);
+    let mut mono = with_fallback("JetBrainsMono", &[]);
     // Keep egui's default monospace fonts reachable after ours.
     if let Some(default_mono) = fonts.families.get(&FontFamily::Monospace) {
         mono.extend(default_mono.iter().cloned());
