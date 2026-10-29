@@ -6,9 +6,24 @@
 //! Meetings page. Labels, ids and byte counts only in logs; never text.
 
 use hark_meeting::storage_fs;
-use hark_meeting::{plan_eviction, StoredAudio};
-use hark_store::{MeetingSegment, NewMeeting, Store, StoreError};
+use hark_meeting::{plan_eviction, Roster, StoredAudio};
+use hark_store::{MeetingDetail, MeetingSegment, NewMeeting, Store, StoreError};
 use std::path::Path;
+
+/// The one way to read who said what in a stored meeting: every screen and
+/// export builds its labels and colors from this.
+pub fn roster_of(detail: &MeetingDetail) -> Roster {
+    Roster::new(
+        detail
+            .segments
+            .iter()
+            .map(|s| (s.channel, s.speaker, s.speaker_override.as_deref())),
+        detail
+            .speakers
+            .iter()
+            .map(|n| (n.key.as_str(), n.display_name.as_str())),
+    )
+}
 
 pub enum MeetingCmd {
     Reprocessed {
@@ -84,7 +99,7 @@ pub fn apply(store: &mut Store, dir: &Path, cmd: MeetingCmd) -> Result<bool, Sto
             segments,
             reply,
         } => {
-            let result = store.reprocess_meeting_segments(&id, &segments);
+            let result = store.reprocess_meeting_segments(&id, &segments, None);
             let _ = reply.send(result.as_ref().map(|_| ()).map_err(|_| "The replacement transcript could not be saved. The previous transcript was kept.".into()));
             result.map(|_| true)
         }
@@ -118,7 +133,11 @@ pub fn apply(store: &mut Store, dir: &Path, cmd: MeetingCmd) -> Result<bool, Sto
             .map(|_| true),
         MeetingCmd::Rename { id, title } => store.set_meeting_title(&id, title.trim()),
         MeetingCmd::RenameSpeaker { id, speaker, name } => store
-            .rename_meeting_speaker(&id, speaker, &name)
+            .set_speaker_name(
+                &id,
+                &hark_meeting::SpeakerKey::Diarized(speaker).to_string(),
+                &name,
+            )
             .map(|_| true),
         MeetingCmd::Finished { id, audio_bytes } => store
             .set_meeting_audio_bytes(&id, audio_bytes as i64)

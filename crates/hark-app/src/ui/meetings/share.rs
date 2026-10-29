@@ -8,10 +8,11 @@
 //! "Copy" goes straight to the clipboard, never through the injection
 //! stash/restore path, which would put the old clipboard back.
 
+use crate::storage::meetings::roster_of;
 use hark_meeting::export::{
-    self, speaker_label, ExportAction, ExportLine, ExportMeeting, ExportNotes, ExportOptions,
+    self, ExportAction, ExportLine, ExportMeeting, ExportNotes, ExportOptions,
 };
-use hark_meeting::Channel;
+use hark_meeting::SpeakerKey;
 use hark_store::MeetingDetail;
 use hark_voice::MeetingNotes;
 use jiff::tz::TimeZone;
@@ -89,6 +90,7 @@ pub(super) fn export_of(
     } else {
         title.trim().to_string()
     };
+    let roster = roster_of(detail);
     ExportMeeting {
         title,
         started: crate::ui::format::full_timestamp(s.started_ms, tz),
@@ -106,20 +108,19 @@ pub(super) fn export_of(
         lines: detail
             .segments
             .iter()
-            .map(|seg| ExportLine {
-                at_ms: seg.start_ms.max(0) as u64,
-                end_ms: seg.end_ms.max(seg.start_ms).max(0) as u64,
-                speaker: speaker_label(
-                    if seg.channel == 0 {
-                        Channel::Me
-                    } else {
-                        Channel::Them
-                    },
+            .map(|seg| {
+                let key = SpeakerKey::effective(
+                    seg.channel,
                     seg.speaker,
-                    &detail.speakers,
-                ),
-                slot: 0,
-                text: seg.text.clone(),
+                    seg.speaker_override.as_deref(),
+                );
+                ExportLine {
+                    at_ms: seg.start_ms.max(0) as u64,
+                    end_ms: seg.end_ms.max(seg.start_ms).max(0) as u64,
+                    speaker: roster.label(key),
+                    slot: roster.slot(key),
+                    text: seg.text.clone(),
+                }
             })
             .collect(),
         notes: notes.map(|n| ExportNotes {

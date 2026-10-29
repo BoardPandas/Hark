@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.64.1] - 2026-10-29
+
+### Changed
+
+- Speaker names you gave in past meetings move to a new format the first time this version opens your meetings, so "Me" and new speakers can be named later. Nothing to do on your side, and every name you set is kept. An older Hark opened afterwards still shows those names as they were.
+
 ## [0.64.0] - 2026-10-29
 
 ### Changed

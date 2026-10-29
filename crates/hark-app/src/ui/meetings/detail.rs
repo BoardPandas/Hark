@@ -2,13 +2,13 @@
 //! transcript, sharing, and delete. Cached on (write generation, id).
 
 use super::share::{self, ShareAction, Sharing};
-use crate::storage::meetings::MeetingCmd;
+use crate::storage::meetings::{roster_of, MeetingCmd};
 use crate::storage::{StorageCmd, StorageHandle};
 use crate::theme;
 use crate::ui::{format, widgets};
 use egui::{RichText, TextEdit, Ui};
-use hark_meeting::export::{format_timestamp, speaker_label};
-use hark_meeting::Channel;
+use hark_meeting::export::format_timestamp;
+use hark_meeting::{Roster, SpeakerKey};
 use hark_store::MeetingDetail;
 use hark_voice::MeetingNotes;
 use jiff::tz::TimeZone;
@@ -18,6 +18,8 @@ pub(super) struct DetailView {
     /// (generation, id) the cache reflects.
     key: Option<(u64, String)>,
     detail: Option<MeetingDetail>,
+    /// Built with `detail`, on the same cache key: labels and colors.
+    roster: Option<Roster>,
     notes: Option<MeetingNotes>,
     error: Option<String>,
     title: String,
@@ -36,6 +38,7 @@ impl DetailView {
         DetailView {
             key: None,
             detail: None,
+            roster: None,
             notes: None,
             error: None,
             title: String::new(),
@@ -233,8 +236,10 @@ impl DetailView {
         if busy {
             self.renaming = None;
         }
-        ui.add_enabled_ui(!busy, |ui| self.speakers_card(ui, storage, id, detail));
-        transcript(ui, detail);
+        ui.add_enabled_ui(!busy, |ui| self.speakers_card(ui, storage, id));
+        if let Some(roster) = &self.roster {
+            transcript(ui, detail, roster);
+        }
 
         if let Some(confirm) = &mut self.confirm {
             match confirm.show(ui, "meeting-delete") {
@@ -278,6 +283,7 @@ impl DetailView {
                         .unwrap_or_default();
                     self.renaming = None;
                 }
+                self.roster = detail.as_ref().map(roster_of);
                 self.detail = detail;
                 self.error = None;
             }
@@ -321,29 +327,24 @@ impl DetailView {
     }
 
     /// Rename "Speaker 2" to "Dana". Only speakers that appear are listed.
-    fn speakers_card(
-        &mut self,
-        ui: &mut Ui,
-        storage: &StorageHandle,
-        id: &str,
-        detail: &MeetingDetail,
-    ) {
-        let mut speakers: Vec<u32> = detail
-            .segments
-            .iter()
-            .filter(|s| s.channel == 1)
-            .filter_map(|s| s.speaker)
+    fn speakers_card(&mut self, ui: &mut Ui, storage: &StorageHandle, id: &str) {
+        let Some(roster) = &self.roster else {
+            return;
+        };
+        let speakers: Vec<(u32, String)> = roster
+            .speaking()
+            .into_iter()
+            .filter_map(|key| match key {
+                SpeakerKey::Diarized(n) => Some((n, roster.label(key))),
+                _ => None,
+            })
             .collect();
-        speakers.sort_unstable();
-        speakers.dedup();
         if speakers.is_empty() {
             return;
         }
-        let renames = detail.speakers.clone();
         ui.horizontal_wrapped(|ui| {
             ui.label(RichText::new("Speakers").strong());
-            for speaker in speakers {
-                let label = speaker_label(Channel::Them, Some(speaker), &renames);
+            for (speaker, label) in speakers {
                 match &mut self.renaming {
                     Some((s, buf)) if *s == speaker => {
                         let r = ui.add(TextEdit::singleline(buf).desired_width(120.0));
@@ -393,25 +394,21 @@ fn list(ui: &mut Ui, heading: &str, items: &[String]) {
     }
 }
 
-fn transcript(ui: &mut Ui, detail: &MeetingDetail) {
+fn transcript(ui: &mut Ui, detail: &MeetingDetail, roster: &Roster) {
     ui.label(RichText::new("Transcript").text_style(theme::subheading()));
     if detail.segments.is_empty() {
         ui.label(RichText::new("No transcript.").weak());
         return;
     }
     for s in &detail.segments {
-        let channel = if s.channel == 0 {
-            Channel::Me
-        } else {
-            Channel::Them
-        };
+        let key = SpeakerKey::effective(s.channel, s.speaker, s.speaker_override.as_deref());
         ui.horizontal_wrapped(|ui| {
             ui.label(
                 RichText::new(format_timestamp(s.start_ms.max(0) as u64))
                     .small()
                     .weak(),
             );
-            ui.label(RichText::new(speaker_label(channel, s.speaker, &detail.speakers)).strong());
+            ui.label(RichText::new(roster.label(key)).strong());
             ui.add(egui::Label::new(&s.text).selectable(true));
         });
     }
