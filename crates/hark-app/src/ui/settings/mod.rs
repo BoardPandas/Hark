@@ -14,12 +14,8 @@ pub mod local;
 pub mod meetings;
 mod onboarding;
 mod preferences;
-// Wired into the Speech to text card in the next checkpoint; until then only
-// the tests use them, and this is a binary crate, so `pub` does not hide it.
-#[allow(dead_code)]
 mod provider_help;
 mod sections;
-#[allow(dead_code)]
 mod stt_card;
 pub mod test;
 pub mod updates;
@@ -250,14 +246,27 @@ impl SettingsPage {
                 crate::app::reconcile_autostart(self.draft.startup.launch_at_login);
                 *saved = self.draft.clone();
                 pipeline.start(saved, ctx);
-                self.save_notice = Some(Ok(if pipeline.is_running() {
-                    "Saved. Dictation is ready.".to_string()
-                } else {
-                    "Saved. Pipeline stopped; see the status bar for the cause.".to_string()
-                }));
+                self.save_notice = Some(Ok(save_notice(
+                    pipeline.is_running(),
+                    saved.local_stt.mode == hark_config::LocalMode::Primary,
+                    self.download.status().is_ready(),
+                )
+                .to_string()));
             }
             Err(detail) => self.save_notice = Some(Err(detail)),
         }
+    }
+}
+
+/// R15: Primary without a ready model is never "ready", whether or not the
+/// pipeline started, because every dictation fails until the download ends.
+fn save_notice(running: bool, primary: bool, model_ready: bool) -> &'static str {
+    if primary && !model_ready {
+        "Saved. Dictation works once the on-device model finishes downloading."
+    } else if running {
+        "Saved. Dictation is ready."
+    } else {
+        "Saved. Pipeline stopped; see the status bar for the cause."
     }
 }
 
@@ -268,4 +277,28 @@ pub(crate) fn save_to_disk(settings: &Settings) -> Result<(), String> {
         return Err("No OS config directory found; cannot save settings.".to_string());
     };
     settings.save(&path).map_err(|e| e.to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::save_notice;
+
+    #[test]
+    fn the_save_notice_never_promises_dictation_before_the_model_is_ready() {
+        for running in [true, false] {
+            assert_eq!(
+                save_notice(running, true, false),
+                "Saved. Dictation works once the on-device model finishes downloading."
+            );
+        }
+        assert_eq!(save_notice(true, true, true), "Saved. Dictation is ready.");
+        assert_eq!(
+            save_notice(true, false, false),
+            "Saved. Dictation is ready."
+        );
+        assert_eq!(
+            save_notice(false, false, true),
+            "Saved. Pipeline stopped; see the status bar for the cause."
+        );
+    }
 }

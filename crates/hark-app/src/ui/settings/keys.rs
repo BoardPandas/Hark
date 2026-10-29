@@ -53,14 +53,28 @@ impl KeySection {
         matches!(self.status, KeyStatus::Stored)
     }
 
+    pub fn status(&self) -> &KeyStatus {
+        &self.status
+    }
+
     /// Render. Returns true when a store or remove changed the keychain.
     pub fn show(&mut self, ui: &mut Ui) -> bool {
+        self.show_with_link(ui, None)
+    }
+
+    /// `link` is (text, url) for the provider's key page, drawn on the
+    /// status row only until a key is stored (spec A3).
+    pub fn show_with_link(&mut self, ui: &mut Ui, link: Option<(&str, &str)>) -> bool {
         let mut changed = false;
 
         let (icon, color, text) = status_line(ui.visuals(), &self.status, &self.account);
-        ui.horizontal(|ui| {
+        ui.horizontal_wrapped(|ui| {
             ui.label(theme::icon_text(icon).color(color));
             ui.label(text);
+            if let Some((link_text, url)) = link.filter(|_| !self.stored()) {
+                ui.label(RichText::new("·").weak());
+                ui.hyperlink_to(link_text, url);
+            }
         });
 
         ui.horizontal(|ui| {

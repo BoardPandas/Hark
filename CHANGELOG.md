@@ -6,6 +6,26 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.64.0] - 2026-10-29
+
+### Added
+
+- **Choose cloud or on-device transcription in one place.** Settings → Dictation → Speech to text now holds the whole choice. Your cloud provider comes first. Below it, **Use on-device transcription** turns on the on-device model, as **Primary** (offline, no key needed) or **Backup** (used when the cloud fails or is slow). A line under the choice says where your audio goes. Turning it on picks Backup if you have a cloud key stored and Primary if you do not. In Primary, the cloud controls are hidden.
+- **A suggestion when you have no key.** With no cloud key stored, the card offers "No paid AI key? Use on-device." and a **Use on-device instead** button. The button switches to on-device but does not start the download; that stays behind the model's own **Download** button.
+- Each provider now has a one-line description under its name (also shown when you hover it), and a **Get a key** link next to "No key for … yet" that opens the provider's key page. The link goes away once a key is stored.
+- If you turn on-device off while the model is still downloading, the download's progress and a **Cancel** button stay visible.
+
+### Changed
+
+- The separate **On-device** page in Settings is gone; its controls moved into Speech to text.
+- "Model & endpoint" is now **Model and endpoint (optional)**, or **(required)** for an OpenAI-compatible server, with a note that leaving it blank uses the recommended model.
+- The privacy note under Dictation now matches your mode: cloud, cloud with on-device backup, or on-device only.
+- In on-device Primary, a cleanup voice that reuses your speech-to-text key now shows that key's status and a field to store it under **Cleanup provider**, since the Speech to text key box is hidden.
+
+### Fixed
+
+- Saving on-device Primary before the model has downloaded no longer says "Saved. Dictation is ready." It now says dictation works once the download finishes.
+
 ## [0.63.3] - 2026-10-29
 
 ### Changed

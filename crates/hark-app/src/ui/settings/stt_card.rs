@@ -5,12 +5,91 @@
 //! both branches: there `LocalEngine::is_available()` is always false, so
 //! availability is passed in rather than read here.
 
-use crate::theme;
+use super::{form, local, provider_help, SettingsPage};
+use crate::{pipeline::PipelineController, theme};
 use egui::{RichText, Ui};
 use hark_config::{
     resolve_cleanup_provider, CleanupKeySource, CleanupResolution, LocalMode, Settings, VoiceName,
 };
 use hark_keychain::KeyStatus;
+use hark_local_stt::format_bytes;
+
+impl SettingsPage {
+    /// Cloud first because it stays the default; in Primary the cloud block
+    /// hides and the toggle leads (spec §2.1).
+    pub(super) fn speech_to_text_card(
+        &mut self,
+        ui: &mut Ui,
+        saved: &mut Settings,
+        pipeline: &mut PipelineController,
+    ) {
+        theme::card(ui, |ui| {
+            let primary = self.draft.local_stt.mode == LocalMode::Primary;
+            if primary {
+                form::subhead(ui, "Speech to text");
+            } else {
+                self.cloud_block(ui, saved, pipeline);
+                ui.add_space(theme::GAP);
+                theme::fading_rule(ui, theme::GAP);
+            }
+            local::on_device_block(
+                ui,
+                &mut self.draft,
+                &mut self.download,
+                self.stt_keys.stored(),
+            );
+            if primary {
+                ui.add_space(theme::GAP);
+                ui.label(
+                    RichText::new(
+                        "Cloud speech-to-text is off. Choose Backup to use a cloud provider first.",
+                    )
+                    .small()
+                    .weak(),
+                );
+            }
+        });
+    }
+
+    /// R3. Hidden completely in Primary, including Test connection, which
+    /// only tests the cloud.
+    fn cloud_block(&mut self, ui: &mut Ui, saved: &Settings, pipeline: &mut PipelineController) {
+        if form::provider_section(ui, &mut self.draft, &mut self.bufs) {
+            self.stt_keys.sync_account(self.draft.provider.kind.label());
+            self.test.reset();
+        }
+        let help = provider_help::help(self.draft.provider.kind);
+        ui.label(
+            RichText::new(provider_help::describe(self.draft.provider.kind))
+                .small()
+                .weak(),
+        );
+        ui.add_space(theme::GAP);
+        let link = help.key_page.as_ref().map(|page| (page.text, page.url));
+        if self.stt_keys.show_with_link(ui, link) {
+            self.test.reset();
+            if self.draft.provider.kind == saved.provider.kind {
+                pipeline.start(saved, ui.ctx());
+            }
+        }
+        if callout_visible(
+            hark_local_stt::LocalEngine::is_available(),
+            self.stt_keys.status(),
+            self.draft.local_stt.mode,
+        ) {
+            ui.add_space(theme::GAP);
+            let size = format_bytes(self.download.spec().total_bytes());
+            if no_key_callout(ui, &size) {
+                use_on_device(&mut self.draft);
+                self.download.refresh_status();
+            }
+        }
+        ui.add_space(theme::GAP);
+        self.test.show(ui, &self.draft);
+        ui.add_space(theme::GAP);
+        form::model_endpoint_section(ui, &mut self.draft, &mut self.bufs);
+    }
+}
 
 /// Shown as hover text on Primary; the visible line cannot carry all of it.
 pub(super) const PRIMARY_HOVER: &str =

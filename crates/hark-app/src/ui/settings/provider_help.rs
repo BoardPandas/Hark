@@ -7,7 +7,7 @@
 //! when those change. The Gemini line is the exception because it is a privacy
 //! disclosure.
 
-use hark_config::ProviderKind;
+use hark_config::{Provider, ProviderKind};
 
 pub struct ProviderHelp {
     /// May contain `{model}`; [`ProviderHelp::line`] fills it in.
@@ -26,6 +26,27 @@ impl ProviderHelp {
     /// copy can never name a default the code no longer has.
     pub fn line(&self, model: &str) -> String {
         self.line.replace("{model}", model)
+    }
+}
+
+/// The line for `kind`, naming that kind's default model: the one used when
+/// the Model field is left blank.
+pub fn describe(kind: ProviderKind) -> String {
+    let model = Provider {
+        kind,
+        ..Default::default()
+    }
+    .resolved_model();
+    help(kind).line(&model)
+}
+
+/// The Model and endpoint header (R12). Only a custom endpoint has no
+/// recommended model to fall back on.
+pub fn model_header(custom: bool) -> &'static str {
+    if custom {
+        "Model and endpoint (required)"
+    } else {
+        "Model and endpoint (optional)"
     }
 }
 
@@ -115,6 +136,12 @@ mod tests {
     }
 
     #[test]
+    fn only_a_custom_endpoint_requires_a_model() {
+        assert_eq!(model_header(true), "Model and endpoint (required)");
+        assert_eq!(model_header(false), "Model and endpoint (optional)");
+    }
+
+    #[test]
     fn the_groq_line_warns_about_its_billing_minimum() {
         assert!(help(ProviderKind::Groq).line("m").contains("10 seconds"));
     }
@@ -123,6 +150,7 @@ mod tests {
     fn the_model_placeholder_is_filled_in() {
         let line = help(ProviderKind::Deepgram).line("nova-3");
         assert!(line.contains("Uses nova-3 unless"));
+        assert!(describe(ProviderKind::Openai).contains("Uses gpt-transcribe unless"));
         for kind in ALL {
             assert!(!help(kind).line("x").contains('{'), "{}", kind.label());
         }

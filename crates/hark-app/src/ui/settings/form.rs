@@ -112,12 +112,12 @@ pub fn provider_section(ui: &mut Ui, draft: &mut Settings, bufs: &mut FormBufs) 
     let mut changed = false;
     ui.horizontal_wrapped(|ui| {
         for (kind, label) in provider_choices() {
-            if ui
-                .radio_value(&mut draft.provider.kind, kind, label)
-                .changed()
-            {
-                changed = true;
-            }
+            let radio = ui.radio_value(&mut draft.provider.kind, kind, label);
+            changed |= radio.changed();
+            // Lazy: the line is only built while the radio is hovered.
+            radio.on_hover_ui(|ui| {
+                ui.label(super::provider_help::describe(kind));
+            });
         }
     });
     if draft.provider.kind == ProviderKind::Gemini {
@@ -142,10 +142,19 @@ pub fn model_endpoint_section(ui: &mut Ui, draft: &mut Settings, bufs: &mut Form
     let force_open = bufs.force_endpoint_open.then_some(true);
     bufs.force_endpoint_open = false;
     let custom = draft.provider.kind == ProviderKind::OpenaiCompatible;
-    CollapsingHeader::new("Model & endpoint")
+    // egui ids a header by its label; the salt keeps the open state when it changes.
+    CollapsingHeader::new(super::provider_help::model_header(custom))
+        .id_salt("stt-model-endpoint")
         .default_open(custom)
         .open(force_open)
         .show(ui, |ui| {
+            if !custom {
+                ui.label(
+                    RichText::new("Leave blank to use the recommended model.")
+                        .small()
+                        .weak(),
+                );
+            }
             let default_model = Provider {
                 kind: draft.provider.kind,
                 ..Default::default()
