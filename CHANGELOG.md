@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.68.3] - 2026-10-29
+
+### Security
+
+- **HTTPS connections no longer trust the distrusted emSign intermediate certificates.** Hark's TLS libraries are updated: rustls-webpki 0.103.16 (RUSTSEC-2026-0382), plus webpki-root-certs and webpki-roots 1.0.11 (RUSTSEC-2026-0381, -0383). This covers every connection to your speech-to-text, cleanup and Gemini/OpenAI live providers.
+- ctutils 0.4.7 (RUSTSEC-2026-0385, non-constant-time comparisons) and zstd-sys 2.1.2 (RUSTSEC-2026-0410).
+- The `zip` extraction advisories (RUSTSEC-2026-0367/-0368/-0369) and three `zstd` advisories (RUSTSEC-2026-0391/-0398/-0403) are reviewed and recorded in `.cargo/audit.toml`. Hark never extracts zip archives at runtime: it only writes Word documents, and the older `zip`/`zstd` copies run only inside the on-device engine's build script. Each entry names when to look again. With this, the CI dependency audit passes again.
+
 ## [0.68.2] - 2026-10-29
 
 ### Fixed

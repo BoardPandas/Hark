@@ -40,4 +40,45 @@ ignore = [
     # RE-EVALUATE IF: this is ever upgraded from informational to a real
     # advisory, or when ab_glyph releases against a maintained parser.
     "RUSTSEC-2026-0192",
+
+    # zip < 9.0.0, three extraction advisories (triaged 2026-10-29, 0.68.3):
+    # SUID/SGID bits kept on extract (-0367), symlinks with targets outside
+    # the destination (-0368), and Unix permissions applied through symlinks
+    # (-0369). All three are in `ZipArchive::extract` /
+    # `ZipStreamReader::extract`, i.e. unpacking an archive to disk. zip
+    # reaches Hark twice, and neither path extracts an untrusted archive:
+    #
+    # - zip 8.6.0 SHIPS, via docx-rs 0.4.22 (the meeting Word export). Hark
+    #   only writes .docx: docx-rs packs through `ZipWriter`
+    #   (src/zipper/mod.rs), and its reader reads entries by name and never
+    #   calls `extract`. Hark calls `read_docx` only in a unit test, on bytes
+    #   Hark just wrote. docx-rs 0.4.22 is the newest release and requires
+    #   `zip ^8.6.0`, so no zip >= 9 is selectable.
+    # - zip 2.4.2 is a BUILD dependency of sherpa-onnx-sys 1.13.8 and is not
+    #   in the binary. Its build script unpacks the prebuilt engine it
+    #   downloads from k2-fsa's GitHub release. An attacker who can replace
+    #   that archive already controls the native code linked into Hark, so
+    #   these advisories add no attack.
+    #
+    # RE-EVALUATE IF: docx-rs releases against zip >= 9; Hark moves to
+    # sherpa-onnx 2.x (whose -sys crate builds with zip ^9); or anything else
+    # starts depending on zip, above all anything that extracts at runtime
+    # (e.g. a model download).
+    "RUSTSEC-2026-0367",
+    "RUSTSEC-2026-0368",
+    "RUSTSEC-2026-0369",
+
+    # zstd 0.13.3 (-0391, stream data leaking across a reused context) and
+    # zstd-safe 7.3.0 (-0398 `Seekable::decompress` length, -0403
+    # uninitialized memory on a failed legacy-frame decode), triaged
+    # 2026-10-29 (0.68.3). Both come only through zip 2.4.2's zstd support
+    # above, so they exist only inside sherpa-onnx-sys's build script and are
+    # not in the binary. The fixes (zstd >= 0.14.3, zstd-safe >= 8.2.0) are
+    # semver-incompatible with zip 2.x.
+    #
+    # RE-EVALUATE IF: Hark moves to sherpa-onnx 2.x, or `cargo tree -i zstd`
+    # shows any normal (non-build) dependent.
+    "RUSTSEC-2026-0391",
+    "RUSTSEC-2026-0398",
+    "RUSTSEC-2026-0403",
 ]
