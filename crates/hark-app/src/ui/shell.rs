@@ -203,7 +203,12 @@ mod tests {
 
     #[test]
     fn navigation_labels_fit_small_windows_in_all_themes() {
-        for preference in theme::Appearance::ALL {
+        // Every (appearance, lettering) pair: Wizard's larger Alegreya and its
+        // Cinzel brand must fit the same windows Modern does.
+        let pairs = theme::Appearance::ALL
+            .into_iter()
+            .flat_map(|appearance| theme::Lettering::ALL.map(|lettering| (appearance, lettering)));
+        for preference in pairs {
             for (width, height) in [
                 (720.0, 480.0),
                 (760.0, 480.0),
@@ -212,7 +217,8 @@ mod tests {
             ] {
                 let ctx = egui::Context::default();
                 theme::apply(&ctx);
-                theme::set_appearance(&ctx, preference);
+                theme::set_appearance(&ctx, preference.0);
+                theme::set_lettering(&ctx, preference.1);
                 let mut page = pages::Page::Settings;
                 for frame in 0..3 {
                     let mut output = ctx.run_ui(

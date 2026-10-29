@@ -62,8 +62,10 @@ impl Confirm {
                 );
                 ui.add_space(theme::GAP);
                 ui.label(
+                    // The heading role: Inter Medium, or Cinzel Decorative
+                    // under Wizard lettering.
                     RichText::new(&self.title)
-                        .text_style(theme::subheading())
+                        .text_style(egui::TextStyle::Heading)
                         .size(theme::DIALOG_TITLE_SIZE),
                 );
                 ui.add_space(2.0);

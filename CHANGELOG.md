@@ -6,6 +6,25 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.67.0] - 2026-10-29
+
+### Added
+
+- **New Parchment theme.** Aged paper with dark-brown ink and lapis-blue accents. Pick it from the theme menu in the top bar or in Settings → Appearance. It is a light theme only, so it stays light even when your computer is set to dark mode. Every color in it is checked to stay readable.
+- Hark now ships two free book fonts for Wizard lettering, Alegreya and Cinzel Decorative (SIL Open Font License). Their source, download date and license are recorded in `crates/hark-app/assets/README.md`.
+- **Wizard lettering.** A new "Wizard lettering" checkbox in Settings → Appearance sets text in Alegreya, a calligraphic book face, and page titles, dialog titles and the Home headline in Cinzel Decorative. Body text is one size larger than before, because Alegreya reads smaller than Inter. Key names and timings stay in the monospace font, and icons do not change.
+- The Parchment theme turns Wizard lettering on until you choose for yourself. Once you tick or untick the box, your choice stays the same in every theme, and Hark remembers it on this device.
+- **Book view for the Spellbook.** A new List | Book switch above your vocabulary opens the Spellbook as a book. Each term starts with a large colored first letter, followed by "Also heard as" with its misheard spellings. Turn pages with Previous and Next, or with Page Up, Page Down, Home and End when you are not typing. A wide window shows two facing pages; a narrow one shows one.
+- Edit a term right where it sits in the book: Edit opens the term and its misheard spellings, and Done saves. Changes save and apply the same way as in the list.
+- After you add a term, including one sent from History, the book opens to the page that holds it and marks it "New".
+- List stays the default. Hark remembers your choice on this device.
+- **Book view for Invocations.** The same List | Book switch now sits beside "New invocation". In the book, each trigger phrase starts with a large colored capital, followed by its scope, its alternates, and the full text it types with line breaks kept. If an invocation cannot fire, the reason is shown with a warning icon.
+- Edit or create an invocation without leaving the book: the editor opens across both pages, and page turning pauses until you save or cancel. Saving works exactly as before (only on Save), and the book then opens to the invocation you saved.
+
+### Changed
+
+- In the book view, the first letter of every Spellbook term and invocation phrase is shown as a capital. Your terms and phrases are not changed.
+
 ## [0.66.0] - 2026-10-29
 
 ### Added

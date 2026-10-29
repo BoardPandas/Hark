@@ -135,10 +135,40 @@ pub(super) const SOLARIZED_DARK: Palette = Palette {
     dark: true,
 };
 
+/// Aged paper and iron-gall ink. Light only: there is no dark Parchment.
+pub(super) const PARCHMENT: Palette = Palette {
+    text: rgb(0x3d3024),
+    text_strong: rgb(0x2b2119),
+    // The lowest pair in the palette: weak text on the sidebar, 5.42:1.
+    text_weak: rgb(0x65533d),
+    // Must differ from Solarized Light's base3 (#fdf6e3): `palette()` finds
+    // a palette by its window color.
+    window: rgb(0xf4ead5),
+    // Cards and book pages: a lighter vellum than the window.
+    surface: rgb(0xfbf6ea),
+    sidebar: rgb(0xeadcbf),
+    tint: rgb(0xefe2c6),
+    hairline: rgb(0xdccdae),
+    hairline_strong: rgb(0xa38f6b),
+    fill_hover: rgb(0xf0e5cc),
+    // Lapis, not rubric red, so the focus ring and links never read as an
+    // error. Red belongs to the hue set and the drop caps.
+    accent: rgb(0x2e4c84),
+    on_accent: rgb(0xfbf6ea),
+    chart: rgb(0x2e4c84),
+    chart_soft: rgb(0xc9d2e2),
+    danger: rgb(0xa1301c),
+    success: rgb(0x2f6b3a),
+    warning: rgb(0x82560c),
+    hues: hues::PARCHMENT,
+    dark: false,
+};
+
 /// Every palette an appearance can install. `palette()` and the contrast
 /// tests both walk this list, so a palette left out is neither found nor
 /// tested — and the tests fail if an appearance installs one that is.
-pub(super) const ALL: [&Palette; 4] = [&LIGHT, &DARK, &SOLARIZED_LIGHT, &SOLARIZED_DARK];
+pub(super) const ALL: [&Palette; 5] =
+    [&LIGHT, &DARK, &SOLARIZED_LIGHT, &SOLARIZED_DARK, &PARCHMENT];
 
 /// `Visuals` has no custom palette slot. Each palette's deliberately distinct
 /// canvas color identifies it; unknown egui visuals fall back to the

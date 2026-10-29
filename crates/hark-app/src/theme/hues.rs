@@ -59,3 +59,13 @@ pub(super) const SOLARIZED_DARK: [HueInk; 6] = [
     pair(0xef8fb8, 0x3b2a45),
     pair(0xa9adf0, 0x22305a),
 ];
+
+/// Pigment inks: lapis, verdigris, sap green, ochre, madder and a dark violet.
+pub(super) const PARCHMENT: [HueInk; 6] = [
+    pair(0x2e4c84, 0xe2e3e6),
+    pair(0x225f5a, 0xd9e6dc),
+    pair(0x45602a, 0xe2e6cf),
+    pair(0x7a5212, 0xf0dfba),
+    pair(0x96345a, 0xf1dcd8),
+    pair(0x5e3a8c, 0xe6dbe6),
+];
