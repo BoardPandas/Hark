@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.64.1] - 2026-10-29
+
+### Fixed
+
+- **Gemini Live no longer wastes about 15 ms on Windows every time it checks for new text.** Hark checks after every 100 ms of audio it sends. Each check started a timer that Windows rounds up to about 15.6 ms, even when nothing had arrived. A 25-second meeting chunk lost about 4 seconds this way, and Test connection and the backup replay of a 10-second clip lost up to 1.5 seconds. Checks now return right away. The OpenAI live adapter in 0.64.0 already worked this way.
+
 ## [0.64.0] - 2026-10-29
 
 ### Added

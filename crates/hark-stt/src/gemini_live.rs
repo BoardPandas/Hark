@@ -519,7 +519,7 @@ pub fn transcript_for(mode: TranscribeMode, text: String, request_ms: u128) -> T
 #[cfg(feature = "live")]
 pub(crate) mod session {
     use super::*;
-    use futures_util::{SinkExt, StreamExt};
+    use futures_util::{FutureExt, SinkExt, StreamExt};
     use tokio_tungstenite::tungstenite::Message;
     use tokio_tungstenite::{MaybeTlsStream, WebSocketStream};
 
@@ -668,6 +668,19 @@ pub(crate) mod session {
         Ok(complete)
     }
 
+    /// Let the runtime's driver look at the socket once, without a timer.
+    ///
+    /// `yield_now` hands the waker to the current_thread scheduler's defer
+    /// list, so `block_on` takes its `park_yield` path: one I/O driver turn
+    /// with a zero timeout, then the deferred waker fires and this future is
+    /// polled again (tokio 1.53, `runtime/scheduler/current_thread`). That
+    /// turn is what moves readiness the kernel already has into tokio, so the
+    /// `now_or_never` reads after it can see frames that landed while the
+    /// worker was outside the runtime.
+    async fn turn_driver() {
+        tokio::task::yield_now().await;
+    }
+
     /// Take whatever the server has already sent, without waiting for more.
     ///
     /// **This is where most of a dictation arrives.** `inputTranscription` is
@@ -680,12 +693,25 @@ pub(crate) mod session {
     ///
     /// Returns whether the turn completed while draining. Bounded at 64 frames
     /// so a chatty server cannot turn a drain into a stall.
+    ///
+    /// # Why not `timeout(Duration::ZERO, socket.next())`
+    ///
+    /// That was the first version, and on Windows it cost about 15 ms a call.
+    /// A zero deadline is still a timer: tokio rounds it up to the next 1 ms
+    /// tick, so whenever nothing is buffered — the usual case — the runtime
+    /// parks until that tick, and Windows' ~15.6 ms default timer resolution
+    /// stretches the 1 ms to a whole scheduler quantum. This runs after every
+    /// 100 ms chunk, so a 25 s meeting chunk lost about 3.9 s and a 10 s
+    /// replay up to 1.5 s. [`turn_driver`] plus `now_or_never` never arms a
+    /// timer; `an_empty_drain_never_waits_on_a_timer` and
+    /// `a_drain_sees_frames_that_landed_outside_the_runtime` pin both halves.
     pub async fn drain_into(socket: &mut Socket, segments: &mut Vec<String>) -> bool {
+        turn_driver().await;
         for _ in 0..64 {
-            let frame = match tokio::time::timeout(Duration::ZERO, socket.next()).await {
-                Ok(Some(Ok(frame))) => frame,
-                // Timed out (nothing buffered), stream ended, or a read error:
-                // all mean "stop draining". A real error resurfaces in finish.
+            let frame = match socket.next().now_or_never() {
+                Some(Some(Ok(frame))) => frame,
+                // Nothing buffered, stream ended, or a read error: all mean
+                // "stop draining". A real error resurfaces in finish.
                 _ => return false,
             };
             let Some(body) = frame_json(&frame) else {
@@ -1189,6 +1215,115 @@ impl crate::LiveStt for GeminiLive {
             segments: Vec::new(),
             turn_complete: false,
         }))
+    }
+}
+
+#[cfg(all(test, feature = "live"))]
+mod session_tests {
+    use super::*;
+    use crate::LiveSession;
+    use futures_util::{SinkExt, StreamExt};
+    use std::sync::Arc;
+    use tokio_tungstenite::tungstenite::protocol::Role;
+    use tokio_tungstenite::tungstenite::Message;
+    use tokio_tungstenite::{MaybeTlsStream, WebSocketStream};
+
+    fn runtime() -> tokio::runtime::Runtime {
+        tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap()
+    }
+
+    fn transcription(text: &str) -> Message {
+        Message::Text(
+            json!({"serverContent": {"inputTranscription": {"text": text}}})
+                .to_string()
+                .into(),
+        )
+    }
+
+    /// A streaming session against a local peer with its own thread and
+    /// runtime, so the session's own `block_on` drives the client exactly as
+    /// the pipeline worker does: in bursts, with the runtime idle in between.
+    /// The peer sends `on_connect`, then reads and discards whatever the
+    /// client pushes. Returns once `on_connect` has had time to land in the
+    /// client's receive buffer. Drop the session before joining the peer.
+    fn streamed_session(
+        on_connect: Vec<Message>,
+    ) -> (GeminiLiveSession, std::thread::JoinHandle<()>) {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let (opened, sent) = std::sync::mpsc::channel();
+        let peer = std::thread::spawn(move || {
+            let (stream, _) = listener.accept().unwrap();
+            stream.set_nonblocking(true).unwrap();
+            runtime().block_on(async move {
+                let stream = tokio::net::TcpStream::from_std(stream).unwrap();
+                let mut socket = WebSocketStream::from_raw_socket(stream, Role::Server, None).await;
+                for frame in on_connect {
+                    socket.send(frame).await.unwrap();
+                }
+                opened.send(()).unwrap();
+                while let Some(Ok(_)) = socket.next().await {}
+            })
+        });
+        let runtime = Arc::new(runtime());
+        let socket = runtime.block_on(async {
+            let stream = tokio::net::TcpStream::connect(address).await.unwrap();
+            WebSocketStream::from_raw_socket(MaybeTlsStream::Plain(stream), Role::Client, None)
+                .await
+        });
+        sent.recv_timeout(Duration::from_secs(5))
+            .expect("the peer sends its opening frames");
+        // Sent is not yet received; loopback still takes a moment.
+        std::thread::sleep(Duration::from_millis(50));
+        let session = GeminiLiveSession {
+            runtime,
+            socket: Some(socket),
+            mode: TranscribeMode::Verbatim,
+            started: Instant::now(),
+            pushed: 0,
+            segments: Vec::new(),
+            turn_complete: false,
+        };
+        (session, peer)
+    }
+
+    #[test]
+    fn a_drain_sees_frames_that_landed_outside_the_runtime() {
+        // The worker enters the adapter's runtime only inside push, so
+        // frames reach the kernel while nothing polls the driver. Without the
+        // driver turn before `now_or_never`, tokio's readiness is still empty
+        // and the drain reads nothing.
+        let (mut session, peer) =
+            streamed_session(vec![transcription("First."), transcription("Second.")]);
+        session.push(&vec![0.01; CHUNK_SAMPLES]).unwrap();
+        assert_eq!(session.segments, ["First.", "Second."]);
+        drop(session);
+        peer.join().unwrap();
+    }
+
+    #[test]
+    fn an_empty_drain_never_waits_on_a_timer() {
+        // `timeout(Duration::ZERO, ..)` parked until the next 1 ms timer tick
+        // on every empty drain, which Windows stretches to ~15.6 ms: these 100
+        // pushes drain twice each and took about 3 s. Without a timer they
+        // take milliseconds; the bound is loose so a loaded CI box cannot
+        // trip it.
+        let (mut session, peer) = streamed_session(Vec::new());
+        let chunk = vec![0.01; CHUNK_SAMPLES];
+        let started = Instant::now();
+        for _ in 0..100 {
+            session.push(&chunk).unwrap();
+        }
+        let elapsed = started.elapsed();
+        assert!(
+            elapsed < Duration::from_millis(500),
+            "100 pushes took {elapsed:?}"
+        );
+        drop(session);
+        peer.join().unwrap();
     }
 }
 
