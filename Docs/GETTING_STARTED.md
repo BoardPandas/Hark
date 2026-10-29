@@ -135,8 +135,10 @@ Local development uses the same rustup toolchain called out in Prerequisites: `c
 
 - Build and run day-to-day with `cargo build` / `cargo run`, the same commands used for a from-source install ([README.md:87-88](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/README.md#L87-L88)).
 - This machine is intentionally coding-only: build, test, lint, and typecheck here, then validate the actually-running app, mic permissions, the push-to-talk hotkey, text injection, and notarization/signing, on real macOS and Windows hardware ([README.md:94](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/README.md#L94)).
+- A change is done when `cargo fmt`, `cargo clippy --all-targets -- -D warnings`, the tests and `npm run check:claude` all pass ([CLAUDE.md:54](../CLAUDE.md#L54), [CLAUDE.md:88-94](../CLAUDE.md#L88-L94)).
+- Coding-agent tooling is indexed in two files: `instructions.md` for skill triggers and `AGENT-REGISTRY.md` for the subagents ([CLAUDE.md:154](../CLAUDE.md#L154)).
 
-Sources: [README.md:61](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/README.md#L61), [README.md:87-88](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/README.md#L87-L88), [README.md:94](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/README.md#L94)
+Sources: [CLAUDE.md:54](../CLAUDE.md#L54), [CLAUDE.md:88-94](../CLAUDE.md#L88-L94), [CLAUDE.md:154](../CLAUDE.md#L154), [README.md:61](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/README.md#L61), [README.md:87-88](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/README.md#L87-L88), [README.md:94](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/README.md#L94)
 <!-- END:AUTOGEN hark_03_getting_started_dev -->
 
 ---

@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.68.1] - 2026-10-29
+
+### Changed
+
+- Getting Started lists the checks a change must pass and where the agent tooling is indexed. The Glossary explains the agent registry rename. With these, `npm run check:docs` passes again.
+
 ## [0.68.0] - 2026-10-29
 
 ### Added

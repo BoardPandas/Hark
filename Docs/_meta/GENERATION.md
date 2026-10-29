@@ -1,5 +1,11 @@
 # Generation Metadata
 
+## Development workflow and agent registry — 2026-10-29 (0.68.1)
+
+- **Source reviewed:** `CLAUDE.md` at `d4c3929` (0.68.0), whose last change was the `agents.md` → `AGENT-REGISTRY.md` rename in `0394127` (0.67.1).
+- **Scope:** Getting Started (Development Workflow: the done-gates and where agent tooling is indexed) and Glossary (Agent registry). AUTOGEN markers are preserved.
+- **Validation:** `npm run check:docs` passes with all 17 mapped pages current; `npm run check:claude` passes.
+
 ## Wizard theme: Parchment, lettering, book views and the color pass — 2026-10-29 (0.68.0)
 
 - **Source reviewed:** `d5dc70c` (0.67.0, the merge of the theme, transcription-setup and meeting-speakers builds) plus the working tree for 0.68.0: `Page::hue` and the hued page header (`ui/pages.rs`), hued nav icons (`navigation.rs`), `hued_icon_label_job` and `provider_chip` in `theme`, Home's status tint, Insights tile icons and per-series bars, History provider and Invocation chips (`history/row.rs`), the Spellbook alias-count chip, the Rose glyph and scope chip in the Invocations list, Settings section hues, the key provider chip and the on-device engine chip. Global baseline `784272c` is unchanged.
