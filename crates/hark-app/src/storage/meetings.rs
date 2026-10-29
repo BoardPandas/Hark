@@ -10,6 +10,8 @@ use hark_meeting::{plan_eviction, Roster, StoredAudio};
 use hark_store::{MeetingDetail, MeetingSegment, NewMeeting, Store, StoreError};
 use std::path::Path;
 
+pub const ASSIGN_FAILED: &str = "This line could not be moved. Try again.";
+
 /// The one way to read who said what in a stored meeting: every screen and
 /// export builds its labels and colors from this.
 pub fn roster_of(detail: &MeetingDetail) -> Roster {
@@ -60,10 +62,20 @@ pub enum MeetingCmd {
         id: String,
         title: String,
     },
-    RenameSpeaker {
+    /// The user named a speaker (`key` is a `SpeakerKey` as text); an empty
+    /// name reverts it to its default label. Confirms a guess.
+    SetSpeakerName {
         id: String,
-        speaker: u32,
+        key: String,
         name: String,
+    },
+    /// Move one line to `key`, or back as transcribed (`None`). The reply is
+    /// whether the notes are now stale, or a sentence for the user.
+    AssignSpeaker {
+        id: String,
+        segment_id: i64,
+        key: Option<String>,
+        reply: std::sync::mpsc::Sender<Result<bool, String>>,
     },
     Finished {
         id: String,
@@ -132,13 +144,29 @@ pub fn apply(store: &mut Store, dir: &Path, cmd: MeetingCmd) -> Result<bool, Sto
             .set_meeting_notes(&id, Some(&notes_json))
             .map(|_| true),
         MeetingCmd::Rename { id, title } => store.set_meeting_title(&id, title.trim()),
-        MeetingCmd::RenameSpeaker { id, speaker, name } => store
-            .set_speaker_name(
-                &id,
-                &hark_meeting::SpeakerKey::Diarized(speaker).to_string(),
-                &name,
-            )
-            .map(|_| true),
+        MeetingCmd::SetSpeakerName { id, key, name } => {
+            store.set_speaker_name(&id, &key, &name).map(|_| true)
+        }
+        MeetingCmd::AssignSpeaker {
+            id,
+            segment_id,
+            key,
+            reply,
+        } => {
+            let now = jiff::Timestamp::now().as_millisecond();
+            let result = store.assign_segment_speaker(&id, segment_id, key.as_deref(), now);
+            let answer = match &result {
+                Ok(Some(stale)) => Ok(*stale),
+                // The line is gone (a re-run replaced the transcript) or the
+                // write failed: the transaction left nothing half-done.
+                Ok(None) | Err(_) => Err(ASSIGN_FAILED.to_string()),
+            };
+            if !matches!(result, Ok(Some(_))) {
+                log::warn!("meeting {id}: segment {segment_id} not reassigned");
+            }
+            let _ = reply.send(answer);
+            result.map(|moved| moved.is_some())
+        }
         MeetingCmd::Finished { id, audio_bytes } => store
             .set_meeting_audio_bytes(&id, audio_bytes as i64)
             .map(|_| true),
@@ -352,5 +380,89 @@ mod tests {
         .unwrap());
         assert_eq!(receiver.try_recv().unwrap(), Ok(()));
         assert!(store.meeting("m1").unwrap().is_none());
+    }
+
+    /// A meeting with one Me line and one far-side line; returns their ids.
+    fn two_lines(store: &mut Store, id: &str) -> [i64; 2] {
+        store
+            .create_meeting(&NewMeeting {
+                id: id.into(),
+                started_ms: 1,
+                trigger: "manual".into(),
+                app_hint: None,
+                stt_provider: "test".into(),
+            })
+            .unwrap();
+        for (channel, speaker) in [(0, None), (1, Some(0))] {
+            let segment = MeetingSegment {
+                start_ms: i64::from(channel) * 1_000,
+                end_ms: i64::from(channel) * 1_000 + 500,
+                channel,
+                speaker,
+                text: "synthetic line".into(),
+            };
+            store.append_meeting_segment(id, &segment).unwrap();
+        }
+        let d = store.meeting(id).unwrap().unwrap();
+        [d.segments[0].id, d.segments[1].id]
+    }
+
+    fn assign(
+        store: &mut Store,
+        id: &str,
+        segment_id: i64,
+        key: Option<&str>,
+    ) -> Result<bool, String> {
+        let (reply, receiver) = std::sync::mpsc::channel();
+        let dir = tempfile::tempdir().unwrap();
+        let cmd = MeetingCmd::AssignSpeaker {
+            id: id.into(),
+            segment_id,
+            key: key.map(str::to_string),
+            reply,
+        };
+        apply(store, dir.path(), cmd).unwrap();
+        receiver.try_recv().unwrap()
+    }
+
+    #[test]
+    fn a_reassignment_replies_whether_the_notes_went_stale() {
+        let mut store = Store::open_in_memory().unwrap();
+        let [_, them] = two_lines(&mut store, "m");
+        let [other_me, _] = two_lines(&mut store, "other");
+        assert_eq!(assign(&mut store, "m", them, Some("me")), Ok(false));
+        store.set_meeting_notes("m", Some("{}")).unwrap();
+        assert_eq!(assign(&mut store, "m", them, None), Ok(true));
+        assert!(store
+            .meeting("m")
+            .unwrap()
+            .unwrap()
+            .notes_stale_ms
+            .is_some());
+        // Another meeting's line: refused, and nothing moved anywhere.
+        assert_eq!(
+            assign(&mut store, "m", other_me, Some("them:0")),
+            Err(ASSIGN_FAILED.to_string())
+        );
+        let other = store.meeting("other").unwrap().unwrap();
+        assert!(other.segments[0].speaker_override.is_none());
+    }
+
+    #[test]
+    fn a_users_rename_reaches_the_roster_and_an_empty_one_reverts() {
+        let mut store = Store::open_in_memory().unwrap();
+        two_lines(&mut store, "m");
+        let dir = tempfile::tempdir().unwrap();
+        let mut rename = |name: &str| {
+            let cmd = MeetingCmd::SetSpeakerName {
+                id: "m".into(),
+                key: "me".into(),
+                name: name.into(),
+            };
+            apply(&mut store, dir.path(), cmd).unwrap();
+            roster_of(&store.meeting("m").unwrap().unwrap()).label(hark_meeting::SpeakerKey::Me)
+        };
+        assert_eq!(rename("Chaz"), "Chaz");
+        assert_eq!(rename(" "), "Me");
     }
 }

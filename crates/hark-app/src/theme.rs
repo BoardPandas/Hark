@@ -29,7 +29,9 @@ pub mod icons {
     #![allow(dead_code)]
 
     pub const ARROW_UP: &str = "\u{E048}";
+    pub const ARROWS_LEFT_RIGHT: &str = "\u{E0A0}";
     pub const BOOK_OPEN: &str = "\u{E0E6}";
+    pub const CARET_DOWN: &str = "\u{E136}";
     pub const CHART_BAR: &str = "\u{E150}";
     pub const CHECK: &str = "\u{E182}";
     pub const CIRCLE_NOTCH: &str = "\u{EB44}";
@@ -44,6 +46,8 @@ pub mod icons {
     pub const MICROPHONE: &str = "\u{E326}";
     pub const MEETINGS: &str = "\u{E4D6}";
     pub const PLAY: &str = "\u{E3D0}";
+    pub const PLUS: &str = "\u{E3D4}";
+    pub const SPARKLE: &str = "\u{E6A2}";
     pub const SPINNER: &str = "\u{E66A}";
     pub const TRASH: &str = "\u{E4A6}";
     pub const WARNING: &str = "\u{E4E0}";
@@ -203,7 +207,6 @@ const SPEAKER_HUES: [Hue; 5] = [Hue::Gold, Hue::Violet, Hue::Teal, Hue::Rose, Hu
 /// spec §2.4). Slot 0 is Me and always Blue, and no other slot ever is, so Me
 /// reads the same in every meeting. Past six speakers the hues repeat over
 /// slots 1–5; the name next to every hued mark never does.
-#[allow(dead_code)] // first drawn by the meeting speakers card (plan CP4)
 pub fn speaker_hue(slot: usize) -> Hue {
     match slot {
         0 => Hue::Blue,
@@ -216,6 +219,55 @@ pub fn speaker_hue(slot: usize) -> Hue {
 #[allow(dead_code)] // first used by the Word export (plan CP5)
 pub fn document_hue(hue: Hue) -> Color32 {
     palette::LIGHT.hues[hue as usize].ink
+}
+
+/// The colored rule at the start of a transcript line. Decorative: the
+/// speaker's name is always on the same line.
+pub const SPEAKER_RULE_WIDTH: f32 = 3.0;
+pub const SWATCH_SIZE: f32 = 10.0;
+/// The reassign menu scrolls past this.
+pub const SPEAKER_MENU_HEIGHT: f32 = 280.0;
+
+/// A chip that is a button: `text` in the hue's ink on its wash, with an
+/// optional trailing icon (the reassign caret). The same tested ink/wash pair
+/// as [`chip`], at button size so it is focusable and clickable.
+pub fn chip_button<'a>(
+    style: &egui::Style,
+    hue: Hue,
+    text: &str,
+    trailing: Option<&str>,
+) -> egui::Button<'a> {
+    use egui::text::{LayoutJob, TextFormat};
+    let ink = self::hue(&style.visuals, hue);
+    let size = TextStyle::Button.resolve(style).size;
+    let mut job = LayoutJob::default();
+    job.append(
+        text,
+        0.0,
+        TextFormat::simple(FontId::new(size, medium()), ink),
+    );
+    if let Some(glyph) = trailing {
+        job.append(
+            glyph,
+            4.0,
+            TextFormat::simple(FontId::new(size, icon()), ink),
+        );
+    }
+    egui::Button::new(job)
+        .fill(hue_wash(&style.visuals, hue))
+        .corner_radius(CHIP_RADIUS)
+}
+
+/// A round mark in the hue's ink. Only ever drawn beside the name it stands
+/// for: a hue alone never identifies anyone.
+pub fn swatch(ui: &mut Ui, hue: Hue) -> egui::Response {
+    let (rect, response) = ui.allocate_exact_size(Vec2::splat(SWATCH_SIZE), egui::Sense::hover());
+    ui.painter().circle_filled(
+        rect.center(),
+        SWATCH_SIZE / 2.0,
+        self::hue(ui.visuals(), hue),
+    );
+    response
 }
 
 /// A pill in the hue's wash with an ink label and an optional icon. This is

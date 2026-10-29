@@ -6,6 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.64.3] - 2026-10-29
+
+### Added
+
+- **Every meeting speaker has a color and a name you can change, "Me" included.** The Speakers card on a meeting now lists everyone who spoke, you too, each with their color. Click a name to change it. If you give two speakers the same name, the card says "Shown as the same person as Speaker 2" first, and after you save they share one color and one entry everywhere.
+- **Fix who said a line.** Each transcript line now starts with a thin bar in the speaker's color and a speaker button. Click the button to move the line to yourself, to anyone else in the meeting, or to a new speaker (for example a second person on your microphone). A moved line shows an arrows icon that says who it was transcribed as, and "As transcribed" puts it back. Moves are saved right away and survive a restart.
+
 ## [0.64.2] - 2026-10-29
 
 ### Changed

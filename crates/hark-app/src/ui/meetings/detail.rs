@@ -1,14 +1,16 @@
 //! One meeting: title, notes (with tickable action items), speakers, the
 //! transcript, sharing, and delete. Cached on (write generation, id).
 
+use super::assign::Assignments;
 use super::share::{self, ShareAction, Sharing};
+use super::speakers::SpeakersCard;
+use super::transcript::TranscriptView;
 use crate::storage::meetings::{roster_of, MeetingCmd};
 use crate::storage::{StorageCmd, StorageHandle};
 use crate::theme;
 use crate::ui::{format, widgets};
 use egui::{RichText, TextEdit, Ui};
-use hark_meeting::export::format_timestamp;
-use hark_meeting::{Roster, SpeakerKey};
+use hark_meeting::Roster;
 use hark_store::MeetingDetail;
 use hark_voice::MeetingNotes;
 use jiff::tz::TimeZone;
@@ -23,8 +25,9 @@ pub(super) struct DetailView {
     notes: Option<MeetingNotes>,
     error: Option<String>,
     title: String,
-    /// Speaker being renamed and its edit buffer.
-    renaming: Option<(u32, String)>,
+    speakers: SpeakersCard,
+    transcript: TranscriptView,
+    assignments: Assignments,
     confirm: Option<widgets::Confirm>,
     confirm_rerun: Option<widgets::Confirm>,
     sharing: Sharing,
@@ -42,7 +45,9 @@ impl DetailView {
             notes: None,
             error: None,
             title: String::new(),
-            renaming: None,
+            speakers: SpeakersCard::new(),
+            transcript: TranscriptView::new(),
+            assignments: Assignments::new(),
             confirm: None,
             confirm_rerun: None,
             sharing: Sharing::new(),
@@ -54,6 +59,7 @@ impl DetailView {
 
     pub fn poll(&mut self) {
         self.sharing.poll();
+        self.assignments.poll();
         if let Some((id, reply)) = &self.deleting {
             let result = match reply.try_recv() {
                 Ok(result) => result,
@@ -212,7 +218,6 @@ impl DetailView {
                         .saturating_sub(detail.summary.started_ms)
                         .max(0) as u64;
                     meetings.rerun(id, duration);
-                    self.renaming = None;
                     busy = true;
                     self.confirm_rerun = None;
                 }
@@ -234,11 +239,29 @@ impl DetailView {
             ui.add_space(theme::SECTION_GAP);
         }
         if busy {
-            self.renaming = None;
+            self.speakers.reset();
+            self.transcript.reset();
         }
-        ui.add_enabled_ui(!busy, |ui| self.speakers_card(ui, storage, id));
         if let Some(roster) = &self.roster {
-            transcript(ui, detail, roster);
+            let (rename, reassign) = ui
+                .add_enabled_ui(!busy, |ui| {
+                    let rename = self.speakers.show(ui, roster, &detail.speakers);
+                    if let Some(error) = self.assignments.error(id) {
+                        ui.label(RichText::new(error).color(theme::warning(ui.visuals())));
+                    }
+                    (rename, self.transcript.show(ui, detail, roster))
+                })
+                .inner;
+            if let Some((key, name)) = rename {
+                storage.send(StorageCmd::Meeting(MeetingCmd::SetSpeakerName {
+                    id: id.to_string(),
+                    key: key.to_string(),
+                    name,
+                }));
+            }
+            if let Some(choice) = reassign {
+                self.assignments.send(storage, id, choice);
+            }
         }
 
         if let Some(confirm) = &mut self.confirm {
@@ -281,7 +304,9 @@ impl DetailView {
                         .as_ref()
                         .and_then(|d| d.summary.title.clone())
                         .unwrap_or_default();
-                    self.renaming = None;
+                    self.speakers.reset();
+                    self.transcript.reset();
+                    self.assignments.clear_error();
                 }
                 self.roster = detail.as_ref().map(roster_of);
                 self.detail = detail;
@@ -326,50 +351,6 @@ impl DetailView {
         }
     }
 
-    /// Rename "Speaker 2" to "Dana". Only speakers that appear are listed.
-    fn speakers_card(&mut self, ui: &mut Ui, storage: &StorageHandle, id: &str) {
-        let Some(roster) = &self.roster else {
-            return;
-        };
-        let speakers: Vec<(u32, String)> = roster
-            .speaking()
-            .into_iter()
-            .filter_map(|key| match key {
-                SpeakerKey::Diarized(n) => Some((n, roster.label(key))),
-                _ => None,
-            })
-            .collect();
-        if speakers.is_empty() {
-            return;
-        }
-        ui.horizontal_wrapped(|ui| {
-            ui.label(RichText::new("Speakers").strong());
-            for (speaker, label) in speakers {
-                match &mut self.renaming {
-                    Some((s, buf)) if *s == speaker => {
-                        let r = ui.add(TextEdit::singleline(buf).desired_width(120.0));
-                        if r.lost_focus() {
-                            storage.send(StorageCmd::Meeting(MeetingCmd::RenameSpeaker {
-                                id: id.to_string(),
-                                speaker,
-                                name: buf.clone(),
-                            }));
-                            self.renaming = None;
-                        } else {
-                            r.request_focus();
-                        }
-                    }
-                    _ => {
-                        if ui.button(&label).on_hover_text("Rename").clicked() {
-                            self.renaming = Some((speaker, label));
-                        }
-                    }
-                }
-            }
-        });
-        ui.add_space(theme::GAP);
-    }
-
     fn run_share(
         &mut self,
         ctx: &egui::Context,
@@ -391,26 +372,6 @@ fn list(ui: &mut Ui, heading: &str, items: &[String]) {
     ui.label(RichText::new(heading).strong());
     for item in items {
         ui.label(format!("• {item}"));
-    }
-}
-
-fn transcript(ui: &mut Ui, detail: &MeetingDetail, roster: &Roster) {
-    ui.label(RichText::new("Transcript").text_style(theme::subheading()));
-    if detail.segments.is_empty() {
-        ui.label(RichText::new("No transcript.").weak());
-        return;
-    }
-    for s in &detail.segments {
-        let key = SpeakerKey::effective(s.channel, s.speaker, s.speaker_override.as_deref());
-        ui.horizontal_wrapped(|ui| {
-            ui.label(
-                RichText::new(format_timestamp(s.start_ms.max(0) as u64))
-                    .small()
-                    .weak(),
-            );
-            ui.label(RichText::new(roster.label(key)).strong());
-            ui.add(egui::Label::new(&s.text).selectable(true));
-        });
     }
 }
 

@@ -6,8 +6,11 @@
 //! storage write generation, like History, so idle frames never touch the
 //! database. Every write goes to the storage worker.
 
+mod assign;
 mod detail;
 mod share;
+mod speakers;
+mod transcript;
 
 use crate::meeting::{MeetingController, MeetingStatus};
 use crate::storage::StorageHandle;

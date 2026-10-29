@@ -201,6 +201,60 @@ fn document_speaker_inks_read_on_white_paper() {
     }
 }
 
+/// The meeting-speaker glyphs were added after the curated set; each must be
+/// in the vendored font itself, not found by falling back to Inter.
+#[test]
+fn speaker_icons_are_glyphs_of_the_vendored_phosphor_font() {
+    let ctx = Context::default();
+    let mut fonts = font_definitions();
+    let only = FontFamily::Name("phosphor-only".into());
+    fonts.families.insert(only.clone(), vec!["Phosphor".into()]);
+    ctx.set_fonts(fonts);
+    ctx.run_ui(Default::default(), |_| {})
+        .textures_delta
+        .clear();
+    for glyph in [
+        icons::SPARKLE,
+        icons::CARET_DOWN,
+        icons::ARROWS_LEFT_RIGHT,
+        icons::PLUS,
+    ] {
+        let c = glyph.chars().next().unwrap();
+        assert!(
+            ctx.fonts_mut(|f| f.has_glyph(&FontId::new(14.0, only.clone()), c)),
+            "U+{:04X} is not in Phosphor.ttf",
+            c as u32
+        );
+    }
+}
+
+#[test]
+fn a_chip_button_is_a_control_in_ink_on_wash() {
+    let ctx = Context::default();
+    apply(&ctx);
+    let mut v = Visuals::default();
+    let mut output = ctx.run_ui(Default::default(), |ui| {
+        v = ui.visuals().clone();
+        let button = chip_button(ui.style(), Hue::Gold, "Dana", Some(icons::CARET_DOWN));
+        ui.add(button);
+    });
+    output.textures_delta.clear();
+    let mut wash = false;
+    let mut label = None;
+    for clipped in &output.shapes {
+        match &clipped.shape {
+            egui::Shape::Rect(r) if r.fill == hue_wash(&v, Hue::Gold) => wash = true,
+            egui::Shape::Text(t) => label = Some(t.galley.clone()),
+            _ => {}
+        }
+    }
+    assert!(wash, "no wash-filled button was painted");
+    let galley = label.expect("no text was painted");
+    assert!(galley.text().contains("Dana") && galley.text().contains(icons::CARET_DOWN));
+    let ink = hue(&v, Hue::Gold);
+    assert!(galley.job.sections.iter().all(|s| s.format.color == ink));
+}
+
 #[test]
 fn a_chip_paints_its_label_in_ink_on_its_wash() {
     let ctx = Context::default();
