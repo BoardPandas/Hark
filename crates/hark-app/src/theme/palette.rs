@@ -1,10 +1,11 @@
 //! Color roles for the approved Home/Insights design. Solarized's eight base
 //! colors and cyan are from https://ethanschoonover.com/solarized/.
+use super::hues::HueInk;
 use super::*;
 use egui::style::{Selection, WidgetVisuals, Widgets};
 use egui::CornerRadius;
 
-const fn rgb(hex: u32) -> Color32 {
+pub(super) const fn rgb(hex: u32) -> Color32 {
     Color32::from_rgb((hex >> 16) as u8, (hex >> 8) as u8, hex as u8)
 }
 
@@ -27,6 +28,8 @@ pub(super) struct Palette {
     pub danger: Color32,
     pub success: Color32,
     pub warning: Color32,
+    /// Categorical hues in `Hue` order; see `hues.rs`.
+    pub hues: [HueInk; 6],
     pub dark: bool,
 }
 
@@ -49,6 +52,7 @@ pub(super) const LIGHT: Palette = Palette {
     danger: rgb(0xb63b50),
     success: rgb(0x23754f),
     warning: rgb(0x915c10),
+    hues: hues::LIGHT,
     dark: false,
 };
 
@@ -70,6 +74,7 @@ pub(super) const DARK: Palette = Palette {
     danger: DANGER,
     success: SUCCESS,
     warning: WARNING,
+    hues: hues::DARK,
     dark: true,
 };
 
@@ -104,6 +109,7 @@ pub(super) const SOLARIZED_LIGHT: Palette = Palette {
     danger: LIGHT.danger,
     success: LIGHT.success,
     warning: LIGHT.warning,
+    hues: hues::SOLARIZED_LIGHT,
     dark: false,
 };
 
@@ -125,6 +131,7 @@ pub(super) const SOLARIZED_DARK: Palette = Palette {
     danger: DANGER,
     success: SUCCESS,
     warning: WARNING,
+    hues: hues::SOLARIZED_DARK,
     dark: true,
 };
 

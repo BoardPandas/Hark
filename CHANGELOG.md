@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.63.4] - 2026-10-29
+
+### Added
+
+- Every theme now has a set of six colors (blue, teal, green, gold, rose and violet) for telling things apart, such as pages, providers and meeting speakers. Each one is checked to stay readable in its theme and to look different from the other five. Nothing uses them yet.
+
 ## [0.63.3] - 2026-10-29
 
 ### Changed
