@@ -6,6 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.64.4] - 2026-10-29
+
+### Changed
+
+- **Exports show who really said each line.** Markdown, text, subtitles, Word and audio excerpts now use the names you set, including your own, and follow any line you moved to another speaker.
+- In Word documents, each speaker's name is bold and in their color. The colors are dark enough to read on white paper.
+
 ## [0.64.3] - 2026-10-29
 
 ### Added

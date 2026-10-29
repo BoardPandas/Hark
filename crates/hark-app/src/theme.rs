@@ -216,7 +216,6 @@ pub fn speaker_hue(slot: usize) -> Hue {
 
 /// The Light palette's ink for `hue`: documents are white whatever the app's
 /// theme, so the Word export colors speakers with this.
-#[allow(dead_code)] // first used by the Word export (plan CP5)
 pub fn document_hue(hue: Hue) -> Color32 {
     palette::LIGHT.hues[hue as usize].ink
 }

@@ -295,3 +295,52 @@ impl Sharing {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use hark_store::{NameSource, SpeakerName};
+
+    fn named(key: &str, name: &str) -> SpeakerName {
+        SpeakerName {
+            key: key.into(),
+            display_name: name.into(),
+            source: NameSource::User,
+            evidence_ms: None,
+        }
+    }
+
+    /// The fixture's third line was transcribed as Speaker 2 (named Dana) and
+    /// moved to Me (named Chaz): every format must say Chaz, none Dana.
+    #[test]
+    fn a_moved_line_and_a_renamed_me_reach_every_export() {
+        let mut detail = super::super::transcript::tests::detail();
+        detail.speakers = vec![named("me", "Chaz"), named("them:1", "Dana")];
+        let tz = TimeZone::UTC;
+        let meeting = export_of(&detail, None, "Sync", &tz);
+        let speakers: Vec<&str> = meeting.lines.iter().map(|l| l.speaker.as_str()).collect();
+        assert_eq!(speakers, ["Chaz", "Speaker 1", "Chaz", "Speaker 3"]);
+        let slots: Vec<usize> = meeting.lines.iter().map(|l| l.slot).collect();
+        assert_eq!(slots, [0, 1, 0, 3]);
+
+        let opts = ExportOptions::default();
+        let markdown = export::to_markdown(&meeting, opts);
+        assert!(markdown.contains("**[00:02] Chaz:** line 2"), "{markdown}");
+        let text = export::to_text(&meeting, opts);
+        assert!(text.contains("[00:02] Chaz: line 2"), "{text}");
+        let srt = export::to_srt(&meeting);
+        assert!(srt.contains("Chaz: line 2"), "{srt}");
+        let word = word::document_xml(&meeting);
+        assert!(word.contains(">Chaz<") && word.contains("line 2"), "{word}");
+        let excerpt = export::excerpt(&meeting, 2_000, 2_500).unwrap();
+        assert_eq!(excerpt.lines.len(), 1);
+        assert_eq!(
+            (excerpt.lines[0].speaker.as_str(), excerpt.lines[0].slot),
+            ("Chaz", 0)
+        );
+        for output in [&markdown, &text, &srt, &word] {
+            assert!(!output.contains("Dana"), "{output}");
+            assert!(!output.contains("Speaker 2"), "{output}");
+        }
+    }
+}
