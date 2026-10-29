@@ -334,10 +334,7 @@ impl Scheduler {
         );
         match super::rerun::deepgram_pass(&self.root, id, pending.audio_ms, &self.settings) {
             Ok(segments) => {
-                let lines: Vec<String> = segments
-                    .iter()
-                    .map(|s| super::finish::line(s.start_ms, s.channel, s.speaker, &s.text))
-                    .collect();
+                let lines = super::finish::NotesInput::of(&segments);
                 let _ = self.events.send(MeetingEvent::Refined {
                     id: id.to_string(),
                     segments,

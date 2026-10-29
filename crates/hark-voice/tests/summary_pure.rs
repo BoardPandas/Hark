@@ -6,8 +6,8 @@
 //! `Debug` hides transcript-derived content.
 
 use hark_voice::{
-    build_summary_request, parse_notes, ActionItem, MeetingNotes, SummaryConfig, SummaryError,
-    DEFAULT_SUMMARY_TEMPLATE,
+    build_summary_request, parse_notes, ActionItem, MeetingNotes, SpeakerRefs, SummaryConfig,
+    SummaryError, DEFAULT_SUMMARY_TEMPLATE,
 };
 
 fn config() -> SummaryConfig {
@@ -92,7 +92,7 @@ fn full_json() -> &'static str {
 
 #[test]
 fn parse_notes_accepts_raw_json() {
-    let notes = parse_notes(full_json()).expect("valid notes parse");
+    let notes = parse_notes(full_json(), &[]).expect("valid notes parse");
     assert_eq!(notes.title, "Sprint planning");
     assert_eq!(notes.summary, "We planned the sprint.");
     assert_eq!(notes.key_points, vec!["Scope agreed", "Risks flagged"]);
@@ -106,7 +106,7 @@ fn parse_notes_accepts_raw_json() {
 #[test]
 fn parse_notes_accepts_fenced_json() {
     let fenced = format!("```json\n{}\n```", full_json());
-    let notes = parse_notes(&fenced).expect("fenced notes parse");
+    let notes = parse_notes(&fenced, &[]).expect("fenced notes parse");
     assert_eq!(notes.title, "Sprint planning");
 }
 
@@ -116,7 +116,7 @@ fn parse_notes_accepts_prose_around_json() {
         "Sure, here are the notes:\n\n{}\n\nLet me know!",
         full_json()
     );
-    let notes = parse_notes(&prose).expect("prose-wrapped notes parse");
+    let notes = parse_notes(&prose, &[]).expect("prose-wrapped notes parse");
     assert_eq!(notes.title, "Sprint planning");
 }
 
@@ -124,14 +124,16 @@ fn parse_notes_accepts_prose_around_json() {
 fn parse_notes_ignores_braces_inside_string_values() {
     let body = r#"{"title":"t","summary":"has a { brace } in it","key_points":[],
         "decisions":[],"action_items":[]}"#;
-    let notes = parse_notes(body).expect("brace-in-string body parses");
-    assert_eq!(notes.summary, "has a { brace } in it");
+    let notes = parse_notes(body, &[]).expect("brace-in-string body parses");
+    // Braces that name no speaker are stripped: raw braces never reach the
+    // user, and the JSON extraction still was not fooled by them.
+    assert_eq!(notes.summary, "has a brace in it");
 }
 
 #[test]
 fn parse_notes_defaults_missing_arrays_to_empty() {
     let body = r#"{"title":"t","summary":"s"}"#;
-    let notes = parse_notes(body).expect("missing arrays default to empty");
+    let notes = parse_notes(body, &[]).expect("missing arrays default to empty");
     assert!(notes.key_points.is_empty());
     assert!(notes.decisions.is_empty());
     assert!(notes.action_items.is_empty());
@@ -141,7 +143,7 @@ fn parse_notes_defaults_missing_arrays_to_empty() {
 fn parse_notes_trims_and_drops_empty_list_items() {
     let body = r#"{"title":"t","summary":"s","key_points":["  ","kept  ",""],
         "decisions":[],"action_items":[{"text":"   ","owner":null,"done":false}]}"#;
-    let notes = parse_notes(body).expect("body with blanks parses");
+    let notes = parse_notes(body, &[]).expect("body with blanks parses");
     assert_eq!(notes.key_points, vec!["kept"]);
     assert!(notes.action_items.is_empty());
 }
@@ -150,7 +152,7 @@ fn parse_notes_trims_and_drops_empty_list_items() {
 fn parse_notes_drops_empty_owner_but_keeps_item() {
     let body = r#"{"title":"t","summary":"s","key_points":[],"decisions":[],
         "action_items":[{"text":"do it","owner":"  ","done":false}]}"#;
-    let notes = parse_notes(body).expect("blank owner still parses");
+    let notes = parse_notes(body, &[]).expect("blank owner still parses");
     assert_eq!(notes.action_items[0].owner, None);
 }
 
@@ -159,7 +161,7 @@ fn parse_notes_drops_empty_owner_but_keeps_item() {
 #[test]
 fn parse_notes_rejects_empty_summary() {
     let body = r#"{"title":"t","summary":"   ","key_points":[],"decisions":[],"action_items":[]}"#;
-    let err = parse_notes(body).unwrap_err();
+    let err = parse_notes(body, &[]).unwrap_err();
     match err {
         SummaryError::Provider { detail, .. } => assert!(detail.contains("empty summary")),
         other => panic!("expected Provider, got {other}"),
@@ -168,7 +170,7 @@ fn parse_notes_rejects_empty_summary() {
 
 #[test]
 fn parse_notes_rejects_no_json_object() {
-    let err = parse_notes("no JSON here at all").unwrap_err();
+    let err = parse_notes("no JSON here at all", &[]).unwrap_err();
     match err {
         SummaryError::Provider { detail, .. } => assert!(detail.contains("no JSON object")),
         other => panic!("expected Provider, got {other}"),
@@ -177,7 +179,7 @@ fn parse_notes_rejects_no_json_object() {
 
 #[test]
 fn parse_notes_rejects_unterminated_json() {
-    let err = parse_notes(r#"{"title":"t","summary":"s""#).unwrap_err();
+    let err = parse_notes(r#"{"title":"t","summary":"s""#, &[]).unwrap_err();
     match err {
         SummaryError::Provider { detail, .. } => assert!(detail.contains("unterminated")),
         other => panic!("expected Provider, got {other}"),
@@ -186,7 +188,7 @@ fn parse_notes_rejects_unterminated_json() {
 
 #[test]
 fn parse_notes_rejects_junk_json_with_safe_diagnostics() {
-    let err = parse_notes("{not valid json}").unwrap_err();
+    let err = parse_notes("{not valid json}", &[]).unwrap_err();
     match err {
         SummaryError::Provider { detail, .. } => assert!(detail.contains("unexpected notes body")),
         other => panic!("expected Provider, got {other}"),
@@ -207,7 +209,7 @@ fn parse_notes_truncates_oversize_title_and_summary() {
         "action_items": [],
     })
     .to_string();
-    let notes = parse_notes(&body).expect("oversize body still parses");
+    let notes = parse_notes(&body, &[]).expect("oversize body still parses");
     assert_eq!(notes.title.chars().count(), 120);
     assert_eq!(notes.summary.chars().count(), 8000);
 }
@@ -223,7 +225,7 @@ fn parse_notes_caps_list_length() {
         "action_items": [],
     })
     .to_string();
-    let notes = parse_notes(&body).expect("body with many points still parses");
+    let notes = parse_notes(&body, &[]).expect("body with many points still parses");
     assert_eq!(notes.key_points.len(), 50);
     assert_eq!(notes.key_points[0], "point 0");
 }
@@ -240,7 +242,7 @@ fn parse_notes_truncates_multibyte_text_without_panicking() {
         "action_items": [],
     })
     .to_string();
-    let notes = parse_notes(&body).expect("multibyte body still parses");
+    let notes = parse_notes(&body, &[]).expect("multibyte body still parses");
     assert_eq!(notes.summary.chars().count(), 8000);
     assert!(notes.summary.chars().all(|c| c == '\u{00e9}'));
 }
@@ -258,7 +260,7 @@ fn parse_notes_truncates_multibyte_title_embedded_in_prose() {
             "action_items": [],
         })
     );
-    let notes = parse_notes(&body).expect("multibyte title in prose still parses");
+    let notes = parse_notes(&body, &[]).expect("multibyte title in prose still parses");
     assert_eq!(notes.title.chars().count(), 120);
 }
 
@@ -276,6 +278,7 @@ fn to_json_from_json_round_trips() {
             owner: Some("Dana".to_string()),
             done: true,
         }],
+        speaker_refs: SpeakerRefs::Tokens,
     };
     let json = notes.to_json();
     let restored = MeetingNotes::from_json(&json).expect("round trip parses");
@@ -301,6 +304,7 @@ fn meeting_notes_debug_hides_content_shows_counts() {
             owner: Some("SECRET owner".to_string()),
             done: false,
         }],
+        speaker_refs: SpeakerRefs::Tokens,
     };
     let debug = format!("{notes:?}");
     assert!(!debug.contains("SECRET"), "content leaked: {debug}");
@@ -312,4 +316,134 @@ fn summary_config_debug_never_leaks_key() {
     let debug = format!("{:?}", config());
     assert!(!debug.contains("SENTINEL"), "api_key leaked: {debug}");
     assert!(debug.contains("<redacted>"));
+}
+
+// --- speaker references (spec §2.7) ---
+
+fn labels() -> Vec<(String, String)> {
+    [("Me", "me"), ("Speaker 2", "them:1")]
+        .map(|(l, k)| (l.to_string(), k.to_string()))
+        .to_vec()
+}
+
+fn names() -> Vec<(String, String, String)> {
+    [
+        ("me", "Me", "Chaz"),
+        ("them:1", "Speaker 2", "Sam"),
+        ("them:11", "Speaker 12", "Lee"),
+    ]
+    .map(|(k, d, n)| (k.to_string(), d.to_string(), n.to_string()))
+    .to_vec()
+}
+
+#[test]
+fn the_speaker_clause_is_appended_to_every_template_before_the_schema() {
+    for template in [
+        None,
+        Some("A custom template that never mentions speakers."),
+    ] {
+        let v = build_summary_request(&config(), "[00:01] {Me}: hi", template);
+        let system = v["messages"][0]["content"].as_str().unwrap();
+        let clause = system.find("{Speaker 2}").expect("speaker clause missing");
+        assert!(clause < system.find("key_points").unwrap(), "{template:?}");
+    }
+}
+
+#[test]
+fn braced_labels_parse_into_key_tokens_in_every_field() {
+    let body = r#"{"title":"{Speaker 2} and {Me} sync","summary":"{Speaker 2} spoke.",
+        "key_points":["{Me} agreed"],"decisions":["Ask {Finance}"],
+        "action_items":[{"text":"Send the deck","owner":"{Speaker 2}","done":false}]}"#;
+    let notes = parse_notes(body, &labels()).unwrap();
+    assert_eq!(notes.speaker_refs, SpeakerRefs::Tokens);
+    assert_eq!(notes.title, "{{them:1}} and {{me}} sync");
+    assert_eq!(notes.summary, "{{them:1}} spoke.");
+    assert_eq!(notes.key_points, ["{{me}} agreed"]);
+    assert_eq!(
+        notes.decisions,
+        ["Ask Finance"],
+        "an unknown brace is stripped"
+    );
+    assert_eq!(notes.action_items[0].owner.as_deref(), Some("{{them:1}}"));
+}
+
+#[test]
+fn token_notes_render_names_owners_included_with_no_call() {
+    let body = r#"{"title":"t","summary":"{Speaker 2} owes {Me}; Speaker 2 said so.",
+        "action_items":[{"text":"Reply to {Me}","owner":"{Speaker 2}"}]}"#;
+    let stored = parse_notes(body, &labels()).unwrap();
+    let shown = stored.render(&names());
+    // Default labels written without braces are replaced too, as a safety net.
+    assert_eq!(shown.summary, "Sam owes Chaz; Sam said so.");
+    assert_eq!(shown.action_items[0].text, "Reply to Chaz");
+    assert_eq!(shown.action_items[0].owner.as_deref(), Some("Sam"));
+    // The copy can never pass for token notes, and the stored notes keep
+    // their tokens.
+    assert_eq!(shown.speaker_refs, SpeakerRefs::Frozen);
+    assert!(stored.summary.contains("{{them:1}}"));
+}
+
+#[test]
+fn notes_stored_before_tokens_render_by_whole_default_labels() {
+    let legacy = r#"{"title":"t","summary":"Speaker 2 met Speaker 12 and Me.","key_points":[],
+        "decisions":[],"action_items":[{"text":"x","owner":"Speaker 2","done":true}]}"#;
+    let stored = MeetingNotes::from_json(legacy).unwrap();
+    assert_eq!(stored.speaker_refs, SpeakerRefs::Labels);
+    let shown = stored.render(&names());
+    assert_eq!(shown.summary, "Sam met Lee and Chaz.");
+    assert_eq!(shown.action_items[0].owner.as_deref(), Some("Sam"));
+    assert!(shown.action_items[0].done);
+}
+
+#[test]
+fn frozen_and_unknown_refs_render_exactly_as_stored() {
+    for refs in ["frozen", "from-a-newer-hark"] {
+        let json = format!(
+            r#"{{"title":"t","summary":"Speaker 2 and {{{{me}}}}","key_points":[],"decisions":[],"action_items":[],"speaker_refs":"{refs}"}}"#
+        );
+        let stored = MeetingNotes::from_json(&json).unwrap();
+        assert_eq!(stored.speaker_refs, SpeakerRefs::Frozen);
+        assert_eq!(stored.render(&names()).summary, "Speaker 2 and {{me}}");
+    }
+}
+
+#[test]
+fn baking_writes_the_names_in_for_good() {
+    let stored = parse_notes(r#"{"title":"t","summary":"{Me} led."}"#, &labels()).unwrap();
+    let baked = stored.bake(&names());
+    assert_eq!(baked.summary, "Chaz led.");
+    let reread = MeetingNotes::from_json(&baked.to_json()).unwrap();
+    assert_eq!(reread.render(&[]).summary, "Chaz led.");
+}
+
+fn item(text: &str, done: bool) -> ActionItem {
+    ActionItem {
+        text: text.to_string(),
+        owner: None,
+        done,
+    }
+}
+
+#[test]
+fn ticks_carry_to_matching_items_and_unmatched_ticked_work_is_kept() {
+    let old = MeetingNotes {
+        action_items: vec![
+            item("Speaker 2 will send the deck to finance", true),
+            item("Book the venue", false),
+            item("Email the vendor about pricing", true),
+        ],
+        ..Default::default()
+    };
+    let mut fresh = MeetingNotes {
+        action_items: vec![
+            item("{{them:1}} will send the deck to finance!", false),
+            item("Book the venue", false),
+            item("Draft the agenda", false),
+        ],
+        ..Default::default()
+    };
+    fresh.carry_done_from(&old, &["Speaker 2"]);
+    let ticks: Vec<bool> = fresh.action_items.iter().map(|a| a.done).collect();
+    assert_eq!(ticks, [true, false, false, true]);
+    assert_eq!(fresh.action_items[3].text, "Email the vendor about pricing");
 }

@@ -12,6 +12,17 @@ use std::path::Path;
 
 pub const ASSIGN_FAILED: &str = "This line could not be moved. Try again.";
 
+/// A generated title with its `{{key}}` speaker tokens written out.
+fn resolve_title(title: &str, roster: &Roster) -> String {
+    hark_voice::MeetingNotes {
+        title: title.to_string(),
+        speaker_refs: hark_voice::SpeakerRefs::Tokens,
+        ..Default::default()
+    }
+    .render(&roster.notes_names())
+    .title
+}
+
 /// The one way to read who said what in a stored meeting: every screen and
 /// export builds its labels and colors from this.
 pub fn roster_of(detail: &MeetingDetail) -> Roster {
@@ -129,12 +140,17 @@ pub fn apply(store: &mut Store, dir: &Path, cmd: MeetingCmd) -> Result<bool, Sto
             title,
         } => {
             store.set_meeting_notes(&id, Some(&notes_json))?;
-            let untitled = store.meeting(&id)?.is_some_and(|m| {
-                m.summary
-                    .title
-                    .as_deref()
-                    .is_none_or(|t| t.trim().is_empty())
-            });
+            let Some(meeting) = store.meeting(&id)? else {
+                return Ok(true);
+            };
+            let untitled = meeting
+                .summary
+                .title
+                .as_deref()
+                .is_none_or(|t| t.trim().is_empty());
+            // A title is the user's own text once set: its speaker tokens are
+            // resolved now, and it does not follow later renames.
+            let title = resolve_title(&title, &roster_of(&meeting));
             if untitled && !title.trim().is_empty() {
                 store.set_meeting_title(&id, title.trim())?;
             }
@@ -423,6 +439,22 @@ mod tests {
         };
         apply(store, dir.path(), cmd).unwrap();
         receiver.try_recv().unwrap()
+    }
+
+    #[test]
+    fn a_generated_title_is_set_with_its_speaker_tokens_resolved() {
+        let mut store = Store::open_in_memory().unwrap();
+        two_lines(&mut store, "m");
+        store.set_speaker_name("m", "them:0", "Dana").unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        let cmd = MeetingCmd::Notes {
+            id: "m".into(),
+            notes_json: "{}".into(),
+            title: "{{them:0}} and {{me}} planning".into(),
+        };
+        apply(&mut store, dir.path(), cmd).unwrap();
+        let d = store.meeting("m").unwrap().unwrap();
+        assert_eq!(d.summary.title.as_deref(), Some("Dana and Me planning"));
     }
 
     #[test]

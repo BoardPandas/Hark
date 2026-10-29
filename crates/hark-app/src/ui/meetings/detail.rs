@@ -22,7 +22,10 @@ pub(super) struct DetailView {
     detail: Option<MeetingDetail>,
     /// Built with `detail`, on the same cache key: labels and colors.
     roster: Option<Roster>,
+    /// As stored: speaker tokens, never names. Ticks are written here.
     notes: Option<MeetingNotes>,
+    /// `notes` with the roster's names in, for display only.
+    rendered: Option<MeetingNotes>,
     error: Option<String>,
     title: String,
     speakers: SpeakersCard,
@@ -43,6 +46,7 @@ impl DetailView {
             detail: None,
             roster: None,
             notes: None,
+            rendered: None,
             error: None,
             title: String::new(),
             speakers: SpeakersCard::new(),
@@ -234,8 +238,10 @@ impl DetailView {
         self.sharing.show(ui.ctx());
         ui.add_space(theme::SECTION_GAP);
 
-        if let Some(notes) = self.notes.clone() {
-            self.notes_card(ui, storage, id, notes);
+        if let Some(rendered) = &self.rendered {
+            if let Some((index, done)) = notes_card(ui, rendered) {
+                self.tick(storage, id, index, done);
+            }
             ui.add_space(theme::SECTION_GAP);
         }
         if busy {
@@ -309,6 +315,11 @@ impl DetailView {
                     self.assignments.clear_error();
                 }
                 self.roster = detail.as_ref().map(roster_of);
+                self.rendered = self
+                    .notes
+                    .as_ref()
+                    .zip(self.roster.as_ref())
+                    .map(|(notes, roster)| notes.render(&roster.notes_names()));
                 self.detail = detail;
                 self.error = None;
             }
@@ -317,37 +328,18 @@ impl DetailView {
         self.key = Some(key);
     }
 
-    fn notes_card(
-        &mut self,
-        ui: &mut Ui,
-        storage: &StorageHandle,
-        id: &str,
-        mut notes: MeetingNotes,
-    ) {
-        let mut changed = false;
-        theme::card(ui, |ui| {
-            ui.label(RichText::new("Summary").text_style(theme::subheading()));
-            ui.label(&notes.summary);
-            list(ui, "Key points", &notes.key_points);
-            list(ui, "Decisions", &notes.decisions);
-            if !notes.action_items.is_empty() {
-                ui.add_space(theme::GAP);
-                ui.label(RichText::new("Action items").strong());
-                for item in &mut notes.action_items {
-                    let label = match &item.owner {
-                        Some(owner) => format!("{} ({owner})", item.text),
-                        None => item.text.clone(),
-                    };
-                    changed |= ui.checkbox(&mut item.done, label).changed();
-                }
-            }
-        });
-        if changed {
+    /// A checkbox writes the stored notes, tokens and all, never the rendered
+    /// copy: storing that would freeze today's names into the notes.
+    fn tick(&mut self, storage: &StorageHandle, id: &str, index: usize, done: bool) {
+        let (Some(stored), Some(rendered)) = (&mut self.notes, &mut self.rendered) else {
+            return;
+        };
+        if let Some(notes_json) = ticked(stored, index, done) {
+            rendered.action_items[index].done = done;
             storage.send(StorageCmd::Meeting(MeetingCmd::UpdateNotes {
                 id: id.to_string(),
-                notes_json: notes.to_json(),
+                notes_json,
             }));
-            self.notes = Some(notes);
         }
     }
 
@@ -362,6 +354,38 @@ impl DetailView {
         let export = share::export_of(detail, self.notes.as_ref(), &self.title, tz);
         self.sharing.run(ctx, action, id, export);
     }
+}
+
+/// The notes as rendered; returns an action item the user ticked or unticked.
+fn notes_card(ui: &mut Ui, notes: &MeetingNotes) -> Option<(usize, bool)> {
+    let mut toggled = None;
+    theme::card(ui, |ui| {
+        ui.label(RichText::new("Summary").text_style(theme::subheading()));
+        ui.label(&notes.summary);
+        list(ui, "Key points", &notes.key_points);
+        list(ui, "Decisions", &notes.decisions);
+        if !notes.action_items.is_empty() {
+            ui.add_space(theme::GAP);
+            ui.label(RichText::new("Action items").strong());
+            for (i, item) in notes.action_items.iter().enumerate() {
+                let label = match &item.owner {
+                    Some(owner) => format!("{} ({owner})", item.text),
+                    None => item.text.clone(),
+                };
+                let mut done = item.done;
+                if ui.checkbox(&mut done, label).changed() {
+                    toggled = Some((i, done));
+                }
+            }
+        }
+    });
+    toggled
+}
+
+/// The stored notes' JSON with one action item's tick changed.
+fn ticked(stored: &mut MeetingNotes, index: usize, done: bool) -> Option<String> {
+    stored.action_items.get_mut(index)?.done = done;
+    Some(stored.to_json())
 }
 
 fn list(ui: &mut Ui, heading: &str, items: &[String]) {
@@ -481,6 +505,23 @@ mod tests {
         reply.send(Ok(())).unwrap();
         view.poll();
         assert_eq!(view.deleted.as_deref(), Some("m1"));
+    }
+
+    #[test]
+    fn a_tick_writes_the_stored_token_notes_never_the_rendered_names() {
+        let mut stored = hark_voice::parse_notes(
+            r#"{"title":"t","summary":"s","action_items":[{"text":"Call {Me}"}]}"#,
+            &[("Me".to_string(), "me".to_string())],
+        )
+        .unwrap();
+        let shown = stored.render(&[("me".into(), "Me".into(), "Chaz".into())]);
+        assert_eq!(shown.action_items[0].text, "Call Chaz");
+        let json = ticked(&mut stored, 0, true).unwrap();
+        let written = MeetingNotes::from_json(&json).unwrap();
+        assert_eq!(written.action_items[0].text, "Call {{me}}");
+        assert!(written.action_items[0].done);
+        assert_eq!(written.speaker_refs, hark_voice::SpeakerRefs::Tokens);
+        assert!(ticked(&mut stored, 5, true).is_none());
     }
 
     #[test]

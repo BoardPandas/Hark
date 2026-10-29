@@ -6,6 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.64.5] - 2026-10-29
+
+### Changed
+
+- **Meeting notes follow your speaker names.** Rename a speaker and the notes change at once: the summary, key points, decisions, action items and their owners all show the new name. Nothing is sent anywhere, so it works without a text provider key. Notes made before this version follow renames too.
+- Exported and copied notes use the same names as the meeting page. A notes-generated title keeps the names it had when it was set, since a title is yours to edit.
+
 ## [0.64.4] - 2026-10-29
 
 ### Changed

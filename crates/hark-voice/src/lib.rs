@@ -11,10 +11,12 @@
 
 mod error;
 pub mod openai_compatible;
+mod speaker_refs;
 pub mod summary;
 mod voices;
 
 pub use error::{error_for_status, error_for_transport, CleanupError};
+pub use speaker_refs::{SpeakerRefs, UNKNOWN_SPEAKER};
 pub use summary::{
     build_summary_request, parse_notes, summarize, ActionItem, MeetingNotes, SummaryConfig,
     SummaryError, DEFAULT_SUMMARY_TEMPLATE, SUMMARY_TIMEOUT_MS,

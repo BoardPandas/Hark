@@ -15,6 +15,7 @@ use crate::error::json_error_detail;
 use crate::openai_compatible::{
     chat_completions_url, max_completion_tokens, parse_response, retry_after_secs,
 };
+use crate::speaker_refs::{jaccard, match_words, render_text, tokenize, SpeakerRefs};
 use crate::{error_for_status, error_for_transport, CleanupError};
 use reqwest::blocking::Client;
 use std::time::Duration;
@@ -37,20 +38,28 @@ const PARSE_ERROR_TAG: &str = "summary";
 pub const SUMMARY_TIMEOUT_MS: u64 = 120_000;
 
 /// Built-in system-prompt instructions: what to extract, the expected tone,
-/// the "never invent facts" guardrail, and the instruction to reuse speaker
-/// labels exactly as they appear in the transcript. Callers may substitute
-/// their own template (config `summary_template`, per §4.4/§4.6); the JSON
-/// schema clause below is appended to either one, so parsing never depends
+/// and the "never invent facts" guardrail. Callers may substitute their own
+/// template (config `summary_template`, per §4.4/§4.6); the speaker and JSON
+/// schema clauses below are appended to either one, so parsing never depends
 /// on the user's wording.
 pub const DEFAULT_SUMMARY_TEMPLATE: &str = "You are turning a meeting transcript into notes for \
      the person who attended. Extract a short, descriptive title, a plain-language summary of \
      what was discussed, the key points, any decisions that were made, and any action items \
-     (with an owner when one was stated). Use the speaker labels exactly as they appear in the \
-     transcript, such as \"Me\", \"Speaker 2\", or a name the user has already assigned; never \
-     invent, guess, or reassign a speaker's identity. Never invent facts, numbers, dates, or \
+     (with an owner when one was stated). Never invent, guess, or reassign a speaker's identity. \
+     Never invent facts, numbers, dates, or \
      commitments that are not in the transcript: if something was not discussed, leave the \
      corresponding field empty rather than filling it in. Keep the tone neutral and factual, \
      matching the register of the meeting rather than embellishing it. Respond in JSON.";
+
+/// Appended to every system prompt, default or user-supplied, before the JSON
+/// clause: speakers are referred to by their braced label, which parsing
+/// turns into a key token (`speaker_refs`), so a later rename re-renders the
+/// notes without another call.
+const SPEAKER_REF_CLAUSE: &str = "Each transcript line names its speaker in braces, such as \
+     {Me} or {Speaker 2}. Whenever the notes mention a speaker, including an action item's \
+     owner, copy that braced label exactly, braces included, for example \"{Speaker 2} will send \
+     the deck\". Never write a speaker's label without its braces, and never use braces for \
+     anything else.";
 
 /// Appended to every system prompt, default or user-supplied, so the response
 /// shape never depends on what the template said (or forgot to say) about
@@ -78,6 +87,10 @@ pub struct MeetingNotes {
     pub key_points: Vec<String>,
     pub decisions: Vec<String>,
     pub action_items: Vec<ActionItem>,
+    /// How the text above names speakers. Absent in notes stored before
+    /// tokens existed, which therefore read as `Labels`.
+    #[serde(default)]
+    pub speaker_refs: SpeakerRefs,
 }
 
 impl std::fmt::Debug for MeetingNotes {
@@ -88,11 +101,80 @@ impl std::fmt::Debug for MeetingNotes {
             .field("key_points", &self.key_points.len())
             .field("decisions", &self.decisions.len())
             .field("action_items", &self.action_items.len())
+            .field("speaker_refs", &self.speaker_refs)
             .finish()
     }
 }
 
+/// Ticked work is carried over a rewrite when an old ticked item and a new
+/// one share at least this much of their words (spec §2.7).
+const CARRY_MATCH: f64 = 0.6;
+
 impl MeetingNotes {
+    /// The notes with speakers resolved, for display and export only. `names`
+    /// is `(key, default label, display label)` for every speaker of the
+    /// meeting (`hark_meeting::Roster::notes_names`). Never store the result
+    /// over the original: that would freeze today's names into the notes and
+    /// later renames would stop showing, silently. The copy is marked
+    /// `Frozen` so it at least cannot pass for token notes.
+    pub fn render(&self, names: &[(String, String, String)]) -> MeetingNotes {
+        let tokens = match self.speaker_refs {
+            SpeakerRefs::Frozen => return self.clone(),
+            SpeakerRefs::Tokens => true,
+            SpeakerRefs::Labels => false,
+        };
+        let r = |text: &String| render_text(text, names, tokens);
+        MeetingNotes {
+            title: r(&self.title),
+            summary: r(&self.summary),
+            key_points: self.key_points.iter().map(r).collect(),
+            decisions: self.decisions.iter().map(r).collect(),
+            action_items: self
+                .action_items
+                .iter()
+                .map(|a| ActionItem {
+                    text: r(&a.text),
+                    owner: a.owner.as_ref().map(r),
+                    done: a.done,
+                })
+                .collect(),
+            speaker_refs: SpeakerRefs::Frozen,
+        }
+    }
+
+    /// The notes with today's names written in, to keep once the speakers are
+    /// reset (a re-run of the final pass). The one sanctioned way to store
+    /// rendered text.
+    pub fn bake(&self, names: &[(String, String, String)]) -> MeetingNotes {
+        self.render(names)
+    }
+
+    /// After a rewrite, keep the user's ticks: a new action item is ticked
+    /// when an old ticked item matches it (word-set Jaccard >= 0.6, ignoring
+    /// case, punctuation, tokens and the `strip` phrases, such as default
+    /// labels). An old ticked item that matches nothing is appended, still
+    /// ticked: ticked work is never dropped.
+    pub fn carry_done_from(&mut self, old: &MeetingNotes, strip: &[&str]) {
+        let new_words: Vec<_> = self
+            .action_items
+            .iter()
+            .map(|a| match_words(&a.text, strip))
+            .collect();
+        for item in old.action_items.iter().filter(|a| a.done) {
+            let words = match_words(&item.text, strip);
+            let best = new_words
+                .iter()
+                .enumerate()
+                .map(|(i, w)| (i, jaccard(&words, w)))
+                .filter(|(_, score)| *score >= CARRY_MATCH)
+                .max_by(|a, b| a.1.total_cmp(&b.1));
+            match best {
+                Some((i, _)) => self.action_items[i].done = true,
+                None => self.action_items.push(item.clone()),
+            }
+        }
+    }
+
     /// Serialize for storage (`meetings.notes_json`). Plain strings, bools,
     /// and vecs of strings cannot fail JSON serialization.
     pub fn to_json(&self) -> String {
@@ -208,8 +290,9 @@ pub fn build_summary_request(
     template: Option<&str>,
 ) -> serde_json::Value {
     let system = format!(
-        "{}\n\n{}",
+        "{}\n\n{}\n\n{}",
         template.unwrap_or(DEFAULT_SUMMARY_TEMPLATE),
+        SPEAKER_REF_CLAUSE,
         JSON_OUTPUT_CLAUSE
     );
     let request = SummaryChatRequest {
@@ -337,19 +420,26 @@ fn extract_json_object(content: &str) -> Result<&str, SummaryError> {
 
 /// Parse and validate one notes response: extract the JSON object (raw,
 /// fenced, or embedded in prose), decode it tolerating missing arrays
-/// (default to empty), then trim, cap, and drop empty items. Rejects a
+/// (default to empty), then trim, cap, and drop empty items. Every text
+/// field has its `{Label}` speaker references turned into `{{key}}` tokens
+/// through `labels`, this call's `(default label, key)` table; other braces
+/// are stripped. Rejects a
 /// response whose summary is empty after trimming -- every other field is
 /// allowed to come back empty (a short meeting may have no decisions), but
 /// an empty summary means the call produced nothing usable and the pipeline
 /// should treat it as a failure rather than store blank notes.
-pub fn parse_notes(content: &str) -> Result<MeetingNotes, SummaryError> {
+pub fn parse_notes(
+    content: &str,
+    labels: &[(String, String)],
+) -> Result<MeetingNotes, SummaryError> {
     let json_str = extract_json_object(content)?;
     let raw: RawNotes = serde_json::from_str(json_str).map_err(|e| SummaryError::Provider {
         provider: PARSE_ERROR_TAG.to_string(),
         detail: json_error_detail("unexpected notes body", &e),
     })?;
 
-    let summary = truncate_chars(raw.summary.trim(), SUMMARY_MAX_CHARS);
+    let t = |text: &str| tokenize(text, labels);
+    let summary = truncate_chars(t(&raw.summary).trim(), SUMMARY_MAX_CHARS);
     if summary.is_empty() {
         return Err(SummaryError::Provider {
             provider: PARSE_ERROR_TAG.to_string(),
@@ -361,13 +451,13 @@ pub fn parse_notes(content: &str) -> Result<MeetingNotes, SummaryError> {
         .action_items
         .into_iter()
         .filter_map(|item| {
-            let text = truncate_chars(item.text.trim(), ITEM_MAX_CHARS);
+            let text = truncate_chars(t(&item.text).trim(), ITEM_MAX_CHARS);
             if text.is_empty() {
                 return None;
             }
             let owner = item
                 .owner
-                .map(|o| truncate_chars(o.trim(), ITEM_MAX_CHARS))
+                .map(|o| truncate_chars(t(&o).trim(), ITEM_MAX_CHARS))
                 .filter(|o| !o.is_empty());
             Some(ActionItem {
                 text,
@@ -379,15 +469,17 @@ pub fn parse_notes(content: &str) -> Result<MeetingNotes, SummaryError> {
         .collect();
 
     Ok(MeetingNotes {
-        title: truncate_chars(raw.title.trim(), TITLE_MAX_CHARS),
+        title: truncate_chars(t(&raw.title).trim(), TITLE_MAX_CHARS),
         summary,
-        key_points: clean_list(raw.key_points),
-        decisions: clean_list(raw.decisions),
+        key_points: clean_list(raw.key_points.iter().map(|p| t(p)).collect()),
+        decisions: clean_list(raw.decisions.iter().map(|d| t(d)).collect()),
         action_items,
+        speaker_refs: SpeakerRefs::Tokens,
     })
 }
 
-/// Call the provider and return validated notes. **No retry**: unlike
+/// Call the provider and return validated notes; `labels` is the `(default
+/// label, key)` table the transcript's braced labels came from. **No retry**: unlike
 /// cleanup, there is no graceful fallback for a failed summary (there is no
 /// "uncleaned notes" to show instead), but this runs once after the meeting
 /// ends, off any latency-sensitive path, so a doubled worst case here costs
@@ -397,6 +489,7 @@ pub fn summarize(
     cfg: &SummaryConfig,
     transcript: &str,
     template: Option<&str>,
+    labels: &[(String, String)],
 ) -> Result<MeetingNotes, SummaryError> {
     let url = chat_completions_url(&cfg.base_url);
     let body = build_summary_request(cfg, transcript, template);
@@ -427,5 +520,5 @@ pub fn summarize(
     }
 
     let content = parse_response(&cfg.label, &body_text)?;
-    parse_notes(&content)
+    parse_notes(&content, labels)
 }

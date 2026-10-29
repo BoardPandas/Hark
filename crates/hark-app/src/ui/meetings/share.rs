@@ -91,6 +91,7 @@ pub(super) fn export_of(
         title.trim().to_string()
     };
     let roster = roster_of(detail);
+    let notes = notes.map(|n| n.render(&roster.notes_names()));
     ExportMeeting {
         title,
         started: crate::ui::format::full_timestamp(s.started_ms, tz),
@@ -123,7 +124,7 @@ pub(super) fn export_of(
                 }
             })
             .collect(),
-        notes: notes.map(|n| ExportNotes {
+        notes: notes.as_ref().map(|n| ExportNotes {
             summary: n.summary.clone(),
             key_points: n.key_points.clone(),
             decisions: n.decisions.clone(),
@@ -342,5 +343,24 @@ mod tests {
             assert!(!output.contains("Dana"), "{output}");
             assert!(!output.contains("Speaker 2"), "{output}");
         }
+    }
+
+    #[test]
+    fn exported_notes_carry_names_not_tokens() {
+        let mut detail = super::super::transcript::tests::detail();
+        detail.speakers = vec![named("me", "Chaz")];
+        let notes = hark_voice::parse_notes(
+            r#"{"title":"t","summary":"{Me} led.","action_items":[{"text":"Ship","owner":"{Speaker 1}"}]}"#,
+            &[
+                ("Me".to_string(), "me".to_string()),
+                ("Speaker 1".to_string(), "them:0".to_string()),
+            ],
+        )
+        .unwrap();
+        let meeting = export_of(&detail, Some(&notes), "Sync", &TimeZone::UTC);
+        let markdown = export::to_markdown(&meeting, ExportOptions::default());
+        assert!(markdown.contains("Chaz led."), "{markdown}");
+        assert!(markdown.contains("Ship (Speaker 1)"), "{markdown}");
+        assert!(!markdown.contains("{{"), "{markdown}");
     }
 }

@@ -34,10 +34,7 @@ pub(super) fn spawn(job: Job) {
             let status = settle(&job.root, &job.id, result.as_ref().err().copied());
             let error = match result {
                 Ok(segments) => {
-                    let lines: Vec<String> = segments
-                        .iter()
-                        .map(|s| super::finish::line(s.start_ms, s.channel, s.speaker, &s.text))
-                        .collect();
+                    let lines = super::finish::NotesInput::of(&segments);
                     // Before the status: the pump commits the replacement
                     // first, so a failed save is still reported below.
                     let _ = job.events.send(MeetingEvent::Reprocessed {

@@ -11,9 +11,6 @@
 //! transcript line can never turn into a heading, list item or link by
 //! accident. Plain text has no markup to escape.
 
-use crate::speakers::{default_label, SpeakerKey};
-use crate::Channel;
-
 mod subtitles;
 pub use subtitles::{excerpt, to_srt, to_vtt};
 
@@ -311,19 +308,6 @@ pub fn format_duration(ms: u64) -> String {
     } else {
         format!("{hours} h {mins} min")
     }
-}
-
-/// The label for a transcript line from the pre-roster rename list: `Me` is
-/// always "Me", a diarized speaker is its rename if one exists, and anything
-/// else is [`default_label`]. New readers go through [`crate::Roster`].
-pub fn speaker_label(channel: Channel, speaker: Option<u32>, renames: &[(u32, String)]) -> String {
-    let key = SpeakerKey::transcribed(u8::from(channel == Channel::Them), speaker);
-    if let SpeakerKey::Diarized(id) = key {
-        if let Some((_, name)) = renames.iter().find(|(rid, _)| *rid == id) {
-            return name.clone();
-        }
-    }
-    default_label(key)
 }
 
 /// Windows device names reserved regardless of extension (`CON.txt` collides
@@ -691,48 +675,6 @@ mod tests {
         assert_eq!(format_duration(12 * 60 * 1000), "12 min");
         assert_eq!(format_duration(3_600_000), "1 h");
         assert_eq!(format_duration(65 * 60 * 1000), "1 h 5 min");
-    }
-
-    #[test]
-    fn speaker_label_me_ignores_speaker_and_renames() {
-        assert_eq!(
-            speaker_label(Channel::Me, Some(3), &[(3, "Dana".to_string())]),
-            "Me"
-        );
-        assert_eq!(speaker_label(Channel::Me, None, &[]), "Me");
-    }
-
-    #[test]
-    fn speaker_label_them_without_diarization_is_them() {
-        assert_eq!(speaker_label(Channel::Them, None, &[]), "Them");
-    }
-
-    #[test]
-    fn speaker_label_them_falls_back_to_a_1_based_number() {
-        assert_eq!(speaker_label(Channel::Them, Some(0), &[]), "Speaker 1");
-        assert_eq!(speaker_label(Channel::Them, Some(2), &[]), "Speaker 3");
-    }
-
-    #[test]
-    fn speaker_label_them_uses_the_rename_for_its_0_based_id() {
-        let renames = [(0, "Alice".to_string()), (2, "Dana".to_string())];
-        assert_eq!(speaker_label(Channel::Them, Some(2), &renames), "Dana");
-        // A rename for a different id never matches.
-        assert_eq!(speaker_label(Channel::Them, Some(1), &renames), "Speaker 2");
-    }
-
-    #[test]
-    fn window_scoped_speakers_are_explicit_and_renames_still_win() {
-        let id = 0x8000_0000 | (2 << 10) | 1;
-        assert_eq!(
-            speaker_label(Channel::Them, Some(id), &[]),
-            "Window 3 · Speaker 2"
-        );
-        assert_eq!(
-            speaker_label(Channel::Them, Some(id), &[(id, "Dana".into())]),
-            "Dana"
-        );
-        assert_eq!(speaker_label(Channel::Me, Some(id), &[]), "Me");
     }
 
     #[test]
