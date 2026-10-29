@@ -335,10 +335,12 @@ impl Scheduler {
         match super::rerun::deepgram_pass(&self.root, id, pending.audio_ms, &self.settings) {
             Ok(segments) => {
                 let lines = super::finish::NotesInput::of(&segments);
+                let speakers = super::speakers::lines_of(&segments);
                 let _ = self.events.send(MeetingEvent::Refined {
                     id: id.to_string(),
                     segments,
                 });
+                super::speakers::name_speakers(&self.settings, id, &speakers, &self.events);
                 if pending.needs_notes && self.settings.meeting.summary {
                     super::finish::send_notes(&self.settings, id, &lines, &self.events);
                 }

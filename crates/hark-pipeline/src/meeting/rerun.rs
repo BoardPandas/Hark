@@ -35,12 +35,15 @@ pub(super) fn spawn(job: Job) {
             let error = match result {
                 Ok(segments) => {
                     let lines = super::finish::NotesInput::of(&segments);
+                    let speakers = super::speakers::lines_of(&segments);
                     // Before the status: the pump commits the replacement
                     // first, so a failed save is still reported below.
                     let _ = job.events.send(MeetingEvent::Reprocessed {
                         id: job.id.clone(),
                         segments,
                     });
+                    // The replacement cleared every name: guess them again.
+                    super::speakers::name_speakers(&job.settings, &job.id, &speakers, &job.events);
                     if needs_notes && job.settings.meeting.summary {
                         super::finish::send_notes(&job.settings, &job.id, &lines, &job.events);
                     }

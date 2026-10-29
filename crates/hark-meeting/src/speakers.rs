@@ -17,6 +17,9 @@
 use std::collections::HashMap;
 use std::fmt;
 
+mod guess;
+pub use guess::{guess_local, validate, Candidate, Guess, NameLine};
+
 /// The high bit Gemini's final pass sets on a window-encoded speaker id
 /// (`hark_stt::meeting_gemini::WINDOW_SPEAKER_BIT`): `window << 10 | speaker`.
 const WINDOW_SPEAKER_BIT: u32 = 0x8000_0000;

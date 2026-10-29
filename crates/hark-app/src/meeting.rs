@@ -11,7 +11,7 @@ use crate::storage::meetings::MeetingCmd;
 use crate::storage::StorageCmd;
 use hark_config::Settings;
 use hark_pipeline::meeting::{self, LiveSegment, MeetingEvent, MeetingHandle, TranscriptStatus};
-use hark_store::{MeetingSegment, NewMeeting};
+use hark_store::{MeetingSegment, NameSource, NewMeeting, SpeakerName};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::Arc;
@@ -294,6 +294,7 @@ impl MeetingController {
             // Database-only events: the pump already sent them to storage.
             MeetingEvent::Refined { .. }
             | MeetingEvent::Reprocessed { .. }
+            | MeetingEvent::SpeakerNames { .. }
             | MeetingEvent::Notes { .. }
             | MeetingEvent::TranscriptStatus { .. }
             | MeetingEvent::EnforceAudioCap { .. } => {}
@@ -405,6 +406,22 @@ fn storage_cmd(event: &MeetingEvent, cap_bytes: &AtomicU64) -> Option<MeetingCmd
         MeetingEvent::Refined { id, segments } => MeetingCmd::Refined {
             id: id.clone(),
             segments: segments.iter().map(stored).collect(),
+        },
+        MeetingEvent::SpeakerNames { id, names } => MeetingCmd::SpeakerNames {
+            id: id.clone(),
+            names: names
+                .iter()
+                .map(|n| SpeakerName {
+                    key: n.key.clone(),
+                    display_name: n.name.clone(),
+                    source: if n.guess {
+                        NameSource::Guess
+                    } else {
+                        NameSource::User
+                    },
+                    evidence_ms: n.evidence_ms,
+                })
+                .collect(),
         },
         MeetingEvent::Notes {
             id,

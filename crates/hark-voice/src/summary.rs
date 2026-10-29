@@ -379,7 +379,7 @@ struct RawActionItem {
 /// JSON object. Brace-balances while respecting quoted strings (so a `}`
 /// inside a string value cannot close the object early) rather than assuming
 /// the first `{`/last `}` in the whole text form a matching pair.
-fn extract_json_object(content: &str) -> Result<&str, SummaryError> {
+pub(crate) fn extract_json_object(content: &str) -> Result<&str, SummaryError> {
     let start = content.find('{').ok_or_else(|| SummaryError::Provider {
         provider: PARSE_ERROR_TAG.to_string(),
         detail: "no JSON object found in response".to_string(),

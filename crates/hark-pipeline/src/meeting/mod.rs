@@ -33,6 +33,7 @@ mod pending;
 mod recorder;
 mod rerun;
 mod silence;
+mod speakers;
 mod status;
 mod watchdog;
 
@@ -40,6 +41,7 @@ pub use coordinator::{run, MeetingHandle};
 pub use finish::DEEPGRAM_ACCOUNT;
 pub use hark_meeting::Answer;
 pub use hark_stt::meeting::FailureKind;
+pub use speakers::NamedSpeaker;
 pub use status::{Failure, TranscriptStatus};
 
 /// How a meeting started. Stored with the meeting.
@@ -134,6 +136,12 @@ pub enum MeetingEvent {
     TranscriptStatus {
         id: String,
         status: Option<TranscriptStatus>,
+    },
+    /// Speaker names after a final pass: guesses, and the "Your name" row.
+    /// The storage worker never lets a guess overwrite a user's name.
+    SpeakerNames {
+        id: String,
+        names: Vec<NamedSpeaker>,
     },
     /// Notes JSON (`hark_voice::MeetingNotes`) and the suggested title.
     Notes {

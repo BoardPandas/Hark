@@ -18,7 +18,7 @@ use super::pending::{self, Pending};
 use super::recorder::Recorded;
 use super::status::{Failure, TranscriptStatus};
 use super::{LiveSegment, MeetingEvent};
-use hark_config::{CleanupKeySource, CleanupResolution, FinalPass, Settings, VoiceName};
+use hark_config::{FinalPass, Settings};
 use hark_meeting::{advance, export, Channel, Event, SessionState, SpeakerKey, Transcript};
 use std::path::Path;
 use std::sync::mpsc::Sender;
@@ -127,12 +127,15 @@ fn finish(job: FinishJob) {
         match final_pass(&recorded.dir, &id, audio_ms, &settings, &notice, &status) {
             Pass::Refined(refined) => {
                 lines = NotesInput::of(&refined);
+                let speakers = super::speakers::lines_of(&refined);
                 let _ = events.send(MeetingEvent::Refined {
                     id: id.clone(),
                     segments: refined,
                 });
+                super::speakers::name_speakers(&settings, &id, &speakers, &events);
             }
-            Pass::Kept => {}
+            // The live transcript stays: Me can still take "Your name".
+            Pass::Kept => super::speakers::name_speakers(&settings, &id, &[], &events),
             Pass::Retry => retry = true,
         }
     }
@@ -381,30 +384,7 @@ pub(super) fn send_notes(
 /// to, asked for as if a non-Verbatim voice were selected (a Verbatim
 /// dictation setup still has a provider that can write notes).
 fn summarize(settings: &Settings, input: &NotesInput) -> Result<hark_voice::MeetingNotes, String> {
-    let resolved = match hark_config::resolve_cleanup_provider(
-        &settings.provider,
-        &settings.voice,
-        VoiceName::Notes,
-    ) {
-        CleanupResolution::Resolved(r) => r,
-        CleanupResolution::VerbatimWithWarning { reason } => return Err(reason),
-        CleanupResolution::Verbatim => return Err("no text provider is configured".to_string()),
-    };
-    let api_key = match &resolved.key_source {
-        CleanupKeySource::ReuseSttKey => hark_keychain::resolve_key(settings.provider.kind.label()),
-        CleanupKeySource::Account(account) => {
-            hark_keychain::resolve_key_for(hark_keychain::CLEANUP_ENV_OVERRIDE, account)
-        }
-    }
-    .map_err(|e| e.to_string())?;
-    let config = hark_voice::SummaryConfig {
-        label: resolved.kind.label().to_string(),
-        base_url: resolved.base_url.clone(),
-        model: resolved.model.clone(),
-        api_key,
-        temperature: resolved.temperature,
-        reasoning_effort: resolved.reasoning_effort.clone(),
-    };
+    let config = super::speakers::notes_provider(settings)?;
     let client = hark_stt::shared_client().map_err(|e| e.to_string())?;
     hark_voice::summarize(
         &client,

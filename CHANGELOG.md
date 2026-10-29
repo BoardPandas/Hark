@@ -6,6 +6,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.64.6] - 2026-10-29
+
+### Added
+
+- **Hark fills in speaker names it hears in the call.** After each meeting, when someone says "Hi, this is Sam from Acme" or is thanked by name twice, that speaker is named Sam. With notes on and a text provider set up, your provider looks for the names; otherwise Hark looks for introductions on this device. A name is only used when the line it came from really says it. Guessed names carry a sparkle marker that says when the name was heard; click the name to change it, or save it unchanged to keep it. A guess never replaces a name you set.
+- **Your name** (Settings > Meetings): names "Me" in every new meeting. Renaming Me in one meeting still wins. Existing meetings are unchanged.
+- **Guess speaker names from names said in the call** (Settings > Meetings), on by default.
+
+### Changed
+
+- The notes setting now reads "Write notes and guess speaker names after the call (sends the transcript to your text provider)", because name guessing uses the same provider and the same transcript as the notes.
+
 ## [0.64.5] - 2026-10-29
 
 ### Changed

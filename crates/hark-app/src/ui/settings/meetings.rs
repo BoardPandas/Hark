@@ -114,7 +114,8 @@ impl MeetingsSettings {
         );
         ui.checkbox(
             &mut m.summary,
-            "Write notes after the call (uses your text provider)",
+            "Write notes and guess speaker names after the call (sends the transcript to your \
+             text provider)",
         );
         ui.checkbox(
             &mut m.consent_reminder,
@@ -237,6 +238,31 @@ impl MeetingsSettings {
             &mut m.final_pass,
             FinalPass::None,
             "Keep the Me / Them transcript only",
+        );
+        ui.add_space(theme::GAP);
+        ui.horizontal(|ui| {
+            ui.label("Your name");
+            let field = ui.add(
+                egui::TextEdit::singleline(&mut m.your_name)
+                    .char_limit(YOUR_NAME_MAX_CHARS)
+                    .hint_text("Shown for Me in new meetings")
+                    .desired_width(200.0),
+            );
+            if field.lost_focus() {
+                m.your_name = m.your_name.trim().to_string();
+            }
+        });
+        ui.checkbox(
+            &mut m.guess_speaker_names,
+            "Guess speaker names from names said in the call",
+        );
+        ui.label(
+            RichText::new(
+                "With notes on, your text provider guesses them; otherwise Hark looks for \
+                 introductions on this device.",
+            )
+            .small()
+            .weak(),
         );
         if m.final_pass == FinalPass::Gemini {
             self.gemini.show(ui);
@@ -405,6 +431,9 @@ fn measure(storage: &StorageHandle) -> Option<Vec<StoredAudio>> {
             .collect(),
     )
 }
+
+/// The same cap the pipeline applies and every speaker rename uses.
+const YOUR_NAME_MAX_CHARS: usize = 40;
 
 fn gb(bytes: u64) -> String {
     let gb = bytes as f64 / (1024.0 * MB as f64);

@@ -7,7 +7,7 @@
 
 use hark_meeting::storage_fs;
 use hark_meeting::{plan_eviction, Roster, StoredAudio};
-use hark_store::{MeetingDetail, MeetingSegment, NewMeeting, Store, StoreError};
+use hark_store::{MeetingDetail, MeetingSegment, NewMeeting, SpeakerName, Store, StoreError};
 use std::path::Path;
 
 pub const ASSIGN_FAILED: &str = "This line could not be moved. Try again.";
@@ -79,6 +79,12 @@ pub enum MeetingCmd {
         id: String,
         key: String,
         name: String,
+    },
+    /// Names from the pipeline after a final pass: guesses, and the "Your
+    /// name" row. Never overwrites a name the user set.
+    SpeakerNames {
+        id: String,
+        names: Vec<SpeakerName>,
     },
     /// Move one line to `key`, or back as transcribed (`None`). The reply is
     /// whether the notes are now stale, or a sentence for the user.
@@ -162,6 +168,14 @@ pub fn apply(store: &mut Store, dir: &Path, cmd: MeetingCmd) -> Result<bool, Sto
         MeetingCmd::Rename { id, title } => store.set_meeting_title(&id, title.trim()),
         MeetingCmd::SetSpeakerName { id, key, name } => {
             store.set_speaker_name(&id, &key, &name).map(|_| true)
+        }
+        MeetingCmd::SpeakerNames { id, names } => {
+            let written = store.apply_speaker_names(&id, &names)?;
+            log::info!(
+                "meeting {id}: {written} of {} speaker names applied",
+                names.len()
+            );
+            Ok(written > 0)
         }
         MeetingCmd::AssignSpeaker {
             id,
@@ -455,6 +469,31 @@ mod tests {
         apply(&mut store, dir.path(), cmd).unwrap();
         let d = store.meeting("m").unwrap().unwrap();
         assert_eq!(d.summary.title.as_deref(), Some("Dana and Me planning"));
+    }
+
+    #[test]
+    fn pipeline_names_never_replace_a_users_name() {
+        let mut store = Store::open_in_memory().unwrap();
+        two_lines(&mut store, "m");
+        store.set_speaker_name("m", "them:0", "Dana").unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        let name = |key: &str, display_name: &str, source| SpeakerName {
+            key: key.into(),
+            display_name: display_name.into(),
+            source,
+            evidence_ms: None,
+        };
+        let cmd = MeetingCmd::SpeakerNames {
+            id: "m".into(),
+            names: vec![
+                name("me", "Chaz", hark_store::NameSource::User),
+                name("them:0", "Sam", hark_store::NameSource::Guess),
+            ],
+        };
+        assert!(apply(&mut store, dir.path(), cmd).unwrap());
+        let roster = roster_of(&store.meeting("m").unwrap().unwrap());
+        assert_eq!(roster.label(hark_meeting::SpeakerKey::Me), "Chaz");
+        assert_eq!(roster.label(hark_meeting::SpeakerKey::Diarized(0)), "Dana");
     }
 
     #[test]
