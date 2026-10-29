@@ -28,6 +28,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - The status icon on Home now takes the status color: green when ready, the accent while listening or working, and amber when something needs attention. The words next to it are unchanged.
 - Colors stay readable in all six themes: every new color is checked against each theme's backgrounds, and colors that mean a category are never used to show a status.
 
+## [0.67.3] - 2026-10-29
+
+### Fixed
+
+- Three stale lines in the project docs are now correct:
+  - Data Storage now lists migration 007 (meeting speakers).
+  - Data Storage links Gemini window speaker labels to the code that builds them now.
+  - The Glossary no longer says echo reduction is disabled. It is an optional setting, off by default.
+
 ## [0.67.2] - 2026-10-29
 
 ### Changed

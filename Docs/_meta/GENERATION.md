@@ -5,6 +5,7 @@
 - **Source reviewed:** `CLAUDE.md` at `d4c3929` (0.68.0), whose last change was the `agents.md` → `AGENT-REGISTRY.md` rename in `0394127` (0.67.1).
 - **Scope:** Getting Started (Development Workflow: the done-gates and where agent tooling is indexed) and Glossary (Agent registry). AUTOGEN markers are preserved.
 - **Merged from `fe6a088`:** a parallel docs pass on origin covered the same 0.64.1–0.67.1 changes. Its eight Glossary terms and the `Docs/README.md` release line are kept. Its rewrites of the other ten pages are superseded by the 0.67.2 and 0.68.0 passes, which were written by the builds and already cover 0.68.0, so the merge keeps those versions.
+- **Merged from `c29d95e` (0.67.3):** three manual-text fixes outside AUTOGEN markers. Data Storage now describes all of migration 007 and cites `default_label` for Gemini window labels. The Glossary's AEC entry says echo reduction is optional and off by default.
 - **Validation:** `npm run check:docs` passes with all 17 mapped pages current; `npm run check:claude` passes.
 
 ## Wizard theme: Parchment, lettering, book views and the color pass — 2026-10-29 (0.68.0)
