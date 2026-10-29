@@ -1,14 +1,17 @@
 //! One meeting: title, notes (with tickable action items), speakers, the
 //! transcript, sharing, and delete. Cached on (write generation, id).
 
+use super::assign::Assignments;
+use super::notes;
 use super::share::{self, ShareAction, Sharing};
-use crate::storage::meetings::MeetingCmd;
+use super::speakers::SpeakersCard;
+use super::transcript::TranscriptView;
+use crate::storage::meetings::{roster_of, MeetingCmd};
 use crate::storage::{StorageCmd, StorageHandle};
 use crate::theme;
 use crate::ui::{format, widgets};
 use egui::{RichText, TextEdit, Ui};
-use hark_meeting::export::{format_timestamp, speaker_label};
-use hark_meeting::Channel;
+use hark_meeting::Roster;
 use hark_store::MeetingDetail;
 use hark_voice::MeetingNotes;
 use jiff::tz::TimeZone;
@@ -18,17 +21,26 @@ pub(super) struct DetailView {
     /// (generation, id) the cache reflects.
     key: Option<(u64, String)>,
     detail: Option<MeetingDetail>,
+    /// Built with `detail`, on the same cache key: labels and colors.
+    roster: Option<Roster>,
+    /// As stored: speaker tokens, never names. Ticks are written here.
     notes: Option<MeetingNotes>,
+    /// The roster's `(key, default label, display label)` table the notes
+    /// render through; built with `roster`.
+    note_names: Vec<(String, String, String)>,
     error: Option<String>,
     title: String,
-    /// Speaker being renamed and its edit buffer.
-    renaming: Option<(u32, String)>,
+    speakers: SpeakersCard,
+    transcript: TranscriptView,
+    assignments: Assignments,
     confirm: Option<widgets::Confirm>,
     confirm_rerun: Option<widgets::Confirm>,
     sharing: Sharing,
     deleting: Option<(String, Receiver<Result<(), String>>)>,
     delete_error: Option<(String, String)>,
     deleted: Option<String>,
+    /// Meetings whose notes a move just made stale: rewrite them next frame.
+    refresh_due: Vec<String>,
 }
 
 impl DetailView {
@@ -36,21 +48,28 @@ impl DetailView {
         DetailView {
             key: None,
             detail: None,
+            roster: None,
             notes: None,
+            note_names: Vec::new(),
             error: None,
             title: String::new(),
-            renaming: None,
+            speakers: SpeakersCard::new(),
+            transcript: TranscriptView::new(),
+            assignments: Assignments::new(),
             confirm: None,
             confirm_rerun: None,
             sharing: Sharing::new(),
             deleting: None,
             delete_error: None,
             deleted: None,
+            refresh_due: Vec::new(),
         }
     }
 
     pub fn poll(&mut self) {
         self.sharing.poll();
+        let stale = self.assignments.poll();
+        self.refresh_due.extend(stale);
         if let Some((id, reply)) = &self.deleting {
             let result = match reply.try_recv() {
                 Ok(result) => result,
@@ -77,6 +96,13 @@ impl DetailView {
         if self.deleted.as_deref() == Some(id) {
             self.deleted = None;
             return true;
+        }
+        // Read what the storage worker just committed: the request names
+        // every line by the speaker it is shown as now.
+        for due in std::mem::take(&mut self.refresh_due) {
+            if let Ok(Some(fresh)) = storage.reader().meeting(&due) {
+                meetings.refresh_notes(notes::request(&fresh));
+            }
         }
         self.refresh(storage, id);
         let back = ui.button("‹ All meetings").clicked();
@@ -209,7 +235,6 @@ impl DetailView {
                         .saturating_sub(detail.summary.started_ms)
                         .max(0) as u64;
                     meetings.rerun(id, duration);
-                    self.renaming = None;
                     busy = true;
                     self.confirm_rerun = None;
                 }
@@ -226,15 +251,46 @@ impl DetailView {
         self.sharing.show(ui.ctx());
         ui.add_space(theme::SECTION_GAP);
 
-        if let Some(notes) = self.notes.clone() {
-            self.notes_card(ui, storage, id, notes);
+        if let (Some(stored), Some(roster)) = (&self.notes, &self.roster) {
+            let stale = notes::stale_line(detail, meetings.notes_status(id));
+            let names = notes::Names {
+                roster,
+                table: &self.note_names,
+            };
+            let action = notes::card(ui, stored, &names, stale);
+            if let Some((index, done)) = action.toggled {
+                self.tick(storage, id, index, done);
+            }
+            if action.update {
+                meetings.refresh_notes(notes::request(detail));
+            }
             ui.add_space(theme::SECTION_GAP);
         }
         if busy {
-            self.renaming = None;
+            self.speakers.reset();
+            self.transcript.reset();
         }
-        ui.add_enabled_ui(!busy, |ui| self.speakers_card(ui, storage, id, detail));
-        transcript(ui, detail);
+        if let Some(roster) = &self.roster {
+            let (rename, reassign) = ui
+                .add_enabled_ui(!busy, |ui| {
+                    let rename = self.speakers.show(ui, roster, &detail.speakers);
+                    if let Some(error) = self.assignments.error(id) {
+                        ui.label(RichText::new(error).color(theme::warning(ui.visuals())));
+                    }
+                    (rename, self.transcript.show(ui, detail, roster))
+                })
+                .inner;
+            if let Some((key, name)) = rename {
+                storage.send(StorageCmd::Meeting(MeetingCmd::SetSpeakerName {
+                    id: id.to_string(),
+                    key: key.to_string(),
+                    name,
+                }));
+            }
+            if let Some(choice) = reassign {
+                self.assignments.send(storage, id, choice);
+            }
+        }
 
         if let Some(confirm) = &mut self.confirm {
             match confirm.show(ui, "meeting-delete") {
@@ -276,8 +332,16 @@ impl DetailView {
                         .as_ref()
                         .and_then(|d| d.summary.title.clone())
                         .unwrap_or_default();
-                    self.renaming = None;
+                    self.speakers.reset();
+                    self.transcript.reset();
+                    self.assignments.clear_error();
                 }
+                self.roster = detail.as_ref().map(roster_of);
+                self.note_names = self
+                    .roster
+                    .as_ref()
+                    .map(Roster::notes_names)
+                    .unwrap_or_default();
                 self.detail = detail;
                 self.error = None;
             }
@@ -286,87 +350,18 @@ impl DetailView {
         self.key = Some(key);
     }
 
-    fn notes_card(
-        &mut self,
-        ui: &mut Ui,
-        storage: &StorageHandle,
-        id: &str,
-        mut notes: MeetingNotes,
-    ) {
-        let mut changed = false;
-        theme::card(ui, |ui| {
-            ui.label(RichText::new("Summary").text_style(theme::subheading()));
-            ui.label(&notes.summary);
-            list(ui, "Key points", &notes.key_points);
-            list(ui, "Decisions", &notes.decisions);
-            if !notes.action_items.is_empty() {
-                ui.add_space(theme::GAP);
-                ui.label(RichText::new("Action items").strong());
-                for item in &mut notes.action_items {
-                    let label = match &item.owner {
-                        Some(owner) => format!("{} ({owner})", item.text),
-                        None => item.text.clone(),
-                    };
-                    changed |= ui.checkbox(&mut item.done, label).changed();
-                }
-            }
-        });
-        if changed {
+    /// A checkbox writes the stored notes, tokens and all, never the rendered
+    /// copy: storing that would freeze today's names into the notes.
+    fn tick(&mut self, storage: &StorageHandle, id: &str, index: usize, done: bool) {
+        let Some(stored) = &mut self.notes else {
+            return;
+        };
+        if let Some(notes_json) = notes::ticked(stored, index, done) {
             storage.send(StorageCmd::Meeting(MeetingCmd::UpdateNotes {
                 id: id.to_string(),
-                notes_json: notes.to_json(),
+                notes_json,
             }));
-            self.notes = Some(notes);
         }
-    }
-
-    /// Rename "Speaker 2" to "Dana". Only speakers that appear are listed.
-    fn speakers_card(
-        &mut self,
-        ui: &mut Ui,
-        storage: &StorageHandle,
-        id: &str,
-        detail: &MeetingDetail,
-    ) {
-        let mut speakers: Vec<u32> = detail
-            .segments
-            .iter()
-            .filter(|s| s.channel == 1)
-            .filter_map(|s| s.speaker)
-            .collect();
-        speakers.sort_unstable();
-        speakers.dedup();
-        if speakers.is_empty() {
-            return;
-        }
-        let renames = detail.speakers.clone();
-        ui.horizontal_wrapped(|ui| {
-            ui.label(RichText::new("Speakers").strong());
-            for speaker in speakers {
-                let label = speaker_label(Channel::Them, Some(speaker), &renames);
-                match &mut self.renaming {
-                    Some((s, buf)) if *s == speaker => {
-                        let r = ui.add(TextEdit::singleline(buf).desired_width(120.0));
-                        if r.lost_focus() {
-                            storage.send(StorageCmd::Meeting(MeetingCmd::RenameSpeaker {
-                                id: id.to_string(),
-                                speaker,
-                                name: buf.clone(),
-                            }));
-                            self.renaming = None;
-                        } else {
-                            r.request_focus();
-                        }
-                    }
-                    _ => {
-                        if ui.button(&label).on_hover_text("Rename").clicked() {
-                            self.renaming = Some((speaker, label));
-                        }
-                    }
-                }
-            }
-        });
-        ui.add_space(theme::GAP);
     }
 
     fn run_share(
@@ -379,41 +374,6 @@ impl DetailView {
     ) {
         let export = share::export_of(detail, self.notes.as_ref(), &self.title, tz);
         self.sharing.run(ctx, action, id, export);
-    }
-}
-
-fn list(ui: &mut Ui, heading: &str, items: &[String]) {
-    if items.is_empty() {
-        return;
-    }
-    ui.add_space(theme::GAP);
-    ui.label(RichText::new(heading).strong());
-    for item in items {
-        ui.label(format!("• {item}"));
-    }
-}
-
-fn transcript(ui: &mut Ui, detail: &MeetingDetail) {
-    ui.label(RichText::new("Transcript").text_style(theme::subheading()));
-    if detail.segments.is_empty() {
-        ui.label(RichText::new("No transcript.").weak());
-        return;
-    }
-    for s in &detail.segments {
-        let channel = if s.channel == 0 {
-            Channel::Me
-        } else {
-            Channel::Them
-        };
-        ui.horizontal_wrapped(|ui| {
-            ui.label(
-                RichText::new(format_timestamp(s.start_ms.max(0) as u64))
-                    .small()
-                    .weak(),
-            );
-            ui.label(RichText::new(speaker_label(channel, s.speaker, &detail.speakers)).strong());
-            ui.add(egui::Label::new(&s.text).selectable(true));
-        });
     }
 }
 
@@ -437,7 +397,7 @@ impl FinalPassAction {
             FinalPassAction {
                 label: "Re-run final pass",
                 title: "Re-run the final pass with Deepgram?",
-                body: "Uploads this recording to Deepgram using your key. On success, it replaces the transcript and resets speaker names. Notes and audio stay. Provider usage charges apply.",
+                body: "Uploads this recording to Deepgram using your key. On success, it replaces the transcript, guesses speaker names again and rewrites the notes. Audio stays. Provider usage charges apply.",
             }
         }
     }

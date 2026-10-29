@@ -41,7 +41,7 @@ fn summary_and_stored_notes_errors_never_echo_content() {
         format!(r#"{{"summary":"{PRIVATE}""#),
         format!(r#"{{"summary":"safe","key_points":"{PRIVATE}"}}"#),
     ] {
-        assert_private(parse_notes(&body).unwrap_err());
+        assert_private(parse_notes(&body, &[]).unwrap_err());
     }
     let invalid = format!(
         r#"{{"title":"safe","summary":"safe","key_points":[],"decisions":[],"action_items":[{{"text":"safe","done":"{PRIVATE}"}}]}}"#

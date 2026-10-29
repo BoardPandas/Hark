@@ -1,7 +1,11 @@
 //! Text-only Word export. Document construction and packing stay on the worker.
+//! The one format that carries speaker color: each speaker's name is a bold
+//! run in its Light-palette ink, since documents are white whatever the
+//! app's theme.
 
+use crate::theme;
 use docx_rs::{BreakType, Docx, Paragraph, Run, Style, StyleType};
-use hark_meeting::export::{self, ExportMeeting};
+use hark_meeting::export::{self, ExportLine, ExportMeeting};
 
 pub(super) fn save(meeting: ExportMeeting) -> String {
     let name = export::safe_file_name(&meeting.title, "docx");
@@ -19,6 +23,10 @@ pub(super) fn save(meeting: ExportMeeting) -> String {
 }
 
 fn paragraph(text: &str) -> Paragraph {
+    Paragraph::new().add_run(run(text))
+}
+
+fn run(text: &str) -> Run {
     let mut run = Run::new();
     for (i, line) in text.lines().enumerate() {
         if i > 0 {
@@ -30,7 +38,17 @@ fn paragraph(text: &str) -> Paragraph {
             .collect();
         run = run.add_text(clean);
     }
-    Paragraph::new().add_run(run)
+    run
+}
+
+/// `[mm:ss] Name: text`, with the name bold in the speaker's document ink.
+fn transcript_line(line: &ExportLine) -> Paragraph {
+    let ink = theme::document_hue(theme::speaker_hue(line.slot));
+    let hex = format!("{:02x}{:02x}{:02x}", ink.r(), ink.g(), ink.b());
+    Paragraph::new()
+        .add_run(run(&format!("[{}] ", export::format_timestamp(line.at_ms))))
+        .add_run(run(&line.speaker).bold().color(hex))
+        .add_run(run(&format!(": {}", line.text)))
 }
 
 fn heading(text: &str) -> Paragraph {
@@ -97,14 +115,15 @@ fn document(meeting: &ExportMeeting) -> Docx {
         doc = doc.add_paragraph(paragraph("No transcript."));
     }
     for line in &meeting.lines {
-        doc = doc.add_paragraph(paragraph(&format!(
-            "[{}] {}: {}",
-            export::format_timestamp(line.at_ms),
-            line.speaker,
-            line.text
-        )));
+        doc = doc.add_paragraph(transcript_line(line));
     }
     doc
+}
+
+/// The built document's body XML, for the export tests.
+#[cfg(test)]
+pub(super) fn document_xml(meeting: &ExportMeeting) -> String {
+    String::from_utf8(document(meeting).build().document).unwrap()
 }
 
 #[cfg(test)]
@@ -122,6 +141,7 @@ mod tests {
                 at_ms: 0,
                 end_ms: 1000,
                 speaker: "Zoë".into(),
+                slot: 0,
                 text: "alpha\nbeta\0".into(),
             }],
             notes: None,
@@ -134,6 +154,11 @@ mod tests {
         assert!(xml.contains("A &amp; B &lt;review&gt;"));
         assert!(xml.contains("Zoë"));
         assert!(xml.contains("w:br"));
+        // Me's name is bold in Light Blue ink, the table the hue tests cover.
+        let blue = theme::document_hue(theme::Hue::Blue);
+        let hex = format!("{:02x}{:02x}{:02x}", blue.r(), blue.g(), blue.b());
+        assert!(xml.contains(&format!("w:color w:val=\"{hex}\"")), "{xml}");
+        assert!(xml.contains("<w:b />") || xml.contains("<w:b/>"), "{xml}");
         assert!(!xml.contains('\0'));
         let mut bytes = std::io::Cursor::new(Vec::new());
         built.pack(&mut bytes).unwrap();

@@ -3,15 +3,13 @@
 //! all go through [`to_markdown`] or [`to_text`] over an [`ExportMeeting`].
 //!
 //! Pure by construction: no clock, no filesystem, no clipboard. The caller
-//! (`hark-app`) resolves speaker labels with [`speaker_label`], formats
+//! (`hark-app`) resolves speaker labels through a [`crate::Roster`], formats
 //! `started` in the user's local time, and does the actual file write or
 //! clipboard set on a worker thread.
 //!
 //! Markdown output escapes user text (see [`escape_markdown`]) so a
 //! transcript line can never turn into a heading, list item or link by
 //! accident. Plain text has no markup to escape.
-
-use crate::Channel;
 
 mod subtitles;
 pub use subtitles::{excerpt, to_srt, to_vtt};
@@ -27,12 +25,15 @@ pub struct ExportMeeting {
     pub notes: Option<ExportNotes>,
 }
 
-/// One transcript line. `speaker` is already resolved (see [`speaker_label`]);
-/// this module never sees a raw speaker id.
+/// One transcript line. `speaker` is already resolved through the meeting's
+/// [`crate::Roster`]; this module never sees a raw speaker id.
 pub struct ExportLine {
     pub at_ms: u64,
     pub end_ms: u64,
     pub speaker: String,
+    /// The speaker's color slot (`Roster::slot`). Only the Word export draws
+    /// color; text formats carry the name alone.
+    pub slot: usize,
     pub text: String,
 }
 
@@ -309,32 +310,6 @@ pub fn format_duration(ms: u64) -> String {
     }
 }
 
-/// The label for a transcript line. `Me` is always "Me" (the caller
-/// substitutes the user's own display name, if set, on top of this). `Them`
-/// with no diarized speaker is "Them"; a diarized speaker is its rename if
-/// one exists, else `"Speaker {n+1}"` for the 0-based id Deepgram returns.
-pub fn speaker_label(channel: Channel, speaker: Option<u32>, renames: &[(u32, String)]) -> String {
-    if channel == Channel::Me {
-        return "Me".to_string();
-    }
-    match speaker {
-        None => "Them".to_string(),
-        Some(id) => renames
-            .iter()
-            .find(|(rid, _)| *rid == id)
-            .map(|(_, name)| name.clone())
-            .unwrap_or_else(|| {
-                if id & 0x8000_0000 != 0 {
-                    let window = (id & 0x7fff_ffff) >> 10;
-                    let speaker = id & 0x3ff;
-                    format!("Window {} · Speaker {}", window + 1, speaker + 1)
-                } else {
-                    format!("Speaker {}", id + 1)
-                }
-            }),
-    }
-}
-
 /// Windows device names reserved regardless of extension (`CON.txt` collides
 /// just like `CON`, since Windows matches everything before the first dot).
 const RESERVED_DEVICE_NAMES: [&str; 22] = [
@@ -392,12 +367,14 @@ mod tests {
                     at_ms: 0,
                     end_ms: 10_000,
                     speaker: "Me".to_string(),
+                    slot: 0,
                     text: "Let's get started.".to_string(),
                 },
                 ExportLine {
                     at_ms: 12_000,
                     end_ms: 14_000,
                     speaker: "Dana".to_string(),
+                    slot: 0,
                     text: "Sounds good.".to_string(),
                 },
             ],
@@ -638,18 +615,21 @@ mod tests {
                 at_ms: 0,
                 end_ms: 1_000,
                 speaker: "Me".to_string(),
+                slot: 0,
                 text: "# not a heading".to_string(),
             },
             ExportLine {
                 at_ms: 1_000,
                 end_ms: 2_000,
                 speaker: "Me".to_string(),
+                slot: 0,
                 text: "1. item".to_string(),
             },
             ExportLine {
                 at_ms: 2_000,
                 end_ms: 3_000,
                 speaker: "Me".to_string(),
+                slot: 0,
                 text: "[link](x)".to_string(),
             },
         ];
@@ -695,48 +675,6 @@ mod tests {
         assert_eq!(format_duration(12 * 60 * 1000), "12 min");
         assert_eq!(format_duration(3_600_000), "1 h");
         assert_eq!(format_duration(65 * 60 * 1000), "1 h 5 min");
-    }
-
-    #[test]
-    fn speaker_label_me_ignores_speaker_and_renames() {
-        assert_eq!(
-            speaker_label(Channel::Me, Some(3), &[(3, "Dana".to_string())]),
-            "Me"
-        );
-        assert_eq!(speaker_label(Channel::Me, None, &[]), "Me");
-    }
-
-    #[test]
-    fn speaker_label_them_without_diarization_is_them() {
-        assert_eq!(speaker_label(Channel::Them, None, &[]), "Them");
-    }
-
-    #[test]
-    fn speaker_label_them_falls_back_to_a_1_based_number() {
-        assert_eq!(speaker_label(Channel::Them, Some(0), &[]), "Speaker 1");
-        assert_eq!(speaker_label(Channel::Them, Some(2), &[]), "Speaker 3");
-    }
-
-    #[test]
-    fn speaker_label_them_uses_the_rename_for_its_0_based_id() {
-        let renames = [(0, "Alice".to_string()), (2, "Dana".to_string())];
-        assert_eq!(speaker_label(Channel::Them, Some(2), &renames), "Dana");
-        // A rename for a different id never matches.
-        assert_eq!(speaker_label(Channel::Them, Some(1), &renames), "Speaker 2");
-    }
-
-    #[test]
-    fn window_scoped_speakers_are_explicit_and_renames_still_win() {
-        let id = 0x8000_0000 | (2 << 10) | 1;
-        assert_eq!(
-            speaker_label(Channel::Them, Some(id), &[]),
-            "Window 3 · Speaker 2"
-        );
-        assert_eq!(
-            speaker_label(Channel::Them, Some(id), &[(id, "Dana".into())]),
-            "Dana"
-        );
-        assert_eq!(speaker_label(Channel::Me, Some(id), &[]), "Me");
     }
 
     #[test]

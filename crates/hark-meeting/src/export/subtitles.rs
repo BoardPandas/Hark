@@ -87,6 +87,7 @@ pub fn excerpt(
                 at_ms: line.at_ms.max(start_ms) - start_ms,
                 end_ms: line.end_ms.min(end_ms) - start_ms,
                 speaker: line.speaker.clone(),
+                slot: line.slot,
                 text: line.text.clone(),
             })
             .collect(),
@@ -108,12 +109,14 @@ mod tests {
                     at_ms: 0,
                     end_ms: 1_100,
                     speaker: "Me".into(),
+                    slot: 0,
                     text: "First".into(),
                 },
                 ExportLine {
                     at_ms: 1_001,
                     end_ms: 5_000,
                     speaker: "Dana".into(),
+                    slot: 0,
                     text: "Second".into(),
                 },
             ],

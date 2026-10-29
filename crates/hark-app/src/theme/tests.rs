@@ -18,20 +18,51 @@ fn contrast(a: Color32, b: Color32) -> f64 {
     (la.max(lb) + 0.05) / (la.min(lb) + 0.05)
 }
 
-fn palettes() -> [(&'static str, Visuals); 4] {
-    [
-        ("light", palette::visuals(&LIGHT)),
-        ("dark", palette::visuals(&DARK)),
-        (
-            "solarized-light",
-            palette::visuals(&palette::SOLARIZED_LIGHT),
-        ),
-        ("solarized-dark", palette::visuals(&palette::SOLARIZED_DARK)),
-    ]
+/// Built from `palette::ALL`, so a new palette cannot skip these tests.
+fn palettes() -> Vec<(String, Visuals)> {
+    palette::ALL
+        .into_iter()
+        .enumerate()
+        .map(|(i, p)| {
+            (
+                format!("palette {i} (window {:?})", p.window),
+                palette::visuals(p),
+            )
+        })
+        .collect()
 }
 
 #[test]
-fn text_meets_wcag_aa_across_all_four_palettes_and_surfaces() {
+fn every_palette_is_found_again_from_its_own_visuals() {
+    for (i, p) in palette::ALL.into_iter().enumerate() {
+        assert_eq!(palette(&palette::visuals(p)), p, "palette {i}");
+        for other in &palette::ALL[i + 1..] {
+            assert_ne!(
+                p.window, other.window,
+                "palette {i} shares its window color, so one theme would render as another"
+            );
+        }
+    }
+}
+
+#[test]
+fn every_appearance_installs_palettes_from_the_tested_list() {
+    let ctx = Context::default();
+    apply(&ctx);
+    for selected in Appearance::ALL {
+        set_appearance(&ctx, selected);
+        for variant in [egui::Theme::Light, egui::Theme::Dark] {
+            let fill = ctx.style_of(variant).visuals.panel_fill;
+            assert!(
+                palette::ALL.iter().any(|p| p.window == fill),
+                "{selected:?} / {variant:?} installs a palette outside palette::ALL"
+            );
+        }
+    }
+}
+
+#[test]
+fn text_meets_wcag_aa_across_every_palette_and_surface() {
     for (name, v) in palettes() {
         for background in [
             v.window_fill,
@@ -47,7 +78,10 @@ fn text_meets_wcag_aa_across_all_four_palettes_and_surfaces() {
                 success(&v),
                 warning(&v),
                 accent(&v),
-            ] {
+            ]
+            .into_iter()
+            .chain(Hue::ALL.map(|h| hue(&v, h)))
+            {
                 let ratio = contrast(foreground, background);
                 assert!(
                     ratio >= 4.5,
@@ -56,6 +90,195 @@ fn text_meets_wcag_aa_across_all_four_palettes_and_surfaces() {
             }
         }
     }
+}
+
+#[test]
+fn every_hue_ink_reads_on_its_own_wash() {
+    for (name, v) in palettes() {
+        for h in Hue::ALL {
+            let ratio = contrast(hue(&v, h), hue_wash(&v, h));
+            assert!(ratio >= 4.5, "{name}: {h:?} ink on wash: {ratio:.2}");
+        }
+    }
+}
+
+/// sRGB to OKLab (Björn Ottosson, 2020), for perceptual distance.
+fn oklab(c: Color32) -> [f64; 3] {
+    let linear = |v: u8| {
+        let v = v as f64 / 255.0;
+        if v <= 0.04045 {
+            v / 12.92
+        } else {
+            ((v + 0.055) / 1.055).powf(2.4)
+        }
+    };
+    let (r, g, b) = (linear(c.r()), linear(c.g()), linear(c.b()));
+    let l = (0.412_221_470_8 * r + 0.536_332_536_3 * g + 0.051_445_992_9 * b).cbrt();
+    let m = (0.211_903_498_2 * r + 0.680_699_545_1 * g + 0.107_396_956_6 * b).cbrt();
+    let s = (0.088_302_461_9 * r + 0.281_718_837_6 * g + 0.629_978_700_5 * b).cbrt();
+    [
+        0.210_454_255_3 * l + 0.793_617_785_0 * m - 0.004_072_046_8 * s,
+        1.977_998_495_1 * l - 2.428_592_205_0 * m + 0.450_593_709_9 * s,
+        0.025_904_037_1 * l + 0.782_771_766_2 * m - 0.808_675_766_0 * s,
+    ]
+}
+
+#[test]
+fn oklab_matches_its_reference_points() {
+    // White is L=1 with no chroma; pure red is (0.628, 0.225, 0.126).
+    let white = oklab(Color32::WHITE);
+    assert!((white[0] - 1.0).abs() < 1e-3 && white[1].abs() < 1e-3 && white[2].abs() < 1e-3);
+    let red = oklab(Color32::from_rgb(255, 0, 0));
+    for (got, want) in red.iter().zip([0.628, 0.225, 0.126]) {
+        assert!((got - want).abs() < 1e-3, "red {red:?}");
+    }
+}
+
+/// Speakers and chart series are told apart by hue, so two inks of one
+/// palette that look alike would silently merge two categories.
+#[test]
+fn the_six_inks_of_each_palette_are_perceptually_distinct() {
+    for (name, v) in palettes() {
+        for (i, a) in Hue::ALL.into_iter().enumerate() {
+            for b in &Hue::ALL[i + 1..] {
+                let (pa, pb) = (oklab(hue(&v, a)), oklab(hue(&v, *b)));
+                let gap = pa
+                    .iter()
+                    .zip(pb)
+                    .map(|(x, y)| (x - y).powi(2))
+                    .sum::<f64>()
+                    .sqrt();
+                assert!(gap >= 0.06, "{name}: {a:?} and {b:?} are {gap:.3} apart");
+            }
+        }
+    }
+}
+
+#[test]
+fn me_is_always_blue_and_no_one_else_ever_is() {
+    assert_eq!(speaker_hue(0), Hue::Blue);
+    for slot in 1..64 {
+        assert_ne!(speaker_hue(slot), Hue::Blue, "slot {slot}");
+    }
+}
+
+#[test]
+fn the_first_six_speakers_get_six_different_hues() {
+    let first: Vec<Hue> = (0..6).map(speaker_hue).collect();
+    for h in Hue::ALL {
+        assert_eq!(first.iter().filter(|x| **x == h).count(), 1, "{h:?}");
+    }
+    assert_eq!(
+        first,
+        [
+            Hue::Blue,
+            Hue::Gold,
+            Hue::Violet,
+            Hue::Teal,
+            Hue::Rose,
+            Hue::Green
+        ]
+    );
+}
+
+#[test]
+fn speaker_hues_wrap_over_slots_one_to_five() {
+    assert_eq!(speaker_hue(6), speaker_hue(1));
+    assert_eq!(speaker_hue(10), speaker_hue(5));
+    assert_eq!(speaker_hue(11), speaker_hue(1));
+}
+
+#[test]
+fn document_speaker_inks_read_on_white_paper() {
+    for h in Hue::ALL {
+        let ratio = contrast(document_hue(h), Color32::WHITE);
+        assert!(ratio >= 4.5, "{h:?} on white: {ratio:.2}");
+    }
+    // The same table the palette tests cover, never a copied hex.
+    let light = palette::visuals(&palette::LIGHT);
+    for h in Hue::ALL {
+        assert_eq!(document_hue(h), hue(&light, h));
+    }
+}
+
+/// The meeting-speaker glyphs were added after the curated set; each must be
+/// in the vendored font itself, not found by falling back to Inter.
+#[test]
+fn speaker_icons_are_glyphs_of_the_vendored_phosphor_font() {
+    let ctx = Context::default();
+    let mut fonts = font_definitions();
+    let only = FontFamily::Name("phosphor-only".into());
+    fonts.families.insert(only.clone(), vec!["Phosphor".into()]);
+    ctx.set_fonts(fonts);
+    ctx.run_ui(Default::default(), |_| {})
+        .textures_delta
+        .clear();
+    for glyph in [
+        icons::SPARKLE,
+        icons::CARET_DOWN,
+        icons::ARROWS_LEFT_RIGHT,
+        icons::PLUS,
+    ] {
+        let c = glyph.chars().next().unwrap();
+        assert!(
+            ctx.fonts_mut(|f| f.has_glyph(&FontId::new(14.0, only.clone()), c)),
+            "U+{:04X} is not in Phosphor.ttf",
+            c as u32
+        );
+    }
+}
+
+#[test]
+fn a_chip_button_is_a_control_in_ink_on_wash() {
+    let ctx = Context::default();
+    apply(&ctx);
+    let mut v = Visuals::default();
+    let mut output = ctx.run_ui(Default::default(), |ui| {
+        v = ui.visuals().clone();
+        let button = chip_button(ui.style(), Hue::Gold, "Dana", Some(icons::CARET_DOWN));
+        ui.add(button);
+    });
+    output.textures_delta.clear();
+    let mut wash = false;
+    let mut label = None;
+    for clipped in &output.shapes {
+        match &clipped.shape {
+            egui::Shape::Rect(r) if r.fill == hue_wash(&v, Hue::Gold) => wash = true,
+            egui::Shape::Text(t) => label = Some(t.galley.clone()),
+            _ => {}
+        }
+    }
+    assert!(wash, "no wash-filled button was painted");
+    let galley = label.expect("no text was painted");
+    assert!(galley.text().contains("Dana") && galley.text().contains(icons::CARET_DOWN));
+    let ink = hue(&v, Hue::Gold);
+    assert!(galley.job.sections.iter().all(|s| s.format.color == ink));
+}
+
+#[test]
+fn a_chip_paints_its_label_in_ink_on_its_wash() {
+    let ctx = Context::default();
+    apply(&ctx);
+    let mut rect = Rect::NOTHING;
+    let mut v = Visuals::default();
+    let mut output = ctx.run_ui(Default::default(), |ui| {
+        v = ui.visuals().clone();
+        rect = chip(ui, Hue::Violet, Some(icons::BOOK_OPEN), "New").rect;
+    });
+    output.textures_delta.clear();
+    assert!(rect.height() < CONTROL_HEIGHT, "a chip is not a control");
+    let mut wash = false;
+    let mut label = None;
+    for clipped in &output.shapes {
+        match &clipped.shape {
+            egui::Shape::Rect(r) if r.fill == hue_wash(&v, Hue::Violet) => wash = true,
+            egui::Shape::Text(t) => label = Some(t.galley.text().to_owned()),
+            _ => {}
+        }
+    }
+    assert!(wash, "no wash-filled pill was painted");
+    let label = label.expect("no text was painted");
+    assert!(label.contains("New") && label.contains(icons::BOOK_OPEN));
 }
 
 #[test]

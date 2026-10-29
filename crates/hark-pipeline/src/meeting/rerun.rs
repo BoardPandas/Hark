@@ -19,6 +19,7 @@ pub(super) struct Job {
     pub settings: Settings,
     pub events: Sender<MeetingEvent>,
     pub protected: Arc<Mutex<Vec<String>>>,
+    pub refreshes: super::notes_refresh::Refreshes,
 }
 
 pub(super) fn spawn(job: Job) {
@@ -34,18 +35,31 @@ pub(super) fn spawn(job: Job) {
             let status = settle(&job.root, &job.id, result.as_ref().err().copied());
             let error = match result {
                 Ok(segments) => {
-                    let lines: Vec<String> = segments
-                        .iter()
-                        .map(|s| super::finish::line(s.start_ms, s.channel, s.speaker, &s.text))
-                        .collect();
+                    let lines = super::finish::NotesInput::of(&segments);
+                    let speakers = super::speakers::lines_of(&segments);
                     // Before the status: the pump commits the replacement
                     // first, so a failed save is still reported below.
                     let _ = job.events.send(MeetingEvent::Reprocessed {
                         id: job.id.clone(),
                         segments,
                     });
+                    // The replacement cleared every name: guess them again.
+                    super::speakers::name_speakers(&job.settings, &job.id, &speakers, &job.events);
                     if needs_notes && job.settings.meeting.summary {
                         super::finish::send_notes(&job.settings, &job.id, &lines, &job.events);
+                    } else if job.settings.meeting.summary {
+                        // The notes were baked with the old names when the
+                        // replacement was saved; rewrite them for the new
+                        // speakers (a meeting without notes is left alone).
+                        let request = super::NotesRequest {
+                            id: job.id.clone(),
+                            lines: speakers
+                                .iter()
+                                .map(|l| (l.start_ms, l.key, l.text.clone()))
+                                .collect(),
+                            requested_ms: pending::unix_now_ms(),
+                        };
+                        job.refreshes.request(request, &job.settings, &job.events);
                     }
                     None
                 }

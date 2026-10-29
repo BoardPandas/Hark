@@ -85,6 +85,14 @@ pub struct Meeting {
     /// Custom summary prompt; `None` uses the built-in template.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub summary_template: Option<String>,
+    /// Guess speakers' names from names said in the call, after each final
+    /// pass: through the notes provider when notes are on, else on-device
+    /// rules. Never overwrites a name the user set.
+    pub guess_speaker_names: bool,
+    /// The user's own name, given to "Me" in each new meeting (a per-meeting
+    /// rename still wins). Empty: Me is named only if the call says the
+    /// user's name. Not voice recognition: it only ever names the mic.
+    pub your_name: String,
     /// Show the first-run recording-consent notice before the first meeting.
     pub consent_reminder: bool,
     /// Whether that first-run notice has been seen. Distinct from
@@ -122,6 +130,8 @@ impl Default for Meeting {
             gemini_model: "gemini-3.8-flash".into(),
             summary: true,
             summary_template: None,
+            guess_speaker_names: true,
+            your_name: String::new(),
             consent_reminder: true,
             consent_acknowledged: false,
             audio_cap_mb: 5_120,
@@ -337,6 +347,8 @@ mod tests {
         assert_eq!(s.meeting.final_pass, FinalPass::Deepgram);
         assert!(s.meeting.summary);
         assert_eq!(s.meeting.summary_template, None);
+        assert!(s.meeting.guess_speaker_names);
+        assert_eq!(s.meeting.your_name, "");
         assert!(s.meeting.consent_reminder);
         assert!(!s.meeting.consent_acknowledged);
         assert_eq!(s.meeting.audio_cap_mb, 5_120);
@@ -383,6 +395,8 @@ mod tests {
             gemini_model: "gemini-3.8-flash".into(),
             summary: false,
             summary_template: Some("Summarize as bullet points.".to_string()),
+            guess_speaker_names: false,
+            your_name: "Chaz Vossburg".to_string(),
             consent_reminder: false,
             consent_acknowledged: true,
             audio_cap_mb: 2_048,

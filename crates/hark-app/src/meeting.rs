@@ -10,8 +10,10 @@
 use crate::storage::meetings::MeetingCmd;
 use crate::storage::StorageCmd;
 use hark_config::Settings;
-use hark_pipeline::meeting::{self, LiveSegment, MeetingEvent, MeetingHandle, TranscriptStatus};
-use hark_store::{MeetingSegment, NewMeeting};
+use hark_pipeline::meeting::{
+    self, LiveSegment, MeetingEvent, MeetingHandle, NotesRequest, TranscriptStatus,
+};
+use hark_store::{MeetingSegment, NameSource, NewMeeting, SpeakerName};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::Arc;
@@ -43,6 +45,14 @@ pub struct LiveLine {
     pub text: String,
 }
 
+/// A notes rewrite after moved lines, as the Meetings page shows it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NotesStatus {
+    Updating,
+    /// Why the old notes stayed: a slug (`no-provider`, `notes-off`, ...).
+    Failed(&'static str),
+}
+
 /// An open detection prompt.
 pub struct Prompt {
     pub name: String,
@@ -66,6 +76,8 @@ pub struct MeetingController {
     auto_stop: Option<(i64, String)>,
     /// Status of the last explicit final-pass request (labels only).
     rerun_status: Option<(String, String)>,
+    /// Notes rewrites by meeting id.
+    notes_status: std::collections::HashMap<String, NotesStatus>,
 }
 
 impl MeetingController {
@@ -83,6 +95,7 @@ impl MeetingController {
             notices: Vec::new(),
             auto_stop: None,
             rerun_status: None,
+            notes_status: std::collections::HashMap::new(),
         }
     }
 
@@ -211,6 +224,8 @@ impl MeetingController {
             return;
         }
         if let Some(handle) = &self.handle {
+            // The coordinator discards any rewrite from before the re-run.
+            self.notes_status.remove(id);
             self.finishing.push(id.into());
             self.rerun_status = Some((
                 id.into(),
@@ -219,6 +234,24 @@ impl MeetingController {
             ));
             handle.rerun(id, audio_ms);
         }
+    }
+
+    /// Rewrite the notes from the speakers the lines show now (after moving
+    /// lines, or the Update notes button).
+    pub fn refresh_notes(&mut self, request: NotesRequest) {
+        let id = request.id.clone();
+        let status = match &self.handle {
+            Some(handle) => {
+                handle.refresh_notes(request);
+                NotesStatus::Updating
+            }
+            None => NotesStatus::Failed("unavailable"),
+        };
+        self.notes_status.insert(id, status);
+    }
+
+    pub fn notes_status(&self, id: &str) -> Option<NotesStatus> {
+        self.notes_status.get(id).copied()
     }
 
     /// When a detected meeting will stop on its own because its app released
@@ -285,7 +318,16 @@ impl MeetingController {
             MeetingEvent::Finished { id, .. } => self.finishing.retain(|x| x != &id),
             MeetingEvent::ReprocessFinished { id, error } => {
                 self.finishing.retain(|x| x != &id);
-                self.rerun_status = Some((id, error.unwrap_or_else(|| "Final pass complete. Notes were preserved; speaker names can be set again.".into())));
+                self.rerun_status = Some((id, error.unwrap_or_else(|| "Final pass complete. Speaker names were guessed again; the notes keep the names they had until they are rewritten.".into())));
+            }
+            MeetingEvent::NotesRefreshStarted { id } => {
+                self.notes_status.insert(id, NotesStatus::Updating);
+            }
+            MeetingEvent::NotesRefreshed { id, .. } => {
+                self.notes_status.remove(&id);
+            }
+            MeetingEvent::NotesRefreshFailed { id, reason } => {
+                self.notes_status.insert(id, NotesStatus::Failed(reason));
             }
             MeetingEvent::Notice { text, .. } => self.push_notice(text),
             MeetingEvent::Failed { detail, .. } => {
@@ -294,6 +336,7 @@ impl MeetingController {
             // Database-only events: the pump already sent them to storage.
             MeetingEvent::Refined { .. }
             | MeetingEvent::Reprocessed { .. }
+            | MeetingEvent::SpeakerNames { .. }
             | MeetingEvent::Notes { .. }
             | MeetingEvent::TranscriptStatus { .. }
             | MeetingEvent::EnforceAudioCap { .. } => {}
@@ -406,6 +449,22 @@ fn storage_cmd(event: &MeetingEvent, cap_bytes: &AtomicU64) -> Option<MeetingCmd
             id: id.clone(),
             segments: segments.iter().map(stored).collect(),
         },
+        MeetingEvent::SpeakerNames { id, names } => MeetingCmd::SpeakerNames {
+            id: id.clone(),
+            names: names
+                .iter()
+                .map(|n| SpeakerName {
+                    key: n.key.clone(),
+                    display_name: n.name.clone(),
+                    source: if n.guess {
+                        NameSource::Guess
+                    } else {
+                        NameSource::User
+                    },
+                    evidence_ms: n.evidence_ms,
+                })
+                .collect(),
+        },
         MeetingEvent::Notes {
             id,
             notes_json,
@@ -414,6 +473,15 @@ fn storage_cmd(event: &MeetingEvent, cap_bytes: &AtomicU64) -> Option<MeetingCmd
             id: id.clone(),
             notes_json: notes_json.clone(),
             title: title.clone(),
+        },
+        MeetingEvent::NotesRefreshed {
+            id,
+            notes_json,
+            requested_ms,
+        } => MeetingCmd::RefreshedNotes {
+            id: id.clone(),
+            notes_json: notes_json.clone(),
+            requested_ms: *requested_ms,
         },
         MeetingEvent::Finished { id, audio_bytes } => MeetingCmd::Finished {
             id: id.clone(),
@@ -433,6 +501,8 @@ fn storage_cmd(event: &MeetingEvent, cap_bytes: &AtomicU64) -> Option<MeetingCmd
         | MeetingEvent::PromptRetracted
         | MeetingEvent::AutoStopPending { .. }
         | MeetingEvent::AutoStopCancelled { .. }
+        | MeetingEvent::NotesRefreshStarted { .. }
+        | MeetingEvent::NotesRefreshFailed { .. }
         | MeetingEvent::Notice { .. }
         | MeetingEvent::Failed { .. } => return None,
     })
@@ -536,6 +606,44 @@ mod tests {
             ended_ms: 2_000,
         });
         assert_eq!(c.auto_stop(), None);
+    }
+
+    #[test]
+    fn notes_rewrites_report_running_failed_and_done() {
+        let mut c = MeetingController::new(None);
+        // Meetings are not running here: the request cannot go anywhere.
+        c.refresh_notes(NotesRequest {
+            id: "m".into(),
+            lines: Vec::new(),
+            requested_ms: 1,
+        });
+        assert_eq!(
+            c.notes_status("m"),
+            Some(NotesStatus::Failed("unavailable"))
+        );
+        c.on_event(MeetingEvent::NotesRefreshStarted { id: "m".into() });
+        assert_eq!(c.notes_status("m"), Some(NotesStatus::Updating));
+        c.on_event(MeetingEvent::NotesRefreshFailed {
+            id: "m".into(),
+            reason: "timeout",
+        });
+        assert_eq!(c.notes_status("m"), Some(NotesStatus::Failed("timeout")));
+        let refreshed = MeetingEvent::NotesRefreshed {
+            id: "m".into(),
+            notes_json: "{}".into(),
+            requested_ms: 7,
+        };
+        let cap = AtomicU64::new(0);
+        assert!(matches!(
+            storage_cmd(&refreshed, &cap),
+            Some(MeetingCmd::RefreshedNotes {
+                requested_ms: 7,
+                ..
+            })
+        ));
+        c.on_event(refreshed);
+        assert_eq!(c.notes_status("m"), None);
+        assert_eq!(c.notes_status("other"), None);
     }
 
     #[test]

@@ -10,6 +10,7 @@ use egui::{
 use std::collections::BTreeMap;
 mod appearance;
 mod fonts;
+mod hues;
 mod palette;
 pub use appearance::{appearance, appearance_picker, set_appearance, Appearance};
 use fonts::font_definitions;
@@ -28,7 +29,9 @@ pub mod icons {
     #![allow(dead_code)]
 
     pub const ARROW_UP: &str = "\u{E048}";
+    pub const ARROWS_LEFT_RIGHT: &str = "\u{E0A0}";
     pub const BOOK_OPEN: &str = "\u{E0E6}";
+    pub const CARET_DOWN: &str = "\u{E136}";
     pub const CHART_BAR: &str = "\u{E150}";
     pub const CHECK: &str = "\u{E182}";
     pub const CIRCLE_NOTCH: &str = "\u{EB44}";
@@ -43,6 +46,8 @@ pub mod icons {
     pub const MICROPHONE: &str = "\u{E326}";
     pub const MEETINGS: &str = "\u{E4D6}";
     pub const PLAY: &str = "\u{E3D0}";
+    pub const PLUS: &str = "\u{E3D4}";
+    pub const SPARKLE: &str = "\u{E6A2}";
     pub const SPINNER: &str = "\u{E66A}";
     pub const TRASH: &str = "\u{E4A6}";
     pub const WARNING: &str = "\u{E4E0}";
@@ -53,9 +58,6 @@ pub mod icons {
 pub const DANGER: Color32 = Color32::from_rgb(0xF1, 0x9C, 0xAB);
 pub const SUCCESS: Color32 = Color32::from_rgb(0x8B, 0xD5, 0xAF);
 pub const WARNING: Color32 = Color32::from_rgb(0xE5, 0xBC, 0x75);
-const LIGHT_DANGER: Color32 = Color32::from_rgb(0xB6, 0x3B, 0x50);
-const LIGHT_SUCCESS: Color32 = Color32::from_rgb(0x23, 0x75, 0x4F);
-const LIGHT_WARNING: Color32 = Color32::from_rgb(0x91, 0x5C, 0x10);
 const ON_DARK_ACCENT: Color32 = Color32::from_rgb(0x18, 0x25, 0x18);
 
 pub const TRAY_MARK: Color32 = ON_DARK_ACCENT;
@@ -124,27 +126,19 @@ pub const DIALOG_TITLE_SIZE: f32 = 20.0;
 pub const TOOLBAR_SEARCH_WIDTH: f32 = 320.0;
 pub const LIST_ACTIONS_WIDTH: f32 = 116.0;
 pub const MIN_CARD_WIDTH: f32 = 240.0;
+#[allow(dead_code)] // first drawn by the color pass (plan P1) and meeting speakers
+pub const CHIP_RADIUS: u8 = 10;
+#[allow(dead_code)] // first drawn by the color pass (plan P1) and meeting speakers
+pub const CHIP_PADDING: Margin = Margin::symmetric(8, 2);
 
 pub fn danger(v: &Visuals) -> Color32 {
-    if v.dark_mode {
-        DANGER
-    } else {
-        LIGHT_DANGER
-    }
+    palette(v).danger
 }
 pub fn success(v: &Visuals) -> Color32 {
-    if v.dark_mode {
-        SUCCESS
-    } else {
-        LIGHT_SUCCESS
-    }
+    palette(v).success
 }
 pub fn warning(v: &Visuals) -> Color32 {
-    if v.dark_mode {
-        WARNING
-    } else {
-        LIGHT_WARNING
-    }
+    palette(v).warning
 }
 pub fn on_accent(v: &Visuals) -> Color32 {
     palette(v).on_accent
@@ -164,6 +158,151 @@ pub fn chart(v: &Visuals) -> Color32 {
 }
 pub fn chart_soft(v: &Visuals) -> Color32 {
     palette(v).chart_soft
+}
+
+/// Six categorical hues, tuned per palette (`theme/hues.rs`). They name
+/// categories — a page, a provider, a speaker — and never a state: a hued
+/// element never carries a CHECK, WARNING or X glyph, and status colors are
+/// never used for categories. Every hued element also has a text label.
+///
+/// [`speaker_hue`] is the one place meeting speakers map onto these.
+#[allow(dead_code)] // first drawn by the color pass (plan P1) and meeting speakers
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
+pub enum Hue {
+    Blue,
+    Teal,
+    Green,
+    Gold,
+    Rose,
+    Violet,
+}
+
+#[allow(dead_code)] // first drawn by the color pass (plan P1) and meeting speakers
+impl Hue {
+    pub const ALL: [Self; 6] = [
+        Self::Blue,
+        Self::Teal,
+        Self::Green,
+        Self::Gold,
+        Self::Rose,
+        Self::Violet,
+    ];
+}
+
+/// The hue's ink: text and icons, at least 4.5:1 on every fill of the theme.
+#[allow(dead_code)] // first drawn by the color pass (plan P1) and meeting speakers
+pub fn hue(v: &Visuals, hue: Hue) -> Color32 {
+    palette(v).hues[hue as usize].ink
+}
+
+/// The hue's wash: chip and badge fill, with `hue()` at least 4.5:1 on it.
+#[allow(dead_code)] // first drawn by the color pass (plan P1) and meeting speakers
+pub fn hue_wash(v: &Visuals, hue: Hue) -> Color32 {
+    palette(v).hues[hue as usize].wash
+}
+
+/// After Me, warm and cool alternate so neighbours in slot order differ most;
+/// Green comes last because it sits near the success color.
+const SPEAKER_HUES: [Hue; 5] = [Hue::Gold, Hue::Violet, Hue::Teal, Hue::Rose, Hue::Green];
+
+/// A meeting speaker's hue from its roster color slot (`hark_meeting::Roster`,
+/// spec §2.4). Slot 0 is Me and always Blue, and no other slot ever is, so Me
+/// reads the same in every meeting. Past six speakers the hues repeat over
+/// slots 1–5; the name next to every hued mark never does.
+pub fn speaker_hue(slot: usize) -> Hue {
+    match slot {
+        0 => Hue::Blue,
+        n => SPEAKER_HUES[(n - 1) % SPEAKER_HUES.len()],
+    }
+}
+
+/// The Light palette's ink for `hue`: documents are white whatever the app's
+/// theme, so the Word export colors speakers with this.
+pub fn document_hue(hue: Hue) -> Color32 {
+    palette::LIGHT.hues[hue as usize].ink
+}
+
+/// The colored rule at the start of a transcript line. Decorative: the
+/// speaker's name is always on the same line.
+pub const SPEAKER_RULE_WIDTH: f32 = 3.0;
+pub const SWATCH_SIZE: f32 = 10.0;
+/// The reassign menu scrolls past this.
+pub const SPEAKER_MENU_HEIGHT: f32 = 280.0;
+
+/// A chip that is a button: `text` in the hue's ink on its wash, with an
+/// optional trailing icon (the reassign caret). The same tested ink/wash pair
+/// as [`chip`], at button size so it is focusable and clickable.
+pub fn chip_button<'a>(
+    style: &egui::Style,
+    hue: Hue,
+    text: &str,
+    trailing: Option<&str>,
+) -> egui::Button<'a> {
+    use egui::text::{LayoutJob, TextFormat};
+    let ink = self::hue(&style.visuals, hue);
+    let size = TextStyle::Button.resolve(style).size;
+    let mut job = LayoutJob::default();
+    job.append(
+        text,
+        0.0,
+        TextFormat::simple(FontId::new(size, medium()), ink),
+    );
+    if let Some(glyph) = trailing {
+        job.append(
+            glyph,
+            4.0,
+            TextFormat::simple(FontId::new(size, icon()), ink),
+        );
+    }
+    egui::Button::new(job)
+        .fill(hue_wash(&style.visuals, hue))
+        .corner_radius(CHIP_RADIUS)
+}
+
+/// A round mark in the hue's ink. Only ever drawn beside the name it stands
+/// for: a hue alone never identifies anyone.
+pub fn swatch(ui: &mut Ui, hue: Hue) -> egui::Response {
+    let (rect, response) = ui.allocate_exact_size(Vec2::splat(SWATCH_SIZE), egui::Sense::hover());
+    ui.painter().circle_filled(
+        rect.center(),
+        SWATCH_SIZE / 2.0,
+        self::hue(ui.visuals(), hue),
+    );
+    response
+}
+
+/// A pill in the hue's wash with an ink label and an optional icon. This is
+/// the only way a hue reaches a chip, so ink and wash always stay a tested
+/// pair. The label is required: hue alone never carries meaning.
+#[allow(dead_code)] // first drawn by the color pass (plan P1) and meeting speakers
+pub fn chip(ui: &mut Ui, hue: Hue, glyph: Option<&str>, text: &str) -> egui::Response {
+    use egui::text::{LayoutJob, TextFormat};
+    let ink = self::hue(ui.visuals(), hue);
+    let size = TextStyle::Small.resolve(ui.style()).size;
+    let mut job = LayoutJob::default();
+    // Two sections, because the icon and the label need different families
+    // (see `icon_label_job`).
+    if let Some(glyph) = glyph {
+        job.append(
+            glyph,
+            0.0,
+            TextFormat::simple(FontId::new(size, icon()), ink),
+        );
+    }
+    let gap = if glyph.is_some() { 4.0 } else { 0.0 };
+    job.append(
+        text,
+        gap,
+        TextFormat::simple(FontId::new(size, FontFamily::Proportional), ink),
+    );
+    egui::Frame::new()
+        .fill(hue_wash(ui.visuals(), hue))
+        .corner_radius(CHIP_RADIUS)
+        .inner_margin(CHIP_PADDING)
+        .show(ui, |ui| {
+            ui.add(egui::Label::new(job).wrap_mode(egui::TextWrapMode::Extend))
+        })
+        .response
 }
 
 /// Editorial serif for the Home introduction and brand, embedded for all OSes.

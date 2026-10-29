@@ -26,9 +26,9 @@ fn reprocessing_resets_speaker_names_and_fts_but_preserves_notes_and_title() {
     store
         .append_meeting_segment("m", &segment(0, 100, 1, Some(0), "oldword"))
         .unwrap();
-    store.rename_meeting_speaker("m", 0, "Old person").unwrap();
+    store.set_speaker_name("m", "them:0", "Old person").unwrap();
     store
-        .reprocess_meeting_segments("m", &[segment(0, 120, 1, Some(0), "newword")])
+        .reprocess_meeting_segments("m", &[segment(0, 120, 1, Some(0), "newword")], None)
         .unwrap();
     let detail = store.meeting("m").unwrap().unwrap();
     assert!(detail.summary.refined);
@@ -51,19 +51,29 @@ fn failed_reprocessing_rolls_back_transcript_and_speaker_names() {
     store
         .append_meeting_segment("m", &segment(0, 100, 1, Some(0), "keepword"))
         .unwrap();
-    store.rename_meeting_speaker("m", 0, "Kept person").unwrap();
+    store
+        .set_speaker_name("m", "them:0", "Kept person")
+        .unwrap();
     // Inject an insertion failure after replacement has deleted the old rows.
     // This exercises real SQLite rollback without changing the product schema.
     let connection = rusqlite::Connection::open(&path).unwrap();
     connection.execute_batch("CREATE TRIGGER reject_replacement BEFORE INSERT ON meeting_segments BEGIN SELECT RAISE(ABORT, 'fixture failure'); END;").unwrap();
     assert!(store
-        .reprocess_meeting_segments("m", &[segment(0, 100, 1, Some(0), "badword")])
+        .reprocess_meeting_segments("m", &[segment(0, 100, 1, Some(0), "badword")], None)
         .is_err());
     let detail = store.meeting("m").unwrap().unwrap();
     assert_eq!(detail.segments[0].text, "keepword");
-    assert_eq!(detail.speakers[0].1, "Kept person");
+    assert_eq!(detail.speakers[0].display_name, "Kept person");
     assert_eq!(store.meetings(Some("keepword")).unwrap().len(), 1);
     assert!(store.meetings(Some("badword")).unwrap().is_empty());
+}
+
+fn names(detail: &hark_store::MeetingDetail) -> Vec<(String, String)> {
+    detail
+        .speakers
+        .iter()
+        .map(|n| (n.key.clone(), n.display_name.clone()))
+        .collect()
 }
 
 fn segment(
@@ -182,7 +192,7 @@ fn cascade_delete_removes_segments_and_speakers() {
         .append_meeting_segment("m1", &segment(0, 500, 0, Some(1), "one"))
         .expect("append");
     store
-        .rename_meeting_speaker("m1", 1, "Dana")
+        .set_speaker_name("m1", "them:1", "Dana")
         .expect("rename");
 
     assert!(store.delete_meeting("m1").expect("delete"));
@@ -272,21 +282,24 @@ fn rename_and_clear_speaker() {
     store.create_meeting(&meeting("m1", 1_000)).expect("create");
 
     store
-        .rename_meeting_speaker("m1", 2, "Dana")
+        .set_speaker_name("m1", "them:2", "Dana")
         .expect("rename");
     let detail = store.meeting("m1").expect("detail").expect("exists");
-    assert_eq!(detail.speakers, vec![(2, "Dana".to_string())]);
+    assert_eq!(names(&detail), [("them:2".to_string(), "Dana".to_string())]);
 
     // Renaming again overwrites, it does not duplicate the (meeting, speaker) key.
     store
-        .rename_meeting_speaker("m1", 2, "Dana R")
+        .set_speaker_name("m1", "them:2", "Dana R")
         .expect("rename again");
     let detail = store.meeting("m1").expect("detail").expect("exists");
-    assert_eq!(detail.speakers, vec![(2, "Dana R".to_string())]);
+    assert_eq!(
+        names(&detail),
+        [("them:2".to_string(), "Dana R".to_string())]
+    );
 
     // An empty (after trim) name removes the rename.
     store
-        .rename_meeting_speaker("m1", 2, "   ")
+        .set_speaker_name("m1", "them:2", "   ")
         .expect("clear rename");
     let detail = store.meeting("m1").expect("detail").expect("exists");
     assert!(detail.speakers.is_empty());

@@ -29,10 +29,12 @@ mod echo;
 mod finish;
 mod gemini_final;
 mod live;
+mod notes_refresh;
 mod pending;
 mod recorder;
 mod rerun;
 mod silence;
+mod speakers;
 mod status;
 mod watchdog;
 
@@ -40,6 +42,8 @@ pub use coordinator::{run, MeetingHandle};
 pub use finish::DEEPGRAM_ACCOUNT;
 pub use hark_meeting::Answer;
 pub use hark_stt::meeting::FailureKind;
+pub use notes_refresh::NotesRequest;
+pub use speakers::NamedSpeaker;
 pub use status::{Failure, TranscriptStatus};
 
 /// How a meeting started. Stored with the meeting.
@@ -135,11 +139,34 @@ pub enum MeetingEvent {
         id: String,
         status: Option<TranscriptStatus>,
     },
+    /// Speaker names after a final pass: guesses, and the "Your name" row.
+    /// The storage worker never lets a guess overwrite a user's name.
+    SpeakerNames {
+        id: String,
+        names: Vec<NamedSpeaker>,
+    },
     /// Notes JSON (`hark_voice::MeetingNotes`) and the suggested title.
     Notes {
         id: String,
         notes_json: String,
         title: String,
+    },
+    /// A notes rewrite after moved lines (or a re-run) began.
+    NotesRefreshStarted {
+        id: String,
+    },
+    /// Rewritten notes JSON. Clears the stale stamp only if it is not newer
+    /// than `requested_ms`; never changes the title.
+    NotesRefreshed {
+        id: String,
+        notes_json: String,
+        requested_ms: i64,
+    },
+    /// The rewrite failed; the old notes stay. `reason` is a slug
+    /// (`no-provider`, `notes-off`, `timeout`, ...), never content.
+    NotesRefreshFailed {
+        id: String,
+        reason: &'static str,
     },
     /// Finishing is complete; `audio_bytes` is what the meeting's audio takes on disk.
     Finished {

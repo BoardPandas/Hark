@@ -18,8 +18,8 @@ use super::pending::{self, Pending};
 use super::recorder::Recorded;
 use super::status::{Failure, TranscriptStatus};
 use super::{LiveSegment, MeetingEvent};
-use hark_config::{CleanupKeySource, CleanupResolution, FinalPass, Settings, VoiceName};
-use hark_meeting::{advance, export, Channel, Event, SessionState, Transcript};
+use hark_config::{FinalPass, Settings};
+use hark_meeting::{advance, export, Channel, Event, SessionState, SpeakerKey, Transcript};
 use std::path::Path;
 use std::sync::mpsc::Sender;
 use std::sync::{Arc, Mutex};
@@ -126,16 +126,16 @@ fn finish(job: FinishJob) {
     if audio_ms > 0 {
         match final_pass(&recorded.dir, &id, audio_ms, &settings, &notice, &status) {
             Pass::Refined(refined) => {
-                lines = refined
-                    .iter()
-                    .map(|s| line(s.start_ms, s.channel, s.speaker, &s.text))
-                    .collect();
+                lines = NotesInput::of(&refined);
+                let speakers = super::speakers::lines_of(&refined);
                 let _ = events.send(MeetingEvent::Refined {
                     id: id.clone(),
                     segments: refined,
                 });
+                super::speakers::name_speakers(&settings, &id, &speakers, &events);
             }
-            Pass::Kept => {}
+            // The live transcript stays: Me can still take "Your name".
+            Pass::Kept => super::speakers::name_speakers(&settings, &id, &[], &events),
             Pass::Retry => retry = true,
         }
     }
@@ -143,7 +143,7 @@ fn finish(job: FinishJob) {
     step(Event::Finalized);
 
     let notes = settings.meeting.summary
-        && !lines.is_empty()
+        && !lines.lines.is_empty()
         && send_notes(&settings, &id, &lines, &events);
     // Notes saved, or none to make: either way the meeting is complete.
     step(Event::Summarized);
@@ -234,36 +234,55 @@ fn compress_label(outcome: &hark_audio::CompressOutcome) -> String {
 }
 
 /// The live transcript as prompt lines.
-fn live_lines(transcript: &Mutex<Transcript>) -> Vec<String> {
+fn live_lines(transcript: &Mutex<Transcript>) -> NotesInput {
+    let mut input = NotesInput::default();
     let Ok(t) = transcript.lock() else {
-        return Vec::new();
+        return input;
     };
-    t.segments()
-        .iter()
-        .map(|s| {
-            let to_ms = |x: u64| x * 1000 / hark_meeting::SAMPLE_RATE as u64;
-            let channel = match s.channel {
-                Channel::Me => 0,
-                Channel::Them => 1,
-            };
-            line(to_ms(s.start), channel, None, &s.text)
-        })
-        .collect()
+    for s in t.segments() {
+        let to_ms = |x: u64| x * 1000 / hark_meeting::SAMPLE_RATE as u64;
+        let channel = u8::from(s.channel == Channel::Them);
+        input.push(
+            to_ms(s.start),
+            SpeakerKey::transcribed(channel, None),
+            &s.text,
+        );
+    }
+    input
 }
 
-/// `[mm:ss] Label: text`, the transcript shape the summary prompt expects.
-pub(super) fn line(start_ms: u64, channel: u8, speaker: Option<u32>, text: &str) -> String {
-    let channel = if channel == 0 {
-        Channel::Me
-    } else {
-        Channel::Them
-    };
-    format!(
-        "[{}] {}: {}",
-        export::format_timestamp(start_ms),
-        export::speaker_label(channel, speaker, &[]),
-        text.trim()
-    )
+/// The transcript as the summary prompt sees it: `[mm:ss] {Label}: text`,
+/// each speaker by their default label in braces, never a name the user
+/// set; plus the `(label, key)` table the notes' braced references parse
+/// back through, so the stored notes name keys and follow later renames.
+#[derive(Default)]
+pub(super) struct NotesInput {
+    pub lines: Vec<String>,
+    pub labels: Vec<(String, String)>,
+}
+
+impl NotesInput {
+    /// Transcribed speakers, for a final pass's fresh segments.
+    pub fn of(segments: &[LiveSegment]) -> Self {
+        let mut input = NotesInput::default();
+        for s in segments {
+            let key = SpeakerKey::transcribed(s.channel, s.speaker);
+            input.push(s.start_ms, key, &s.text);
+        }
+        input
+    }
+
+    pub fn push(&mut self, start_ms: u64, key: SpeakerKey, text: &str) {
+        let label = hark_meeting::default_label(key);
+        self.lines.push(format!(
+            "[{}] {{{label}}}: {}",
+            export::format_timestamp(start_ms),
+            text.trim()
+        ));
+        if !self.labels.iter().any(|(l, _)| *l == label) {
+            self.labels.push((label, key.to_string()));
+        }
+    }
 }
 
 /// The final pass, with its outcome as a notice and a transcript status.
@@ -339,10 +358,10 @@ fn final_pass(
 pub(super) fn send_notes(
     settings: &Settings,
     id: &str,
-    lines: &[String],
+    input: &NotesInput,
     events: &Sender<MeetingEvent>,
 ) -> bool {
-    match summarize(settings, &lines.join("\n")) {
+    match summarize(settings, input) {
         Ok(notes) => {
             let _ = events.send(MeetingEvent::Notes {
                 id: id.to_string(),
@@ -364,37 +383,15 @@ pub(super) fn send_notes(
 /// Notes from the user's text provider: the same one voice cleanup resolves
 /// to, asked for as if a non-Verbatim voice were selected (a Verbatim
 /// dictation setup still has a provider that can write notes).
-fn summarize(settings: &Settings, transcript: &str) -> Result<hark_voice::MeetingNotes, String> {
-    let resolved = match hark_config::resolve_cleanup_provider(
-        &settings.provider,
-        &settings.voice,
-        VoiceName::Notes,
-    ) {
-        CleanupResolution::Resolved(r) => r,
-        CleanupResolution::VerbatimWithWarning { reason } => return Err(reason),
-        CleanupResolution::Verbatim => return Err("no text provider is configured".to_string()),
-    };
-    let api_key = match &resolved.key_source {
-        CleanupKeySource::ReuseSttKey => hark_keychain::resolve_key(settings.provider.kind.label()),
-        CleanupKeySource::Account(account) => {
-            hark_keychain::resolve_key_for(hark_keychain::CLEANUP_ENV_OVERRIDE, account)
-        }
-    }
-    .map_err(|e| e.to_string())?;
-    let config = hark_voice::SummaryConfig {
-        label: resolved.kind.label().to_string(),
-        base_url: resolved.base_url.clone(),
-        model: resolved.model.clone(),
-        api_key,
-        temperature: resolved.temperature,
-        reasoning_effort: resolved.reasoning_effort.clone(),
-    };
+fn summarize(settings: &Settings, input: &NotesInput) -> Result<hark_voice::MeetingNotes, String> {
+    let config = super::speakers::notes_provider(settings)?;
     let client = hark_stt::shared_client().map_err(|e| e.to_string())?;
     hark_voice::summarize(
         &client,
         &config,
-        transcript,
+        &input.lines.join("\n"),
         settings.meeting.summary_template.as_deref(),
+        &input.labels,
     )
     .map_err(|e| e.to_string())
 }
@@ -416,6 +413,49 @@ fn dir_bytes(dir: &Path) -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn seg(channel: u8, speaker: Option<u32>, start_ms: u64, text: &str) -> LiveSegment {
+        LiveSegment {
+            channel,
+            speaker,
+            start_ms,
+            end_ms: start_ms + 500,
+            text: text.to_string(),
+        }
+    }
+
+    #[test]
+    fn prompt_lines_brace_default_labels_and_keep_the_time_shape() {
+        let window = 0x8000_0000 | (1 << 10) | 2;
+        let input = NotesInput::of(&[
+            seg(0, Some(4), 0, " hi "),
+            seg(1, Some(1), 65_000, "hello"),
+            seg(1, Some(window), 3_725_000, "later"),
+            seg(1, Some(1), 3_726_000, "again"),
+        ]);
+        assert_eq!(
+            input.lines,
+            [
+                "[00:00] {Me}: hi",
+                "[01:05] {Speaker 2}: hello",
+                "[1:02:05] {Window 2 · Speaker 3}: later",
+                "[1:02:06] {Speaker 2}: again",
+            ]
+        );
+        let labels: Vec<(&str, &str)> = input
+            .labels
+            .iter()
+            .map(|(l, k)| (l.as_str(), k.as_str()))
+            .collect();
+        assert_eq!(
+            labels,
+            [
+                ("Me", "me"),
+                ("Speaker 2", "them:1"),
+                ("Window 2 · Speaker 3", "them:2147484674"),
+            ]
+        );
+    }
 
     #[test]
     fn the_finishing_marker_remembers_the_length_once_the_wavs_are_gone() {

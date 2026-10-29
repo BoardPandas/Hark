@@ -6,6 +6,34 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.66.0] - 2026-10-29
+
+### Added
+
+- Every theme now has a set of six colors (blue, teal, green, gold, rose and violet) for telling things apart, such as pages, providers and meeting speakers. Each one is checked to stay readable in its theme and to look different from the other five.
+- **Every meeting speaker has a color and a name you can change, "Me" included.** The Speakers card on a meeting now lists everyone who spoke, you too, each with their color. Click a name to change it. If you give two speakers the same name, the card says "Shown as the same person as Speaker 2" first, and after you save they share one color and one entry everywhere.
+- **Fix who said a line.** Each transcript line now starts with a thin bar in the speaker's color and a speaker button. Click the button to move the line to yourself, to anyone else in the meeting, or to a new speaker (for example a second person on your microphone). A moved line shows an arrows icon that says who it was transcribed as, and "As transcribed" puts it back. Moves are saved right away and survive a restart.
+- **Hark fills in speaker names it hears in the call.** After each meeting, when someone says "Hi, this is Sam from Acme" or is thanked by name twice, that speaker is named Sam. With notes on and a text provider set up, your provider looks for the names; otherwise Hark looks for introductions on this device. A name is only used when the line it came from really says it. Guessed names carry a sparkle marker that says when the name was heard; click the name to change it, or save it unchanged to keep it. A guess never replaces a name you set.
+- **Your name** (Settings > Meetings): names "Me" in every new meeting. Renaming Me in one meeting still wins. Existing meetings are unchanged.
+- **Guess speaker names from names said in the call** (Settings > Meetings), on by default.
+
+### Changed
+
+- Each theme now carries its own error, success and warning colors. Nothing looks different yet; this prepares for the new Parchment theme, whose status colors are tuned to its paper.
+- Speaker names you gave in past meetings move to a new format the first time this version opens your meetings, so "Me" and new speakers can be named later. Nothing to do on your side, and every name you set is kept. An older Hark opened afterwards still shows those names as they were.
+- Meeting speakers now have a fixed color order: "Me" is always blue, and nobody else ever is, so you can spot your own lines in any meeting. The next five people get gold, violet, teal, rose and green.
+- **Exports show who really said each line.** Markdown, text, subtitles, Word and audio excerpts now use the names you set, including your own, and follow any line you moved to another speaker.
+- In Word documents, each speaker's name is bold and in their color. The colors are dark enough to read on white paper.
+- **Meeting notes follow your speaker names.** Rename a speaker and the notes change at once: the summary, key points, decisions, action items and their owners all show the new name. Nothing is sent anywhere, so it works without a text provider key. Notes made before this version follow renames too.
+- Exported and copied notes use the same names as the meeting page. A notes-generated title keeps the names it had when it was set, since a title is yours to edit.
+- The notes setting now reads "Write notes and guess speaker names after the call (sends the transcript to your text provider)", because name guessing uses the same provider and the same transcript as the notes.
+- **Moving a line rewrites the notes to match.** When you move transcript lines to another speaker in a meeting that has notes, Hark asks your text provider for new notes in the background ("Updating notes…"). Several quick moves cause at most two rewrites, and you see the result of the last one. Action items you ticked stay ticked, even if their wording changes a little; a ticked item the new notes leave out is kept. The meeting title never changes.
+- If the notes cannot be rewritten (no text provider key, notes turned off, or the provider did not answer), the old notes stay and a line under Summary says why: "Notes still credit the earlier speaker for 3 moved lines." Choose **Update notes** to try again.
+- **Re-running the final pass now guesses speaker names again and rewrites the notes.** The notes keep the names they had until the rewrite lands, so they never credit the wrong person after speakers are renumbered. The confirmation explains this before anything is sent.
+- Speaker names inside meeting notes are now shown in each speaker's color, so you can see who owns an action item at a glance. The words are the same as before.
+- Long meetings stay smooth: a three-hour transcript (about 2,500 lines) now draws only the lines on screen, instead of all of them on every frame.
+- The speaker button on each transcript line works from the keyboard: Tab reaches it, Enter opens the menu, Tab moves through the choices, and Esc closes it.
+
 ## [0.65.0] - 2026-10-29
 
 ### Added

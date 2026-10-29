@@ -22,7 +22,10 @@ use std::time::Duration;
 use thiserror::Error;
 
 mod meetings;
-pub use meetings::{MeetingDetail, MeetingSegment, MeetingSummary, NewMeeting};
+pub use meetings::{
+    MeetingDetail, MeetingSegment, MeetingSummary, NameSource, NewMeeting, SpeakerName,
+    StoredSegment,
+};
 mod insights;
 pub use insights::{
     DailyActivity, InsightCoverage, InsightSummary, Insights, InsightsRequest, PhraseCount,
@@ -38,6 +41,7 @@ const MIGRATIONS: &[&str] = &[
     include_str!("../migrations/004_meetings.sql"),
     include_str!("../migrations/005_insight_events.sql"),
     include_str!("../migrations/006_meeting_transcript_status.sql"),
+    include_str!("../migrations/007_meeting_speakers.sql"),
 ];
 
 const BUSY_TIMEOUT: Duration = Duration::from_secs(5);
