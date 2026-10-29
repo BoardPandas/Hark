@@ -9,7 +9,7 @@ The following files were used as evidence for this page:
 - [README: Project structure](../README.md#project-structure)
 - [README: Configuration and on-device transcription](../README.md#configuration)
 - [README: Privacy](../README.md#privacy)
-- [package.json:1-10](../package.json#L1-L10)
+- [package.json:1-15](../package.json#L1-L15)
 - [Cargo.toml:1-31](../Cargo.toml#L1-L31)
 - [CLAUDE.md:1-24](../CLAUDE.md#L1-L24)
 - [CLAUDE.md:26-46](../CLAUDE.md#L26-L46)

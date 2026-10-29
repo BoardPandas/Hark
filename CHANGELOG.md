@@ -6,6 +6,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.68.4] - 2026-10-29
+
+### Security
+
+- tokio 1.54.1 (RUSTSEC-2026-0386: `AsyncFd` constructors violated I/O safety). This is the runtime behind the Gemini Live and OpenAI live transcription connections.
+
+### Changed
+
+- The repo's tooling scripts now target Node 26, the current LTS (up from 24), and npm 12.2.1. Every CI and release workflow sets up Node 26, and `package.json` declares both in `engines`.
+
 ## [0.68.3] - 2026-10-29
 
 ### Security
