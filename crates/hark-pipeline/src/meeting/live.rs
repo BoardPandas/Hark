@@ -35,6 +35,10 @@ const PAUSED_NOTICE: &str =
 /// What transcribes the chunks.
 pub(super) enum Engine {
     Cloud(Box<dyn SttProvider>),
+    /// Cloud first, and the on-device engine for a line the cloud failed in a
+    /// way waiting will not fix (`[local_stt] mode = "fallback"`). Network
+    /// failures still go through [`Backoff`], which resends them later.
+    CloudWithRescue(Box<dyn SttProvider>, Box<hark_config::Settings>),
     /// Built inside the thread: the on-device engine is not `Send`.
     Local(Box<hark_config::Settings>),
 }
@@ -67,6 +71,7 @@ pub(super) fn spawn(
                 events,
                 transcript: shared,
                 failures: 0,
+                rescued: 0,
                 paused_notice: false,
             }
             .run(rx)
@@ -146,19 +151,21 @@ struct Transcriber {
     events: Sender<MeetingEvent>,
     transcript: Arc<Mutex<Transcript>>,
     failures: u32,
+    /// Lines the cloud failed and the on-device engine produced instead.
+    rescued: u32,
     paused_notice: bool,
 }
 
 impl Transcriber {
     fn run(mut self, rx: Receiver<LiveJob>) {
-        if let Engine::Local(settings) = &self.engine {
+        if let Engine::Local(settings) | Engine::CloudWithRescue(_, settings) = &self.engine {
             self.local = crate::build_local(settings);
         }
         let mut backoff = Backoff::new();
         // Ends when the recorder drops its sender (meeting stopped) and the
         // queue is drained.
         for (channel, chunk) in rx {
-            let cloud = matches!(self.engine, Engine::Cloud(_));
+            let cloud = !matches!(self.engine, Engine::Local(_));
             if cloud && backoff.paused(Instant::now()) {
                 let samples = chunk.samples.len();
                 self.hold(&mut backoff, (channel, chunk), samples);
@@ -265,16 +272,43 @@ impl Transcriber {
     fn transcribe(&mut self, chunk: &Chunk) -> Result<String, SttError> {
         match &self.engine {
             Engine::Cloud(provider) => transcribe_cloud(provider.as_ref(), &chunk.samples),
-            Engine::Local(_) => match self.local.as_mut() {
-                Some(plan) => plan
-                    .engine()
-                    .and_then(|e| e.transcribe(&chunk.samples))
-                    .map(|t| t.text)
-                    .map_err(|e| SttError::BadAudio(e.to_string())),
-                None => Err(SttError::BadAudio(
-                    "the on-device model is not available".to_string(),
-                )),
-            },
+            Engine::CloudWithRescue(provider, _) => {
+                let error = match transcribe_cloud(provider.as_ref(), &chunk.samples) {
+                    Ok(text) => return Ok(text),
+                    Err(e) => e,
+                };
+                if !should_rescue(&error, self.local.as_ref().is_some_and(|p| p.is_ready())) {
+                    return Err(error);
+                }
+                match self.transcribe_local(chunk) {
+                    Ok(text) => {
+                        self.rescued += 1;
+                        log::warn!(
+                            "meeting live chunk transcribed on-device ({} so far): {error}",
+                            self.rescued
+                        );
+                        Ok(text)
+                    }
+                    Err(local) => {
+                        log::warn!("meeting live chunk: on-device rescue failed too: {local}");
+                        Err(error)
+                    }
+                }
+            }
+            Engine::Local(_) => self.transcribe_local(chunk),
+        }
+    }
+
+    fn transcribe_local(&mut self, chunk: &Chunk) -> Result<String, SttError> {
+        match self.local.as_mut() {
+            Some(plan) => plan
+                .engine()
+                .and_then(|e| e.transcribe(&chunk.samples))
+                .map(|t| t.text)
+                .map_err(|e| SttError::BadAudio(e.to_string())),
+            None => Err(SttError::BadAudio(
+                "the on-device model is not available".to_string(),
+            )),
         }
     }
 
@@ -320,8 +354,18 @@ impl Transcriber {
     }
 }
 
+/// Whether a failed cloud line goes to the on-device engine now. Network
+/// failures are left to [`Backoff`]: it resends them once the link is back,
+/// and the pause it starts is what keeps Hark off a struggling uplink. What
+/// waiting cannot fix (a stalled Gemini Live turn above all: one user's
+/// meetings lost 1 462 lines to it in three weeks) would otherwise be a line
+/// that never appears.
+fn should_rescue(error: &SttError, local_ready: bool) -> bool {
+    local_ready && !FailureKind::of(error).retryable()
+}
+
 /// One request, and one retry for the failures a retry can fix (the same
-/// rule dictation uses).
+/// rule dictation uses, so a stalled turn is not resent).
 fn transcribe_cloud(provider: &dyn SttProvider, samples: &[f32]) -> Result<String, SttError> {
     let wav = hark_stt::wav::encode_wav_16k_mono(samples);
     let mut result = provider.transcribe(&wav);
@@ -404,6 +448,78 @@ mod tests {
         let mut b: Backoff<u32> = Backoff::new();
         assert_eq!(b.hold(7, HOLD_SAMPLES * 2), 0);
         assert_eq!(b.succeeded(), [7]);
+    }
+
+    fn stalled() -> SttError {
+        SttError::Stalled {
+            provider: "gemini-live".to_string(),
+            waited_ms: 15_000,
+        }
+    }
+
+    /// Fails every call with `error`, counting the calls.
+    struct Failing {
+        error: fn() -> SttError,
+        calls: std::sync::atomic::AtomicU32,
+    }
+
+    impl SttProvider for Failing {
+        fn transcribe(&self, _wav: &[u8]) -> Result<hark_stt::Transcript, SttError> {
+            self.calls
+                .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            Err((self.error)())
+        }
+        fn label(&self) -> &str {
+            "failing"
+        }
+    }
+
+    #[test]
+    fn a_stalled_chunk_is_not_resent() {
+        // The identical resend stalled again 85% of the time, and each try
+        // held the live transcript up for a full 15 s wait.
+        let provider = Failing {
+            error: stalled,
+            calls: Default::default(),
+        };
+        let err = transcribe_cloud(&provider, &[0.0; 1_600]).unwrap_err();
+        assert!(matches!(err, SttError::Stalled { .. }));
+        assert_eq!(provider.calls.into_inner(), 1);
+    }
+
+    #[test]
+    fn a_timed_out_chunk_still_gets_its_one_retry() {
+        let provider = Failing {
+            error: || SttError::Timeout {
+                provider: "cloud".to_string(),
+                configured_ms: 15_000,
+            },
+            calls: Default::default(),
+        };
+        transcribe_cloud(&provider, &[0.0; 1_600]).unwrap_err();
+        assert_eq!(provider.calls.into_inner(), 2);
+    }
+
+    #[test]
+    fn a_stalled_chunk_is_neither_held_nor_counted_as_a_slow_link() {
+        // Holding it meant resending it after the next success, where it
+        // stalled again; counting it paused live uploads with a notice
+        // blaming a connection that was fine.
+        assert!(!FailureKind::of(&stalled()).retryable());
+    }
+
+    #[test]
+    fn only_failures_waiting_cannot_fix_are_rescued_on_device() {
+        let timeout = SttError::Timeout {
+            provider: "cloud".to_string(),
+            configured_ms: 15_000,
+        };
+        assert!(should_rescue(&stalled(), true));
+        assert!(!should_rescue(&stalled(), false), "no model, no rescue");
+        assert!(
+            !should_rescue(&timeout, true),
+            "the network path is Backoff's: it resends once the link is back"
+        );
     }
 
     #[test]

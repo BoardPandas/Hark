@@ -6,6 +6,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.63.1] - 2026-10-29
+
+### Fixed
+
+- **Dictation no longer takes 8-11 seconds when Gemini Live stalls.** When the Live session failed to finish, Hark sent the whole clip to Gemini again, and at those times Gemini was slow too (4.5-7 s on top of the 3 s already waited). With the on-device model set as a backup (`[local_stt] mode = "fallback"`), Hark now transcribes the clip on-device right away instead. Gemini is asked again only if the on-device model fails. The first time this happens after Hark starts, loading the model adds a few seconds.
+- **Meeting live transcripts no longer lose lines to stalled Gemini Live turns.** Gemini Live sometimes takes a meeting piece, sends partial text, and then never finishes. Hark used to wait 15 s, send the same audio again (it stalled again 85% of the time), keep the piece to resend later, and count each stall as a slow connection. One user lost 1,462 lines this way in three weeks, and the live transcript fell minutes behind. A stall is now reported as its own error: it is not resent, not queued, and does not pause live uploads with a "slow connection" notice. With the on-device backup set, the stalled piece is transcribed on-device so the line still appears. Real network failures still pause and resend as before.
+
+### Added
+
+- `meeting_chunk_probe`, a diagnostic example that sends 10, 20 and 30 second test clips through the meeting live-transcript path and reports which ones stall: `cargo run -p hark-pipeline --features live --example meeting_chunk_probe`.
+
 ## [0.63.0] - 2026-10-23
 
 ### Changed

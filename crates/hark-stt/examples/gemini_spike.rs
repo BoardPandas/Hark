@@ -412,6 +412,7 @@ fn variant(e: &SttError) -> &'static str {
         SttError::Auth { .. } => "Auth",
         SttError::RateLimited { .. } => "RateLimited",
         SttError::Timeout { .. } => "Timeout",
+        SttError::Stalled { .. } => "Stalled",
         SttError::BadAudio(_) => "BadAudio",
         SttError::Provider { .. } => "Provider",
     }

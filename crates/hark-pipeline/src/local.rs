@@ -106,11 +106,21 @@ pub(crate) trait Transcriber {
 ///   words than a diagnostic, and the record still says local produced them.
 /// - **Off** — cloud only, exactly as before this feature existed.
 ///
+/// `live_failed` means a live stream already spent this dictation's first
+/// attempt and produced nothing. In fallback mode local then goes *first* and
+/// the cloud replay becomes the rescue: a stalled Live turn means the provider
+/// is struggling right now, and in the same windows its batch endpoint took
+/// 4.5-7 s on top of the 3 s finalise already spent, so replaying made a
+/// rescued dictation take 8-11 s. A SMART refusal arrives here as a live
+/// failure too; the on-device engine is verbatim, so it serves as well as a
+/// VERBATIM replay would.
+///
 /// When both fail, the cloud error is what surfaces: it is the one the user
 /// configured and the one they can act on.
 pub(crate) fn transcribe(
     mode: LocalMode,
     local_ready: bool,
+    live_failed: bool,
     t: &mut dyn Transcriber,
 ) -> Result<Outcome, SttError> {
     if mode == LocalMode::Primary {
@@ -123,16 +133,29 @@ pub(crate) fn transcribe(
             .map_err(local_as_stt_error);
     }
 
+    if mode == LocalMode::Fallback && local_ready && live_failed {
+        log::warn!("live stream failed; transcribing on-device instead of replaying to the cloud");
+        match t.local() {
+            Ok(transcript) => {
+                return Ok(Outcome {
+                    transcript,
+                    source: Source::LocalFallback,
+                })
+            }
+            Err(e) => log::warn!("on-device decode failed ({e}); replaying to the cloud"),
+        }
+        return t
+            .cloud()
+            .unwrap_or_else(|| Err(no_cloud_adapter()))
+            .map(|transcript| Outcome {
+                transcript,
+                source: Source::Cloud,
+            });
+    }
+
     let cloud = match t.cloud() {
         Some(result) => result,
-        // Mode says cloud, but no cloud adapter exists. Only reachable via a
-        // misbuilt worker; treat it as a config error rather than panicking.
-        None => {
-            return Err(SttError::Provider {
-                provider: "pipeline".to_string(),
-                detail: "no cloud provider is configured".to_string(),
-            })
-        }
+        None => return Err(no_cloud_adapter()),
     };
 
     let cloud_err = match cloud {
@@ -161,6 +184,15 @@ pub(crate) fn transcribe(
             log::error!("on-device fallback also failed: {local_err}");
             Err(cloud_err)
         }
+    }
+}
+
+/// Mode says cloud, but no cloud adapter exists. Only reachable via a misbuilt
+/// worker; treat it as a config error rather than panicking.
+fn no_cloud_adapter() -> SttError {
+    SttError::Provider {
+        provider: "pipeline".to_string(),
+        detail: "no cloud provider is configured".to_string(),
     }
 }
 
@@ -270,7 +302,7 @@ mod tests {
     #[test]
     fn off_mode_uses_cloud_and_never_touches_local() {
         let mut f = Fake::new().cloud_ok("from cloud");
-        let (text, source) = text_of(transcribe(LocalMode::Off, true, &mut f));
+        let (text, source) = text_of(transcribe(LocalMode::Off, true, false, &mut f));
         assert_eq!(text, "from cloud");
         assert_eq!(source, Source::Cloud);
         assert_eq!(f.local_calls, 0, "Off must never load the model");
@@ -280,7 +312,7 @@ mod tests {
     fn off_mode_surfaces_the_cloud_error_even_when_a_model_is_ready() {
         // A downloaded model must not silently rescue a user who set Off.
         let mut f = Fake::new().cloud_err(timeout()).local_ok("unused");
-        let err = transcribe(LocalMode::Off, true, &mut f)
+        let err = transcribe(LocalMode::Off, true, false, &mut f)
             .err()
             .expect("fails");
         assert!(matches!(err, SttError::Timeout { .. }));
@@ -290,7 +322,7 @@ mod tests {
     #[test]
     fn primary_mode_uses_local_and_never_calls_cloud() {
         let mut f = Fake::new().no_cloud().local_ok("from local");
-        let (text, source) = text_of(transcribe(LocalMode::Primary, true, &mut f));
+        let (text, source) = text_of(transcribe(LocalMode::Primary, true, false, &mut f));
         assert_eq!(text, "from local");
         assert_eq!(source, Source::LocalPrimary);
         assert_eq!(f.cloud_calls, 0, "primary must not need a cloud key");
@@ -299,7 +331,7 @@ mod tests {
     #[test]
     fn primary_mode_failure_is_the_dictations_failure() {
         let mut f = Fake::new().no_cloud().local_err();
-        let err = transcribe(LocalMode::Primary, true, &mut f)
+        let err = transcribe(LocalMode::Primary, true, false, &mut f)
             .err()
             .expect("a local failure in primary mode fails the dictation");
         assert!(matches!(err, SttError::Provider { .. }));
@@ -309,7 +341,7 @@ mod tests {
     #[test]
     fn fallback_prefers_cloud_when_it_works() {
         let mut f = Fake::new().cloud_ok("from cloud").local_ok("unused");
-        let (text, source) = text_of(transcribe(LocalMode::Fallback, true, &mut f));
+        let (text, source) = text_of(transcribe(LocalMode::Fallback, true, false, &mut f));
         assert_eq!(text, "from cloud");
         assert_eq!(source, Source::Cloud);
         assert_eq!(f.local_calls, 0, "a healthy cloud must not load the model");
@@ -318,7 +350,7 @@ mod tests {
     #[test]
     fn fallback_rescues_a_timed_out_dictation() {
         let mut f = Fake::new().cloud_err(timeout()).local_ok("rescued");
-        let (text, source) = text_of(transcribe(LocalMode::Fallback, true, &mut f));
+        let (text, source) = text_of(transcribe(LocalMode::Fallback, true, false, &mut f));
         assert_eq!(text, "rescued");
         assert_eq!(source, Source::LocalFallback);
     }
@@ -328,14 +360,14 @@ mod tests {
         // A stale or revoked key is exactly when a user most wants their
         // words to survive; the record still credits local.
         let mut f = Fake::new().cloud_err(auth()).local_ok("rescued");
-        let (_, source) = text_of(transcribe(LocalMode::Fallback, true, &mut f));
+        let (_, source) = text_of(transcribe(LocalMode::Fallback, true, false, &mut f));
         assert_eq!(source, Source::LocalFallback);
     }
 
     #[test]
     fn fallback_without_a_downloaded_model_reports_the_cloud_error() {
         let mut f = Fake::new().cloud_err(timeout());
-        let err = transcribe(LocalMode::Fallback, false, &mut f)
+        let err = transcribe(LocalMode::Fallback, false, false, &mut f)
             .err()
             .expect("no model means no rescue");
         assert!(matches!(err, SttError::Timeout { .. }));
@@ -347,7 +379,7 @@ mod tests {
         // The cloud error is the actionable one (bad key, no network); a
         // secondary "engine unavailable" would just bury it.
         let mut f = Fake::new().cloud_err(auth()).local_err();
-        let err = transcribe(LocalMode::Fallback, true, &mut f)
+        let err = transcribe(LocalMode::Fallback, true, false, &mut f)
             .err()
             .expect("both down means failure");
         assert!(matches!(err, SttError::Auth { .. }), "got {err}");
@@ -357,10 +389,57 @@ mod tests {
     #[test]
     fn a_cloud_mode_worker_with_no_adapter_errors_instead_of_panicking() {
         let mut f = Fake::new().no_cloud();
-        let err = transcribe(LocalMode::Off, false, &mut f)
+        let err = transcribe(LocalMode::Off, false, false, &mut f)
             .err()
             .expect("no adapter is an error");
         assert!(matches!(err, SttError::Provider { .. }));
+    }
+
+    #[test]
+    fn a_failed_live_stream_goes_on_device_without_a_cloud_replay() {
+        // The replay to a provider whose Live turn just stalled was the
+        // 4.5-7 s half of an 8-11 s dictation.
+        let mut f = Fake::new().cloud_ok("unused").local_ok("on-device");
+        let (text, source) = text_of(transcribe(LocalMode::Fallback, true, true, &mut f));
+        assert_eq!(text, "on-device");
+        assert_eq!(source, Source::LocalFallback);
+        assert_eq!(
+            f.cloud_calls, 0,
+            "the stalled provider must not be asked again"
+        );
+    }
+
+    #[test]
+    fn after_a_failed_live_stream_the_cloud_replay_rescues_a_local_failure() {
+        let mut f = Fake::new().cloud_ok("replayed").local_err();
+        let (text, source) = text_of(transcribe(LocalMode::Fallback, true, true, &mut f));
+        assert_eq!(text, "replayed");
+        assert_eq!(source, Source::Cloud);
+        assert_eq!((f.local_calls, f.cloud_calls), (1, 1));
+    }
+
+    #[test]
+    fn after_a_failed_live_stream_with_both_engines_down_the_cloud_error_surfaces() {
+        let mut f = Fake::new().cloud_err(auth()).local_err();
+        let err = transcribe(LocalMode::Fallback, true, true, &mut f)
+            .err()
+            .expect("both down means failure");
+        assert!(matches!(err, SttError::Auth { .. }), "got {err}");
+        assert_eq!(
+            f.local_calls, 1,
+            "local is tried once, not again after the replay"
+        );
+    }
+
+    #[test]
+    fn a_failed_live_stream_still_replays_to_the_cloud_without_a_model() {
+        for (mode, ready) in [(LocalMode::Off, true), (LocalMode::Fallback, false)] {
+            let mut f = Fake::new().cloud_ok("replayed").local_ok("unused");
+            let (text, source) = text_of(transcribe(mode, ready, true, &mut f));
+            assert_eq!(text, "replayed", "{mode:?}");
+            assert_eq!(source, Source::Cloud);
+            assert_eq!(f.local_calls, 0, "{mode:?} must not load the model");
+        }
     }
 
     #[test]

@@ -59,7 +59,9 @@ impl FailureKind {
             SttError::Http { .. } | SttError::Timeout { .. } => FailureKind::Network,
             SttError::Auth { .. } => FailureKind::Auth,
             SttError::RateLimited { .. } => FailureKind::RateLimited,
-            SttError::Provider { .. } => FailureKind::Provider,
+            // The provider answered and then never finished: its behaviour,
+            // not the link's, so waiting for the network does not help.
+            SttError::Provider { .. } | SttError::Stalled { .. } => FailureKind::Provider,
             SttError::BadAudio(_) => FailureKind::BadAudio,
         }
     }

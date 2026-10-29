@@ -747,9 +747,9 @@ pub(crate) mod session {
                          {frames} frames seen, {interims} interim, {} final",
                         segments.len()
                     );
-                    return Err(SttError::Timeout {
+                    return Err(SttError::Stalled {
                         provider: "gemini-live".to_string(),
-                        configured_ms: total_ms,
+                        waited_ms: total_ms,
                     });
                 }
             };
@@ -768,9 +768,9 @@ pub(crate) mod session {
                     mode.wire(),
                     segments.len()
                 );
-                SttError::Timeout {
+                SttError::Stalled {
                     provider: "gemini-live".to_string(),
-                    configured_ms: per_frame_ms,
+                    waited_ms: per_frame_ms,
                 }
             })?;
             let Some(frame) = frame else {

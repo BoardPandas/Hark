@@ -130,7 +130,7 @@ pub(crate) fn run(mut worker: Worker, rx: Receiver<crate::input::Edge>) {
                 Err(RecvTimeoutError::Timeout) => {
                     if !worker.control.is_cancelled() {
                         if let Err(e) = live.push_available() {
-                            log::warn!("live stream failed mid-hold, falling back to batch: {e}");
+                            log::warn!("live stream failed mid-hold: {e}");
                         }
                     }
                     continue;
@@ -431,7 +431,7 @@ fn dictate(
                 Some(transcript)
             }
             Err(e) => {
-                log::warn!("live stream failed at finalise, falling back to batch: {e}");
+                log::warn!("live stream failed at finalise: {e}");
                 None
             }
         }
@@ -477,14 +477,17 @@ fn dictate(
     let (source, transcript) = match streamed {
         Some(transcript) => (Source::Cloud, transcript),
         None => {
-            let outcome = match crate::local::transcribe(mode, local_ready, &mut engines) {
-                Ok(o) => o,
-                Err(e) => {
-                    log::error!("transcription failed: {e}");
-                    fail(FailStage::Transcribe, e.to_string());
-                    return advance(state, Event::Aborted).0;
-                }
-            };
+            // In this arm the stream produced nothing, so an attempted stream
+            // is a failed one.
+            let outcome =
+                match crate::local::transcribe(mode, local_ready, streamed_attempt, &mut engines) {
+                    Ok(o) => o,
+                    Err(e) => {
+                        log::error!("transcription failed: {e}");
+                        fail(FailStage::Transcribe, e.to_string());
+                        return advance(state, Event::Aborted).0;
+                    }
+                };
             (outcome.source, outcome.transcript)
         }
     };

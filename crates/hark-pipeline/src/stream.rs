@@ -105,7 +105,7 @@ impl LivePump {
         let session = match live.start_session() {
             Ok(s) => s,
             Err(e) => {
-                log::warn!("live session did not open, falling back to batch: {e}");
+                log::warn!("live session did not open: {e}");
                 return None;
             }
         };

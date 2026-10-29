@@ -38,6 +38,16 @@ pub enum SttError {
         configured_ms: u64,
     },
 
+    /// A streaming session took all the audio and then never finished the
+    /// turn: the provider went quiet, or kept sending partials, without a
+    /// final transcript. Distinct from `Timeout` because waiting and asking
+    /// again does not fix it: across 1 515 stalled meeting chunks in one
+    /// user's log (2026-10), the identical retry stalled again 85% of the time.
+    #[error(
+        "{provider} received the audio but never finished the transcript (waited {waited_ms} ms)"
+    )]
+    Stalled { provider: String, waited_ms: u64 },
+
     /// The audio handed to an adapter (or the fixture) is not usable.
     #[error("bad audio: {0}")]
     BadAudio(String),

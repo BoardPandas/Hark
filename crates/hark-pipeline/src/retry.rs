@@ -13,8 +13,10 @@ use hark_stt::SttError;
 const CONNECT_CLASS_PREFIX: &str = "connect failed";
 
 /// True only for `Timeout` and connect-class `Http`. Everything else (Auth,
-/// RateLimited, Provider, BadAudio, and non-connect transport failures where
-/// the request may have already reached the provider) is not retried.
+/// RateLimited, Provider, BadAudio, Stalled, and non-connect transport
+/// failures where the request may have already reached the provider) is not
+/// retried. A stalled turn is the server's doing: resending the same audio
+/// stalled again 85% of the time and cost another full wait each time.
 pub fn should_retry(error: &SttError) -> bool {
     match error {
         SttError::Timeout { .. } => true,
@@ -22,6 +24,7 @@ pub fn should_retry(error: &SttError) -> bool {
         SttError::Auth { .. }
         | SttError::RateLimited { .. }
         | SttError::BadAudio(_)
+        | SttError::Stalled { .. }
         | SttError::Provider { .. } => false,
     }
 }

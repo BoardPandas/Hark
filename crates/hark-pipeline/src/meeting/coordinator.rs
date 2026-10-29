@@ -596,6 +596,13 @@ impl Coordinator {
                     .map_err(|e| e.to_string())
             });
         match built {
+            Ok(provider) if self.settings.local_stt.mode == hark_config::LocalMode::Fallback => (
+                Some(Engine::CloudWithRescue(
+                    provider,
+                    Box::new(self.settings.clone()),
+                )),
+                label,
+            ),
             Ok(provider) => (Some(Engine::Cloud(provider)), label),
             Err(e) => {
                 self.notice(
