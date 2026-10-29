@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.67.1] - 2026-10-29
+
+### Changed
+
+- The project docs now describe meeting speakers: speaker colors, renaming Me, moving lines, guessed names, notes that follow renames, the Your name setting, and how speaker names are stored. They also cover the faster Gemini Live text checks from 0.64.1.
+
 ## [0.67.0] - 2026-10-29
 
 ### Added
