@@ -6,6 +6,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.67.1] - 2026-10-29
+
+### Fixed
+
+- **A fresh checkout on Windows or macOS is clean again.** The repo tracked both `AGENTS.md` (the agent guide) and `agents.md` (the agent registry). Windows and macOS treat those names as one file, so every checkout showed one of them as modified. That also stopped the desktop app from syncing a worktree with its base branch. The registry is now `AGENT-REGISTRY.md`, and every link to it is updated.
+
+### Added
+
+- `npm run check:claude` now fails when two tracked paths differ only by letter case, so a template sync cannot bring `agents.md` back.
+- The docs overview's "Where to Start" table now links the agent registry.
+
 ## [0.67.0] - 2026-10-29
 
 ### Added

@@ -165,7 +165,7 @@ Write `Docs/README.md` using `${CLAUDE_SKILL_DIR}/references/readme-template.md`
 - A "Latest Updates" callout pulled from the most recent `CHANGELOG.md` entries (omit the callout entirely if `CHANGELOG.md` does not exist)
 - A Quick Start table mapping common goals to entry pages
 - One categorized table per folder, listing every generated page with its description from `_toc.yaml`
-- A "Related Resources" section linking to root `README.md`, `agents.md`, and `CLAUDE.md` if they exist
+- A "Related Resources" section linking to root `README.md`, `AGENT-REGISTRY.md`, and `CLAUDE.md` if they exist
 
 ### Step 5: Write metadata
 

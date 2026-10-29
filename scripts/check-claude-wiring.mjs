@@ -21,6 +21,7 @@
  * contract as observed 2026-07-28. If that contract changes, this guard is what will
  * tell you, but update it deliberately rather than deleting the failing assertion.
  */
+import { execFileSync } from "node:child_process";
 import { globSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { readdirSync as _rdSync, readFileSync as _rfSync } from "node:fs";
@@ -361,6 +362,43 @@ notes.push(`rules: ${ruleFiles.length} total, ${alwaysOnRules.length} load in ev
         errors.push(
           `REVIEW.md is missing the section "${what}". A review policy without it leaves the ` +
             "question unanswered, which is the same as having no policy for it.",
+        );
+      }
+    }
+  }
+}
+
+// ------------------- 11: no two tracked paths may differ only by letter case
+// The bootstrap template names its agent registry `agents.md`, and the
+// cross-tool convention for an agent guide is `AGENTS.md`. On Windows and
+// macOS those are one file, so a repo tracking both is dirty from the moment
+// it is checked out: git writes one over the other and reports it modified
+// forever. Hark lived with that for weeks as an "unrelated uncommitted
+// change" in handoffs, and it blocked the desktop app's base-branch sync.
+// The index is case-sensitive everywhere, so `git ls-files` sees both names
+// even on the filesystems that cannot hold them.
+//
+// Self-contained, like block 10.
+{
+  let tracked = null;
+  try {
+    tracked = execFileSync("git", ["ls-files", "-z"], { encoding: "utf8", maxBuffer: 64 * 1024 * 1024 })
+      .split("\0")
+      .filter(Boolean);
+  } catch {
+    notes.push("not a git checkout (or no git on PATH); case-collision check skipped.");
+  }
+  if (tracked) {
+    const byFolded = new Map();
+    for (const path of tracked) {
+      const folded = path.toLowerCase();
+      byFolded.set(folded, [...(byFolded.get(folded) ?? []), path]);
+    }
+    for (const paths of byFolded.values()) {
+      if (paths.length > 1) {
+        errors.push(
+          `${paths.join(" and ")} differ only by case. On Windows and macOS they are one file, ` +
+            "so every checkout shows one of them modified. Rename one.",
         );
       }
     }

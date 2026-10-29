@@ -14,6 +14,7 @@ The following files were used as evidence for this page:
 - [CLAUDE.md:1-24](../CLAUDE.md#L1-L24)
 - [CLAUDE.md:26-46](../CLAUDE.md#L26-L46)
 - [AGENTS.md](../AGENTS.md)
+- [AGENT-REGISTRY.md](../AGENT-REGISTRY.md)
 
 </details>
 
@@ -187,6 +188,7 @@ Sources: [README: Architecture](../README.md#architecture), [CLAUDE.md:26-30](..
 | Goal | Start Here |
 |---|---|
 | Give an AI agent the fastest safe orientation | [Agent Guide](../AGENTS.md) |
+| Pick a Claude subagent and see when to use it | [Agent Registry](../AGENT-REGISTRY.md) |
 | Understand process/thread structure and the pipeline in depth | [Architecture](core/ARCHITECTURE.md) |
 | Install or build the app locally | [Getting Started](GETTING_STARTED.md) |
 | Look up a domain term or acronym | [Glossary](GLOSSARY.md) |

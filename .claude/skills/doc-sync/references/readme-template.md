@@ -128,7 +128,7 @@ Historical reference documents.
 | Resource | Location |
 |----------|----------|
 | Repo README | [../README.md](../README.md) |
-| Agent Registry | [../agents.md](../agents.md) |
+| Agent Registry | [../AGENT-REGISTRY.md](../AGENT-REGISTRY.md) |
 | Claude Code Config | [../CLAUDE.md](../CLAUDE.md) |
 
 ---

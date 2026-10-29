@@ -151,4 +151,4 @@ Best practices and library versions must reflect the current date — verify wit
 
 ## Skills & agents
 
-Skill triggers and the agent registry are documented in [`instructions.md`](instructions.md) and [`agents.md`](agents.md). Key agents: `architect` (planning), `builder` (implementation), `explorer` (research), `reviewer`, `security`, `performance`, `tester`, `ux-reviewer`. Pre-commit changelog + version-bump discipline is enforced by `.claude/rules/commit-changelog.md`.
+Skill triggers and the agent registry are documented in [`instructions.md`](instructions.md) and [`AGENT-REGISTRY.md`](AGENT-REGISTRY.md). Key agents: `architect` (planning), `builder` (implementation), `explorer` (research), `reviewer`, `security`, `performance`, `tester`, `ux-reviewer`. Pre-commit changelog + version-bump discipline is enforced by `.claude/rules/commit-changelog.md`.

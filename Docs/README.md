@@ -90,7 +90,7 @@ Release engineering and packaging.
 | Repo README | [../README.md](../README.md) |
 | Tool-neutral agent guide | [../AGENTS.md](../AGENTS.md) |
 | Project rules & stack | [../CLAUDE.md](../CLAUDE.md) |
-| Claude subagent registry | [../agents.md](../agents.md) |
+| Claude subagent registry | [../AGENT-REGISTRY.md](../AGENT-REGISTRY.md) |
 | Full plan & rationale | [../tasks/plan-repo.md](../tasks/plan-repo.md) |
 
 ---

@@ -32,7 +32,7 @@ Before fetching any best practices, check the current date. All recommendations 
 ## Step 2: Read Current State
 
 1. Read `CLAUDE.md` in the repo root (if it exists). Note its contents.
-2. Read `agents.md` in the repo root (if it exists). Note its contents.
+2. Read `AGENT-REGISTRY.md` in the repo root (if it exists). Note its contents.
 3. Read `README.md` in the repo root (if it exists). Identify the project's tech stack, purpose, and conventions.
 4. Scan the `.claude/` folder (if it exists) using Glob. List all existing files.
 5. Read `.claude/settings.json` (if it exists). Note current settings.
@@ -118,7 +118,7 @@ Compare the current `.claude/` folder against BP practices and web sources. For 
 
 For each gap identified, create or update the file. Follow these rules:
 
-- **Template source:** The canonical template is the `BoardPandas/claude-code-bootstrap` repository (the repo this `.claude/` folder was copied from). Its CLAUDE.md skill table and `agents.md` registry define the full template skill and agent lists. If a template skill, agent, rule, or script is missing here, copy it from that repo (via `git clone` to a temp directory or raw GitHub fetch) rather than reinventing it.
+- **Template source:** The canonical template is the `BoardPandas/claude-code-bootstrap` repository (the repo this `.claude/` folder was copied from). Its CLAUDE.md skill table and `agents.md` registry (this repo's `AGENT-REGISTRY.md`) define the full template skill and agent lists. If a template skill, agent, rule, or script is missing here, copy it from that repo (via `git clone` to a temp directory or raw GitHub fetch) rather than reinventing it.
 - **Non-destructive:** Never overwrite custom project-specific settings. Merge with existing config.
 - **Skills:** Ensure all template skills exist in `.claude/skills/`. If additional skills are relevant to the detected tech stack, add them.
 - **Agents:** Ensure all template agents exist in `.claude/agents/`. Add others if relevant.
@@ -130,7 +130,7 @@ For each gap identified, create or update the file. Follow these rules:
   - Plan (but do not create) subfolder CLAUDE.md files where distinct rules will apply.
   - Keep each CLAUDE.md file focused and under 200 lines.
   - Include in the Planning section: "Every plan MUST end with a Lessons Learned / Gotchas section. After implementation, route discoveries to LL-G via `/add-lesson`, not to local files only."
-- **agents.md:** Update the root agents.md to register all agents. Preserve project-specific content.
+- **AGENT-REGISTRY.md:** Update the root AGENT-REGISTRY.md to register all agents. Preserve project-specific content. Never create a root `agents.md`: it is the same file as `AGENTS.md` on Windows and macOS, and `npm run check:claude` fails on paths that differ only by case.
 - **README.md:** If a README exists, add or update the "Claude Code" section. Do not alter other sections.
 
 ## Step 7: Configure Path-Scoped Rules

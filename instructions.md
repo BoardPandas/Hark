@@ -5,7 +5,7 @@
 This repository provides a pre-configured `.claude/` folder that gives Claude Code a set of skills, agents, and settings aligned with current best practices. It works in two modes:
 
 1. **Clone for new projects** -- Start a new repo with Claude Code already configured.
-2. **Copy into existing projects** -- Drop the `.claude/` folder (plus CLAUDE.md and agents.md) into any existing repo to add Claude Code capabilities.
+2. **Copy into existing projects** -- Drop the `.claude/` folder (plus CLAUDE.md and AGENT-REGISTRY.md) into any existing repo to add Claude Code capabilities.
 
 ## Folder Structure
 
@@ -60,7 +60,7 @@ This repository provides a pre-configured `.claude/` folder that gives Claude Co
   settings.json            # Project-level Claude Code settings
   settings.local.json.example  # Template for personal (git-ignored) overrides
 CLAUDE.md                  # Master project rules for Claude Code
-agents.md                  # Agent registry (see agents.md docs below)
+AGENT-REGISTRY.md          # Agent registry (see Agents Reference below)
 instructions.md            # This file
 README.md                  # GitHub-facing README
 tasks/                     # Saved plans and specs (created on first use)
@@ -204,7 +204,7 @@ All planning uses phases, never dates or time estimates:
 
 ## Agents Reference
 
-All agents are registered in [agents.md](agents.md) at the repo root. This file serves as the agent registry -- Claude Code reads it to discover available agents.
+All agents are registered in [AGENT-REGISTRY.md](AGENT-REGISTRY.md) at the repo root. Claude Code itself discovers agents from `.claude/agents/`; the registry is the human-readable index of them. It is not named `agents.md`, as in the template, because `AGENTS.md` (the tool-neutral agent guide) also exists, and on Windows and macOS the two names are the same file.
 
 ### architect
 
@@ -490,7 +490,7 @@ Update root CLAUDE.md with your project's stack, conventions, and standards. Kee
 1. Create a markdown file in `.claude/agents/` named after the agent.
 2. Add YAML frontmatter: `name`, `description`, `model`, and optionally `tools`, `permissionMode`, `maxTurns`, `skills`, `memory`, `isolation`, `background`, `disallowedTools`.
 3. Write the agent's role, focus areas, and behavior.
-4. Register the agent in [agents.md](agents.md).
+4. Register the agent in [AGENT-REGISTRY.md](AGENT-REGISTRY.md).
 5. Update CLAUDE.md.
 
 **Advanced agent fields:**
@@ -517,7 +517,7 @@ Create `.claude/settings.local.json` for personal settings (git-ignored). Overri
 ## Troubleshooting
 
 - **Skill not triggering:** Check `user-invocable: true` in SKILL.md frontmatter.
-- **Agent not found:** Ensure the agent file is in `.claude/agents/` and registered in [agents.md](agents.md).
+- **Agent not found:** Ensure the agent file is in `.claude/agents/` and registered in [AGENT-REGISTRY.md](AGENT-REGISTRY.md).
 - **Settings not applied:** Precedence (highest wins): managed-settings.json (org policy) → CLI flags → `.claude/settings.local.json` → `.claude/settings.json` → `~/.claude/settings.local.json` → `~/.claude/settings.json`. Deny rules always win regardless of tier.
 - **Hooks not running:** Verify hook event name and matcher in settings.json. Run `/doctor`.
 - **Stale practices:** Run "update practices" -- it checks today's date and fetches current recommendations.
