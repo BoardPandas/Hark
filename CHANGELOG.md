@@ -18,6 +18,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 - Groundwork for telling meeting speakers apart: every speaker in a meeting, "Me" included, now has one identity that labels, colors and exports will all read from. Nothing looks different yet.
 
+## [0.63.4] - 2026-10-29
+
+### Added
+
+- Every theme now has a set of six colors (blue, teal, green, gold, rose and violet) for telling things apart, such as pages, providers and meeting speakers. Each one is checked to stay readable in its theme and to look different from the other five. Nothing uses them yet.
+
+## [0.63.3] - 2026-10-29
+
+### Changed
+
+- Each theme now carries its own error, success and warning colors. Nothing looks different yet; this prepares for the new Parchment theme, whose status colors are tuned to its paper.
+
 ## [0.63.2] - 2026-10-29
 
 ### Fixed

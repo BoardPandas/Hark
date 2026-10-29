@@ -10,6 +10,7 @@ use egui::{
 use std::collections::BTreeMap;
 mod appearance;
 mod fonts;
+mod hues;
 mod palette;
 pub use appearance::{appearance, appearance_picker, set_appearance, Appearance};
 use fonts::font_definitions;
@@ -53,9 +54,6 @@ pub mod icons {
 pub const DANGER: Color32 = Color32::from_rgb(0xF1, 0x9C, 0xAB);
 pub const SUCCESS: Color32 = Color32::from_rgb(0x8B, 0xD5, 0xAF);
 pub const WARNING: Color32 = Color32::from_rgb(0xE5, 0xBC, 0x75);
-const LIGHT_DANGER: Color32 = Color32::from_rgb(0xB6, 0x3B, 0x50);
-const LIGHT_SUCCESS: Color32 = Color32::from_rgb(0x23, 0x75, 0x4F);
-const LIGHT_WARNING: Color32 = Color32::from_rgb(0x91, 0x5C, 0x10);
 const ON_DARK_ACCENT: Color32 = Color32::from_rgb(0x18, 0x25, 0x18);
 
 pub const TRAY_MARK: Color32 = ON_DARK_ACCENT;
@@ -122,27 +120,19 @@ pub const DIALOG_TITLE_SIZE: f32 = 20.0;
 pub const TOOLBAR_SEARCH_WIDTH: f32 = 320.0;
 pub const LIST_ACTIONS_WIDTH: f32 = 116.0;
 pub const MIN_CARD_WIDTH: f32 = 240.0;
+#[allow(dead_code)] // first drawn by the color pass (plan P1) and meeting speakers
+pub const CHIP_RADIUS: u8 = 10;
+#[allow(dead_code)] // first drawn by the color pass (plan P1) and meeting speakers
+pub const CHIP_PADDING: Margin = Margin::symmetric(8, 2);
 
 pub fn danger(v: &Visuals) -> Color32 {
-    if v.dark_mode {
-        DANGER
-    } else {
-        LIGHT_DANGER
-    }
+    palette(v).danger
 }
 pub fn success(v: &Visuals) -> Color32 {
-    if v.dark_mode {
-        SUCCESS
-    } else {
-        LIGHT_SUCCESS
-    }
+    palette(v).success
 }
 pub fn warning(v: &Visuals) -> Color32 {
-    if v.dark_mode {
-        WARNING
-    } else {
-        LIGHT_WARNING
-    }
+    palette(v).warning
 }
 pub fn on_accent(v: &Visuals) -> Color32 {
     palette(v).on_accent
@@ -162,6 +152,82 @@ pub fn chart(v: &Visuals) -> Color32 {
 }
 pub fn chart_soft(v: &Visuals) -> Color32 {
     palette(v).chart_soft
+}
+
+/// Six categorical hues, tuned per palette (`theme/hues.rs`). They name
+/// categories — a page, a provider, a speaker — and never a state: a hued
+/// element never carries a CHECK, WARNING or X glyph, and status colors are
+/// never used for categories. Every hued element also has a text label.
+///
+/// `speaker_hue(slot)` is reserved as the one place meeting speakers map onto
+/// these; the meeting-speakers spec owns that order.
+#[allow(dead_code)] // first drawn by the color pass (plan P1) and meeting speakers
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
+pub enum Hue {
+    Blue,
+    Teal,
+    Green,
+    Gold,
+    Rose,
+    Violet,
+}
+
+#[allow(dead_code)] // first drawn by the color pass (plan P1) and meeting speakers
+impl Hue {
+    pub const ALL: [Self; 6] = [
+        Self::Blue,
+        Self::Teal,
+        Self::Green,
+        Self::Gold,
+        Self::Rose,
+        Self::Violet,
+    ];
+}
+
+/// The hue's ink: text and icons, at least 4.5:1 on every fill of the theme.
+#[allow(dead_code)] // first drawn by the color pass (plan P1) and meeting speakers
+pub fn hue(v: &Visuals, hue: Hue) -> Color32 {
+    palette(v).hues[hue as usize].ink
+}
+
+/// The hue's wash: chip and badge fill, with `hue()` at least 4.5:1 on it.
+#[allow(dead_code)] // first drawn by the color pass (plan P1) and meeting speakers
+pub fn hue_wash(v: &Visuals, hue: Hue) -> Color32 {
+    palette(v).hues[hue as usize].wash
+}
+
+/// A pill in the hue's wash with an ink label and an optional icon. This is
+/// the only way a hue reaches a chip, so ink and wash always stay a tested
+/// pair. The label is required: hue alone never carries meaning.
+#[allow(dead_code)] // first drawn by the color pass (plan P1) and meeting speakers
+pub fn chip(ui: &mut Ui, hue: Hue, glyph: Option<&str>, text: &str) -> egui::Response {
+    use egui::text::{LayoutJob, TextFormat};
+    let ink = self::hue(ui.visuals(), hue);
+    let size = TextStyle::Small.resolve(ui.style()).size;
+    let mut job = LayoutJob::default();
+    // Two sections, because the icon and the label need different families
+    // (see `icon_label_job`).
+    if let Some(glyph) = glyph {
+        job.append(
+            glyph,
+            0.0,
+            TextFormat::simple(FontId::new(size, icon()), ink),
+        );
+    }
+    let gap = if glyph.is_some() { 4.0 } else { 0.0 };
+    job.append(
+        text,
+        gap,
+        TextFormat::simple(FontId::new(size, FontFamily::Proportional), ink),
+    );
+    egui::Frame::new()
+        .fill(hue_wash(ui.visuals(), hue))
+        .corner_radius(CHIP_RADIUS)
+        .inner_margin(CHIP_PADDING)
+        .show(ui, |ui| {
+            ui.add(egui::Label::new(job).wrap_mode(egui::TextWrapMode::Extend))
+        })
+        .response
 }
 
 /// Editorial serif for the Home introduction and brand, embedded for all OSes.
