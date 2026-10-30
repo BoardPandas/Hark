@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.68.6] - 2026-10-30
+
+### Changed
+
+- The feature-ideas checklist (`tasks/feature-ideas.md`) now matches what has shipped. Speaker colors, moving a line to another speaker, the Parchment theme, Wizard lettering and the book views are marked Complete with the version they arrived in, and each links to its plan and lists what was left out on purpose. A user-picked accent color and the Full / Half / Non-Wizard setting are still open.
+
 ## [0.68.5] - 2026-10-30
 
 ### Fixed
