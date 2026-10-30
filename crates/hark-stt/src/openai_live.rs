@@ -1642,7 +1642,6 @@ pub(crate) mod session {
                 turn: Turn::default(),
                 pending: Vec::new(),
                 appended: 0,
-                started: Instant::now(),
             };
             (session, peer)
         }
@@ -1687,6 +1686,32 @@ pub(crate) mod session {
             });
             session.push(&vec![0.01; CHUNK_SAMPLES]).unwrap();
             assert_eq!(session.finish().unwrap().text, "Said.");
+            drop(session);
+            peer.join().unwrap();
+        }
+
+        #[test]
+        fn request_ms_is_the_wait_after_release_not_the_hold() {
+            // Timed from the session opening, a 13.8 s hold logged as
+            // "finalise took 13772 ms" on a dictation injected 1.7 s after
+            // release, and history showed it as the STT time.
+            use crate::LiveSession;
+            let (mut session, peer) = streamed_session(Script {
+                on_commit: vec![
+                    event(committed("item_1")),
+                    event(completed("item_1", "Said.")),
+                ],
+                ..Default::default()
+            });
+            session.push(&vec![0.01; CHUNK_SAMPLES]).unwrap();
+            let hold = Duration::from_millis(600);
+            std::thread::sleep(hold);
+            let transcript = session.finish().unwrap();
+            assert!(
+                transcript.request_ms < hold.as_millis(),
+                "request_ms {} includes the hold",
+                transcript.request_ms
+            );
             drop(session);
             peer.join().unwrap();
         }
@@ -1907,9 +1932,6 @@ pub struct OpenAiLiveSession {
     pending: Vec<f32>,
     /// Samples appended so far, for the commit minimum and the log line.
     appended: usize,
-    /// Wall clock from the session opening, so `request_ms` stays comparable
-    /// with the batch adapters' full round trip.
-    started: Instant,
 }
 
 #[cfg(feature = "live")]
@@ -1936,6 +1958,7 @@ impl crate::LiveSession for OpenAiLiveSession {
     }
 
     fn finish(&mut self) -> Result<Transcript, SttError> {
+        let started = Instant::now();
         let Some(mut socket) = self.socket.take() else {
             return Err(fail("the session was already finished"));
         };
@@ -1971,7 +1994,7 @@ impl crate::LiveSession for OpenAiLiveSession {
         Ok(Transcript {
             text,
             cleaned: None,
-            request_ms: self.started.elapsed().as_millis(),
+            request_ms: started.elapsed().as_millis(),
         })
     }
 }
@@ -1990,7 +2013,6 @@ impl crate::LiveStt for OpenAiLive {
             turn: Turn::default(),
             pending: Vec::new(),
             appended: 0,
-            started: Instant::now(),
         }))
     }
 

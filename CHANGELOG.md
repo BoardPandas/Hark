@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.68.5] - 2026-10-30
+
+### Fixed
+
+- **Live transcription timings now measure only the wait after you release the key.** With Gemini Live or OpenAI live, the log's "finalise took N ms" line and the STT time in history counted the whole time the key was held. A 14-second dictation that appeared 1.7 s after release was logged as "finalise took 13772 ms", which read like a slow provider or network. History rows recorded before this update keep the old number.
+
 ## [0.68.4] - 2026-10-29
 
 ### Security

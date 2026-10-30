@@ -32,7 +32,9 @@ pub const CONNECT_TIMEOUT_MS: u64 = 3_000;
 pub const TOTAL_TIMEOUT_MS: u64 = 15_000;
 
 /// One transcription result. `request_ms` is the full HTTP round trip as seen
-/// by the caller (the dominant share of release-to-inject latency).
+/// by the caller (the dominant share of release-to-inject latency). For a
+/// [`LiveSession`] it is the wait inside `finish` only: the session is open
+/// for the whole hold, and the hold is not latency.
 pub struct Transcript {
     /// The verbatim transcript, always present. Stays the ground truth even
     /// when `cleaned` is populated: spellbook correction and the cleanup

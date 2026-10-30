@@ -1135,9 +1135,6 @@ pub struct GeminiLiveSession {
     runtime: std::sync::Arc<tokio::runtime::Runtime>,
     socket: Option<session::Socket>,
     mode: TranscribeMode,
-    /// Wall clock from the first pushed sample, so `request_ms` stays
-    /// comparable with the batch adapters' full round trip.
-    started: Instant,
     /// Samples pushed so far, for the log line only.
     pushed: usize,
     /// Finalised transcript text collected so far. Most of a dictation lands
@@ -1173,6 +1170,7 @@ impl crate::LiveSession for GeminiLiveSession {
     }
 
     fn finish(&mut self) -> Result<Transcript, SttError> {
+        let started = Instant::now();
         let Some(mut socket) = self.socket.take() else {
             return Err(fail("the session was already finished".to_string()));
         };
@@ -1190,11 +1188,7 @@ impl crate::LiveSession for GeminiLiveSession {
             "gemini live session: {} ms of audio streamed during the hold",
             self.pushed as u64 * 1_000 / 16_000
         );
-        Ok(transcript_for(
-            mode,
-            text,
-            self.started.elapsed().as_millis(),
-        ))
+        Ok(transcript_for(mode, text, started.elapsed().as_millis()))
     }
 }
 
@@ -1210,7 +1204,6 @@ impl crate::LiveStt for GeminiLive {
             runtime: self.runtime.clone(),
             socket: Some(socket),
             mode: self.mode,
-            started: Instant::now(),
             pushed: 0,
             segments: Vec::new(),
             turn_complete: false,
@@ -1282,7 +1275,6 @@ mod session_tests {
             runtime,
             socket: Some(socket),
             mode: TranscribeMode::Verbatim,
-            started: Instant::now(),
             pushed: 0,
             segments: Vec::new(),
             turn_complete: false,
@@ -1300,6 +1292,28 @@ mod session_tests {
             streamed_session(vec![transcription("First."), transcription("Second.")]);
         session.push(&vec![0.01; CHUNK_SAMPLES]).unwrap();
         assert_eq!(session.segments, ["First.", "Second."]);
+        drop(session);
+        peer.join().unwrap();
+    }
+
+    #[test]
+    fn request_ms_is_the_wait_after_release_not_the_hold() {
+        // Timed from the session opening, every live dictation reported its
+        // whole hold as the finalise wait and as the STT time in history.
+        let (mut session, peer) = streamed_session(vec![
+            transcription("Said."),
+            Message::Text(r#"{"serverContent":{"turnComplete":true}}"#.into()),
+        ]);
+        session.push(&vec![0.01; CHUNK_SAMPLES]).unwrap();
+        let hold = Duration::from_millis(600);
+        std::thread::sleep(hold);
+        let transcript = session.finish().unwrap();
+        assert_eq!(transcript.text, "Said.");
+        assert!(
+            transcript.request_ms < hold.as_millis(),
+            "request_ms {} includes the hold",
+            transcript.request_ms
+        );
         drop(session);
         peer.join().unwrap();
     }
