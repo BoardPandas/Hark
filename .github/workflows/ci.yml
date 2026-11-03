@@ -32,8 +32,9 @@ jobs:
   # dead glob is indistinguishable from one that simply has not triggered. This
   # guard is the only thing that makes that failure mode observable.
   #
-  # ON BOTH PLATFORMS, on purpose. release.yml also runs this guard, on
-  # windows-latest, and until 0.35.8 the guard had only ever executed on ubuntu
+  # ON BOTH PLATFORMS, on purpose. release.yml also runs this guard (on
+  # windows-latest until it moved to the ubuntu `version` job), and until
+  # 0.35.8 the guard had only ever executed on ubuntu
   # -- so the release path depended on untested behaviour. Node's fs.globSync is
   # where any divergence would show: the rule globs are forward-slash (required
   # by node glob everywhere) but results come back with platform separators.
@@ -232,9 +233,16 @@ jobs:
 
       # SHA-pinned like every other third-party action here. The trailing comment
       # records which release the SHA is, so bumping it stays a reviewable diff.
+      #
+      # shared-key, not key: release.yml's three check jobs restore this cache
+      # on a tag (a tag run can read main's caches, never another tag's), and
+      # `key` would fold in this job's id, which they cannot share. rust-cache
+      # appends the runner OS and arch either way, so the legs stay apart.
+      # Change the name here and there together, or every release check job
+      # goes back to compiling from zero.
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
-          key: ${{ matrix.os }}
+          shared-key: rust-checks
 
       # rust-cache prunes the downloaded native libraries but keeps sherpa's
       # build-script output and empty lib directories. Reset both: cleaning

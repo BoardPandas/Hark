@@ -6,6 +6,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.68.9] - 2026-11-02
+
+### Changed
+
+- **Releases should publish in about half the time.** A release used to take 28–33 minutes. Each platform now runs its checks and its release build side by side, and a separate job signs and publishes once both pass. The Arch package also builds alongside Linux instead of after it. The longest path should now be one Windows build plus signing, about 15 minutes. That figure is an estimate until the first release under this workflow runs.
+- **The release checks now start from CI's cache instead of from nothing.** Every release job used to report "No cache found." and compile everything from scratch, because GitHub hides a cache saved by one release tag from the next. Each release then saved about 4.7 GB of cache that no later run could use, which pushed main's own CI caches out. The release check jobs now reuse the cache CI saves on main and never save their own. The builds that produce the shipped, signed files still start clean on purpose.
+- **A tag that fails its checks no longer leaves an empty release behind.** The release used to be created before anything was tested, so a failing tag still left an empty release, and the in-app updater would offer it with nothing to download. The release is now created only after the checks pass on every platform. This adds no time, because the checks finish before the builds.
+- **Only the jobs that publish can write to the release.** The workflow's default token is now read-only. The publish jobs, which compile nothing, are the only ones given write access and the signing secrets.
+- `cargo-deb` now installs from its own pinned `.deb` instead of compiling on every release. `cargo-generate-rpm` publishes no binaries, so it still compiles, but at a pinned version instead of whatever was newest that day.
+
 ## [0.68.8] - 2026-11-02
 
 ### Fixed

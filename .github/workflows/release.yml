@@ -1,5 +1,6 @@
-# Build, sign, and publish a release of Hark: a signed Windows installer, plus
-# Linux packages for Debian/Ubuntu, Fedora/RHEL/openSUSE and Arch.
+# Build, sign, and publish a release of Hark: a signed Windows installer, a
+# signed and notarized macOS disk image, plus Linux packages for
+# Debian/Ubuntu, Fedora/RHEL/openSUSE and Arch.
 #
 # Trigger: push a SemVer tag (v0.13.0). The tag's version must match
 # package.json (the repo's version source of truth, per
@@ -18,22 +19,40 @@
 #
 # JOB SHAPE
 #
-#   version                 seconds; verifies the tag and creates the release
-#     |- release  (windows) ~21 min; signs, packages, attaches
-#     `- linux    (ubuntu)  ~30 min; deb + rpm + tarball, attaches
-#          `- linux-arch    ~30 min; makepkg, attaches
+#   version                  verifies the tag
+#   |- windows-check         fmt, clippy, test          -.
+#   |- windows-build         release exe, clean build   -+-> windows  sign, package, attach
+#   |- linux-check           fmt, clippy, test          -.
+#   |- linux-build           binary + .deb .rpm .tar.gz -+-> linux    attach
+#   |- arch-build            makepkg in an Arch image   ---> arch     attach (also needs linux-check)
+#   |- macos-check           fmt, clippy, test          -.
+#   `- macos-build           release binary, clean build-+-> macos    sign, notarize, attach
 #
-# The two big builds used to be serial -- `linux` had `needs: release` -- purely
-# because whichever job ran first had to be the one that CREATED the release
-# object. softprops/action-gh-release creates a release when the tag has none
-# and updates it when it does, so two jobs starting together both try to create
-# it and the loser gets a 422. Hoisting that creation into `version` leaves
-# every build job doing nothing but APPEND, which is safe to do concurrently,
-# and takes the wall clock from ~81 min to ~51 min.
+#   release   needs version + all three checks; creates the release object.
+#             Every publish job above also needs it.
 #
-# `linux-arch` stays downstream of `linux`, deliberately: it builds with
-# `makepkg --nocheck`, and skipping the suite is only defensible while the
-# ubuntu job has already run it in full against the same commit.
+# Every platform is split three ways -- checks, a build, and a final job that
+# `needs` both -- for speed and for trust.
+#
+# Speed. Until 0.68.9 each platform ran fmt, clippy, test and the release build
+# back to back in one job, uncached: a tag run can read main's caches but not
+# another tag's, so the cache every release job saved was never restored.
+# Every one logged "No cache found.", compiled the workspace twice (debug for
+# the checks, release for the binary), then spent up to two minutes saving
+# ~4.7 GB a release that no later run could read and that evicted main's own
+# caches. Releases took 28-33 min, with Linux then Arch as the long pole. Now
+# the checks restore main's CI cache and run beside the builds, so the wall
+# clock is roughly one clean Windows release build plus signing.
+#
+# Trust. The build jobs never touch a cache (windows-check says why), and no
+# check or build job holds a secret or a write token. Those live only in the
+# final job for each platform, and none of those compiles anything.
+#
+# THE RELEASE OBJECT. The `release` job creates it, and every publish job only
+# APPENDS. softprops/action-gh-release creates a release when the tag has none
+# and updates it when it does, so two jobs that both try to create it race and
+# the loser gets a 422. That race is what once kept the builds serial (~81 min);
+# hoisting creation into one upstream job is what let them run side by side.
 #
 # Required GitHub Actions secrets (synced from Doppler). See
 # .github/RELEASING.md for the Azure RBAC role and one-time setup:
@@ -61,9 +80,23 @@ on:
         description: "Existing tag to build and release (e.g. v0.13.0)"
         required: true
 
-# The release step creates a release and uploads an asset.
+# Read-only by default. `contents: write` is granted per job, only to `release`
+# and the four publish jobs, none of which runs cargo. A job that compiles code
+# never holds a token able to publish.
+#
+# EVERY `uses:` IN THIS WORKFLOW IS PINNED BY COMMIT SHA. The publish jobs hold
+# that write token and the signing identities, so a floating tag or branch ref
+# would let an upstream retag run arbitrary code with the power to sign and
+# publish a Hark binary. `dtolnay/rust-toolchain@stable` was the sharpest case:
+# `stable` is a mutable BRANCH, not a tag.
 permissions:
-  contents: write
+  contents: read
+
+# ci.yml's `rust` job sets this on every leg, so the check jobs carry it too
+# and see the same environment as the cache they restore. It is also the
+# deployment target the shipped macOS binary is built for. Inert elsewhere.
+env:
+  MACOSX_DEPLOYMENT_TARGET: "14.2"
 
 concurrency:
   group: release-${{ github.event.inputs.tag || github.ref_name }}
@@ -71,22 +104,18 @@ concurrency:
 
 jobs:
   # ---------------------------------------------------------------------------
-  # The gate every other job hangs off, and the only job that ever creates the
-  # release object. Seconds long: no Rust toolchain, no secrets, nothing to
-  # compile.
+  # The gate every other job hangs off. Seconds long: no Rust toolchain, no
+  # secrets, nothing to compile, and no write token.
   #
-  # Both checks here used to live inside the Windows job, where the Linux jobs
-  # inherited them only by accident of `needs: release`. Now that the builds run
-  # in parallel there is no such accident left to rely on, so the version
-  # agreement and the wiring guard sit upstream of all three builds instead of
-  # inside one of them. A red guard or a mistagged commit now stops the release
-  # before any job has built -- or created -- anything.
+  # The version agreement and the wiring guard sit upstream of every build, so
+  # a red guard or a mistagged commit stops the release before any job has
+  # built -- or created -- anything.
   version:
-    name: Version gate + release object
+    name: Version gate
     runs-on: ubuntu-latest
-    # Consumed by all three build jobs so the tag/package.json/Cargo.toml
+    # Consumed by every downstream job so the tag/package.json/Cargo.toml
     # agreement is verified exactly once, in the step below, rather than
-    # re-derived three times with three chances to disagree.
+    # re-derived per job with a chance to disagree.
     outputs:
       version: ${{ steps.version.outputs.version }}
       tag: ${{ steps.version.outputs.tag }}
@@ -137,11 +166,11 @@ jobs:
       # because ci.yml has no tag trigger, a `v0.35.4` tag would have built,
       # signed and published over a red guard without ever consulting it. The
       # guard is the ONLY check in this workflow that is not otherwise
-      # duplicated in the build jobs below, so it is the one this workflow most
+      # duplicated in the check jobs below, so it is the one this workflow most
       # needed.
       #
       # On ubuntu here, where it once ran on windows-latest, because this job is
-      # the common ancestor and gating all three builds is worth more than the
+      # the common ancestor and gating every build is worth more than the
       # runner it happens to run on. Windows coverage of the guard did not go
       # anywhere: ci.yml runs it on ubuntu AND windows on every push, precisely
       # so a fs.globSync path-separator divergence surfaces there rather than on
@@ -154,36 +183,74 @@ jobs:
       - name: Claude wiring guard (rule scoping + hook matchers)
         run: npm run check:claude
 
-      # THE ONE PLACE A RELEASE IS CREATED. Every build job below passes only
-      # tag_name and files, so each is a pure append and they cannot race.
-      #
-      # generate_release_notes belongs to this call alone: asking for it again
-      # on an append would regenerate the body and overwrite it on every
-      # subsequent upload.
-      #
-      # Consequence worth knowing: the release object now exists before any
-      # artifact does. It is empty until the Windows job attaches the installer
-      # ~20 min later, and it stays empty if that job fails. The in-app update
-      # checker reads `releases/latest` and offers whatever tag it finds, asset
-      # or no asset, so a failed Windows build leaves a real (if brief) window
-      # where Hark offers an update it cannot download. Creating the release
-      # from a build job instead is what the 422 race above rules out; making it
-      # a draft and publishing it at the end would close the window, but only if
-      # action-gh-release resolves a draft by tag reliably, which is not
-      # something to find out during a release.
+  # ---------------------------------------------------------------------------
+  # THE ONE PLACE A RELEASE IS CREATED, and only once all three platforms'
+  # checks have passed. Every publish job needs this one and passes only
+  # tag_name and files, so each is a pure append and they cannot race.
+  #
+  # Until 0.68.9 `version` created the release before anything was checked, so
+  # a tag whose tests failed still left an empty release behind -- and the
+  # in-app update checker reads `releases/latest` and offers whatever tag it
+  # finds, asset or no asset. Waiting for the checks costs no wall clock: they
+  # finish before the builds, and every publish job waits on a build anyway.
+  #
+  # The window is narrower, not gone: a build, signing or upload failure after
+  # this point still leaves a release missing that platform's asset. Making it
+  # a draft and publishing it at the end would close it, but only if
+  # action-gh-release resolves a draft by tag reliably, which is not something
+  # to find out during a release.
+  #
+  # generate_release_notes belongs to this call alone: asking for it again on
+  # an append would regenerate the body and overwrite it on every upload. No
+  # checkout: the action only talks to the API.
+  release:
+    name: Release object
+    needs: [version, windows-check, linux-check, macos-check]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
       - name: Create the GitHub release
         uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228 # v3.0.2
         with:
-          tag_name: ${{ steps.version.outputs.tag }}
-          name: Hark ${{ steps.version.outputs.version }}
+          tag_name: ${{ needs.version.outputs.tag }}
+          name: Hark ${{ needs.version.outputs.version }}
           generate_release_notes: true
 
   # ---------------------------------------------------------------------------
-  # Windows: the signed installer, and the only Windows download. Runs in
-  # parallel with `linux`; both only append to the release `version` already
-  # created.
-  release:
-    name: Windows (signed installer)
+  # Windows: the signed installer, and the only Windows download.
+  #
+  # THE RELEASE GATE. The check jobs duplicate ci.yml on purpose.
+  #
+  # ci.yml and release.yml used to be wholly independent, so a tag shipped
+  # whatever it pointed at regardless of whether the repo's own checks
+  # passed. That is not hypothetical: a stale Windows-only test in
+  # hark-hotkey failed CI on every push from 0.33.0 through 0.35.1, and all
+  # four Release runs in that window published signed installers anyway.
+  #
+  # Gating on ci.yml's conclusion instead was considered and rejected.
+  # ci.yml deliberately has no tag trigger (adding one changes the OIDC
+  # subject claim and breaks Azure signing -- LL-G github-actions, HIGH), so
+  # no CI run exists on the tag itself; and workflow_run would run this job
+  # in default-branch context, where github.ref is refs/heads/main and the
+  # tag-derived version resolution upstream has nothing to read. Querying
+  # CI's conclusion for the tagged SHA is racy -- the commit and tag are
+  # pushed together, so both workflows start in the same second -- and gives
+  # no safe answer when a SHA has no CI run at all (a workflow_dispatch
+  # re-release of an old tag). Checking the tree in-process has none of
+  # those failure modes: it verifies exactly what is about to be signed.
+  #
+  # The checks run BESIDE the build, not before it, and that keeps the gate
+  # whole: the signing job `needs` both, so a bad tree still never reaches the
+  # signing steps and never spends Trusted Signing quota. It just no longer
+  # makes an ~11 min build wait for them.
+  #
+  # SCOPE: this runner is windows-latest, so cargo fmt/clippy/test here catch
+  # Windows and platform-independent failures only -- which is exactly why
+  # linux-check and macos-check run their own copies rather than trusting
+  # this one.
+  windows-check:
+    name: Windows checks (fmt, clippy, test)
     needs: version
     runs-on: windows-latest
     steps:
@@ -196,20 +263,30 @@ jobs:
       # rust-version = "1.97" floor (Cargo.toml) makes cargo error if the runner's
       # stable is ever older, which is the libsqlite3-sys MSRV trap this guards
       # against.
-      #
-      # EVERY `uses:` IN THIS JOB IS PINNED BY COMMIT SHA. This job holds
-      # `contents: write` and the Azure Trusted Signing service principal, so a
-      # floating tag or branch ref here would let an upstream retag run arbitrary
-      # code with the power to sign and publish a Hark binary. `dtolnay/rust-toolchain@stable`
-      # was the sharpest case: `stable` is a mutable BRANCH, not a tag.
       - name: Install Rust
         uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c # stable branch @ 2026-07
         with:
           toolchain: stable
           components: rustfmt, clippy
 
-      - name: Cache cargo build
+      # The cache ci.yml's `rust` job saves on main for this OS (same
+      # shared-key), restored and never saved. A tag run cannot usefully save
+      # one: GitHub scopes a cache to the ref that wrote it, so one saved on
+      # v0.68.4 is invisible to v0.68.5.
+      #
+      # Only the check jobs restore it. They ship nothing and hold no secret
+      # and no write token, so whatever a cache could carry in stops here. The
+      # build jobs stay cache-free on purpose: anything that runs on main can
+      # write main's cache, and the signed binary should not depend on all of
+      # it.
+      #
+      # Debug profile, the one ci.yml builds, so this cache is warm for every
+      # command below.
+      - name: Restore main's CI cache
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          shared-key: rust-checks
+          save-if: false
 
       # Keep in sync with ci.yml: rust-cache preserves stale build-script
       # output and empty lib directories after pruning sherpa's native files.
@@ -219,38 +296,6 @@ jobs:
           cargo clean --package sherpa-onnx-sys
           rm -rf target/sherpa-onnx-prebuilt
 
-      # THE RELEASE GATE. These steps duplicate ci.yml on purpose.
-      #
-      # ci.yml and release.yml used to be wholly independent, so a tag shipped
-      # whatever it pointed at regardless of whether the repo's own checks
-      # passed. That is not hypothetical: a stale Windows-only test in
-      # hark-hotkey failed CI on every push from 0.33.0 through 0.35.1, and all
-      # four Release runs in that window published signed installers anyway.
-      #
-      # Gating on ci.yml's conclusion instead was considered and rejected.
-      # ci.yml deliberately has no tag trigger (adding one changes the OIDC
-      # subject claim and breaks Azure signing -- LL-G github-actions, HIGH), so
-      # no CI run exists on the tag itself; and workflow_run would run this job
-      # in default-branch context, where github.ref is refs/heads/main and the
-      # tag-derived version resolution upstream has nothing to read. Querying
-      # CI's conclusion for the tagged SHA is racy -- the commit and tag are
-      # pushed together, so both workflows start in the same second -- and gives
-      # no safe answer when a SHA has no CI run at all (a workflow_dispatch
-      # re-release of an old tag). Checking the tree in-process has none of
-      # those failure modes: it verifies exactly what is about to be signed.
-      #
-      # Placed before the build so a bad tree never reaches the signing steps
-      # and never spends Trusted Signing quota. Costs ~2-4 min on a ~21 min job.
-      #
-      # SCOPE: this runner is windows-latest, so cargo fmt/clippy/test here catch
-      # Windows and platform-independent failures only -- which is exactly why
-      # the ubuntu job below runs its own copy rather than trusting this one.
-      # macOS-only clippy/test breakage remains ci.yml's job.
-      #
-      # Default (debug) profile, deliberately: --all-targets in release profile
-      # would drop test executables into target/release, which the signing step
-      # globs non-recursively and would then sign and ship. Debug artifacts land
-      # in target/debug and leave that glob matching exactly one exe.
       - name: cargo fmt
         run: cargo fmt --all -- --check
 
@@ -263,9 +308,64 @@ jobs:
       - name: cargo test
         run: cargo test --workspace
 
-      # Only hark-app, so target/release holds exactly one top-level exe.
+  # A clean, uncached release build. Only the exe leaves this job, as an
+  # artifact for the signing job; nothing here can sign or publish.
+  windows-build:
+    name: Windows build (release exe)
+    needs: version
+    runs-on: windows-latest
+    steps:
+      - name: Check out the tagged commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c # stable branch @ 2026-07
+        with:
+          toolchain: stable
+
+      # Only hark-app: it is the only binary that ships.
       - name: Build release binary
         run: cargo build --release -p hark-app
+
+      # Five days so a signing job that failed on a Friday can still be re-run
+      # on Monday without rebuilding; overwrite so re-running THIS job can
+      # upload under the same name again. Every hand-off below does the same.
+      - name: Hand the exe to the signing job
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: windows-exe
+          path: target/release/hark-app.exe
+          if-no-files-found: error
+          retention-days: 5
+          overwrite: true
+
+  # The only Windows job that holds the signing identity or a write token, and
+  # it compiles nothing: it signs the exe windows-build produced, packages it
+  # into the installer, verifies every signature and attaches the installer.
+  windows:
+    name: Windows (sign, package, attach)
+    needs: [version, release, windows-check, windows-build]
+    runs-on: windows-latest
+    permissions:
+      contents: write
+    steps:
+      # For installer\hark.iss and the files it bundles. No Rust toolchain:
+      # nothing here compiles.
+      - name: Check out the tagged commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
+
+      # Into its own folder, so the signing step's non-recursive exe glob can
+      # only ever match this one file. download-artifact v8 fails on a digest
+      # mismatch by default.
+      - name: Fetch the unsigned exe
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: windows-exe
+          path: ${{ runner.temp }}\hark-bin
 
       # DefaultAzureCredential fails deep inside signtool with an opaque
       # "SignerSign() failed" if any auth/config secret is empty. Catch that
@@ -312,7 +412,7 @@ jobs:
           endpoint: ${{ secrets.AZURE_TRUSTED_SIGNING_ENDPOINT }}
           signing-account-name: ${{ secrets.AZURE_TRUSTED_SIGNING_ACCOUNT_NAME }}
           certificate-profile-name: ${{ secrets.AZURE_TRUSTED_SIGNING_CERT_PROFILE_NAME }}
-          files-folder: ${{ github.workspace }}\target\release
+          files-folder: ${{ runner.temp }}\hark-bin
           files-folder-filter: exe
           files-folder-recurse: false
           file-digest: SHA256
@@ -323,7 +423,7 @@ jobs:
       - name: Verify the signature
         shell: pwsh
         run: |
-          $exe = "target\release\hark-app.exe"
+          $exe = Join-Path $env:RUNNER_TEMP 'hark-bin\hark-app.exe'
           $sig = Get-AuthenticodeSignature $exe
           Write-Host "Status: $($sig.Status)"
           Write-Host "Signer: $($sig.SignerCertificate.Subject)"
@@ -419,7 +519,7 @@ jobs:
                   ' /dmdf $q' + $env:INNO_SIGN_METADATA + '$q $f'
           & $iscc `
             "/DAppVersion=${{ needs.version.outputs.version }}" `
-            "/DSourceExe=${{ github.workspace }}\target\release\hark-app.exe" `
+            "/DSourceExe=$(Join-Path $env:RUNNER_TEMP 'hark-bin\hark-app.exe')" `
             "/DSign" `
             "/Shark=$sign" `
             installer\hark.iss
@@ -491,7 +591,7 @@ jobs:
           if (-not (Test-Path $installer)) { throw "Installer not found at $installer" }
           Add-Content -Path $env:GITHUB_OUTPUT -Value "installer=$installer"
 
-      # Append only. No name and no generate_release_notes: the `version` job
+      # Append only. No name and no generate_release_notes: the `release` job
       # set both when it created the release, and passing them again here would
       # overwrite the body every time an asset lands.
       - name: Attach the Windows installer to the release
@@ -503,34 +603,22 @@ jobs:
   # ---------------------------------------------------------------------------
   # Linux: .deb, .rpm and a portable .tar.gz, built and gated on ubuntu.
   #
-  # `needs: version`, not `needs: release`: it needs the release object to exist
-  # and the version to be resolved, and both of those now happen upstream, so
-  # there is nothing left to wait on the Windows build for. The two run
-  # side by side.
+  # No Linux job waits on a Windows one. A consequence of that, stated plainly:
+  # a Windows gate failure does not stop the Linux packages from being
+  # attached. Both platforms gate themselves on the same tree, so a failure
+  # that would stop one generally stops the other; what is genuinely
+  # Windows-only (signing, Inno Setup) can leave a release holding Linux assets
+  # and no installer. That is the trade for the wall clock, and it is visible
+  # -- a red job on the run, and a release with no .exe.
   #
-  # A consequence of that, stated plainly: a Windows gate failure no longer
-  # stops the Linux packages from being attached. Both jobs gate themselves on
-  # the same tree, so a failure that would stop one generally stops the other;
-  # what is genuinely Windows-only (signing, Inno Setup) can now leave a release
-  # holding Linux assets and no installer. That is the trade for the wall clock,
-  # and it is visible -- a red job on the run, and a release with no .exe.
-  #
-  # This job runs its own fmt/clippy/test pass rather than trusting the Windows
-  # job's. Those steps there run on windows-latest and so only ever exercise the
-  # Windows cfg branches; everything Linux-specific in 0.36.0 -- the evdev
-  # listener, the uinput paste, the XDG autostart entry, the GTK tray thread --
-  # is invisible to them. Same reasoning the Windows gate is inline: verify
-  # exactly what is about to be shipped.
-  #
-  # GLIBC FLOOR. The binary is dynamically linked, so it requires at least the
-  # glibc of the runner that built it -- currently 2.39 (Ubuntu 24.04), which
-  # covers Ubuntu 24.04+, Debian 13+ and Fedora 40+, and excludes Debian 12.
-  # Building on an older image would widen that, but ubuntu-22.04 begins
-  # deprecation in September 2026 and is unsupported from April 2027, so
-  # pinning to it would trade a known limitation for a scheduled outage.
-  # packaging/LINUX.md states the requirement.
-  linux:
-    name: Linux (deb + rpm + tarball)
+  # linux-check runs its own fmt/clippy/test pass rather than trusting the
+  # Windows one. windows-check runs on windows-latest and so only ever
+  # exercises the Windows cfg branches; everything Linux-specific in 0.36.0 --
+  # the evdev listener, the uinput paste, the XDG autostart entry, the GTK tray
+  # thread -- is invisible to it. Same reasoning the Windows gate is inline:
+  # verify exactly what is about to be shipped.
+  linux-check:
+    name: Linux checks (fmt, clippy, test)
     needs: version
     runs-on: ubuntu-latest
     steps:
@@ -539,9 +627,10 @@ jobs:
         with:
           ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
 
-      # Same list as ci.yml's Linux leg; keep the two in step.
-      # The isolated PipeWire socket tests load protocol-native at runtime;
-      # its modules package is not pulled in by -dev with no recommends.
+      # Same list as ci.yml's Linux leg and linux-build below; keep all three
+      # in step. The isolated PipeWire socket tests load protocol-native at
+      # runtime; its modules package is not pulled in by -dev with no
+      # recommends.
       - name: Install build dependencies
         run: |
           sudo apt-get update
@@ -550,20 +639,19 @@ jobs:
             libpipewire-0.3-dev libpipewire-0.3-modules \
             libxkbcommon-dev libx11-dev pkg-config cmake clang
 
-      # SHA-pinned for the same reason every `uses:` in the Windows job is: this
-      # workflow holds `contents: write`, so a floating ref here could publish
-      # an arbitrary asset onto a Hark release.
       - name: Install Rust
         uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c # stable branch @ 2026-07
         with:
           toolchain: stable
           components: rustfmt, clippy
 
-      # Caches ~/.cargo/bin too, so cargo-deb and cargo-generate-rpm are
-      # compiled once and restored afterwards instead of on every release.
-      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      # Same cache, same rules as windows-check: restored from main, never
+      # saved, and never anywhere near a shipped binary.
+      - name: Restore main's CI cache
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
-          key: release-linux
+          shared-key: rust-checks
+          save-if: false
 
       # Keep in sync with ci.yml: rust-cache preserves stale build-script
       # output and empty lib directories after pruning sherpa's native files.
@@ -585,20 +673,70 @@ jobs:
       - name: cargo test
         run: cargo test --workspace
 
+  # GLIBC FLOOR. The binary is dynamically linked, so it requires at least the
+  # glibc of the runner that built it -- currently 2.39 (Ubuntu 24.04), which
+  # covers Ubuntu 24.04+, Debian 13+ and Fedora 40+, and excludes Debian 12.
+  # Building on an older image would widen that, but ubuntu-22.04 begins
+  # deprecation in September 2026 and is unsupported from April 2027, so
+  # pinning to it would trade a known limitation for a scheduled outage.
+  # packaging/LINUX.md states the requirement.
+  #
+  # Builds AND packages here, uncached, because cargo-deb and cargo-generate-rpm
+  # read target/release directly; only the finished packages leave the job.
+  linux-build:
+    name: Linux build (binary, deb, rpm, tarball)
+    needs: version
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out the tagged commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
+
+      # Same list as linux-check. Linking needs the -dev packages, and
+      # dpkg-shlibdeps needs the runtime libraries installed to map the
+      # binary's sonames to Depends.
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libasound2-dev libgtk-3-dev libayatana-appindicator3-dev \
+            libpipewire-0.3-dev libpipewire-0.3-modules \
+            libxkbcommon-dev libx11-dev pkg-config cmake clang
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c # stable branch @ 2026-07
+        with:
+          toolchain: stable
+
       - name: Build release binary
         run: cargo build --release -p hark-app
 
+      # cargo-deb ships a .deb of itself with each GitHub release, so it
+      # installs in seconds instead of compiling. It is pinned by version AND by
+      # the sha256 GitHub records for that asset, because this job builds the
+      # packages users install and a re-uploaded binary here could alter them.
+      # cargo-generate-rpm publishes no binaries, so it still compiles -- but at
+      # a pinned version with --locked, not whatever crates.io serves that day.
+      # Until 0.68.9 both were `cargo install`ed unpinned, and the step's
+      # comment claimed the cache made that a one-off; the cache never restored,
+      # so it cost ~2.3 min every release.
+      # Refresh with:
+      #   gh api repos/kornelski/cargo-deb/releases/tags/v<ver> --jq '.assets[] | .name + " " + .digest'
       - name: Install packaging tools
-        run: cargo install cargo-deb cargo-generate-rpm --locked
-
-      # rust-cache restores target/, which on a repeat release still holds the
-      # PREVIOUS version's .deb and .rpm. Every step below resolves its artifact
-      # with a glob, and a glob that matches two files does not fail loudly --
-      # `cp $(ls *.rpm) dest` silently misbehaves, and the verification steps
-      # would happily check whichever file sorted first. Clearing the output
-      # directories is what makes those globs mean "the package we just built".
-      - name: Clear stale package output
-        run: rm -rf target/debian target/generate-rpm
+        env:
+          DEB_TOOL_VERSION: 3.8.0
+          DEB_TOOL_SHA256: c6bd0a4affaa232814cc615b2597457f1d44fdfe1c8ebd643f3a491a1f244040
+          RPM_TOOL_VERSION: 0.21.1
+        run: |
+          set -euo pipefail
+          deb="$RUNNER_TEMP/cargo-deb_${DEB_TOOL_VERSION}-1_amd64.deb"
+          curl -fsSL --retry 3 -o "$deb" \
+            "https://github.com/kornelski/cargo-deb/releases/download/v${DEB_TOOL_VERSION}/cargo-deb_${DEB_TOOL_VERSION}-1_amd64.deb"
+          echo "${DEB_TOOL_SHA256}  ${deb}" | sha256sum -c -
+          sudo apt-get install -y --no-install-recommends "$deb"
+          command -v cargo-deb
+          cargo install cargo-generate-rpm --version "$RPM_TOOL_VERSION" --locked
 
       # --no-build: package the binary built above rather than rebuilding it
       # under a different profile. Metadata lives in crates/hark-app/Cargo.toml.
@@ -622,8 +760,8 @@ jobs:
       - name: Verify package dependencies and required files
         run: |
           set -euo pipefail
-          # Belt and braces with the cleanup step: assert exactly one artifact
-          # rather than letting a glob quietly pick one of several.
+          # Assert exactly one artifact rather than letting a glob quietly pick
+          # one of several: `cp $(ls *.rpm) dest` silently misbehaves on two.
           [ "$(ls target/debian/*.deb | wc -l)" = 1 ] || { echo "::error::expected exactly one .deb"; exit 1; }
           [ "$(ls target/generate-rpm/*.rpm | wc -l)" = 1 ] || { echo "::error::expected exactly one .rpm"; exit 1; }
           deb=$(ls target/debian/*.deb)
@@ -649,7 +787,7 @@ jobs:
           # The binary must land where packaging/hark.desktop's Exec line points,
           # or the launcher entry is dead on arrival.
           # Captured once rather than piped into `grep -q` twice, for the reason
-          # spelled out in the Arch job's verify step: grep -q exits at the
+          # spelled out in the Arch build's verify step: grep -q exits at the
           # match, the producer's next write hits a closed pipe, and pipefail
           # turns that into a failed check on a good package. These two have
           # passed every release so far -- dpkg-deb gets its listing out fast
@@ -670,7 +808,6 @@ jobs:
       # cover. Carries the support files too, because without the udev rule
       # there is no Wayland paste; packaging/LINUX.md has the install commands.
       - name: Stage the assets
-        id: asset
         env:
           VERSION: ${{ needs.version.outputs.version }}
         run: |
@@ -690,18 +827,40 @@ jobs:
           cp "$(ls target/generate-rpm/*.rpm)" "dist/Hark-${VERSION}-linux-x64.rpm"
           ls -la dist
 
+      - name: Hand the packages to the publish job
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: linux-packages
+          path: dist/
+          if-no-files-found: error
+          retention-days: 5
+          overwrite: true
+
+  # Publishes only, once both the suite and the packages are good.
+  linux:
+    name: Linux (attach deb, rpm, tarball)
+    needs: [version, release, linux-check, linux-build]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Fetch the packages
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: linux-packages
+          path: dist
+
       # Uploaded one file at a time with `gh`, NOT softprops/action-gh-release.
       #
       # That action starts every path in `files:` at once, and each upload
       # creates its own asset temp directory. With three files racing, one of
       # them loses and the step dies with "Error creating asset temp dir".
       # v0.44.0 shipped without its .rpm exactly this way -- the .deb and the
-      # tarball uploaded fine, so which file loses is luck, and the failure
-      # then skipped the Arch job that `needs:` this one. Appending is still
-      # append-only: the `version` job owns the release body and nothing here
+      # tarball uploaded fine, so which file loses is luck. Appending is still
+      # append-only: the `release` job owns the release body and nothing here
       # asks for notes.
       #
-      # This is the loop the Arch job already uses, for the same reasons:
+      # This is the loop the Arch job uses too, for the same reasons:
       # `--clobber` replaces a partial asset left by a failed attempt, the
       # digest check catches a silent truncation rather than publishing one,
       # and every request is bounded so a stall leaves time to retry.
@@ -752,29 +911,31 @@ jobs:
   # ---------------------------------------------------------------------------
   # Arch: a real .pkg.tar.zst, built by makepkg inside an Arch container.
   #
-  # Built natively rather than repackaged from the ubuntu job's binary: that
-  # one links against Ubuntu's glibc and GTK sonames, which are not the ones
-  # pacman would install. An Arch package has to be built against Arch.
+  # Built natively rather than repackaged from linux-build's binary: that one
+  # links against Ubuntu's glibc and GTK sonames, which are not the ones pacman
+  # would install. An Arch package has to be built against Arch.
   #
-  # STILL `needs: linux`, and not for the release object -- `version` provides
-  # that now. The edge is load-bearing on its own: the build below runs
-  # `makepkg --nocheck`, and skipping the test suite is only justified because
-  # the ubuntu job has already run the whole suite against this exact commit.
-  # Point this at `version` alone and that justification evaporates.
-  # `version` is in `needs` as well because `needs` exposes only the jobs a job
-  # names directly -- outputs do not reach through `linux`.
+  # The build runs `makepkg --nocheck`, and skipping the suite is only
+  # defensible because the ubuntu suite has passed against this exact commit.
+  # That edge used to be `needs: linux` on the whole Arch job, which put its
+  # 8-13 min build after Linux's ~19 min and made the pair the release's long
+  # pole. Now the BUILD starts with everything else and only the PUBLISH job
+  # needs linux-check: nothing reaches the release that the suite has not
+  # passed, which is all the edge was ever for. Point `arch` at arch-build
+  # alone and that justification evaporates.
   #
   # packaging/PKGBUILD is the same file an AUR consumer would use. HARK_SRCDIR
   # switches it to building the checked-out tree, because at this moment the
   # tag's source tarball is what we are producing, not something to download.
-  linux-arch:
-    name: Arch (pkg.tar.zst)
-    needs: [version, linux]
+  arch-build:
+    name: Arch build (pkg.tar.zst)
+    needs: version
     runs-on: ubuntu-latest
-    # Digest-pinned for the same reason every `uses:` here is SHA-pinned: this
-    # workflow holds `contents: write`, and `archlinux:base-devel` is a mutable
-    # tag rebuilt every few days. A stale digest costs nothing but download
-    # time -- the `pacman -Syu` below brings the image current regardless.
+    # Digest-pinned for the same reason every `uses:` here is SHA-pinned:
+    # `archlinux:base-devel` is a mutable tag rebuilt every few days, and this
+    # job builds a package users install. A stale digest costs nothing but
+    # download time -- the `pacman -Syu` below brings the image current
+    # regardless.
     # Refresh with:
     #   docker buildx imagetools inspect archlinux:base-devel
     container:
@@ -788,11 +949,12 @@ jobs:
       # (bindgen's libclang.so ships in `clang`), and PipeWire's headers and .pc
       # are `libpipewire`. An unknown name fails the whole transaction with
       # "target not found". `cargo` is left to `rust`: naming the virtual
-      # package makes pacman stop at a provider prompt.
+      # package makes pacman stop at a provider prompt. No github-cli: the
+      # upload happens in the `arch` job, outside this container.
       - name: Install build dependencies
         run: |
           pacman -Syu --noconfirm --needed \
-            git github-cli rust pkgconf cmake clang \
+            git rust pkgconf cmake clang \
             alsa-lib gtk3 libappindicator-gtk3 libxkbcommon libx11 libxcb \
             pipewire libpipewire
 
@@ -802,9 +964,9 @@ jobs:
           ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
 
       # makepkg refuses to run as root, by design, and the container is root.
-      # --nocheck because the ubuntu job above already ran the whole suite
-      # against this exact commit; the PKGBUILD keeps check() defined for AUR
-      # consumers, who have no such guarantee.
+      # --nocheck because the `arch` job will not publish until linux-check has
+      # run the whole suite against this exact commit; the PKGBUILD keeps
+      # check() defined for AUR consumers, who have no such guarantee.
       - name: Build the package
         env:
           VERSION: ${{ needs.version.outputs.version }}
@@ -885,6 +1047,31 @@ jobs:
           grep -qE '^(\./)?usr/share/licenses/hark/THIRD_PARTY_NOTICES\.md$' <<< "$files" \
             || { echo "::error::Arch package is missing third-party notices"; exit 1; }
 
+      - name: Hand the package to the publish job
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: arch-package
+          path: dist/
+          if-no-files-found: error
+          retention-days: 5
+          overwrite: true
+
+  # `version` is in `needs` alongside the jobs this waits on because
+  # `needs` exposes only the jobs a job names directly -- outputs do not reach
+  # through arch-build.
+  arch:
+    name: Arch (attach pkg.tar.zst)
+    needs: [version, release, linux-check, arch-build]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Fetch the package
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: arch-package
+          path: dist
+
       - name: Attach the Arch package to the release
         shell: bash
         timeout-minutes: 7
@@ -924,34 +1111,95 @@ jobs:
           echo "::error::Arch asset upload failed after 3 attempts"
           exit 1
 
-
-  macos:
-    name: macOS (arm64, signed + notarized)
+  # ---------------------------------------------------------------------------
+  # macOS: a signed, notarized Apple Silicon disk image. Same three-way split
+  # as Windows: macos-check gates, macos-build compiles clean, and only
+  # `macos` touches the Developer ID or the release.
+  macos-check:
+    name: macOS checks (fmt, clippy, test)
     needs: version
     runs-on: macos-15
-    env:
-      MACOSX_DEPLOYMENT_TARGET: "14.2"
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Check out the tagged commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
-      - uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c # stable branch @ 2026-07
         with:
           toolchain: stable
           components: rustfmt, clippy
-      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+
+      # Same cache, same rules as windows-check.
+      - name: Restore main's CI cache
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
-          key: macos-release-arm64
-      - name: Reset sherpa native cache
+          shared-key: rust-checks
+          save-if: false
+
+      - name: Reset sherpa-onnx native cache
         run: |
           cargo clean --package sherpa-onnx-sys
           rm -rf target/sherpa-onnx-prebuilt
-      - name: Verify and build
-        run: |
-          cargo fmt --all -- --check
-          cargo clippy --all-targets -- -D warnings
-          cargo test --workspace
-          cargo build --release -p hark-app
+
+      - name: cargo fmt
+        run: cargo fmt --all -- --check
+
+      - name: cargo clippy
+        run: cargo clippy --all-targets -- -D warnings
+
+      - name: cargo test
+        run: cargo test --workspace
+
+  macos-build:
+    name: macOS build (arm64 binary)
+    needs: version
+    runs-on: macos-15
+    steps:
+      - name: Check out the tagged commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c # stable branch @ 2026-07
+        with:
+          toolchain: stable
+
+      - name: Build release binary
+        run: cargo build --release -p hark-app
+
+      - name: Hand the binary to the signing job
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: macos-binary
+          path: target/release/hark-app
+          if-no-files-found: error
+          retention-days: 5
+          overwrite: true
+
+  macos:
+    name: macOS (arm64, sign, notarize, attach)
+    needs: [version, release, macos-check, macos-build]
+    runs-on: macos-15
+    permissions:
+      contents: write
+    steps:
+      # For scripts/package-macos.sh and the bundle resources it copies.
+      - name: Check out the tagged commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
+
+      # upload-artifact drops Unix mode bits; package-macos.sh chmods the copy
+      # it bundles to 755, so the downloaded file needs no fix-up.
+      - name: Fetch the unsigned binary
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: macos-binary
+          path: ${{ runner.temp }}/hark-bin
+
       - name: Import Developer ID and notarization credentials
         env:
           CERTIFICATE: ${{ secrets.MACOS_CERTIFICATE_P12_BASE64 }}
@@ -976,6 +1224,7 @@ jobs:
           security list-keychains -d user -s "$keychain" login.keychain-db
           xcrun notarytool store-credentials hark-notary --keychain "$keychain" --apple-id "$APPLE_ID" --team-id "$TEAM_ID" --password "$APP_PASSWORD"
           rm "$RUNNER_TEMP/hark-signing.p12"
+
       - name: Package, sign and notarize
         env:
           MACOS_SIGNING_IDENTITY: ${{ secrets.MACOS_SIGNING_IDENTITY }}
@@ -984,11 +1233,13 @@ jobs:
           HARK_RELEASE: "1"
           VERSION: ${{ needs.version.outputs.version }}
           ARCH: arm64
-        run: bash scripts/package-macos.sh target/release/hark-app dist "$VERSION" "$ARCH"
+        run: bash scripts/package-macos.sh "$RUNNER_TEMP/hark-bin/hark-app" dist "$VERSION" "$ARCH"
+
       - name: Verify packaged executable starts
         env:
           VERSION: ${{ needs.version.outputs.version }}
         run: test "$(dist/Hark.app/Contents/MacOS/hark-app --version)" = "Hark $VERSION"
+
       - name: Publish notarized disk image
         env:
           GH_TOKEN: ${{ github.token }}
@@ -997,6 +1248,7 @@ jobs:
           VERSION: ${{ needs.version.outputs.version }}
           ARCH: arm64
         run: gh release upload "$TAG" "dist/Hark-$VERSION-macos-$ARCH.dmg" --clobber
+
       - name: Remove signing credentials
         if: always()
         run: |
