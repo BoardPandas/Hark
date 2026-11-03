@@ -82,6 +82,7 @@ Hooks can return structured output (`hookSpecificOutput`) to influence the sessi
 
 **Recommended for active development:**
 - `PostToolUse` with `Write(*)` or `Edit(*)` matcher — auto-lint after file changes (if linter is configured)
+- `PostToolUse` on `Bash` with `if: "Bash(git *)"` — after a push of the default branch, list merged branches and clean worktrees for Claude to offer to remove (`post-push-cleanup.sh`). Advisory: it never deletes, and it confirms the push from the `origin/<default>` reflog rather than the command text
 - `PreToolUse` with `Bash(rm -rf*)` matcher — block dangerous delete commands
 - `SubagentStop` — notification when long-running subagents complete
 
