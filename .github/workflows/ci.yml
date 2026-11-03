@@ -68,6 +68,13 @@ jobs:
       - name: Commit hook tests (worktree and cross-repo targeting)
         run: node --test scripts/commit-hooks.test.mjs
 
+      # The post-push cleanup hook shares the commit hooks' git-command parser and
+      # runs real pushes against a throwaway bare remote. Linux leg only: the suite
+      # has not been run under Windows path semantics.
+      - name: Post-push cleanup hook tests
+        if: runner.os != 'Windows'
+        run: node --test scripts/post-push-cleanup.test.mjs
+
   # Source-to-page drift is silent: generated prose can keep rendering cleanly
   # while describing code that no longer exists. This guard checks the TOC's
   # source mappings against the last documented commit and requires every
