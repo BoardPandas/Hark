@@ -40,7 +40,7 @@ next hook will block this command. Before committing, you MUST:
 
      ## [<new version>] - $(date +%Y-%m-%d)
 
-     ### Added / Changed / Fixed / Removed / Security
+     ### Added / Changed / Deprecated / Removed / Fixed / Security
      - Entries written from the user's perspective, not implementation details.
 
 3. Bump version in package.json to that same version (Major.Minor.Patch,

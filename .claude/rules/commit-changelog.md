@@ -12,11 +12,23 @@ Before every `git commit`, you MUST:
 - Categorize changes using [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) sections:
   - **Added** — new features or capabilities
   - **Changed** — changes to existing functionality
-  - **Fixed** — bug fixes
+  - **Deprecated** — features that will be removed
   - **Removed** — removed features
+  - **Fixed** — bug fixes
   - **Security** — vulnerability fixes
+- Use only those six headings, each once per version, in that order. A note that is not a
+  change (known gaps, upgrade steps) goes in a bold `**Known gaps:**` paragraph above them.
 - Review staged changes (`git diff --cached`) to determine what changed.
 - Write entries from the user's perspective, not implementation details.
+- Heading format: `## [X.Y.Z] - YYYY-MM-DD`, newest first, one heading per version.
+- Links: the bottom of CHANGELOG.md links every version that has a release tag
+  (`[X.Y.Z]: .../compare/vPREV...vX.Y.Z`, PREV being the previous tagged version) and points
+  `[Unreleased]` at `compare/v<newest tag>...HEAD`. Tags are pushed by hand only to cut a
+  release, because a `v*` tag starts `release.yml` (see `.github/RELEASING.md`). When you cut
+  one, add its link and repoint `[Unreleased]` in the same change. A version that is never
+  tagged gets no link; never push a tag just to make a link work.
+- Over 100 KB: move the oldest releases and their links into `CHANGELOG-archive.md` (newest
+  first) until CHANGELOG.md is under 50 KB, keeping at least the 10 newest releases there.
 
 ## 2. Bump Version in package.json
 
@@ -37,7 +49,7 @@ Rules:
 
 ## 3. Stage Both Files
 
-After updating, stage both files before committing:
+After updating, stage both files before committing (plus `CHANGELOG-archive.md` if you archived):
 ```bash
 git add CHANGELOG.md package.json
 ```

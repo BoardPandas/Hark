@@ -1,0 +1,1422 @@
+# Changelog archive
+
+Older releases of this project, moved out of [CHANGELOG.md](CHANGELOG.md) to keep that file short.
+The format is the same: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
+
+## [0.56.1] - 2026-09-28
+
+### Fixed
+- Meeting MP3 archives and audio exports now preserve the ending audio when encoding finishes, including very short excerpts. Mono MP3 exports use 40 kbps instead of 32 kbps so gapless timing metadata fits; nominal file sizes increase by 25%. Stereo archives remain 64 kbps. Existing recordings are unchanged and missing audio from older archives cannot be reconstructed.
+
+## [0.56.0] - 2026-09-28
+
+### Added
+- **Reproducible meeting echo-cancellation comparison:** a standalone, offline tool compares Rust AEC3 and the C++ WebRTC wrapper with identical synthetic inputs and a bypass control. Includes pinned dependencies/build tools, 63 numeric measurements, and a real-speaker/headphone listening procedure.
+
+### Changed
+- Reconciled Meetings setup, provider privacy, implementation lessons, verification, and release status across the six Polish items. Production echo cancellation remains disabled; the user still chooses an engine after real-speaker testing, native build qualification, and capture-alignment work.
+
+## [0.55.0] - 2026-09-28
+
+### Added
+- **Gemini meeting final pass:** explicitly select Gemini in Settings > Meetings to refine the completed call using your Gemini key and a separate model setting (default `gemini-3.8-flash`). Each microphone/playback track is processed in five-minute windows; remote speakers are labeled by window because speaker identity cannot be assumed across requests.
+- Files uploads request deletion after success or failure, including lost or malformed finalization replies. Cleanup failures are reported. Invalid or conspicuously incomplete results preserve the live transcript; a missing key never silently switches providers.
+
+### Changed
+- Config schema 5 adds the Gemini model default while preserving existing final-pass choices, shortcuts, and auto-stop settings. The saved-recording **Re-run final pass** action remains an explicit Deepgram upload.
+
+## [0.54.0] - 2026-09-28
+
+### Added
+- **More ways to share meetings:** save SRT/VTT subtitles, export a Word document, or open the native Windows Share sheet with the meeting's text.
+- **Save an excerpt with audio.** Select transcript lines or enter a time range, then export a mono MP3 or WAV alongside matching transcript text. Crossing transcript lines are included in full, with rebased timestamps; meeting-wide notes are omitted.
+
+### Changed
+- Audio excerpts decode before sample selection and re-encode only the chosen range. Exports reject Hark's internal meeting-storage folder, use owned temporary files, and refuse to overwrite an existing companion excerpt transcript. Save dialogs and file writes stay on workers; the Windows Share source stays on the main UI thread.
+
+## [0.53.1] - 2026-09-28
+
+### Fixed
+- Fixed the Windows build of the shared meeting shortcut by allocating its larger tracker once during listener setup. Key handling keeps the same behavior and performs no new allocation in the hook callback.
+
+## [0.53.0] - 2026-09-28
+
+### Added
+- **An optional Windows meeting shortcut.** Set **Start / stop shortcut** in Settings → Meetings, then press once to start and again to stop. It starts unassigned, works even when dictation has no provider key, and stays inactive while Meetings is disabled.
+
+### Changed
+- Push-to-talk and meeting shortcuts share one Windows keyboard hook. Repeats and injected input cannot create extra meeting toggles; equal chords and chords containing all of the other's keys are rejected. Recording a dictation shortcut temporarily bypasses both bindings.
+- Config schema 4 adds the optional meeting binding with a versioned backup and immediate save on migration. Existing provider choices and user-selected auto-stop values stay unchanged.
+
+## [0.52.0] - 2026-09-28
+
+### Changed
+- **Meeting detection responds to Windows microphone-use changes.** Registry notifications wake detection promptly, with a ten-second check for browser title changes and a two-second polling fallback if notifications are unavailable. The existing five-second debounce and configurable auto-stop delay (15 seconds by default) keep their meanings.
+- Detection takes fresh snapshots when debounce and auto-stop deadlines expire, including when the last registry notification was missed. The registry watcher rearms after each change, retries unavailable watches, and shuts down explicitly so its channel cannot hold Hark open.
+
+## [0.51.0] - 2026-09-28
+
+### Added
+- **Re-run a saved meeting's final pass.** Confirm an upload to Deepgram using your own key to replace the transcript from retained stereo audio. The archive is sent unchanged; uncompressed recordings use their original WAV tracks. Notes and the meeting title stay, and speaker names reset only after a successful replacement.
+
+### Fixed
+- A failed or empty final pass keeps the previous transcript. Transcript replacement, search-index changes, and speaker-name resets commit together; the UI reports completion only after the storage worker confirms the save. Busy meetings cannot be deleted, renamed by speaker, or reprocessed again while that work is running.
+
+## [0.50.5] - 2026-09-28
+
+### Changed
+- Documented Windows Meetings in the README, including recording scope and start modes, local audio storage and its cap, provider uploads, deletion, and participant consent. Clarified that on-device Primary keeps live meeting transcription local but does not disable the separate Deepgram final pass or notes generation.
+- Updated the Meetings plan with reported Teams and Google Meet validation and confirmed that speaker renaming and transcript search already shipped; other meeting-app executable names still need live-call validation.
+- Published the Meetings lessons in the shared knowledge base, including hidden prompts, wordless transcription chunks, visible auto-stop waits, pre-join microphone detection, Windows filename collisions, and App Control build restrictions.
+
+## [0.50.4] - 2026-09-28
+
+### Changed
+- **Starting notes by hand during a call now stops them when the call ends.** If a meeting app such as Teams, Zoom or a Meet tab is using your microphone when you press Start, Hark ties the notes to that call and stops 15 seconds after it hangs up, just as if you had accepted the prompt. Starting notes with no call in progress, for an in-person meeting, still never stops on its own.
+
+### Fixed
+- **The "Take meeting notes?" prompt now appears reliably.** It could fail to show at all: it appeared for a Teams call and never for a Google Meet call in Chrome. Hark's main window now shows and positions the prompt itself, at the bottom-right of the screen you're using, and each step is noted in Hark's log so any future miss can be traced.
+- **Quiet stretches no longer count as failed transcription.** When you were mostly listening, parts of the call with no speech from you were recorded as failed lines with Gemini. They are now treated as silence, and Hark waits longer for meeting audio than for a dictation before giving up.
+
+## [0.50.3] - 2026-09-27
+
+### Changed
+- **Meeting notes now stop 15 seconds after the call ends, and tell you so.** Hark used to wait a full minute after the meeting app hung up, with nothing on screen, which looked like it wasn't working. When the call ends, the Meetings page shows when the notes will stop, with a **Stop now** button, and the tray tooltip says the same. If the call picks the microphone back up (switching headsets mid-call), recording simply carries on. If you had never changed this setting, it moves to 15 seconds; a value you chose stays as it is.
+
+## [0.50.2] - 2026-09-27
+
+## [0.50.1] - 2026-09-27
+
+### Fixed
+- The Linux and macOS builds of 0.50.0 failed to compile: three pieces of the new meeting code were only used on Windows and tripped the strict build checks elsewhere. Meeting notes stay Windows-only for now; the other platforms build as before.
+
+## [0.50.0] - 2026-09-27
+
+### Added
+- **Meeting notes (Windows).** Hark can now record a call in any app, whether Teams, Zoom, Webex, Slack, Discord or a Meet tab, with no bot joining it:
+  - **Starting and stopping:** from the tray or the new Meetings page. Hark can also offer to start when a call opens your microphone, or start on its own, and it stops a minute after the call releases the microphone.
+  - **Live transcript:** while you talk, lines from you and from everyone else appear about half a minute behind, labelled Me and Them.
+  - **After the call:** with a Deepgram key (Settings > Meetings), each other speaker is labelled Speaker 1, 2, 3, and you can rename them. With a text provider set up for voice cleanup, Hark writes a title, a summary, key points, decisions and action items you can tick off.
+  - **Search and sharing:** meetings are searchable. Notes and transcripts can be copied or saved as Markdown or text, and the audio saved as a small MP3 or a WAV anyone can play.
+  - **Storage:** recordings are compressed to about 29 MB an hour and kept under a storage limit (5 GB by default). When the limit is reached, the oldest meetings lose their audio first; transcripts and notes are never deleted.
+  - **Consent:** the first time, Hark reminds you that some places require everyone's consent to record a call.
+
+## [0.49.0] - 2026-09-26
+
+### Added
+- Added the next building blocks of meeting transcription, still not reachable in the app. Hark can now tell when Teams, Zoom, Webex, Slack, Discord or a browser meeting (Meet, Teams on the web) starts using your microphone, waiting 5 seconds so a quick device test doesn't count. It then offers to take notes or starts on its own, and stops once the call has released the microphone for a minute. Answering "Not this meeting" means it won't ask again during that call, and a meeting you start yourself is never stopped automatically. A storage limit for recordings is also in place: when it is reached, the oldest meetings' audio is deleted first, never their transcripts or notes, and never a meeting still being recorded or processed.
+
+### Changed
+- The documentation drift check no longer fails on a commit whose only change to `Cargo.toml` or `package.json` is the release-version bump that every commit makes. Before, main's CI went red on every bump unless someone made a cosmetic doc edit. Any other change to those files is still checked, and a test in CI pins the exemption to the version line.
+
+## [0.48.0] - 2026-09-26
+
+### Added
+- Added the first building blocks of meeting transcription. None of it is reachable in the app yet. On Windows, Hark can now capture one app's audio (or everything except Hark itself) whichever speaker or headset it plays through. Each side of a call is written to its own recording file, and a file left behind by a crash is repaired on the next start. Each side is cut into 20 to 30 second pieces at natural pauses for live transcription, with silent pieces skipped, and lines from both sides stay in the order they were spoken.
+
+## [0.47.3] - 2026-09-26
+
+### Added
+- Added the results of the first Windows test build for meeting transcription to the plan, with the brief for the next build step. Recording a meeting cost under half a percent of one CPU core and about 22 MB of memory over a full hour, and push-to-talk kept working throughout. Two decisions followed: Hark will capture the meeting app's own audio, so it works whichever speaker or headset the app plays through, and speaker labels will come from Deepgram using a separate key.
+
+## [0.47.2] - 2026-09-26
+
+### Added
+- Added the approved plan for meeting transcription and the brief for its first Windows test build. The plan covers recording a Teams, Zoom or Meet call with no bot joining it, auto-detecting when a meeting starts, transcripts that label you and each other speaker, summaries and action items from your own AI key, a storage limit that deletes the oldest recordings' audio to make room, and exporting notes, transcripts and audio to share.
+
+## [0.47.1] - 2026-09-24
+
+### Added
+- Added a tool-neutral agent guide and a CI guard that reports mapped documentation pages when their source changes without a corresponding documentation update.
+
+### Changed
+- Refreshed the product, architecture, transcription, audio/hotkey, invocation, storage, spellbook, and voice-cleanup documentation through 0.47.0, including Gemini Live streaming, `gpt-transcribe`, bounded storage shutdown, exact correction aliases, current provider vocabulary contracts, and fail-open cleanup behavior.
+
+## [0.47.0] - 2026-09-24
+
+### Added
+- Invocations can now recognize exact alternate phrases for repeatable transcription errors, such as hearing "come in and" for "commit and". Alternates are editable alongside the primary trigger and use the same scope and expansion.
+
+## [0.46.0] - 2026-09-24
+
+### Added
+- **Hark tells you when another app is intercepting your push-to-talk key.** The status bar shows "Another app is intercepting F12" (or whichever key it is), explains what is going on when you hover over it, and links to the shortcut setting. The fix is to remove the other program's mapping, or pick a shortcut that doesn't use that key. The other program also acts on every push-to-talk press, and if you press the remapped key first, dictation can still cut out.
+
+### Fixed
+- **Push-to-talk no longer flickers on and off when another program remaps one of its keys.** A key remapper such as PowerToys Keyboard Manager takes the key before Windows registers it, so Windows reports it as not pressed even while you hold it. Hark checks for releases it might have missed, believed Windows, and ended the recording every quarter second. Holding the key then restarted it, which recorded a stream of fragments. Hark now trusts the key's auto-repeat, which a released key cannot produce, over Windows' report. Your dictation keeps going for as long as you hold the key.
+
+## [0.45.4] - 2026-09-24
+
+### Fixed
+- **Quitting Hark during a stuck dictation no longer leaves it running for up to 15 seconds.** On quit, Hark waited for the dictation in progress to finish before closing, and nothing limited that wait. If the provider had stalled, Hark stayed open and kept the app's single-instance lock. Launching Hark again in that window did nothing, so it looked broken. Hark now gives a dictation in progress up to 2 seconds to land (enough for one about to be typed), then closes. Saving settings mid-dictation had the same unlimited wait and could freeze the window; it now has the same 2-second limit.
+
+## [0.45.3] - 2026-09-24
+
+### Fixed
+- **Saying "remove it" or "scratch that" with Gemini's Smart transcript froze Hark for about 26 seconds, then failed.** Smart mode treats phrases like these as edit commands instead of words to type. When the edit leaves nothing, Gemini never finishes the turn: it goes silent. Hark waited 8 seconds for it, then replayed the clip to Gemini in Smart mode again (which hung the same way), then retried a third time. Every keypress queued up behind all of that. Now Hark stops waiting 3 seconds after you release the key. (Across 547 real dictations, text always arrived within 1 second, including an 85-second one.) It then replays the clip once as a verbatim transcript, which Gemini does not treat as a command. "Scratch that" now types in about 4 seconds instead of failing after 26. Checked against the live Gemini API.
+- **A dictation that fails while streaming no longer gets two more tries.** The replay after a failed stream now counts as the one allowed retry, so no dictation makes three attempts.
+
+## [0.45.2] - 2026-09-18
+
+### Changed
+- Log lines no longer contain long runs of blank space.
+
+### Fixed
+- **Linux releases could ship missing a package.** The release job uploaded the `.deb`, `.rpm` and tarball simultaneously, and the uploader gave each one a working directory chosen the same way — so when they raced, one lost and the upload failed. 0.44.0 shipped with no `.rpm` for exactly this reason, and because the step failed, the Arch package was never built either. Which file lost was luck. Assets are now uploaded one at a time, each verified against its checksum and retried if the upload fails.
+
+- **Hark could freeze on "Processing…" until you force-quit it, and an ordinary contraction was enough to do it.** The spellbook's phonetic matcher indexed words one byte at a time, which is only safe for plain ASCII. Cleanup models write a typographic apostrophe, so a transcript containing "it’s" — or a curly quote, an em dash, an ellipsis, an accented name — crashed the thread that runs every dictation. Nothing was watching that thread, so Hark did not close or report anything: it sat on "Processing…", ignored every later keypress, and had to be killed and reopened. One user hit this eight times. Typographic punctuation is now treated exactly as its plain equivalent, so "it’s" and "it's" behave identically, and accented letters match as their base letter.
+- **A failed dictation can no longer take the session with it.** Even with the crash above fixed, any future one would have frozen Hark the same silent way. A dictation that fails unexpectedly now reports the failure, returns to idle, and leaves Hark listening for the next one.
+- **Gemini often typed only the last few words of what you said.** Gemini finalises a transcript as you speak, in pieces, and Hark was reading those pieces off the connection and discarding them to keep it moving — so everything before your last pause was thrown away and only the tail was typed. On one measured dictation that meant 12 characters out of a 16-second hold. Every piece is now kept, whenever it arrives. Longer dictations were hit hardest, which is why it looked intermittent.
+- **Gemini never told the server you had stopped speaking.** Hark marked the start of each turn but not the end, so the server had no signal to finalise on and kept the turn open — finalising took 33, 30 and 26 seconds in real use against an 8-second budget. The end of the turn is now sent explicitly, and finalising is capped at 15 seconds no matter how much the server says, so a slow provider can no longer hold the app open indefinitely.
+- **Gemini connections could hang with no way out.** Sending audio had no time limit at all, on the same thread that handles your keypresses, so a stalled connection could wedge Hark permanently. Every send is now bounded.
+- **Microphone glitches no longer read as errors.** USB audio interfaces routinely drop a few milliseconds of audio and recover immediately. Hark reported each one as a stream error — 1816 of them in one user's log — which buried real diagnostics and left Hark permanently convinced the microphone had failed. These are now counted quietly and reported once per dictation, and only genuine device loss is treated as an error.
+
+## [0.44.0] - 2026-09-17
+
+### Added
+- **Gemini can now run your cleanup voice.** Selecting Gemini used to drop it silently — Gemini was grouped with Deepgram as a provider that cannot host chat cleanup, so a carefully written Concise or Custom prompt simply never ran, and the log claimed cleanup was "disabled ... running verbatim". Gemini publishes an OpenAI-compatible chat endpoint, so the existing adapter reaches it unchanged. Cleanup now runs on `gemini-3.5-flash-lite` using the same key as transcription, with nothing extra to configure.
+- **The Transcript setting is now the speed/fidelity choice it should be.** Smart keeps everything in one round trip and is fastest, but Gemini applies its own generic cleanup rather than your prompt. Verbatim takes a second call on Flash Lite (measured 554 ms for a sentence) and applies your voice and its prompt. Both options say which is which on hover.
+
+## [0.43.2] - 2026-09-17
+
+### Fixed
+- **Gemini's Test connection timed out while real dictation worked.** Both send the same clip, so the difference was the path: dictation streams audio as you speak, while Test connection replays a finished 10-second clip in about a tenth of a second. Hark had left Gemini's own voice-activity detection switched on, so the server was inferring where the turn started and ended from the timing of the audio — and ten seconds delivered in a tenth of a second is not a realtime stream. It would emit interim transcripts and then hold the turn open indefinitely, never sending a final one. Push-to-talk knows exactly when speech starts and stops, so Hark now tells the server outright instead of letting it guess, which also makes the session indifferent to how fast audio arrives.
+
+## [0.43.1] - 2026-09-17
+
+### Fixed
+- **A provider's 403 no longer tells you to check a key that is fine.** `401` and `403` were rendered with the same sentence — "check your API key" — which is right for a 401 (the key really is invalid) and actively misleading for a 403, which is normally quota, project model access, or an org policy. Auth errors now carry the status and the provider's own reason code, so a failure reads `authentication rejected by openai (HTTP 403): insufficient_quota` and points at the actual problem. Cleanup auth failures say "cleanup authentication rejected", which previously rendered word-for-word identically to a transcription failure and was impossible to tell apart in the UI.
+- **Added a long-clip diagnostic** (`cargo run -p hark-stt --example long_clip_probe`), which posts progressively longer clips and reports where an endpoint starts refusing them. Length-dependent failures were invisible to every existing harness: the committed fixture is 10 s, so nothing here exercised paragraph-length dictation.
+
+## [0.43.0] - 2026-09-17
+
+### Added
+- Added Settings → General with an Always on top option and an Exit when the window is closed option. The X still hides Hark in the tray by default; enable the exit option and save to make it fully quit instead. Always on top is unavailable on Wayland.
+- Added a Close Program button in General that always fully exits Hark and stops background dictation, regardless of the window-close preference.
+
+### Changed
+- Moved launch-at-startup and appearance controls into General. Startup and window preferences use Save changes / Discard and are remembered across launches.
+
+## [0.42.3] - 2026-09-17
+
+### Fixed
+- Retry failed Arch release uploads and verify the uploaded package's SHA-256 digest before reporting success.
+- Set the Arch package's internal version to the release version so pacman sees the correct version instead of the stale PKGBUILD default.
+
+## [0.42.2] - 2026-09-17
+
+### Fixed
+- **Gemini Live failed every dictation with an 8-second timeout.** Three separate bugs, all in the WebSocket handling, found by running a probe against the live API:
+  - **The server sends its JSON in binary WebSocket frames, not text ones.** Hark matched only text frames, so it ignored the entire conversation — the setup acknowledgement, every interim, and the transcript itself — and sat waiting for a reply that had already arrived.
+  - **A transcription turn ends with `generationComplete`, and `turnComplete` never arrives at all.** Hark waited for the documented one, so even after the frames were readable it would collect the finished transcript and then time out while discarding it.
+  - **Sending the whole clip without ever reading stalled the connection.** Interims start arriving immediately; a client that only writes lets them back up until the server stops making progress, and the end-of-audio signal is never acted on. Hark now keeps the receive side moving while it sends.
+- **Hark now waits for the Live API's setup acknowledgement before sending audio**, which the protocol requires, and reports a rejected setup with the server's own close reason instead of a bare timeout.
+- **An unrecognised Live API frame is no longer silently discarded.** Swallowing them is what made the above three bugs present as one indistinguishable timeout. Unhandled frames now log their top-level keys (keys only — a frame may carry transcript text), and a finalise timeout reports how many frames arrived and how many were interim.
+
+## [0.42.1] - 2026-09-17
+
+### Fixed
+- Restored CI tests and release builds after a Rust cache restore removed the on-device speech engine's native libraries while retaining stale build records.
+
+### Security
+- Updated rustls to 0.23.45 to fix TLS 1.3 handshake messages being accepted at the wrong encryption level (RUSTSEC-2026-0285).
+
+## [0.42.0] - 2026-09-17
+
+### Changed
+- Refreshed every native app surface with refined light/dark palettes, clearer type, recessed fields, raised cards, fine edge highlights, and restrained shadows. History, Spellbook, Invocations, Stats, navigation, status/update bars, menus, and confirmation dialogs share the same design.
+- Grouped Settings into Dictation, Audio & shortcut, On-device, Behavior, Privacy, and Updates, with responsive navigation, independent scroll positions, and a persistent Save changes / Discard bar. Background downloads and connection tests continue updating across pages. Shortcut capture cancels when leaving its section or hiding the window.
+- Replaced the first-run checklist with cloud/on-device selection, actual connection or model readiness, platform permission guidance, and a first-dictation step. Testing a connection does not save settings; Save & continue is explicit. Privacy copy distinguishes cloud audio, local audio, cleanup text, and vocabulary hints.
+- Added live waveform, processing, model-loading, inserted, and brief error feedback to the persistent dictation pill. Terminal feedback expires independently of main-window painting; the pill stays nonactivating and sleeps while hidden. The native tray now offers Open Hark on all platforms.
+
+## [0.41.0] - 2026-09-17
+
+### Added
+- **Gemini Live now streams while you hold the key.** Previously the session opened at release and the whole clip went up at once, which used a streaming API without getting anything from it. Hark now opens the session on key-down and pushes audio as the microphone captures it, so at release only the tail plus the provider's finalise remain instead of the entire upload. The log line reports what fraction of the window was already uploaded when you let go — at 100% the wait you feel is just Gemini finishing its sentence.
+
+### Changed
+- **Streaming is an accelerator, never the spine.** No live adapter, a refused connection, a socket that dies mid-hold, a reader that falls behind the ring buffer — every one of them silently drops the stream and lets the ordinary batch request run. This is safe because the pump *reads* the ring rather than consuming it, so the same window is still assembled afterwards, the same silence and hold gates still apply, and every sample is still there to POST. A dictation is never lost to the optimisation.
+- **Streamed audio goes up at capture level.** The batch path normalizes a finished clip against its own peak, which cannot be done while streaming because the peak is not known until the clip exists. On a quiet microphone the batch path would have applied a boost the live path cannot, so the skipped gain is logged rather than left to be discovered as a mysterious accuracy gap.
+- **Primary on-device mode never opens a live session.** That mode promises no provider is contacted; a session opened on key-down would have broken the promise before a single sample was sent.
+
+## [0.40.0] - 2026-09-17
+
+### Added
+- **Gemini Live as a speech-to-text provider** (`kind = "gemini"`). A WebSocket session against `gemini-3.5-transcribe-live` rather than a REST POST, picked because it is the only Gemini path that suits push-to-talk: the batch model (`gemini-3.5-transcribe`) requires uploading the clip to the Files API *before* transcription can start, which puts a whole extra round trip between releasing the key and seeing text. The Live API takes raw 16 kHz mono PCM straight over the socket — the exact format the ring buffer already holds — and ends the turn on an explicit `audioStreamEnd` signal, so key release decides when the transcript is final instead of a server-side silence detector guessing. Your spellbook rides along as `customVocabulary` (up to 1 000 phrases), which is a real biasing slot rather than terms packed into a prompt.
+- **A Smart transcript mode for Gemini Live.** Gemini can remove fillers and format the text inside the transcription call, so cleanup costs one round trip instead of two and no second model is billed. It is **off by default**, and the setting says why: in Smart mode history stores the tidied sentence rather than what you actually said, and invocation triggers are matched against the tidied text. Verbatim keeps the literal transcript and your cleanup voice as a separate pass, which is what every existing install keeps doing.
+- **`gpt-transcribe` support for OpenAI**, with its own adapter. It shares an endpoint with the Whisper-family models but not a contract: bias terms go out as repeated `keywords[]` fields and the language field is plural, where Whisper packs everything into a single 224-token `prompt` and silently drops the overflow. A large spellbook now survives intact on OpenAI for the first time.
+
+### Changed
+- **OpenAI's default model is now `gpt-transcribe`** (was `gpt-4o-mini-transcribe`). OpenAI documents it as the recommended model for file transcription and no longer recommends `gpt-4o-transcribe` or `whisper-1` for new integrations. Anyone who pinned a model explicitly keeps it, and a pinned Whisper-family model still uses the old contract. Deepgram `nova-3` remains the app default provider.
+- **A provider that cleans up its own transcript no longer gets cleaned twice.** The pipeline previously ignored the cleaned text a fused adapter returned and ran its own voice pass regardless. History now names the transcription model as the cleanup model in that case, rather than labelling a plainly rewritten dictation "verbatim".
+
+## [0.39.1] - 2026-09-10
+
+### Fixed
+- **The documentation wiki still described the old Windows distribution.** Six
+  generated sections said a portable download ships with each release and that
+  updates swap the running program in place — both untrue as of 0.39.0. Two of
+  them were worse than out of date: one documented the call sequence of two
+  functions that no longer exist, and the release-workflow page had every line
+  number derived from a version of the workflow file that has since been
+  restructured into four jobs and more than tripled in length, so its citations
+  pointed at unrelated code. All six are regenerated from current source, and
+  every citation was checked to resolve to a real file and a real line range.
+
+## [0.39.0] - 2026-09-10
+
+**Upgrading:**
+- **This one update has to be installed by hand, and only this one.** Every
+  build up to 0.38.5 looks for the portable download that no longer exists, so
+  those copies will report that a new version is available and offer the release
+  page rather than installing it themselves. Download
+  `Hark-<version>-windows-x64-setup.exe` once and run it; in-app updating works
+  normally from then on. Nothing breaks in the meantime — dictation carries on,
+  the update just does not apply itself.
+- **If you were running the portable exe**, the installer will not find it, so
+  it installs a fresh copy to `%LOCALAPPDATA%\Programs\Hark`. Your settings and
+  history in `%APPDATA%\hark` are shared and carry over untouched; delete the
+  old portable exe once you are happy.
+
+### Changed
+- **Updates now run the installer instead of swapping the running program.**
+  "Download & install" fetches the signed installer, checks its signature and
+  publisher exactly as before, then hands over to it and closes Hark; the
+  installer replaces the files and starts Hark again, hidden in the tray where
+  it was. Shortcuts, the launch-at-login entry and the uninstall record all stay
+  in step with the version you are actually running.
+
+### Removed
+- **The portable Windows download is gone; the installer is the only one.** It
+  was a second copy of the same binary that left you with an install Windows had
+  no record of — nothing in Add or remove programs, no upgrade path — and it was
+  also the file the in-app updater quietly installed over itself. That is why an
+  updated Hark could report one version while Add or remove programs reported
+  another: the binary moved and the install record did not.
+
+## [0.38.5] - 2026-09-10
+
+### Added
+- **An eval case covering the release gate.** The gate had no case, which is how
+  it stayed wrong: the wiring guard proves a hook is *wired*, and nothing proved
+  this one would refuse the command it exists to refuse.
+
+### Changed
+- **Two suppressed advisories were retired rather than left to rot.** The
+  quick-xml denial-of-service pair was ignored on the argument that it was
+  reached only through a build-time proc macro; the dependency update in 0.38.4
+  moved quick-xml to the version both advisories name as fixed, which is the
+  exact re-evaluation trigger that entry was written with. The entries are gone,
+  because an ignore that no longer matches anything is not harmless — it
+  silently suppresses that advisory ID if it ever returns against something
+  else. The remaining entry (an unmaintained font parser reached through the
+  Wayland titlebar renderer) was re-checked against the new UI toolkit and still
+  holds.
+
+### Fixed
+- **The release authorisation gate did not cover the way this project actually
+  releases.** It was written to pause a production deploy until a named person
+  authorises it, and its match list named wrangler, railway, vercel, fly,
+  kubectl, helm and terraform — none of which this repo uses. Hark deploys by
+  pushing a `v*` tag, which builds, signs and publishes the installers the
+  in-app updater then offers to every install. That command went straight
+  through the gate built to stop it, and the 0.38.4 tag push proved it by
+  sailing past unchallenged. Tag pushes, `gh release create/upload/edit` and
+  re-running the release workflow are now all gated.
+- **The same gate refused ordinary commits.** It matched patterns like
+  "wrangler … deploy" against the whole command text, with no notion of where a
+  command actually starts — so committing with a message that merely *discussed*
+  deploy tooling was refused as though it were a deploy. Both halves of the
+  matching now walk the command the way a shell does, checking what is in
+  command position rather than what words appear somewhere in the text. A gate
+  that fires on writing about deploys is one people learn to switch off.
+- **The weekly security scan was not auditing dependencies at all.** Its
+  dependency step ran `npm audit`, guarded by a check for a `package-lock.json`
+  this repo has never had, so every Monday it printed "No lockfile; skipping
+  dependency audit" and moved on. The Rust crates Hark actually ships were
+  never scanned on a schedule — only on pushes, which is exactly the coverage
+  the scheduled scan exists to supplement, since advisories are published
+  upstream without anyone touching the code. It now runs `cargo audit` against
+  the same ignore list CI uses.
+
+## [0.38.4] - 2026-09-10
+
+**Known gaps:**
+- **Two advisories remain and cannot be closed from here.** Both sit in the
+  GTK stack that only the Linux tray uses, and both are held there by
+  `libappindicator`, which requires the older GTK line. Moving Hark's own GTK
+  dependency alone would put two copies of the same C binding in one process,
+  where `gtk::init()` would initialise one and the tray widgets would use the
+  other — it compiles cleanly and breaks the tray at runtime. They clear when
+  `tray-icon` updates upstream, not before.
+- **The HTTP client stays on its current release deliberately.** The newer one
+  removes the build option Hark uses to pin its TLS trust roots to a fixed,
+  bundled set, and falls back to the operating system's certificate store
+  instead. Restoring the current behaviour there means asking for those roots
+  in code, in four places, where it can be forgotten — so it is a deliberate
+  decision to make rather than a version to bump. The current release carries
+  no known vulnerability.
+
+### Changed
+- **Dependencies brought up to date.** A full audit found no vulnerabilities in
+  any of the 725 packages Hark builds against, so this is maintenance rather
+  than a security fix. Updated in place: the UI toolkit (egui/eframe 0.35 →
+  0.36, which also moves the graphics layer from wgpu 29 to 30), the audio
+  resampler (rubato 4 → 5), the phonetic matcher behind the spellbook
+  (rphonetic 3 → 4), the OS keychain binding (keyring 4.1.5 → 4.2.0), the
+  on-device speech engine (sherpa-onnx 1.13.4 → 1.13.7), the SQLite binding,
+  the HTTP stack's supporting crates, and around a hundred smaller ones.
+- **Two advisories cleared.** A dependency of the QUIC stack had been pulled
+  from the registry by its author, and a concurrency primitive used by the
+  Linux keychain and accessibility paths carried a soundness advisory
+  (RUSTSEC-2026-0221). Both had fixed releases available; both are taken.
+
+### Fixed
+- **The keychain pin comment now records why it is where it is.** It described
+  a pin at a version the file no longer held, which is worse than no comment:
+  the next person to read it would have trusted a stale reason.
+
+## [0.38.3] - 2026-09-10
+
+### Fixed
+- **Saving a lesson or practice to the shared knowledge base no longer fails
+  once the index grows.** The helper that writes to GitHub passed the encoded
+  file as a command-line argument, and base64 makes a file a third larger
+  again, so the 56 KB master index arrived as a 75 KB argument and the command
+  died with "Argument list too long" before it reached GitHub. The threshold
+  was crossed silently as the index grew: individual entries, at a few KB, kept
+  working long after the index itself had stopped, so nothing looked broken
+  until a save failed outright. The content now travels on standard input,
+  which has no such limit -- verified with a 92 KB file, roughly four times the
+  size that used to fail.
+- **The same helper no longer sends a garbled revision id when creating a new
+  file.** It read the file's current revision to avoid clobbering a concurrent
+  edit, and treated "no such file yet" as an empty answer -- but the GitHub CLI
+  reports that error on the same stream as a real answer, so the error text was
+  being passed along as the revision. GitHub happened to ignore it when
+  creating a file, which is the only reason this was never visible. The value
+  is now used only when it actually is a revision id.
+- **The helper's optional branch argument now works for updates.** It looked up
+  the existing file on the default branch regardless of which branch was asked
+  for, so updating a file on any other branch failed as though the file were
+  new. Both knowledge-base skills only ever write to the default branch, so
+  this never surfaced in normal use.
+
+## [0.38.2] - 2026-09-10
+
+### Fixed
+- **`cargo test` no longer goes red just because Hark is running.** The
+  single-instance test claimed the *real* app's lock, so on any machine where
+  Hark was actually running — that is, anyone using it while working on it —
+  the suite failed with "lock is free" for reasons that had nothing to do with
+  the change under test. It passed in CI only because no Hark runs there. The
+  test now claims a lock name of its own, so the result no longer depends on
+  what happens to be installed and running.
+
+## [0.38.1] - 2026-09-10
+
+### Added
+- **Crashes now explain themselves in the log.** A release build has no console,
+  so a panic went to a stderr that does not exist, and Windows Error Reporting
+  recorded nothing either — the log simply stopped mid-dictation, and the
+  destructors that ran on the way out made the tail of it look like a clean
+  shutdown. Panics are now written to `hark.log` with the thread and the exact
+  source location. GPU trouble names itself too: a lost graphics device is
+  reported explicitly instead of passing silently, and other GPU errors are
+  logged rather than taking the app down with them (capped per session, so one
+  bad frame cannot push the first cause out through the log's own rotation).
+
+### Fixed
+- **Hark no longer vanishes moments after pasting a dictation.** The recording
+  pill was a brand-new window, with its own GPU surface, created and destroyed
+  for *every single dictation* — dozens an hour in normal use. That churn was
+  losing the graphics device, and it happened as the pill was torn down: the
+  text you had just dictated would land, and the app would then disappear.
+  Nothing in the UI stack recovers from a lost device. The pill is now one
+  window that is shown and hidden, so there is nothing left to churn.
+- **The recording pill no longer flashes a larger window frame when you start
+  dictating.** Because a window was created per dictation, it could only be
+  placed, stripped of its frame and clipped to the pill's rounded outline
+  *after* Windows had already put it on screen — so every activation briefly
+  showed a default-placed, fully framed rectangle first. The single window is
+  created hidden and shaped once, before it can ever be seen.
+- **A release would have failed its own version check.** The workspace version
+  in `Cargo.toml` stayed at 0.36.6 while `package.json` moved on to 0.38.0, and
+  the release workflow refuses to build when the two disagree — so the next tag
+  would have stopped at the gate. Both now read 0.38.1, and the binary reports
+  its real version again.
+
+## [0.38.0] - 2026-09-06
+
+### Added
+- **Configuration evals (`.claude/evals/`).** The wiring guard proves `.claude/` is *wired*; nothing proved it still *works*. A skill body replaced wholesale by a template sync, a CLAUDE.md rule pruned one line too far, or a hook whose refusal message stopped landing all pass the guard while behaving differently. 23 cases now cover the guard contract, the commit gate, skill triggering, agent boundaries and review policy. `npm run evals -- --validate` checks corpus structure with no API calls; the behavioural pass grades each case through `claude -p` restricted to read-only tools. Cases whose targets do not exist here were deliberately not installed — a case testing a rule this repo does not have is testing nothing.
+- **`/capture-intent` and the `intent/` convention.** An idea can now enter as `intent/<slug>/intent.md` — the problem in the originator's own words, with no technology choices or estimates, requiring no engineering knowledge, and gated on product-owner approval before a spec is written.
+- **AI code review in CI** (`.github/workflows/claude-review.yml`). Reviews the diff against `REVIEW.md` and posts findings. Runs on **push to main** as well as pull requests, because work here lands by merging directly — a PR-only review would never fire. Read-only, guarded on `ANTHROPIC_API_KEY`, and it uses the pinned CLI rather than a third-party action.
+- **A release authorisation gate** (`.claude/scripts/require-release-authorization.sh`). Production deploy commands block until a named person authorises the specific release via `RELEASE_AUTHORIZED_BY=<name>` on the command itself, which then appears in the transcript as a recorded fact. Scoped narrowly to deploy commands; `--dry-run` is exempt.
+
+### Changed
+- **`/spec-developer` now consumes an approved intent and emits two artifacts.** It previously conflated `spec.md` (what is built, product-owner-owned) with `plan.md` (how, engineer-owned). It also refuses a `Status: Draft` intent unless overridden, and loads the project's policy references *while* writing rather than auditing afterwards — conflicts land in a Flagged Concerns table naming who resolves each.
+- **`/add-lesson` closes the loop.** An LL-G entry teaches but does not enforce, so the same gotcha returns later in another repo. The skill now asks whether the lesson also needs an eval case or a guard check, and explicitly permits "no case needed" for technology gotchas rather than manufacturing one.
+- **`CLAUDE.md` documents the artifact chain** — intent → spec → plan → diff, with the owner and approver of each.
+
+### Fixed
+- **The context-budget check never saw `.claude/CLAUDE.md`.** It resolved only the repository root, so any repo keeping its instructions under `.claude/` had its entire CLAUDE.md silently exempt from the ceiling it was supposed to enforce. The check now prefers the root path and falls back to `.claude/CLAUDE.md`.
+
+## [0.37.1] - 2026-09-06
+
+### Fixed
+- **The formatter hook's containment guard could be escaped by a symlink.** It resolved the edited file's *directory* and confirmed that was inside the repo — but an in-repo symlink pointing outside passes that check, and the formatter then wrote through it to the target. It now resolves the full path (`readlink -f`, with a `cd`/`pwd -P` fallback) and formats the resolved path, so nothing downstream re-follows the link.
+
+### Security
+- **`Bash(git clone:*)` was pre-approved, which is arbitrary code execution.** Git's `ext::` transport runs a shell command as the transport (`git clone "ext::sh -c <cmd>"`), and `--upload-pack=` is a second route; the `:*` glob constrained neither. The allow entry is now scoped to `https://github.com/*`, and both RCE routes are denied outright — deny wins at every settings tier, so a looser local override cannot reopen them.
+- **The live deny list was weaker than the one this repo publishes as its own example.** With blanket `Read` allowed, any dotenv file or private key in a working tree was readable with no prompt. Added `Read(**/.env)`, `Read(**/.env.*)`, `Read(**/*.pem)`, `Read(**/*.key)`, `Read(**/*.p12)`, `Read(**/*.pfx)` and `Read(~/.gnupg/**)`.
+
+## [0.37.0] - 2026-09-04
+
+### Added
+- **`REVIEW.md` — review policy as version-controlled code.** Defines the review passes, a deliberately narrow "Important" bar (the code is wrong, it fails silently, or it is a security/data-loss risk — everything else is a nit), a three-nit cap, and an explicit do-not-report list. `check:claude` now fails when it is missing or missing a required section, since an empty stub satisfies a bare existence check and provides nothing.
+- **Weekly scheduled security scan** (`.github/workflows/security-scan.yml`). On-demand scanning makes coverage point-in-time: a credential committed the day after a manual run goes unnoticed. Checks tracked credential-shaped files against full history and validates hook script syntax.
+- **`.claude/references/managed-settings.example.json`** — a lift-and-adapt example of the org-policy tier: credential denies that cannot be relaxed downstream, a deny-by-default network allowlist, an approval-gate hook, and a minimum version floor.
+- **`## Commands`, `## Verifying your work`, and `## Things Claude Gets Wrong` in `CLAUDE.md`.** The verification contract was previously undocumented — nothing said which command proves a change is good, or that a failing check must never be skipped or narrowed to make it pass.
+- **Protected-path denies** for `node_modules`, build output, vendored trees, lockfiles, minified bundles, and `.git`.
+
+### Changed
+- **The wiring guard now enforces the always-on context budget in bytes and checks that every skill resolves to a model.** Both were previously unenforced here, so the defects below were invisible rather than absent.
+
+## [0.36.6] - 2026-08-25
+
+### Fixed
+- **The Arch package is attached to the release.** 0.36.5 built and packaged it
+  correctly and then failed its own safety check, which announced that the
+  package did not contain the Hark binary. It did. The check read the package's
+  file listing through a pipe that closed as soon as it found what it was
+  looking for, and the resulting plumbing error was reported as a bad package
+  rather than as a broken check. It now reads the listing once, and prints it,
+  so anything that goes wrong here in future says what it actually saw. The
+  matching Debian check had the same flaw waiting in it and got the same fix.
+
+## [0.36.5] - 2026-08-25
+
+### Fixed
+- **The Arch package is attached to the release again.** 0.36.4 built it
+  successfully and then failed while filing it: Arch's packaging defaults also
+  produce a second, empty debug package, and the release job's copy step matched
+  both files and gave up. The empty package is no longer built, and the copy now
+  names the one it wants and stops with a clear message if it ever sees anything
+  else. 0.36.4 shipped every other download; only the Arch one was missing.
+
+## [0.36.4] - 2026-08-25
+
+### Fixed
+- **Corrected the note in CI explaining why `cmake` and `clang` are installed.**
+  It credited the on-device transcription engine for both. Neither is true:
+  `cmake` is needed by the HTTPS stack every cloud transcription goes through,
+  and `clang` is not currently needed at all. The mistaken note is what left the
+  same two tools out of the Arch build dependencies until 0.36.3.
+
+## [0.36.3] - 2026-08-25
+
+### Fixed
+- **Building the Arch package by hand no longer needs tools nobody told you
+  about.** `packaging/PKGBUILD` now declares `cmake` and `clang` among its build
+  dependencies. `cmake` is genuinely required -- AWS-LC is compiled through it,
+  and it arrives via the HTTPS stack every cloud transcription uses, so even a
+  build with the on-device engine switched off needs it -- but it comes in
+  through a dependency's build script, where pacman cannot see it. Arch's
+  `base-devel` provides neither, so a build would stop partway with nothing more
+  than "cmake: command not found". The release build was unaffected: it installs
+  both explicitly.
+
+## [0.36.2] - 2026-08-25
+
+### Changed
+- **A release now builds for Windows and Linux at the same time.** The two used
+  to run one after the other, so the last download did not appear on a release
+  until roughly 80 minutes after the tag was pushed; they now run side by side
+  and everything is attached in a little over 50. The Arch package still waits
+  for the Linux build, deliberately -- it is packaged without running the test
+  suite, and that is only defensible while the Linux job has just run the suite
+  against the same commit.
+- **A mistagged or misconfigured release now stops every build, not just the
+  Windows one.** Checking the tag against `package.json` and `Cargo.toml` and
+  running the `.claude` wiring guard moved into a short first job that all three
+  builds wait on. Previously both checks lived inside the Windows build, and the
+  Linux jobs inherited them only because they happened to run afterwards. One
+  visible consequence of the new order: the release page is created as soon as
+  the tag checks out and fills in with downloads as each build finishes, instead
+  of appearing only once the Windows installer is ready.
+
+## [0.36.1] - 2026-08-25
+
+### Fixed
+- **The Arch package is built again.** 0.36.0 attached a `.deb`, an `.rpm` and a
+  tarball but no `.pkg.tar.zst`: the release build failed one second in, looking
+  for its dependencies in an empty local registry. The packaging recipe skipped
+  the dependency download whenever it was building an already-checked-out tree,
+  which conflated the source tree with the ~500 crates it is built against --
+  those still have to be fetched. Only the release path took that shortcut, so
+  building the same file from the AUR always worked and nothing caught it until
+  Linux shipped.
+
+## [0.36.0] - 2026-08-24
+
+### Added
+- **Hark runs on Linux, with the same features it has on Windows.** Debian/Ubuntu
+  (`.deb`), Fedora/RHEL/openSUSE (`.rpm`) and Arch (`.pkg.tar.zst`) packages are
+  built and attached to every release, alongside a portable `.tar.gz` for
+  everything else. Dictation, cleanup, voices, the spellbook, invocations,
+  history, statistics, on-device transcription, the recording overlay and
+  launch-at-login all behave as they do elsewhere.
+- **Push-to-talk works on Wayland and X11 alike.** Hark watches the keyboard
+  through the kernel's input devices rather than through the display server, so
+  the chord is seen the same way on GNOME, KDE, XFCE, the wlroots compositors
+  and even a bare console. The approach every other global-hotkey tool takes is
+  X11-only, and X11 is no longer the default session on GNOME or KDE.
+- **One setup step, stated plainly.** Hark needs to be in the `input` group to
+  see the chord and to paste. If it is not, Hark opens its window and says
+  exactly that, with the command to fix it — instead of starting and quietly
+  doing nothing. The packages install the udev rule and load the kernel module
+  for you. [`packaging/LINUX.md`](packaging/LINUX.md) covers the rest: why the
+  permission is needed, the portable tarball, and troubleshooting.
+- **Launch at login on Linux.** The Settings toggle now writes a standard XDG
+  autostart entry, so Hark starts hidden in the tray with your desktop session.
+- **A "Show Hark" item in the Linux tray menu.** The tray protocol Linux panels
+  use delivers no click events, so the double-click that restores the window on
+  Windows and macOS has a menu item instead of no equivalent.
+
+### Changed
+- **CI builds and tests on Linux.** The platform with the most platform-specific
+  code in it was the one platform nothing compiled on. Releases run the full
+  format, lint and test pass on Linux before packaging, and verify that the
+  finished packages actually declare their dependencies.
+- **The update checker points Linux users at their package manager.** On Linux
+  Hark tells you a new version exists and links to it, but never replaces its
+  own binary: that file belongs to `apt`/`dnf`/`pacman`, and overwriting it
+  would be undone by the next upgrade.
+- **Advice in Settings names a control panel that exists.** The microphone level
+  hints said "Windows sound settings" on every platform; they now say something
+  true for the one you are on. Same for the launch-at-login description and the
+  message shown when a shortcut recording stops.
+
+### Fixed
+- **`XDG_CONFIG_HOME` is honoured for the settings file**, matching the existing
+  `XDG_DATA_HOME` handling for the history database. Both now ignore a relative
+  value, as the spec requires — previously a relative one would have scattered
+  config and history across whatever directory Hark was launched from.
+
+### Security
+- **Re-triaged the ignored dependency advisories now that Linux ships.** All
+  three were previously waived on the grounds that Hark did not build for Linux
+  at all, which is no longer true. Two (`RUSTSEC-2026-0194`, `-0195`, quick-xml)
+  survive on a narrower and verified argument: they are reachable only through a
+  build-time proc macro operating on fixed inputs, never in the shipped binary.
+  The third (`RUSTSEC-2026-0192`, ttf-parser unmaintained) is now genuinely
+  shipped — it renders window decorations on Wayland — and is documented as an
+  accepted exposure rather than an inapplicable one.
+
+## [0.35.8] - 2026-08-21
+
+### Changed
+- **The Claude wiring guard now runs on Windows as well as Linux on every
+  push.** 0.35.7 made a release run that guard on a Windows runner, but the guard
+  had only ever executed on Linux — so the release path depended on behaviour
+  nothing had tested. It now runs on both platforms in ordinary CI, which means
+  any cross-platform difference surfaces on a normal push instead of on a release
+  tag. Formatting stays a single Linux check, since it is platform-independent
+  and there is no reason to pay for it twice.
+
+## [0.35.7] - 2026-08-21
+
+### Changed
+- **A release now runs the Claude wiring guard before it builds anything.** The
+  release already re-ran formatting, lint and the test suite on its own copy of
+  the tree, but skipped the wiring guard on the reasoning that it added nothing
+  to a Windows artifact. 0.35.4 showed otherwise: that guard failed on `main` for
+  two weeks, and because the CI workflow has no tag trigger, tagging a release in
+  that window would have built, signed and published without ever consulting it.
+  It is also the only check the release did not already duplicate. It now runs
+  first — before the Rust toolchain is installed, so a bad tree costs seconds
+  rather than a build and a signing quota.
+
+## [0.35.6] - 2026-08-21
+
+### Fixed
+- **A second CI failure, which had been hiding behind the first.** With the
+  wiring guard failing, the build-and-test jobs never ran at all — they wait on
+  it — so a lint error introduced by a newer Rust release sat undetected on
+  `main`. Unblocking the guard in 0.35.5 exposed it immediately: `cargo clippy`
+  failed on both Windows and macOS over the WAV decoder's sample loop. The two
+  affected loops now use `as_chunks`, which is what the new lint asks for, reads
+  better, and needs no bounds indexing. Behaviour is identical, and the Rust
+  version floor is unchanged.
+- **The contributor rules now say to update the toolchain before trusting a
+  local lint run.** CI installs whatever Rust stable is current, so a local
+  toolchain a few weeks behind is missing that release's lints and reports clean
+  on code CI will reject — exactly how the above reached `main`.
+
+## [0.35.5] - 2026-08-21
+
+### Added
+- **Dependency advisories are now checked on every push.** `.cargo/audit.toml`
+  has recorded a careful triage of known advisories since 0.21.0, but nothing
+  ever ran `cargo audit`, so a new advisory could sit unnoticed — and one had,
+  for three weeks. CI now runs it, and the existing ignore list is how an
+  advisory that genuinely cannot reach a shipped build gets deferred.
+- **Tests for the two places that had none.** Update signature verification (the
+  gate that decides whether a download may replace the running app) had no tests
+  at all; neither did the 114-key shortcut table, whose ordering the key scanner
+  depends on and whose silent corruption would show up as phantom key presses.
+  Both are now covered.
+
+### Changed
+- **The on-device documentation page is now maintained.** It was written by hand
+  and never registered in the docs table of contents, so the tooling could not
+  see it and it carried no source citations. It is registered now, with 15
+  citations checked against the code.
+- **The documentation staleness ledger is current again.** It listed known gaps
+  up to release 0.18.1 and then stopped, so it understated the gap by 17
+  releases — most importantly the entire push-to-talk shortcut overhaul of
+  0.31.0–0.35.2, which the audio page still does not describe.
+- **The "split files over 500 lines" rule is now written as the guideline it
+  always was.** Fourteen files are legitimately over it, including two key
+  lookup tables that would be worse if split, and nothing enforced it — so as
+  written it invited someone to compress a file to duck the number.
+
+### Fixed
+- **CI had been failing on `main` for two weeks and nothing said so.** A sync of
+  the shared Claude configuration pulled in path patterns from a web-project
+  template — Docker, Vitest, Jest, `src/`, `api/` — none of which exist in a Rust
+  desktop app, so the repo's own wiring guard correctly refused every build. The
+  patterns now describe Hark's actual layout.
+- **The two version files had drifted apart** (`package.json` 0.35.4,
+  `Cargo.toml` 0.35.3), which would have stopped the next release at its first
+  step with a mismatch error. `Cargo.lock` had been stale since 0.35.3 for the
+  same reason. All three now agree.
+- **The README said Hark had no on-device model.** On-device transcription
+  shipped in 0.18.0 and is included in every build, and it can run as the only
+  engine with no provider account at all — but Prerequisites still read "No model
+  download; nothing runs locally", so anyone who wanted offline dictation was
+  told it did not exist. The README, `CLAUDE.md`, the Rust contributor rules and
+  the architecture overview have all been corrected, and the README gained a
+  section explaining the three modes.
+
+### Security
+- **An update whose signature carries no readable publisher name is now
+  refused.** Verification compared the downloaded exe's signer against the
+  running app's; when Windows could read *neither* name, the two empty strings
+  compared equal and the check reported a publisher match while having read
+  nothing. An unreadable name is now treated as unreadable on both sides, never
+  as a match. The dev-build case — running an unsigned local build — still falls
+  back to the Authenticode trust check alone, as it always did.
+- **Every GitHub Action is pinned to a commit hash.** They were pinned to tags,
+  and `dtolnay/rust-toolchain@stable` to a *branch*, both of which upstream can
+  move at any time. The release workflow holds the code-signing credentials, so
+  anything that runs there can sign and publish a Hark binary; it now runs only
+  code that was reviewed.
+- **`webbrowser` updated to 1.2.4**, clearing RUSTSEC-2026-0257 (argument
+  injection through the `BROWSER` variable on Unix). Reached through egui when
+  Hark opens a link.
+
+## [0.35.4] - 2026-08-07
+
+### Changed
+- **Claude Code configuration synced to the current shared template.** Hook
+  scripts, path-scoped rules, references and repo-maintenance skills were
+  refreshed, `settings.json` was restructured, and the `triage-issues` skill
+  was added. No application code or runtime behaviour changes.
+
+## [0.35.3] - 2026-07-31
+
+### Changed
+- **Development tooling only — Hark itself is unchanged in this release.** A tagged release can no longer publish while the repo's own checks are failing. Building and publishing were entirely independent of testing, so the four releases from 0.33.0 through 0.35.1 each shipped a signed installer while the test suite was red — the stale test fixed in 0.35.2 had been failing that whole time and nothing stood in the way. Formatting, lint and the full test suite now run inside the release itself, before anything is built or signed, so a release that would ship broken code stops instead.
+
+## [0.35.2] - 2026-07-31
+
+### Fixed
+- **Development tooling only — Hark itself is unchanged in this release.** The Windows test suite has been failing on every push since 0.33.0, because one test still insisted that letters, Space, Enter and V could not be part of a shortcut — which stopped being true the moment that release made all 114 keys bindable. The test only compiles on Windows, so nothing caught it before CI did. It now pins what genuinely stays out: Escape (it cancels a recording), Print Screen, Pause, the media keys, and the sideless Shift/Ctrl/Alt codes that would otherwise let a right-hand key stand in for a left-hand one.
+
+## [0.35.1] - 2026-07-31
+
+### Fixed
+- **The Settings tab shows a gear again, not a stray letter.** Five icons — the Settings gear, the key icon in the status bar, the Spellbook book, the Stats chart and the update arrow — were rendering as unrelated characters. Hark's text font ships 745 glyphs in a private area of the character map, five of which sit on exactly the same slots as the icon font's, and the text font was being consulted first. Icons now render through a font stack of their own, and a test pins the ordering so a future icon cannot quietly collide the same way.
+
+## [0.35.0] - 2026-07-31
+
+### Added
+- **A shortcut containing Caps Lock or Scroll Lock no longer flips the lock while you dictate.** Hold Ctrl+Shift+ScrollLock and you dictate without Scroll Lock toggling — but press Scroll Lock on its own and it works exactly as it always did. Press the lock key **last**: press it first and it toggles before Hark knows a shortcut is starting.
+  - Not available when the shortcut also contains **Alt or Win**. Suppressing a key makes it invisible to Windows, which then thinks Alt or Win was pressed on its own and pops the menu bar or Start menu every time you dictate — worse than the toggle. Ctrl and Shift are unaffected, so Ctrl+Shift+ScrollLock works where Ctrl+Alt+ScrollLock cannot.
+  - **Num Lock is never suppressed.** Windows applies its toggle before Hark can see the key, so blocking it would swallow the keypress and flip the lock anyway.
+  - Set `swallow_lock_keys = false` under `[hotkey]` in config.toml to switch it off entirely and go back to Hark never touching a key.
+- **The recorder warns about a lock key anywhere in a shortcut, not just on its own.** Ctrl+Alt+ScrollLock still toggles Scroll Lock and now says so; before, it said nothing at all because the warning only matched the key pressed alone.
+
+## [0.34.0] - 2026-07-31
+
+### Added
+- **The recorder now tells you what else your shortcut already does.** Hold a combination and, if something well known uses it, Hark says so while you are still holding it — before you let go and set it. 233 shortcuts across Windows itself, Chrome/Edge/Firefox/Vivaldi/Brave, Word, Excel, Outlook, PowerPoint, OneNote, Teams, Slack, Discord, Zoom, VS Code, Windows Terminal, 1Password and the Claude and ChatGPT desktop apps. Your Ctrl+Shift+A example now reads: *"Chrome, Edge, Brave, Vivaldi, Firefox, Teams… use this shortcut too — it opens tab search in Chromium browsers and the add-ons manager in Firefox, accepts an incoming Teams or Zoom call…"*
+- The same note appears under the typed field, so a shortcut typed by hand gets the same warning as one recorded.
+
+### Changed
+- **These are warnings, never refusals.** Hark watches keys without swallowing them, so a shortcut that is spoken for still works — both things simply happen. Every claim that Windows would refuse to hand a shortcut to Hark at all was checked and none of them held up, so nothing new is blocked. The wording says "dictating will do both", because that is what actually happens.
+- Shortcuts that fire even when their app is in the background are called out as such — Discord's mute, Teams' call controls, 1Password's Quick Access — since those are the ones that bite hardest.
+
+## [0.33.0] - 2026-07-31
+
+### Added
+- **Any key can be part of your shortcut now, not just modifiers and the F row.** Letters, digits, the arrow keys, the navigation cluster, the numpad, punctuation and the lock keys — 114 keys in all, up from 33. Escape is the one exception: it cancels recording. Previously Hark silently ignored everything else, so pressing Ctrl+Shift+A recorded just "Ctrl+Shift" — and then fired on Ctrl+Shift alone.
+
+### Changed
+- **Hark now refuses shortcuts you would trigger by accident, and says why.** A shortcut that happens as a byproduct of ordinary writing is not a shortcut, it is a trap: bind dictation to "A" and every letter you type opens the microphone. Ctrl, Alt and Win lift a combination clear of typing, so anything held with them is allowed. **Shift does not** — Shift+A is just a capital A, Shift+Left selects a character, Shift+Enter is a soft line break in every chat box — so Shift alone no longer qualifies a shortcut. Keys nothing else competes for (F1–F24, Caps Lock, Num Lock, Scroll Lock, the Menu key) stay usable on their own, as they always were. Each refusal names the key and what it would have cost you.
+- **Ctrl+V is refused as a shortcut.** It is how Hark pastes your transcript, so a shortcut built on it would fight its own typing — newly worth saying, since V only became bindable in this release.
+- Shortcuts read in plain language throughout: "Left Ctrl + F12", "Page Up", "Numpad 7", "Left Arrow".
+
+## [0.32.0] - 2026-07-31
+
+### Added
+- **The shortcut recorder now watches your keyboard directly, as well as listening for key events.** Recording used to depend entirely on Windows telling Hark about every key press — and on at least one machine it doesn't. A combination held correctly could be recorded as a single key, because the press of the other one never arrived. Alongside the existing listener, Hark now reads the real state of every key a shortcut can contain, many times a second, for as long as the recorder is open. Either source alone is enough to record your combination, so a dropped key event can no longer turn a combination into a fragment.
+- **The recorder says where its key events came from.** The prompt now reads "N key events seen (X from the keyboard hook, Y from the key-state scan)". If the scan is the one doing the work, Windows is dropping key events — a fact that previously took a log file and a lot of guessing to establish.
+
+### Fixed
+- **Push-to-talk could stop working entirely, silently, after using the recorder.** If the recorder went away while Hark was still routing keys to it, every shortcut key was swallowed from then on — dictation dead for the rest of the session with nothing on screen to say so. Keys now go back to dictation the moment the recorder stops listening, however it stopped.
+- **Recording could break permanently if the pipeline restarted while the recorder was open** (saving settings, storing a key). The recorder was handed back a connection to a listener that no longer existed, and from then on the key counter would climb while nothing ever recorded. The connection now stays with the listener that owns it and is never passed around.
+- **Holding a fifth key no longer ends the recording early.** Shortcuts hold at most four keys, and a fifth was ignored so completely that Hark thought you had let go while you were still holding it — then treated its release as the start of something else, which could turn a perfectly good combination into a rejected single key.
+- **A shortcut can no longer be left waiting forever on a key release that never comes.** The key-state scan notices you have let go even when the release event is lost.
+
+## [0.31.3] - 2026-07-31
+
+### Fixed
+- **Typing a lone Ctrl, Shift, Alt or Win as your shortcut now warns you what that does.** The recorder refuses a bare modifier, but "Type it instead" is the escape hatch and accepted anything — so deleting the second key from a typed shortcut left you with a Ctrl that opened the microphone in every app, with nothing on screen to say why. The field now spells out the consequence while still letting you set it if you genuinely mean to.
+
+## [0.31.2] - 2026-07-31
+
+### Fixed
+- **Recording a shortcut captures the whole combination, not the first key you let go of.** The recorder set the shortcut the instant *any* key came up, and hands do not release a combination in one instant — let go of Ctrl a few milliseconds before Shift and you recorded a bare "Left Ctrl". It looked like the recorder was ignoring you, because what it set was not what you pressed. It now waits until you have let go of everything and keeps every key you held at once, so a combination is recorded whole however loosely you press or release it. This is also the real source of the "pressing Ctrl on its own starts dictation" problem from 0.31.0: the shortcut really had been saved as a lone Ctrl.
+- **A lone Ctrl, Shift, Alt or Win is no longer accepted as a shortcut.** Binding push-to-talk to a bare modifier means every Ctrl press in every app starts a dictation — and it is miserable to undo, because you have to use the app it just broke to fix it. The recorder now says so and keeps listening, so you can simply press something else. Caps Lock and F1–F24 are still fine on their own; nothing else competes for them.
+
+## [0.31.1] - 2026-07-31
+
+### Changed
+- **Your shortcut reads the same everywhere.** The status bar said "Listening for LCtrl+F12" while Settings said "Left Ctrl + F12"; both now use the readable form.
+
+### Fixed
+- **Recording a push-to-talk shortcut captures your keys.** Holding a combo in the recorder did nothing at all — no live preview, nothing set, on any combination. The recorder was installing a second keyboard hook of its own, and on real hardware that hook installs, reports itself healthy and waits for keys it is never given: an instrumented build caught it sitting live for 51 seconds without receiving a single keystroke, in the very same session where dictation through Hark's *other* hook worked perfectly. Rather than keep guessing at why Windows treats the two differently, recording now listens through the push-to-talk hook that demonstrably works. Two things follow from that: dictation is no longer stopped and restarted every time you open the recorder, and the recorder can no longer be left waiting on a hook that was never going to answer.
+- **The recorder shows how many keys it has seen.** If it ever comes up empty again, the box says whether the keys reached Hark at all — which is the difference between "Hark cannot see your keyboard" and "Hark saw the keys and lost the combo", and it no longer takes a log file to tell them apart.
+
+## [0.31.0] - 2026-07-31
+
+### Changed
+- **Setting your push-to-talk shortcut now works the way every other shortcut editor does.** The shortcut is shown as a read-only field you click to change — press and hold the keys you want, let go, and it is set. Typing the chord as text is no longer the default path: it was easy to leave a shortcut that had never been pressed on a real keyboard. It is still one click away, behind "Type it instead", for anyone who wants it. Escape cancels a recording, a "Reset" button restores the shipped Ctrl + Win shortcut, and the shortcut reads as "Left Ctrl + F12" everywhere it is shown rather than "LCtrl+F12".
+
+### Fixed
+- **Your shortcut can no longer quietly shrink to a single key.** With a shortcut like Left Ctrl + F12, pressing Left Ctrl on its own could start a dictation — the second key was being ignored. Hark learns which keys are held by watching the keyboard, and it does not see every release: some keyboards report F-key releases under a different key when the Fn layer is involved, and releases that land on the lock screen, a UAC prompt, or across a sleep never arrive at all. One missed release left that key marked as held forever, which left whatever remained of the shortcut acting as the whole thing. Hark now confirms the rest of the shortcut is genuinely still down at the moment it would start a dictation, so a release it never saw costs nothing.
+- **Recording a shortcut no longer risks shutting itself down the instant it starts.** Hark stopped its push-to-talk listener *after* the recorder had already started listening, and the "stop" message is addressed to a listener thread by number — a number Windows is free to hand straight to the recorder that was just created. Hark now stands the listener fully down before the recorder starts. If a recorder is dropped anyway, the prompt says so and offers the typed fallback instead of asking for keys forever, and `hark.log` records every time a keyboard hook is installed, removed, or lost.
+
+## [0.30.5] - 2026-07-29
+
+### Added
+- **The log now names the version that wrote it.** Every `hark.log` starts with a `Hark 0.30.5` line, so a bug report can no longer be ambiguous about whether it describes a fix or the build before it.
+
+### Fixed
+- **The "Listening…" pill really does leave when the dictation ends, with Hark's window open.** 0.30.4 aimed at the right problem and missed: the main window genuinely does fall asleep for seconds at a time while the pill is on screen — a log capture shows it noticing a finished dictation 2.7 seconds after the text had already been injected — but the nudge that release added turned out to be the same call the window system was already making and failing on, so nothing changed. The pill no longer depends on the main window at all. It reads whether a dictation is still capturing straight from the dictation pipeline and takes itself off screen the instant one ends, which also lifts the load that was keeping the main window asleep, so the tray icon and the status footer catch up immediately afterwards.
+
+## [0.30.4] - 2026-07-29
+
+### Fixed
+- **The "Listening…" pill no longer stays on screen when Hark's window is open.** Dictating with the window up left the pill floating and the footer stuck on "Recording" after the text had already been injected — minimising Hark was the only thing that cleared it, which is why the same dictation ended cleanly whenever Hark was tucked away in the tray. Only the main window can retire the pill, and it is allowed just one pending repaint at a time: once the wake-up sent at the end of a dictation went unanswered, nothing left in Hark could ask for another, and a window that is on screen is repainted only when Windows says so. Hark now nudges its own window at the operating-system level ten times a second for as long as the pill is up, so the pill retires with the dictation that raised it whichever way the window is sitting.
+
+## [0.30.3] - 2026-07-29
+
+### Removed
+- **Repository hygiene only — Hark itself is unchanged in this release.** Three scratch files left behind by a one-off dependency audit (`audit_out.json`, `audit_err.txt`, `outdated_full.txt`) had been sitting in the repository root since 0.18.1, where they read as project files rather than the throwaway command output they were. They are gone, and `.gitignore` now catches that shape of file so the next `cargo audit` or `cargo outdated` run cannot commit its output again. The `.cargo/audit.toml` config — which records the reviewed advisory ignores and is deliberately tracked — is unaffected.
+
+## [0.30.2] - 2026-07-29
+
+### Fixed
+- **A long Spellbook can be scrolled again.** Once your terms filled the window, the rest ran off the bottom edge with no scrollbar and no way to reach them — the only fix was making the window taller. The list now scrolls, with the add row and its messages staying put above it, exactly as History behaves.
+- **Switching tabs no longer drops you partway down the new page.** Every page shared one scroll position, so leaving History scrolled halfway and opening the Spellbook, Invocations, or Settings showed them scrolled to the same spot. Adding a Spellbook term from a history selection hit this every time. Each page now remembers its own position.
+
+## [0.30.1] - 2026-07-29
+
+### Changed
+- **Development tooling only — Hark itself is unchanged in this release.** The formatter, linter, and full test suite now run automatically on every push and pull request, on both Windows and macOS; until now none of that ran until a release was tagged, so a break could sit unnoticed until ship day. A new guard also verifies that the repo's own Claude Code configuration is actually wired up — miswired rules and hooks fail silently, and a rule that can never trigger looks exactly like one that simply hasn't yet. Ten such dead paths were found and fixed, along with a commit check that had been blocking commits without ever showing the reason why.
+
+## [0.30.0] - 2026-07-28
+
+### Added
+- **Hark keeps a log file.** Released builds have no console, so anything Hark had to say about a problem was lost. It now writes `hark.log` next to your history database (`%APPDATA%\hark\hark.log`), rotating at 2 MB with one backup kept. It records timings, counts, and setting names only — never your API key, your audio, or anything you dictated — so it is safe to attach to a bug report.
+
+### Fixed
+- **The "Listening…" pill no longer stays on screen after a dictation finishes.** On the first dictation after Hark started — while its window was still tucked away in the tray — the pill stayed up and the tray icon stayed red long after the text had been injected, until you clicked the tray to shake it loose. Hark's background threads were tapping the *pill* on the shoulder instead of the main window, so the window never woke up to notice the dictation had ended. Every background wake-up now names the main window explicitly.
+
+## [0.29.1] - 2026-07-28
+
+### Fixed
+- **Hark no longer opens as a tiny window.** After a dictation, Hark had been quietly saving the little recording pill's size and position as the main window's, so the next launch — usually the first one after a reboot — opened a window barely bigger than its own title bar. Hark now remembers only the real window, and a saved size that came from the old bug is ignored: it opens at its normal size, centred, and stays where you last put it. If that spot belonged to a monitor you no longer have, it opens centred instead of off-screen.
+- **The "Listening…" pill can no longer get stuck on screen.** If the release of your push-to-talk keys never reached Hark — it happens when you let go at the lock screen, over a UAC prompt, or across a sleep — Hark kept recording forever: the pill stayed up, and pressing the keys again did nothing. Hark now notices within a fraction of a second that the keys are no longer held and ends the recording itself. A recording abandoned that long (past the two-minute maximum hold) is thrown away rather than transcribed, so a stuck session can never paste minutes of room noise at your cursor.
+
+## [0.29.0] - 2026-07-28
+
+### Added
+- **Spellbook entries can now fix a specific misheard spelling.** Alongside the term itself, an entry can carry the exact wrong spellings Hark keeps producing — so "Al Drazi" becomes "Eldrazi" even when the two are too far apart to sound alike. Tick **Advanced** on the add row, or click the alias count on any existing entry. Adding from a history selection now fills this in for you: the misheard text is kept as the spelling to correct, and you type only the correct one.
+- **A warning when a correction would fire too often.** If you enter an everyday word as a misheard spelling, Hark says so — it would trigger every time you said it. It's advice, not a veto.
+
+### Changed
+- **Your config file is upgraded to the new spellbook format on first launch.** The old copy is kept beside it as `config.toml.v1.bak`, untouched, so nothing is lost. Existing terms carry over exactly as they were, and files written by an older Hark still load.
+
+## [0.28.0] - 2026-07-28
+
+### Added
+- **Add a Spellbook term by pointing at it in your history.** Expand a dictation, select the misheard name in the raw transcript, and click the book button in the row. Hark takes you to the Spellbook with that text already filled in and selected — type the correct spelling over it and press Add. Only the correct spelling is saved, and a one-click Undo sits next to it in case you added the wrong thing. The selection still snaps to whole words, so you don't have to be precise with the drag.
+
+## [0.27.1] - 2026-07-28
+
+### Fixed
+- **Selecting transcript text no longer drops the word you started on.** Dragging from "Al" across to "Drazi" highlighted only "Drazi", and dragging left from "Drazi" highlighted only "Al" — the word you grabbed first was the one that fell out. Two causes: the press was being recorded a few pixels after you actually pressed, and starting flush against a word's edge counted as not touching it. Pressing anywhere on a word now grabs that word, in either drag direction.
+
+## [0.27.0] - 2026-07-28
+
+### Added
+- **Preview: you can now select words in a history entry's raw transcript, and the selection snaps to whole words.** Expand a history entry and drag across the raw transcript — if you clip the edges, Hark widens the highlight to the words you meant, and a single click selects the word under it. Punctuation and quotes are left out, hyphenated words stay whole. For now it only shows you what it *would* add to the Spellbook; the button that actually adds it comes next. This is a first step toward correcting misheard names by pointing at them instead of typing them.
+
+## [0.26.0] - 2026-07-28
+
+### Changed
+- **The Dictionary is now the Spellbook.** Same feature, same terms, new name — the tab, the settings copy, and the config section all follow. Your existing terms carry over untouched and there is nothing to do: Hark still reads the old `[dictionary]` section from your config file and rewrites it as `[spellbook]` the next time it saves.
+
+## [0.25.0] - 2026-07-28
+
+### Fixed
+- **Opening Hark while it's already running now brings up the window instead of doing nothing.** Launching Hark from the Start menu, its shortcut, or the taskbar while it sat in the tray appeared to do nothing at all — Hark correctly refused to start a second copy, but never told the copy already running to show itself. It now surfaces the running window on the History tab, and still never starts a second instance. Launch-at-login and the updater's restart are unaffected: those are meant to be silent, and stay that way.
+
+## [0.24.0] - 2026-07-27
+
+### Added
+- **A Grammar voice that only fixes grammar.** Every other voice is free to reword what you said; this one isn't. Grammar corrects verb tense, agreement, plurals, articles, pronouns, spelling, punctuation, and capitalization, and leaves everything else exactly as spoken — same words, same word order, same sentence boundaries, no synonym swaps, no tidied-up filler. Pick it in Settings → Voice or from the tray, between Verbatim and Clean.
+
+## [0.23.1] - 2026-07-26
+
+### Fixed
+- **The "Listening…" pill no longer has window buttons on it.** Since 0.21.3 cut the overlay down to the pill's shape, Windows had been painting maximise and close buttons across the top of it — the pill was still technically a normal window underneath, and reshaping it made Windows draw its title-bar controls the old-fashioned way. The overlay is now a genuinely frameless window, so there is nothing on it but the dot and the label.
+- **The pill can no longer be left floating on screen after a dictation.** The overlay is meant to exist only while you hold the dictation key, but it was possible for it to be left behind — visible, on top of everything, and only dismissable by closing it — because the main window, which is what decides whether the pill should still be there, could go to sleep without re-checking. The pill now keeps the main window checking ten times a second for as long as it is up, so it always retires with the dictation that raised it.
+
+## [0.23.0] - 2026-07-24
+
+### Added
+- **Single-word dictations can skip the trailing period.** When you say just one word, Hark now injects it without the period the speech provider (or a cleanup voice) tacks on — so "Hello." becomes "Hello". It's on by default and can be turned off under Settings → Behavior ("Drop the trailing period on single words"). Multi-word dictations, and one-word answers that end in "?" or "!", are left exactly as they were.
+
+## [0.22.0] - 2026-07-24
+
+### Added
+- **Four more cleanup voices.** Alongside Clean, Professional, and Casual, the Voice picker now offers: **Notes**, which turns what you said into terse first-person work notes the way you'd log a ticket; **Concise**, which tightens rambling and cuts repetition while keeping your wording and every fact; **Direct**, which leads with the point and drops hedging and warm-up; and **Plain**, which puts things in clear, neutral language for a non-technical reader without adding explanation you didn't give. Like the existing voices, each one edits what you said — it never pads a short remark into a paragraph — and short dictations still skip cleanup entirely.
+
+### Changed
+- **Cleanup voices no longer produce em or en dashes.** Every built-in voice — Clean and Professional included — now asks the model to use a comma, period, or plain hyphen instead of the long dashes that read as machine-written and are a nuisance to retype. The custom voice is left alone, since it follows your own prompt.
+
+## [0.21.3] - 2026-07-23
+
+### Fixed
+- **The "Listening…" pill really floats free now — no box of any colour around it.** The earlier attempts (0.21.1, 0.21.2) could not make the overlay window's background see-through on Windows, so a rectangle kept showing behind the pill. Instead of fighting window transparency, Hark now cuts the overlay window down to the pill's exact rounded shape, so there is no background left to show. Clicks outside the pill also pass straight through to the app beneath it.
+
+## [0.21.2] - 2026-07-23
+
+### Fixed
+- **The "Listening…" pill now floats cleanly over the desktop, with no box around it.** The recording overlay is meant to show only its pill, but on Windows the surrounding window area was rendering as a solid rectangle — first black, then (after 0.21.1) white. The cause was the overlay's click-through setting, which forces a Windows window mode that can't show a see-through background behind hardware-drawn graphics. Click-through is dropped so the background is genuinely transparent; the overlay still never takes focus, and it only appears for the moment you hold the dictation key.
+
+## [0.21.1] - 2026-07-23
+
+### Fixed
+- **The "Listening…" pill no longer sits inside a black box.** The recording overlay is meant to float its pill straight over the desktop, but on Windows it was painting onto an opaque background, so a black rounded rectangle showed around the pill. The overlay now composites transparently and only the pill is visible.
+
+## [0.21.0] - 2026-07-23
+
+### Changed
+- **A quieter, more compact new look — "Nocturne."** The whole window has been restyled: a near-neutral blue-grey ground, a single blurple accent used as a line or glow rather than a flood, and hairline separators under every list row that fade to transparent at their ends. Text is lighter-weight throughout — headings and section titles are medium, never bold, so the hierarchy comes from size and space instead of heaviness.
+- **The left sidebar is now a slim top navigation bar.** The wordmark and the page tabs (History · Dictionary · Invocations · Stats) sit on the left; Settings and the version caption sit on the right. The active tab is marked by an accent underline. Every page, feature, and behavior is exactly where it was — this is a reskin and a shell rearrangement, not a change to what Hark does.
+- **Buttons are now outlined instead of filled.** Primary actions carry an accent border and accent text; destructive actions (Clear all, Reset stats, Remove key, Delete) are outlined in red and still go through the same confirm dialogs. The confirm and destructive copy is unchanged.
+- **The recording pill now reads "Listening…" beside its pulsing dot,** and the status footer shows a breathing dot while recording and a spinner while processing.
+
+## [0.20.1] - 2026-07-23
+
+### Fixed
+- **"Download & install" now reopens Hark on the new version by itself.** Installing an update restarted Hark but the new copy quit on the way up — it saw the old one still shutting down, assumed a second Hark was already running, and bowed out, leaving you to reopen it by hand. The relaunched copy now waits the moment it takes the previous one to let go, then starts normally. It also always relaunches the version you just installed, closing a Windows case where it could have come back on the old build.
+
+## [0.20.0] - 2026-07-22
+
+### Added
+- **Invocations: say a short phrase, get a block of text you wrote.** A new section in the sidebar, next to Dictionary. You pair a trigger phrase with the text it should produce — say "access granted" and Hark types the paragraph listing what a support tech has access to. The text is injected exactly as you wrote it, including line breaks, and never goes near a cleanup voice, so it cannot be reworded, shortened, or "improved" on the way to your cursor. Each invocation decides for itself when it may fire: **whole dictation only** (the default — the phrase has to be the entire thing you said, so it can never go off mid-sentence by accident) or **anywhere in the sentence**, where it is spliced into a longer dictation in place.
+- **Triggers are matched by sound, not by spelling.** If your provider hears "access granite" for "access granted", the invocation still fires. Hark matches triggers the same way the Dictionary already matches terms, but demands a closer match before acting — a Dictionary mistake costs you one word, an invocation mistake pastes a whole paragraph. A trigger that keeps getting misheard can be fixed for free by adding the stubborn word to your Dictionary, since triggers are matched after Dictionary corrections are applied.
+- **A dictation that fires an invocation skips the cleanup call.** It costs nothing, adds no delay, and cannot fail — which also means an "anywhere" trigger inside a longer sentence means that whole dictation goes uncleaned.
+- **An invocation that can never fire says so on its own row.** A trigger shorter than two words, an invocation with no text to type, or a trigger a previous entry already claimed is marked in the list with the reason, instead of quietly doing nothing when you say it.
+- **A "Try it" box in the editor tells you whether a phrase would fire, before you rely on it.** Type what you'd say and Hark answers with the real matcher, not a guess. When it would not fire but came close, it names the nearest trigger and how close it got, so you know whether to reword the trigger or just say it more clearly.
+- **History marks the dictations that came from an invocation.** The row carries an ⚡ Invocation badge, and expanding it names the trigger that fired — so an entry that reads nothing like what you said explains itself.
+- **An Invocations page in the documentation wiki** (`Docs/features/INVOCATIONS.md`), covering the matching rules, both scopes, the configuration keys, and why a fired invocation bypasses your cleanup voice.
+
+### Changed
+- **Invocations count the words you spoke, not the words Hark pasted, in your stats.** "Time saved" values every word at typing speed, so a two-word trigger producing a 300-word block would otherwise have invented about seven and a half minutes of saved time out of nothing. Your existing figures are untouched; only invocation dictations count differently, and only from this version on.
+
+## [0.19.1] - 2026-07-22
+
+### Added
+- **Groundwork for transcribing and tidying in a single request.** With a cleanup voice switched on, Hark currently makes two round trips before your words appear: one to transcribe, then a second to clean the result up, which cannot start until the first has finished. Google's Gemini can do both at once. This release adds the adapter for it, behind the scenes and not yet selectable in Settings, along with a harness that measures it against the current two-request path so the choice is made on real numbers rather than expectations. Nothing changes about how Hark behaves today.
+
+## [0.19.0] - 2026-07-22
+
+### Added
+- **The cleanup provider has its own Test button.** "Test connection" only ever tried cleanup when your default voice was one that runs it, so anyone using Verbatim by default — or pointing cleanup at a second provider with its own key — had no way to check that the endpoint, model, and key actually worked short of dictating and hoping. Settings → Cleanup provider now has a Test cleanup button that sends one short request to whatever that section is currently set to and reports the model it reached and how long it took, or the reason it failed. A Verbatim default is tested with the Clean voice, since Verbatim makes no cleanup call at all, and the result says so.
+- **An unsaved-changes bar above the status footer.** The Save button used to sit at the bottom of the settings form, which is exactly where a long form pushes it out of view — so a changed setting could sit unsaved with nothing to say so. Changing anything in Settings now raises a bar just above the status bar with Save and Discard, pinned in place no matter how far you have scrolled. It also carries the result of the save, so a failure names its cause instead of leaving a silent form.
+
+### Fixed
+- **The status bar names the engine that is actually transcribing.** With the on-device model set as your primary engine, the bottom-right corner still read `deepgram · nova-3` — a cloud provider that, in that mode, is never contacted. It now reads `on-device` and the model name. Set to backup instead, it names your cloud provider first and marks the local model as the fallback it is.
+
+## [0.18.1] - 2026-07-21
+
+### Fixed
+- **The recording pill is visible again on multi-monitor setups.** If the floating indicator stopped appearing when you hold the shortcut — while dictation itself kept working perfectly — this is why. Hark worked out where to put the pill from the size of one monitor while the position was measured from the corner of your main one, and it assumed every screen ran at the same scaling. On a single screen that guess happens to be right. On two, especially at different scaling levels, it put the pill on the wrong monitor or in the empty space between them, where it was drawn every frame and never seen. Hark now asks Windows where your screens actually are, and places the pill on the one you are typing into, clear of the taskbar.
+
+## [0.18.0] - 2026-07-21
+
+### Added
+- **Hark can now transcribe without the internet.** Under Settings → On-device model you can download a speech model onto your computer and have Hark use it. Nothing is sent anywhere: the audio never leaves the machine. Two ways to use it, and you pick: as a **backup**, where Hark tries your cloud provider first and quietly falls back to the local model when the provider is down, times out, or your key stops working — so a dropped connection costs you a second instead of your sentence; or as your **primary engine**, where Hark never contacts a provider at all and does not ask you for an API key. The model is Parakeet TDT 0.6B v3, it is about 670 MB, and it is not included in Hark — you download it on demand from the Settings page, with a progress bar, a cancel button, and a delete button to get the space back later. Cancelling keeps what you have already downloaded, so starting again picks up where you left off rather than beginning again.
+- **History says which engine wrote each line.** An entry produced on-device is labelled `local`, and one produced because the cloud failed is labelled `local (fallback)`, so a transcript that reads differently from usual explains itself instead of being blamed on the wrong model.
+
+### Changed
+- **When a local backup is ready, Hark gives the cloud a shorter deadline.** Waiting the full 15 seconds for a failing provider and only then spending a couple of seconds transcribing locally would make a rescued dictation slower than no rescue at all. With a downloaded model standing by, cloud requests get 6 seconds before Hark falls back (`local_stt.fallback_after_ms`). Without one, nothing changes.
+- **The first dictation using the local model says what it is doing.** Loading the model into memory takes a few seconds, once, and the status bar now names that instead of looking frozen. After that it stays loaded and every dictation is fast — at the cost of the memory it occupies, which is why there is a Delete button.
+
+## [0.17.0] - 2026-07-21
+
+### Added
+- **A live input meter in Settings → Microphone.** It shows what Hark is actually hearing right now, with plain-language guidance — no input, too quiet, good, or too loud. If Hark cannot hear you, you can now see that immediately instead of guessing.
+- **Windows' communications microphone is labelled in the picker.** Windows keeps two separate default microphones: one for general use and one for calls, and headset setup guides usually tell you to set the calling one. When those differ, Teams and Hark listen to different microphones. The device Teams and Zoom use is now marked in the list.
+- **Quiet recordings get boosted before transcription.** Recordings that come in below the level transcription services expect are lifted automatically, stopping short of distortion and without amplifying a quiet room into hiss. Audio that was already at a good level is passed through untouched.
+
+### Changed
+- **"We didn't catch that" now says so.** Discarded dictations used to end in silence, indistinguishable from a broken app. When Hark hears nothing loud enough to be speech it now says so in the status bar and offers a jump to Settings. Tapping the shortcut by accident stays silent, as before, because that needs no reply.
+
+### Fixed
+- **Hark no longer goes deaf on quieter microphones.** If you had to lean into your mic for Hark to pick you up — while the same mic worked fine in Teams, Zoom, or Discord — this is why. Hark judged whether you had spoken by averaging the loudness of the whole recording, and every recording includes the padding Hark keeps before and after your words. That padding is silence, and averaging it in dragged the number down, so short utterances scored lower than long ones spoken at exactly the same volume. A quiet "yes" could be discarded while a quiet full sentence went through. Hark now asks whether the recording ever reached speaking level, which does not care how long you spoke or how long you paused before starting.
+- **Speech is now measured against your room, not a fixed number.** Even with the above fixed, the cutoff was a fixed loudness that assumed a certain microphone. Hark now also accepts anything that stands clearly above the background noise of your own recording, so a quiet setup works without you touching anything.
+- **Stereo and array microphones no longer lose half their volume.** Many laptop microphones present a second channel that is nearly silent. Hark used to average the channels together, which quietened your voice by about half on those machines and pushed borderline recordings under the cutoff.
+
+## [0.16.0] - 2026-07-21
+
+### Added
+- **Only one Hark runs at a time.** Starting Hark while it is already running — the usual way being launch-at-login plus a manual launch or a double-click on the Start Menu shortcut — used to start a second copy, leaving two programs fighting over the same push-to-talk key, two tray icons, and two writers on one history database. The second copy now notices the first and exits quietly, leaving the running Hark alone. Signing in as a different user still gets its own Hark, and force-quitting Hark never blocks the next launch.
+
+## [0.15.0] - 2026-07-21
+
+### Added
+- **A cleanup that rewrites too much is now thrown away.** Clean, Professional, and Casual could turn a short remark into a full paragraph. Any cleanup whose output runs past a length budget is discarded and your own uncleaned words are injected instead, so a chatty model can no longer put sentences in your mouth. The limit is `voice.max_expansion_ratio` (default 1.4x what you said; `0` turns the check off), adjustable under Settings → Behavior.
+
+### Changed
+- **Voice presets edit rather than rewrite.** Every built-in voice now states that it is editing a spoken transcript, not writing prose: a five-word dictation comes back about five words, with no invented sentences, greetings, sign-offs, or context you did not say. Professional and Casual adjust wording and formality only. The Custom voice is deliberately exempt from both the instruction and the length check, so a prompt like "turn this into an email" still works as written.
+
+## [0.14.3] - 2026-07-17
+
+### Fixed
+- **Windows installer build.** The installer script used an invalid registry flag that aborted the Inno Setup compile, so no signed installer was produced. The launch-at-login registry entry now uses the correct flag and the installer builds again.
+
+## [0.14.2] - 2026-07-17
+
+### Added
+- **Project documentation wiki.** A new `Docs/` folder holds a generated, evidence-based wiki: an overview, architecture, getting-started, configuration, and data-storage pages, one page per pipeline subsystem (audio capture, transcription, dictionary, voice cleanup, text injection, desktop UI, updates and autostart), a release-and-packaging runbook, and a glossary, all indexed from `Docs/README.md`. Every claim links to the exact source file and line range it describes. Developer-facing only, with no change to the app.
+
+## [0.14.1] - 2026-07-17
+
+### Changed
+- **Phase-5 handoff documentation.** Added a Phase 5 (Polish/Ship) handoff recording that the Windows-side Ship work has landed (signed installer, launch-at-login, in-app updates, mic picker) and scoping the remaining macOS work (packaging/notarization, login item, first-run permission flow) plus a cross-platform single-instance guard. No app behavior changed.
+
+## [0.14.0] - 2026-07-17
+
+### Added
+- **Windows installer.** Hark now ships as a proper installer (`Hark-<version>-windows-x64-setup.exe`), the headline download on each release, alongside the portable exe. It installs per user to `%LOCALAPPDATA%\Programs\Hark` with no admin prompt, adds a Start Menu shortcut (and an optional desktop shortcut), and registers a clean uninstaller. An uninstall leaves your settings and history in `%APPDATA%\hark` untouched.
+- **Launch at login.** Hark can start automatically when you sign in to Windows, running hidden in the system tray with no window. It is on by default and controlled by a new **"Launch Hark at login"** toggle under **Settings → Behavior**. Turning it off removes the startup entry, and disabling Hark from Windows Task Manager's Startup tab is respected rather than overridden.
+- **Microphone picker in Settings.** A new **Microphone** section lets you choose which input device Hark records from, with a **Rescan** button for mics plugged in after the page opened. A configured microphone that is currently unavailable stays selected (shown as "not connected") instead of silently resetting, and capture falls back to the system default until it returns.
+
+### Changed
+- **README brought in line with the BYOK-cloud pivot.** The intro, design principles, tech-stack table, architecture diagram, prerequisites, project structure, and privacy notes no longer describe the retired on-device (sherpa-onnx / Parakeet) transcription; they now document the `SttProvider` trait, the OpenAI-compatible and Deepgram adapters, and the actual crate layout, and the privacy section states plainly that audio is sent to your chosen provider under your own key.
+
+## [0.13.7] - 2026-07-17
+
+### Removed
+- **Retired the internal `hark-cli` dev binary.** The push-to-talk app (`hark-app`) has fully replaced it end to end, so the standalone command-line harness has been removed from the workspace. Internal cleanup only, with no effect on the installed app.
+
+## [0.13.6] - 2026-07-17
+
+### Added
+- **Choose which microphone Hark records from.** Capture can now target a specific input device instead of always using the Windows default: the selected device name is stored in the `[audio]` section of the config, and if that device is later unavailable (unplugged, powered off) capture falls back to the system default rather than stopping. The Settings picker that exposes this lands with the settings-UI update.
+- **In-app updates.** Hark now checks GitHub for a newer release and can install it for you. A **Check for updates** button in Settings reports whether you're current and, when a new version exists, shows its release notes with a one-click **Download & install**. Hark also checks once automatically at startup (a toggle in Settings turns this off) and, if an update is waiting, shows a banner across the top with **Install** and, once downloaded, **Restart to finish**. On Windows the downloaded build's code signature is verified against the running app's publisher before it replaces anything, so only a genuine signed Hark is ever installed; on macOS the check links out to the release page.
+
+## [0.13.5] - 2026-07-17
+
+### Changed
+- **Phase-4 wrap documentation.** CP6 (live hardware validation) and the signed-release pipeline are marked done in the phase-4 spec, and a CP7 handoff (retire hark-cli) was added for the next session. The three Azure Trusted Signing gotchas found while getting signed releases green were contributed to the shared LL-G knowledge base under a new `github-actions` category.
+
+## [0.13.4] - 2026-07-17
+
+### Fixed
+- **Windows release signing now authenticates correctly.** The Azure Trusted Signing action (v2) reads the service principal from its own `azure-tenant-id` / `azure-client-id` / `azure-client-secret` inputs; the workflow had been supplying them as step environment variables, which the action never picked up, so every signed release failed with "environment variables are not fully configured." The credentials are now passed as action inputs.
+
+## [0.13.3] - 2026-07-17
+
+### Fixed
+- **Release signing now fails fast with a clear message when a signing secret is empty.** Previously an empty Azure credential surfaced only as an opaque `SignerSign() failed` crash deep inside signtool. A preflight step now checks all six signing secrets before signing and, if any is empty, stops with a message naming the offending secret and pointing at the Doppler source. It prints only secret lengths, never values, so the log stays safe to share.
+
+## [0.13.2] - 2026-07-17
+
+### Fixed
+- **Release workflow now references the actual Azure signing secret names.** The signing step read `AZURE_SIGNING_ENDPOINT` / `_ACCOUNT_NAME` / `_CERT_PROFILE_NAME`, but the Doppler-synced secrets are named `AZURE_TRUSTED_SIGNING_*`; the mismatch left the endpoint empty and failed signing. Aligned the workflow and `.github/RELEASING.md` to the real names.
+
+## [0.13.1] - 2026-07-17
+
+### Added
+- **Signed Windows release automation.** Pushing a `vMAJOR.MINOR.PATCH` tag now builds `hark-app` on a Windows runner, signs the exe with Azure Trusted Signing (RFC3161-timestamped), verifies the signature, and publishes a GitHub release with the signed `Hark-<version>-windows-x64.exe` attached and auto-generated notes. The tag version is checked against `package.json` so a mistagged build fails before shipping. Setup (required secrets, Azure RBAC role, and the tag flow) is documented in [`.github/RELEASING.md`](.github/RELEASING.md).
+
+## [0.13.0] - 2026-07-17
+
+### Added
+- **Hark now lives in the system tray (Phase 4 checkpoint 5).** A tray icon shows the pipeline state at a glance: an accent ring while listening, a red disc while recording, an accent disc while processing, and exclamation-marked discs for the failure states (amber when the API key needs attention, red when the last dictation failed, gray when the pipeline is stopped). The tooltip always says the same thing in words, including the hotkey chord while listening and the actual cause on a failure.
+- **The tray menu carries the essentials:** a voice radio group (picking a voice persists it, applies it to the next dictation immediately, and keeps the Settings form in sync), Open Settings, and Quit. Double-clicking the tray icon brings the window back on whatever page it was.
+- **The app launches hidden when dictation is ready.** With a key stored, Hark starts straight into the tray; the window only appears when something needs attention (first-run onboarding, a broken config, a stopped pipeline). Tray interactions are delivered promptly even while the window is hidden.
+
+### Changed
+- **Closing the window now hides it instead of quitting;** Hark keeps dictating from the tray, and Quit lives in the tray menu. If the tray cannot be created, the window stays visible and close means quit, so the app is never unreachable.
+
+## [0.12.1] - 2026-07-16
+
+### Added
+- **Phase 4 CP5 session handoff (`tasks/2026-07-16-handoff-phase4-cp5.md`):** repo state after CP4, the load-bearing CP4 discoveries, the CP5 scope (tray icon and menu, state icons, close-to-hide, the hidden-window event-delivery design question with the recommended pump-pattern answer), and the deferred items carried to CP6, now including a real-hardware pass over the new History/Stats panels. Two durable CP4 lessons were contributed to the shared LL-G knowledge base: egui `ScrollArea::show_rows`'s uniform-row-height assumption breaking heterogeneous lists (MEDIUM), and the join-on-drop `JoinHandle` deadlock when a later-dropped field still holds a sender to the worker (HIGH).
+
+## [0.12.0] - 2026-07-16
+
+### Added
+- **Dictation history is live (Phase 4 checkpoint 4).** Every successful dictation is now saved locally the moment after it injects: a dedicated storage thread receives the finished record from the pipeline, writes it to the history database, and applies the retention caps, all off both the dictation hot path and the UI thread, so neither latency nor responsiveness pays for it. If the database cannot be opened, dictation still works; History and Stats say why they are empty.
+- **The History panel is real.** Dictations appear newest first under day headers (Today / Yesterday / date), searchable as you type across both the raw transcript and the final text, with a live entry count. Each row shows the final text with a caption (relative time, voice, model) and always-visible copy and delete buttons; copying affirms inline with a fading "Copied". Clicking a row expands the raw transcript, the timing breakdown (stt / cleanup / total ms, naming the cleanup model only when one actually ran), and the full timestamp; Esc or a second click collapses it. Ctrl+F jumps to search. "Clear all" sits behind a confirm that states the exact entry count and that lifetime stats are untouched. Long histories load in pages behind a "Show more" button.
+- **The Stats panel is real.** Locked behind the first 10 dictations (a progress bar toward unlocking, never a dashboard of zeros), it then shows lifetime cards for dictations, words, speaking time, and average release-to-inject latency, plus an honest "time saved vs typing at 40 WPM" line and the date counting began. "Reset stats" has its own confirm and leaves history entries untouched. On a database from before this release the latency average shows "n/a" instead of a made-up zero until new dictations accumulate.
+- **Retention settings now apply on save and at startup** (not just after the next dictation): every pipeline start re-applies the entry-count and age caps.
+- The stats row now also accumulates total release-to-inject time (schema migration 002) so the average latency figure derives from real totals rather than an approximation that would omit encode and inject time.
+
+## [0.11.1] - 2026-07-16
+
+### Added
+- **Phase 4 CP4 session handoff (`tasks/2026-07-16-handoff-phase4-cp4.md`):** repo state after CP3, the load-bearing CP3 discoveries, the CP4 scope (storage thread, history panel, stats panel), and the deferred items parked for CP6 real-hardware validation. Two durable CP3 lessons were contributed to the shared LL-G knowledge base: eframe startup `set_theme` silently clobbering the persisted theme preference (HIGH), and the egui `CollapsingHeader` controlled-open one-frame latch (MEDIUM).
+
+## [0.11.0] - 2026-07-16
+
+### Added
+- **The full settings form (Phase 4 checkpoint 3).** Everything the app needs configured is now in the window, with progressive disclosure: the provider picker, key section, hotkey, and voice stay visible; model & endpoint overrides, the cleanup provider, behavior, and history & privacy live in collapsed sections. The key section pastes into a masked field and writes straight to the OS keychain (a stored key is never displayed back; Remove sits behind a confirm dialog whose safe default is Cancel), the hotkey field validates the chord as you type, the model and base URL fields show each provider's default as a hint (with the endpoint section auto-expanding for OpenAI-compatible endpoints, where a base URL is required), and the voice picker exposes the custom prompt when Custom is selected. The cleanup section states honestly what will run: "Inherited from STT" with the model, the reason cleanup cannot run (e.g. Deepgram has no chat product), or an explicit override with its own key section when the keychain account differs. History & privacy carries the capture toggle (content off, counters still tick), both retention caps, and a plain-language disclosure of exactly what leaves the device.
+- **Test connection, inline and honest.** One click transcribes a bundled speech clip through the configured provider on a background thread and shows the transcript plus latency; when a cleanup call would run, a tiny chat call tests that too. Results stay on screen until the next test, failures name the cause in the provider's own words, and Groq gets an honest note that every request bills a 10 second minimum.
+- **Save applies everything at once:** validate, persist the TOML atomically, restart the dictation pipeline, and say what happened, in that order. An invalid draft changes nothing on disk. Storing or removing a key for the active provider restarts the pipeline immediately, so a fixed key starts working the moment it lands.
+- **Get Started onboarding.** With no key at startup, Settings opens with a three-step card (pick provider, paste key, test) that checks steps off as they complete and then swaps to "Hold [your chord] and speak into any text field", which is true when shown because a passing test during onboarding saves and starts the pipeline automatically. The card is dismissible and retires itself after the first successful dictation. No wizard, nothing modal.
+- **The dictionary is editable:** a pinned add field (Enter adds and keeps focus for the next term), click-to-edit rows, per-row delete. Every change saves immediately and applies to the next dictation.
+- **A Light / Dark / System theme choice** in Settings > Behavior; the preference survives relaunch.
+
+## [0.10.2] - 2026-07-16
+
+### Added
+- **Dependency audits now run clean and mean it.** A full-workspace audit (2026-07-16) found zero vulnerabilities in Hark's direct dependencies and a current toolchain. The three RustSec advisories cargo-audit reports (two quick-xml DoS issues and the ttf-parser unmaintained notice) live only in the Linux/Wayland build path under eframe/winit, which is never compiled into the shipped Windows or macOS binaries, and the quick-xml fix is blocked upstream until wayland-scanner adopts 0.41. A new `.cargo/audit.toml` records each ignore with that justification and its re-evaluation trigger, so `cargo audit` exits clean and any future finding is a real signal. Also noted for the record: reqwest stays on 0.13.1 deliberately; 0.13.4 dropped the `webpki-roots` feature the static-trust-roots design depends on (lesson contributed to the shared LL-G knowledge base).
+
+## [0.10.1] - 2026-07-16
+
+### Added
+- **Phase 4 CP3 session handoff (`tasks/2026-07-16-handoff-phase4-cp3.md`)** and CP2 implementation lessons recorded in the Phase 4 spec §6 (eframe 0.35 trait and panel changes as found in practice, the vendored Phosphor icon decision, per-theme Context setters, font zip layouts, the worker-to-UI repaint pump, honest dictation-record labeling, and the build machine's Application Control policy blocking release builds). The three durable Rust lessons (libsqlite3-sys hidden MSRV, eframe 0.34/0.35 App trait split, egui companion-crate lag) were contributed to the shared LL-G knowledge base.
+
+## [0.10.0] - 2026-07-16
+
+### Added
+- **Hark is now a windowed desktop app (`hark-app`, Phase 4 checkpoint 2).** A new binary opens a real settings window: fixed sidebar (History / Dictionary / Stats navigation, Settings pinned at the bottom, version caption), a persistent status footer that always tells the truth about the pipeline (Listening for the configured chord / Recording / Processing / an error with its cause, plus an "Open Settings" jump when the problem is key-related), and honest placeholder pages with designed empty states where the CP3/CP4 editors and lists will land. At startup the app resolves the BYOK key from the OS keychain and starts the dictation pipeline; with no key it opens on Settings with the footer saying why, never a silent dead state. Closing the window quits (the tray arrives at CP5). Debug builds keep a console for logs; release builds are windowless.
+- **A real visual identity, not an egui demo.** Embedded Inter (Regular/Medium/SemiBold) and JetBrains Mono fonts (SIL OFL 1.1, official releases), a hand-rolled light and dark theme following the OS preference, an indigo accent, soft shadows, hairline strokes, a 4 px spacing grid, and a fixed type scale, all defined in one `theme.rs` token module. Icons are vendored Phosphor glyphs (the egui-phosphor crate still targets egui 0.34, so the font plus its matching codepoints are embedded directly). Unit tests pin the palette hexes and verify WCAG AA contrast (4.5:1 body text, 3:1 indicators) in both themes.
+- **The pipeline now reports what it is doing.** `hark_pipeline::run` takes an event channel and emits advisory events (Recording, Processing, Injected with the full dictation record, Failed with the stage and cause). Sends are non-blocking and best-effort: dictation never waits on, and can never be broken by, the UI. The dictation record carries the raw and final transcripts, voice/provider/model labels, and per-stage timings, and deliberately has no Debug formatting so transcript content cannot leak into logs. When a cleanup call is skipped, gated, or fails, the record labels the entry verbatim rather than blaming a model that never ran.
+
+### Changed
+- **`hark-cli` passes the new event channel** (and drops the receiver; the CLI has no UI). Behavior is otherwise unchanged; the crate retires at CP7.
+
+## [0.9.5] - 2026-07-16
+
+### Added
+- **Config saves are proven safe to repeat:** a new test verifies that saving over an existing `config.toml` replaces it cleanly on Windows (the temp-file + rename path), which is exactly what the settings UI will do on every Save.
+- **Phase 4 session handoff (`tasks/2026-07-16-handoff-phase4-cp2.md`)** and CP0/CP1 implementation lessons recorded in the Phase 4 spec (toolchain MSRV gotcha behind rusqlite's bundled SQLite, in-memory WAL behavior, TOML Option serialization, keyring test seams, Windows rename semantics).
+
+## [0.9.4] - 2026-07-16
+
+### Added
+- **The keychain can now be written, not just read (Phase 4 checkpoint 1).** `hark-keychain` gains `store_key` (rejects empty or whitespace-only keys before the OS backend is ever touched, and trims pasted whitespace), `delete_key` (removing an absent key is success, so the UI Remove button is idempotent), and `key_status` (Stored / Missing / Backend detail; the stored value is read and immediately dropped, never crossing the function boundary). These are the exact slots the settings UI paste field will drive. The no-key-material-in-errors guarantee and the no-test-touches-the-real-keyring rule both hold: backend outcomes are mapped by pure, separately-tested functions.
+- **Config gains its schema version stamp and the `[history]` section.** `version = 1` is now written to every saved file so a future breaking change can ship backup-then-migrate cleanly; files predating the stamp load as current-generation. `[history]` carries `capture` (false stores no dictation content while numeric counters still tick), `max_entries` (default 1,000) and `max_age_days` (default 90), both validated >= 1.
+- **Settings can be saved, not just loaded.** `Settings::save` validates first, then writes via temp-file-and-rename so a crash mid-save can never leave a truncated config. Serialization omits unset optional fields, stamps the version, and quietly upgrades the legacy `bias_terms` key to `terms` on the next save. A `default_data_dir()` helper resolves the OS data directory for the history database (on Windows it coincides with the config directory).
+
+## [0.9.3] - 2026-07-16
+
+### Added
+- **Local dictation storage lands (`hark-store`, Phase 4 checkpoint 0).** New SQLite-backed crate holding dictation history and lifetime stats: WAL journal with a writer/reader two-connection pattern, numbered immutable embedded migrations tracked by `PRAGMA user_version`, and retention pruning (entries older than the age cap and beyond the newest-entries cap are deleted; both caps become configurable in the settings UI). History rows keep the raw transcript and the final injected text plus voice/provider/model labels and per-stage timings. The lifetime stats row is keyed on a fixed id and survives history clears and pruning by construction; "Clear history" and "Reset stats" are independent operations. Privacy semantics are built in: with capture off no transcript content is written while the numeric counters still tick, and the text-bearing types deliberately have no Debug formatting so transcripts cannot leak into logs. Behavior tests cover schema and reopen, paging, case-insensitive literal search (LIKE wildcards neutralized), strict pruning boundaries, and stats independence.
+
+### Changed
+- **Building Hark now needs Rust 1.97+** (workspace `rust-version` moved from 1.94): rusqlite 0.40.1's bundled SQLite (3.53.2) build script uses `cfg_select!`, which was unstable before then. The build machine's stable toolchain was updated to 1.97.1 accordingly.
+
+## [0.9.2] - 2026-07-16
+
+### Added
+- **Phase 4 planning handoff (`tasks/2026-07-16-handoff-phase4-planning.md`).** Sole starting context for the next session: repo state (v0.9.1 @ `febcb5c`, 236 tests), what Phase 3 deferred into Phase 4 (the BYOK key paste field writing the existing keychain slots, the still-unrun cleanup model spike, the CP5 interactive voice gate), the master plan's Phase 4 scope (rusqlite history/stats, egui settings window, first-run onboarding, tray), load-bearing constraints (UI on main thread, pipeline restart semantics, logging hygiene, the read-only gap in hark-keychain that key entry must close), and the open questions to put to the user.
+
+## [0.9.1] - 2026-07-16
+
+### Changed
+- **Phase 3 spec updated with CP0-CP4 implementation lessons and final status.** Checkpoint commits recorded; the parallel voice-enum decision, the HARK_CLEANUP_KEY testing seam for the explicit-provider path, the no-Debug/expect_err note, and the base-URL pre-warm comparison are captured in the spec's Lessons Learned section. The CP0 live spike and CP5 interactive gate remain queued for Phase 4 behind the BYOK UI paste field.
+
+## [0.9.0] - 2026-07-16
+
+### Added
+- **Voice cleanup is live in the dictation loop (Phase 3 checkpoint 4).** With a non-verbatim voice configured and a resolvable cleanup provider, every dictation now runs: dictionary pass 1, the word-count gate (short utterances skip the call and log why), one chat-completions rewrite in the chosen voice, dictionary pass 2 (repairs any term the model re-mangled), then injection. Cleanup is fail-open end to end: an unresolvable provider, missing key, or failed request logs one warning and injects the dictionary-corrected transcript unchanged; a dictation is never lost to the optional feature. Inheriting an OpenAI/Groq STT provider reuses the already-resolved STT key with no second keychain read; when the cleanup endpoint differs from the STT one, the worker pre-warms both at startup so the first cleaned dictation skips the cold TLS handshake. Logging stays counts/millis/config-labels only, never text or prompts.
+- **`hark-cli --voice <name>`** overrides the configured default voice for one run (`--voice=name` also accepted). Invalid names exit with the list of valid voices; `--voice custom` without a configured `custom_prompt` is rejected at startup with the fix named.
+
+## [0.8.8] - 2026-07-16
+
+### Added
+- **The live cleanup adapter (Phase 3 checkpoint 3).** `OpenAiCompatibleChat` implements `CleanupProvider`: one buffered JSON POST to `{base_url}/chat/completions` with Bearer auth, a 10-second per-request timeout (tighter than STT's 15 s, because cleanup failure has a graceful fallback), and no retry, keeping worst-case hot-path latency bounded. The prompt is assembled per request so the protected-terms clause tracks the dictionary terms actually present in the outgoing text. Construction rejects the Verbatim voice (which never calls) instead of panicking, and the adapter's config struct cannot leak the API key or the user's custom prompt through Debug formatting. The live path is a thin shell over the pure request/response layer already under test; network behavior is proven at the deferred live gate.
+
+## [0.8.7] - 2026-07-16
+
+### Added
+- **Voices, prompt assembly, and the word-count gate (Phase 3 checkpoint 2).** `hark-voice` gains the `Voice` enum (verbatim / clean / professional / casual / custom) with a case-insensitive parse whose error message lists the valid names, ready for `hark-cli --voice`. Per-request system prompts follow the planned shape: the voice's instruction (custom uses the user's prompt verbatim), a "Leave these terms exactly as written" clause built only from dictionary terms actually present in the outgoing text (case-insensitive, multi-word safe, capped at a ~400-token budget with the same order-is-priority drop rule as STT biasing), and a closing return-only instruction. Verbatim never builds a prompt at all. The `skips_cleanup` gate implements "fewer than N words skips" with 0 disabling the gate and exactly-at-threshold not skipping. The cleanup spike now drives the library's real prompt assembly, so future measurements exercise exactly what the adapter will send.
+
+## [0.8.6] - 2026-07-16
+
+### Added
+- **`[voice]` config schema and cleanup-provider resolution (Phase 3 checkpoint 1).** `config.toml` gains `[voice]` (`default` voice, `custom_prompt`, `skip_below_words` gate) and an optional `[voice.provider]` table (`kind`, `base_url`, `model`, `temperature`, `reasoning_effort`, `key_account`), all additive with serde defaults, so existing config files keep loading unchanged. Validation enforces: `custom` voice requires a non-empty prompt, Deepgram is rejected as a cleanup provider (no chat product), and `openai-compatible` requires an explicit base URL. A pure, fully unit-tested resolution function decides the cleanup provider at pipeline build: an explicit table wins; otherwise an OpenAI or Groq STT provider is inherited (same kind and base URL, per-kind chat defaults, and the already-resolved STT key is reused with no second keychain read); otherwise a non-verbatim voice degrades to Verbatim with a one-time startup warning, never a hard error, so the out-of-the-box Deepgram + Clean default keeps working.
+- **Keychain resolver generalized for the cleanup role.** `resolve_key_for(env_var, account)` serves any role; `resolve_key` stays as the STT wrapper so existing call sites stand. New `HARK_CLEANUP_KEY` env override; missing-key errors name the role's own env variable and the exact account, including `key_account` overrides. The keychain account remains the provider label, shared between STT and cleanup by design, and the same slots the Phase 4 UI paste field will write.
+
+## [0.8.5] - 2026-07-16
+
+### Changed
+- **BYOK key entry moves to the Phase 4 UI (user decision).** No manual key handling in terminals or env vars; API keys will be pasted into a settings field once the UI exists, writing the same keychain slots the resolver reads. The CP0 live model spike and the CP5 interactive gate defer to Phase 4 accordingly; the per-kind chat model defaults (gpt-5-nano at minimal reasoning effort, llama-3.1-8b-instant) ship provisionally from research until live re-verification. CP1-CP4 proceed now on pure functions and mocked tests. Risk stays bounded by the fail-open design: a wrong provider-quirk assumption costs a logged warning and an uncleaned inject, never a lost dictation.
+
+## [0.8.4] - 2026-07-16
+
+### Added
+- **`hark-voice` crate: pure chat-completions layer + CP0 cleanup model spike (Phase 3 checkpoint 0).** The new crate mirrors hark-stt's discipline: pure, unit-tested request/response functions (trailing-slash-tolerant URL building; a buffered JSON request body that omits `temperature` and `reasoning_effort` entirely when unset, since the GPT-5 family rejects any non-default temperature with a 400; an output-token cap derived from input length with generous reasoning headroom, clamped to [512, 4096]; response parsing that treats empty or null content as a provider error and names the `finish_reason`, because "length" there means reasoning tokens ate the budget), plus a `CleanupError` taxonomy that can never carry key material and the `CleanupProvider` trait the pipeline will mock at CP4. `cargo run --example cleanup_spike -p hark-voice` (keys from env: `OPENAI_API_KEY`, `GROQ_API_KEY`) rewrites filler-laden fixture transcripts across the four candidate models per voice prompt, measures warm p50/p95, checks protected dictionary terms survive, and drills the plan's open verifications: GPT-5 temperature rejection, `reasoning_effort` acceptance on gpt-5-nano, the error envelope on forced 400/401, transport-error classification on buffered JSON bodies, and reasoning-token headroom. Running the spike with real keys and pinning the plan's default models is the CP0 exit gate.
+
+## [0.8.3] - 2026-07-16
+
+### Added
+- **Phase 3 spec: voice layer + cleanup BYOK (`tasks/2026-07-16-phase3-voices.md`).** Planned in full: an optional one-shot chat-completions cleanup call rewrites the transcript in a chosen voice (Verbatim / Clean / Professional / Casual / Custom, Clean default) before injection, via a new `hark-voice` crate mirroring hark-stt's adapter discipline. Locked decisions: voice selection is config + a `hark-cli --voice` flag (tray stays in Phase 4); a word-count gate (default 5, configurable, 0 disables) lets short utterances skip cleanup; the dictionary pass runs both before and after cleanup; cleanup is fail-open at every layer with no retry, so a dictation is never lost to the optional feature; cleanup providers may be inherited from an openai/groq STT config or set explicitly, with the keychain account remaining the provider label. Current chat model candidates (gpt-5-nano, llama-3.1-8b-instant) were verified against provider docs on 2026-07-16, including the GPT-5 temperature lock; a CP0 spike pins final defaults empirically. Six checkpoints, CP5 an interactive real-hardware gate.
+
+## [0.8.2] - 2026-07-16
+
+### Changed
+- **Phase 2 (Windows) definition of done is met: the CP6 interactive gate passed user validation.** Dictating with a real dictionary loaded, spoken terms arrived at the cursor with their canonical spellings, decoy sentences of ordinary speech were left untouched, and no latency change was perceptible. The 0.85 Jaro-Winkler threshold held as shipped with no tuning. The collision lesson behind the guard was contributed to LL-G (`kb/rust/phonetic-code-equality-needs-confirm-guard.md`, HIGH). macOS validation remains deferred until Mac hardware; nothing in Phase 2 is platform-specific.
+
+## [0.8.1] - 2026-07-16
+
+### Changed
+- **Phase 2 spec updated with CP0-CP5 implementation lessons.** The concrete "matter"/"modero" Double Metaphone collision that makes the Jaro-Winkler guard load-bearing, confirmed rphonetic 3.0.6 behavior, the span-based punctuation approach, and the hyphen tokenization decision are recorded in the spec's Lessons Learned section; status moves to CP6-pending (interactive gate on real hardware).
+
+## [0.8.0] - 2026-07-16
+
+### Added
+- **Dictionary correction is live in the dictation loop (Phase 2 checkpoint 5).** Every dictation now runs the phonetic post-correction pass between the provider's transcript and injection: spans that sound like a configured `[dictionary] terms` entry but are spelled wrong arrive at the cursor with the canonical spelling. The corrector is built once at pipeline startup (per-term phonetic codes precomputed off the hot path) and the pass logs counts and millis only ("dictionary: N replacements in X ms"), never transcript text or term content, preserving the Phase 1 logging discipline. Worker-level tests drive a fake provider's misspelled transcript through the retry-and-correct path and assert the exact text handed to injection; the injection I/O itself remains a real-hardware concern for the CP6 gate.
+
+### Changed
+- **Whisper-family prompt biasing now respects the 224-token truncation limit.** `prompt_from_bias_terms` includes terms in configured order until a ~200-token budget (4 chars per token heuristic) is spent and drops the rest, instead of joining an unbounded list into a prompt the model would silently truncate. Adapter construction logs "prompt bias: included M of N terms" (counts only). Deepgram's `keyterm` path is unchanged.
+
+## [0.7.6] - 2026-07-16
+
+### Added
+- **Multi-word dictionary terms and overlap resolution (Phase 2 checkpoint 4).** Terms split on whitespace and hyphens into word windows: "hark-stt" matches transcript "hark stt" and "hark-stt" (the latter as an uncounted no-op), "nova-3" matches "nova 3" and "Nova-3" but never "nova three" (digit words stay exact-only), and misspelled multi-word phrases correct as a unit ("madero clowd" -> "Modero Cloud"). Matching runs longest term first (word count, then char length), and consumed tokens are skipped, so "Modero Cloud" wins over "Modero" instead of double-firing; separated words never fuse across intervening tokens. Punctuation adjacent to a replaced phrase survives; stray STT-inserted punctuation inside a matched phrase is absorbed with the misrecognition it belongs to.
+
+## [0.7.5] - 2026-07-16
+
+### Added
+- **Single-word dictionary matching (Phase 2 checkpoint 3).** `Corrector::correct` now actually corrects: transcript words that sound like a dictionary term but are spelled wrong are replaced with the canonical spelling. Two matching paths, decided per term word at construction: exact-only (case-insensitive equality) for words with digits or of 3 chars or fewer, where Double Metaphone codes degenerate; phonetic (code equality on primary or alternate, either side) confirmed by a Jaro-Winkler score of at least 0.85 as the false-positive guard. Realistic cases proven in tests: "madero" -> "Modero", "vosburg" -> "Vossburg", accent-bridging "muller" -> "Müller", case-insensitive exact hits take canonical casing, already-canonical text is a no-op (not counted), and "matter" (which shares Modero's phonetic code) is left alone by the JW guard, as are common short words. Punctuation around matches survives; unencodable words degrade to exact-only rather than matching everything.
+
+## [0.7.4] - 2026-07-16
+
+### Added
+- **Dictionary tokenizer (Phase 2 checkpoint 2).** Transcripts split into word cores with byte spans: leading/trailing punctuation is never part of a span (so replacement splicing preserves it with no reattachment step), interior hyphens split a chunk into separate tokens (so hyphen-split terms like "hark-stt" will match both spellings with one window size), interior apostrophes stay in the core ("don't"), original casing is preserved in the spans with lowercase copies for comparison, and unicode words carry correct multi-byte offsets. 11 tests covering punctuation adjacency, unicode, empty/all-punctuation input, whitespace runs, and hyphenated chunks.
+
+## [0.7.3] - 2026-07-16
+
+### Changed
+- **Dictionary config key renamed from `bias_terms` to `terms` (Phase 2 checkpoint 1).** One list now names what it really is: the canonical terms that will drive phonetic post-correction first and provider biasing second. Existing config files keep working via a serde alias (a regression test pins that forever), the committed `config/default-config.toml` documents the new key, and the pipeline reads `terms` when building provider bias configuration.
+
+## [0.7.2] - 2026-07-16
+
+### Added
+- **Phase 2 dictionary spec** (`tasks/2026-07-16-phase2-dictionary.md`): the plan for phonetic post-correction of transcripts against the user's canonical terms (names, jargon, product words). Post-correction is the primary mechanism (the spike measured provider biasing as weak); matching is Double Metaphone code equality confirmed by a Jaro-Winkler score, with exact-only handling for words phonetics cannot encode (digits, very short words). Six commit-sized checkpoints ending in an interactive gate on real hardware.
+- **`hark-dictionary` crate scaffold (Phase 2 checkpoint 0).** New workspace crate with its final dependencies (`rphonetic` 3.0.6, `strsim` 0.11.1), the `Corrector` API surface (identity pass for now), and proof tests pinning the third-party behavior the matcher will rely on: rphonetic encodes empty/non-ASCII/digit/hyphen inputs without panicking, vowel-swap misspellings produce equal Double Metaphone codes, and strsim's `jaro_winkler` returns 1.0 for equal single-char strings (historical-bug regression guard) and clears the planned 0.85 threshold for the flagship "madero" -> "modero" case.
+
+## [0.7.1] - 2026-07-16
+
+### Changed
+- **Phase 1 (Windows) definition of done is met: the CP6 interactive gate passed user validation.** Hold Left Ctrl + Left Win, speak, release injects the transcript at the cursor with no issues: pre-roll captured early words, the clipboard was restored after paste, and the synthesized paste did not re-trigger recording. Recorded in the spec's Lessons Learned along with the Doppler dev-run note (secrets are provider-named, so `HARK_STT_KEY` must be mapped explicitly rather than relying on `doppler run`). macOS parity (checkpoint 7) is deferred until Mac hardware is available.
+
+## [0.7.0] - 2026-07-16
+
+### Added
+- **`hark-cli` dev binary (checkpoint 6): the Windows dictation loop is wired end to end.** `cargo run -p hark-cli` loads settings from the OS config dir (defaults when absent), resolves the BYOK key (env override first, then keychain; a missing key exits with the actionable fix, code 3, never a panic), starts the pipeline, and parks on Ctrl+C with a clean staged shutdown (hook -> worker -> capture). Startup was smoke-tested live on this box: capture came up at 48 kHz F32 on the dedicated COM thread, the `WH_KEYBOARD_LL` hook installed, and the Deepgram pre-warm completed in 218 ms. Log output is structurally free of key material, raw audio, and transcript text (lengths/counts/millis only, grep-verified). The interactive hold-speak-release gate awaits a human at the keyboard; the spec's Lessons Learned section now records this session's discoveries (rubato 4.0 API restructure, cpal 0.18 deltas, the chord decision and Start-menu behavior, the connect-class string contract).
+
+## [0.6.0] - 2026-07-16
+
+### Added
+- **Pipeline orchestration (`hark-pipeline`, checkpoint 5).** The pure state machine (`Idle -> Recording -> Transcribing -> Injecting -> Idle`) is total: every state/event pair is defined, stray releases and duplicate presses are inert, presses arriving mid-dictation are ignored rather than queued, and any failure aborts cleanly back to `Idle` (never a panic). The retry predicate honors the spike verdict exactly: one retry, only for `Timeout` and connect-class `Http`; `Auth`, `RateLimited`, `Provider`, `BadAudio`, and non-connect transport failures (which may already have reached the provider) never retry. A localhost contract test pins the connect-class detection against the frozen `hark-stt` transport mapping so drift is caught at test time. The worker loop stamps chord edges against the audio clock at processing time (pre-roll absorbs hook-to-worker latency), assembles/gates/encodes/transcribes/injects, treats empty transcripts as inject-nothing, and pre-warms the shared HTTP client on the worker thread at startup (the spike measured 0.4-0.9 s cold cost). `run(settings, api_key)` maps settings onto the frozen `hark-stt` contract (Groq/OpenAI/custom all ride the OpenAI-compatible adapter), spawns capture + hook + worker threads, and returns a handle whose drop tears everything down in dependency order. Integration tests drive the full pre-STT path (ring -> window -> gate -> WAV) with the committed spike fixture, asserting sample counts end to end.
+
+### Changed
+- **`hark-audio` capture sizing and handoff.** `start()` now takes ring seconds instead of a sample count (the device rate is only known once the stream config resolves; capacity is computed against the live rate) and returns the ring `Consumer` by value so it can move into the pipeline worker. New `window::ring_seconds` helper with a test proving it always covers `ring_capacity` at any rate.
+
+## [0.5.0] - 2026-07-16
+
+### Added
+- **Text injection (`hark-inject`, checkpoint 4).** The clipboard path runs the full stash -> set -> read-back verify -> synthesized Ctrl+V -> restore sequence, with every clipboard operation inside a bounded retry loop (the clipboard is a global object; another process can hold it) and tunable settle delays around the paste (no OS-guaranteed timing exists; the verify catches sets that did not take). Every clipboard-side failure falls back to char typing, which never touches the clipboard; only key-synthesis failure is terminal (typing rides the same machinery). Restore failure after a successful paste is a warning, not a failed dictation, and empty transcripts are a strict no-op. The text-only clipboard round-trip (images/RTF/HTML clobbered) is documented as the accepted v1 limitation in the new `crates/hark-inject/CLAUDE.md`, alongside the enigo 0.6.1 pin rationale (its injected-flag contract guards against PTT feedback loops and has regressed upstream before). Retry policy, fallback decisions, and strategy selection are pure and tested (8 tests); the clipboard/key I/O itself is run-on-real-HW, including the checkpoint-6 check that our own hook ignores our own synthesized paste.
+
+## [0.4.0] - 2026-07-16
+
+### Added
+- **Push-to-talk source (`hark-hotkey`, checkpoint 3).** A pure chord state machine (`edges.rs`) turns raw per-key events into clean `Down`/`Up` edges for the configured chord: engage when the last member goes down, release when the first lets go, auto-repeat suppressed, keys outside the chord ignored, and injected events (our own future synthesized Ctrl+V, `LLKHF_INJECTED`) dropped so dictation can never re-trigger itself. Chord strings like `"LCtrl+LWin"` parse case-insensitively with helpful errors (modifiers, CapsLock, F1..F24; up to 4 keys). The Windows listener installs `WH_KEYBOARD_LL` on a dedicated thread whose entire body is the message pump (the hook's delivery lifeline), always calls `CallNextHookEx` (observe, never swallow), and shuts down cleanly via `WM_QUIT`. The `spawn_listener` boundary is the platform seam the macOS CGEventTap implementation will slot behind in checkpoint 7. 14 new tests (edge semantics + VK mapping); hook install itself remains run-on-real-HW.
+
+## [0.3.0] - 2026-07-16
+
+### Added
+- **Audio capture core (`hark-audio`, checkpoint 2).** Four layers, three of them pure and fully unit-tested on any machine: a lock-free SPSC ring buffer whose samples are atomic bit patterns with an absolute sample counter (read-by-index across wraps, with "not yet produced", "already overwritten", and lapped-mid-copy all detected rather than silently torn); rubato 4.0 whole-clip resampling to 16 kHz mono via `process_all` (exact 3:1 from 48 kHz and the non-integer 44.1 kHz ratio both asserted to the sample, startup-delay trim verified by a head-signal test); and pre-roll/tail window math with the two-stage silence gate (hold-duration misfire check before any waiting, RMS check on the assembled clip) so silence never costs a network request. Over-cap holds keep the most recent audio. The cpal glue builds the stream on a dedicated COM-owning thread with an allocation-free callback (cpal #970 discipline) and requires `SampleFormat::F32` explicitly; live capture remains flagged run-on-real-HW. 35 new tests; `crates/hark-audio/CLAUDE.md` records the callback and COM rules.
+
+## [0.2.0] - 2026-07-16
+
+### Added
+- **Settings loader (`hark-config`, checkpoint 1).** TOML settings with sane defaults for every key: provider presets (deepgram / openai / groq / openai-compatible, with per-kind default base URLs and models; Deepgram nova-3 is the app default per the spike verdict), the push-to-talk chord (`LCtrl+LWin`), audio timing knobs (300 ms pre-roll, 150 ms tail, 120 s max hold, silence-gate thresholds), injection strategy and clipboard timing, and the Phase 2 `bias_terms` placeholder. Unknown keys are tolerated for forward compatibility; a missing config file yields defaults; `openai-compatible` without an explicit `base_url` and blank PTT chords are rejected at load. The committed `config/default-config.toml` documents every default and where user config lives per OS.
+- **BYOK key resolution (`hark-keychain`, checkpoint 1).** `resolve_key(provider)` checks the `HARK_STT_KEY` env override first (dev/CI path; blank values are treated as unset) and only then the OS keychain (service `hark`, account = provider label). Both-absent produces a clear actionable error, never a panic. No type in the crate carries key material, and a regression test formats every failure path with a sentinel key in the environment to prove nothing leaks into Debug/Display output. 14 new unit tests across both crates.
+
+## [0.1.4] - 2026-07-16
+
+### Added
+- **Phase 1 pipeline scaffolding (checkpoint 0).** Seven new workspace crates with their final dependency blocks and empty sources: `hark-audio` (cpal 0.18.1 + rubato 4.0), `hark-hotkey` (windows-rs 0.62.2, Windows-only target dep), `hark-inject` (arboard 3.6.1 + enigo 0.6.1, both without default features), `hark-keychain` (keyring pinned `=4.1.5`, `v1` backend bundle), `hark-config` (serde + toml 1.x), `hark-pipeline` (glue crate depending on all of the above plus the frozen `hark-stt`), and the `hark-cli` dev binary (ctrlc + env_logger). Whole-workspace build, clippy `-D warnings`, fmt, and the existing 20 `hark-stt` tests all green; `hark-stt` itself is untouched.
+- **Confirmed Phase 1 defaults from user review:** push-to-talk defaults to a Left Ctrl + Left Win chord (user-configurable), the post-release tail window is configurable with a 150 ms default, and the max-hold cap is 120 s (transcribe-what-we-have on exceed).
+- **rubato 4.0 research baked into `hark-audio`'s manifest:** the 2026-07-09 v4 release replaced the old `FftFixedIn`/`SincFixedIn` types with consolidated `Fft`/`Async` resamplers; whole-clip resampling must go through `process_all()` (trims FFT startup delay, exact output counts) rather than a single oversized `process()` call.
+
+## [0.1.3] - 2026-07-16
+
+### Added
+- **Phase 1 pipeline spec** (`tasks/2026-07-16-phase1-pipeline.md`): the plan for the full dictation loop now that the STT spike passed. Crate layout follows the master plan's decomposition (`hark-audio`, `hark-hotkey`, `hark-inject`, `hark-keychain`, `hark-config`, `hark-pipeline` library + thin `hark-cli` dev binary; tray/egui UI stays a later phase). Eight commit-sized checkpoints from workspace scaffolding through a Windows end-to-end run, with macOS parity (CGEventTap) explicitly marked as needing real Mac hardware. Load-bearing gotchas are baked in up front: WASAPI won't deliver 16 kHz (resample in-process), `WH_KEYBOARD_LL` needs its own message pump thread, our injected Ctrl+V must be filtered via `LLKHF_INJECTED` so the hook doesn't re-capture it, and arboard clipboard restore only round-trips text formats.
+
+## [0.1.2] - 2026-07-16
+
+### Changed
+- **Phase 1 STT spike completed with live measurements — verdict: Deepgram nova-3 is the default provider.** With valid keys (now stored in Doppler project `hark`, config `prd`, injected via `doppler run`), the full harness ran against all three providers: Deepgram nova-3 p50 150 ms / p95 630 ms, OpenAI gpt-4o-mini-transcribe p50 789 / p95 1223, Groq whisper-large-v3-turbo p50 944 / p95 1527 (N=20 warm runs on a 10.3 s clip). Cold-client penalty is 0.4-0.9 s across providers, so the pipeline will pre-warm the shared HTTP client at launch. The Deepgram keyterm A/B showed no lift on the clean TTS clip (5/5 recognition in both arms) while Groq's prompt biasing failed to enforce the spelling of "Levenshtein", reinforcing phonetic post-correction as the primary dictionary path. A real Groq 429 was handled correctly (Retry-After parsed). Spike acceptance criteria are all green; results recorded in the spec's Lessons Learned section.
+
+## [0.1.1] - 2026-07-15
+
+### Changed
+- **Spike spec §12 (Lessons Learned) filled in** with the implementation findings: the reqwest 0.13 TLS feature rename, the multipart-streaming error-masking gotcha (both routed to LL-G `kb/rust/`), measured failure-drill bounds (bad key ~65-130 ms, dead DNS <20 ms, non-routable host at the 3 s connect bound), negligible WAV-encode cost (~3.7 ms for a 10 s clip), and the Windows TTS fixture-generation recipe. Live p50/p95 latency, cold-vs-warm delta, and the Deepgram keyterm A/B remain open: the `OPENAI_API_KEY` in the dev environment is rejected by OpenAI (401 on a bare `/v1/models` probe too) and no Groq/Deepgram keys are set; re-run the harness once valid keys exist. `.claude/agent-memory/patterns.md` gains the buffered-multipart and pure-error-mapping patterns.
+
+## [0.1.0] - 2026-07-15
+
+### Added
+- **Both Phase 1 cloud STT adapters** (spike checkpoints 1-4). `openai_compatible` posts hand-assembled multipart to `{base_url}/audio/transcriptions` with Bearer auth (one code path for OpenAI and Groq; bias terms ride the `prompt` field), and `deepgram` posts raw `audio/wav` to `/v1/listen` with `Token` auth, `smart_format`, and repeated `keyterm` params for dictionary biasing. Both sit behind `hark_stt::build()` and share one long-lived rustls HTTP client (3 s connect / 15 s total timeouts).
+- **The spike harness** (`cargo run --example transcribe_spike`): per configured provider it prints the fixture transcript with edit-distance divergence, a cold-vs-warm latency table (N warm runs, p50/p95/min/max, separate WAV-encode timing), the Deepgram keyterm A/B, live failure drills (bad key, dead DNS, non-routable IP), and a default-provider + retry-policy verdict. Providers without keys are skipped with an explicit message; a print-time self-check guarantees no API key can appear in any report line.
+- **Pure-logic test suite** (`tests/adapter_pure.rs`, 20 tests): multipart body assembly and boundary-collision avoidance, Deepgram keyterm URL encoding, HTTP-status to error-taxonomy mapping (401/403/429/500 with Retry-After and snippet truncation), latency percentile math, and WAV encode/parse round-trips validated against `hound`.
+
+### Fixed
+- **Connect/timeout errors no longer masquerade as body errors.** reqwest's own multipart streams the body through a channel, so connect failures surfaced as opaque "send failed because receiver is gone" with `is_connect()`/`is_timeout()` false, wrecking the retry taxonomy. The adapter now buffers a hand-built multipart body; DNS failure classifies as a connect-class `Http` error in ~4 ms and a non-routable host as `Timeout` at the 3 s connect bound.
+
+## [0.0.3] - 2026-07-15
+
+### Added
+- **Committed spike fixture** (`crates/hark-stt/fixtures/spike_clip.wav` + `expected.txt`): a ~10 s 16 kHz mono English clip with known transcript, containing the dictionary-ish terms "Hark" and "Levenshtein" for the upcoming Deepgram keyterm A/B.
+
+### Changed
+- **`hark-stt` crate rebuilt for BYOK cloud (spike checkpoint 0).** The sherpa-onnx dependency and its native-lib auto-download are gone; the crate now compiles with pure-Rust dependencies only (`reqwest` 0.13 blocking + rustls, `serde`, `thiserror`). The public surface is the new cloud `SttProvider` trait, `ProviderConfig` (with a redacting `Debug` so API keys can never leak into logs), the `SttError` taxonomy (`Http`/`Auth`/`RateLimited`/`Timeout`/`BadAudio`/`Provider`), a WAV encode/parse helper for the 16 kHz mono PCM16 contract, and latency-percentile metrics. Note: reqwest 0.13 renamed the 0.12 TLS feature `rustls-tls-webpki-roots` to `rustls` + `webpki-roots`.
+
+## [0.0.2] - 2026-07-15
+
+### Added
+- **Cloud STT research** in agent memory (`.claude/agent-memory/explorer/hark_cloud_stt_providers.md`, `hark_cloud_stt_rust_stack.md`): provider comparison with pricing and gotchas (Groq's 10 s billing minimum, Deepgram's `keyterm` vs legacy `keywords` split, pre-1.0 `deepgram` crate) and the verified Rust dependency set (`reqwest` 0.13 blocking, `hound`, `flacenc` as upgrade path, `whisper-rs` + `tiny.en` as the future fallback candidate).
+- **Workspace scaffolding from the v1 spike** committed as the base the v2 spike rewrites: root `Cargo.toml`, `rustfmt.toml`, and the `crates/hark-stt` skeleton. Note: the skeleton still declares the `sherpa-onnx` dependency, which auto-downloads a large native lib; spike checkpoint 0 removes it, so do not build the workspace before that lands.
+
+### Changed
+- **STT pivoted from on-device to BYOK cloud (multi-provider).** The v1 plan's local sherpa-onnx + Parakeet TDT 0.6B stack (~1.1 GB of model assets) is replaced by cloud transcription using the user's own API keys: an `SttProvider` trait with an OpenAI-compatible adapter (OpenAI `gpt-4o-transcribe`/`whisper-1`, Groq `whisper-large-v3-turbo`; one shared multipart contract) and a Deepgram adapter (nova-3, `keyterm` dictionary biasing). Transport is `reqwest` blocking on pipeline worker threads; audio uploads as 16 kHz mono WAV. History, stats, dictionary, and settings remain strictly local; a small opt-in local fallback model (~75 MB) is recorded as a later-phase option. `tasks/plan-repo.md` rewritten as v2.
+- **Phase 1 STT spike spec rewritten** (`tasks/2026-07-15-phase1-stt-spike.md`): now proves the cloud path (both adapters, real p50/p95 latency on 2-15 s clips, a Deepgram `keyterm` A/B, and an error taxonomy with a retry-policy verdict) instead of ONNX decode + hotwords. Runnable entirely on the Windows dev box; no per-OS inference runtime remains.
+- **Project rules updated for the pivot:** root `CLAUDE.md`, `.claude/rules/rust.md`, and `.claude/references/design-guardrails.md` now encode the cloud latency SLA (one long-lived HTTP client with keep-alive/TLS resumption, at most one retry on timeout), first-class offline/key-rejected/provider-error UI states, and the honest disclosure that every dictation sends audio to the user's chosen STT provider.
+
+### Removed
+- **Local model assets and fetch script:** the ~1.1 GB Parakeet ONNX download and `scripts/fetch-model.sh` are gone, along with the now-stale `/models/` `.gitignore` entry. The eventual installer shrinks from ~1.5 GB to tens of MB.
+
+## [0.0.1] - 2026-07-15
+
+This repository is now the home of **Hark** — an offline, single-user, push-to-talk voice dictation desktop app for Windows and macOS (Rust). This release repurposes the Claude Code starter template into Hark's project scaffolding and plans the first build phase. Versioning **resets to `0.0.1`** for Hark as a new product; the `0.7.0` and earlier entries below are the starter template's history, retained for record.
+
+### Added
+- **Hark project plan** (`tasks/plan-repo.md`) and a rewritten `README.md`. plan-repo was adapted rather than run literally: the web-app infrastructure and stack-research machinery don't apply to an offline desktop app, so the already-decided stack (Rust, `cpal`, sherpa-onnx/Parakeet TDT, `egui`, `rusqlite`, `keyring`) is captured with current-as-of-2026-07-15 research corrections.
+- **Phase 1 STT spike spec** (`tasks/2026-07-15-phase1-stt-spike.md`): a runnable spec to prove the `sherpa-onnx` crate loads Parakeet TDT 0.6B v2, decode latency, execution-provider availability on macOS/Windows, and an A/B measurement of the known hotword-biasing bug (sherpa-onnx #3267), ending in a go/no-go verdict for Phase 2.
+- **Desktop design guardrails** (`.claude/references/design-guardrails.md`) for native egui UI: the main-thread rule, latency SLA, desktop accessibility, and a local-first privacy section in place of web auth-UI patterns.
+- **New path-scoped rules** `rust.md` (Rust/desktop conventions + verified stack gotchas) and `tests.md` (Rust test conventions); a `.claude/bp-audit.md` audit trail.
+- **Stack-risk research** captured in agent memory (`.claude/agent-memory/explorer/hark_stt_stack_risk.md`, `sherpa_onnx_rust_api.md`): `sherpa-rs` is deprecated (use the official `sherpa-onnx` crate v1.13.4+), and push-to-talk needs native key hooks (CGEventTap / `WH_KEYBOARD_LL`) rather than the `global-hotkey` crate.
+
+### Changed
+- **`.claude/` config retargeted from the web-app template to a Rust desktop app.** Root `CLAUDE.md` rewritten for Hark's stack and the UI-on-main-thread / pipeline-on-workers rule, dropping the Northflank/Cloudflare/Better Auth infrastructure rules (which do not apply). `llg-check.md` and `bp-check.md` path globs retargeted to Rust (`crates/**`, `**/*.rs`, `**/Cargo.toml`, `rustfmt.toml`, …), and `tools.md`'s stack section swapped web tooling for the Rust chain (cargo, clippy, nextest, cross-compile, notarization) while preserving the MCP servers section.
+- **`package.json`** name/description updated from the bootstrap template to Hark.
+- **`.claude/agent-memory/debugging.md`** seeded with the HIGH-severity LL-G Rust/SQLite gotchas relevant to Hark plus the sherpa-onnx #3267 finding.
+
+Entries older than 0.0.1 belong to the Claude Code starter template Hark was created from; they are in [claude-code-bootstrap](https://github.com/BoardPandas/claude-code-bootstrap/blob/main/CHANGELOG.md).
+
+[0.56.1]: https://github.com/BoardPandas/Hark/compare/v0.56.0...v0.56.1
+[0.56.0]: https://github.com/BoardPandas/Hark/compare/v0.55.0...v0.56.0
+[0.55.0]: https://github.com/BoardPandas/Hark/compare/v0.54.0...v0.55.0
+[0.54.0]: https://github.com/BoardPandas/Hark/compare/v0.53.1...v0.54.0
+[0.53.1]: https://github.com/BoardPandas/Hark/compare/v0.52.0...v0.53.1
+[0.52.0]: https://github.com/BoardPandas/Hark/compare/v0.51.0...v0.52.0
+[0.51.0]: https://github.com/BoardPandas/Hark/compare/v0.50.5...v0.51.0
+[0.50.5]: https://github.com/BoardPandas/Hark/compare/v0.50.4...v0.50.5
+[0.50.4]: https://github.com/BoardPandas/Hark/compare/v0.50.3...v0.50.4
+[0.50.3]: https://github.com/BoardPandas/Hark/compare/v0.50.2...v0.50.3
+[0.50.2]: https://github.com/BoardPandas/Hark/compare/v0.47.0...v0.50.2
+[0.47.0]: https://github.com/BoardPandas/Hark/compare/v0.46.0...v0.47.0
+[0.46.0]: https://github.com/BoardPandas/Hark/compare/v0.45.4...v0.46.0
+[0.45.4]: https://github.com/BoardPandas/Hark/compare/v0.45.3...v0.45.4
+[0.45.3]: https://github.com/BoardPandas/Hark/compare/v0.45.2...v0.45.3
+[0.45.2]: https://github.com/BoardPandas/Hark/compare/v0.44.0...v0.45.2
+[0.44.0]: https://github.com/BoardPandas/Hark/compare/v0.43.2...v0.44.0
+[0.43.2]: https://github.com/BoardPandas/Hark/compare/v0.43.1...v0.43.2
+[0.43.1]: https://github.com/BoardPandas/Hark/compare/v0.42.0...v0.43.1
+[0.42.0]: https://github.com/BoardPandas/Hark/compare/v0.41.0...v0.42.0
+[0.41.0]: https://github.com/BoardPandas/Hark/compare/v0.39.1...v0.41.0
+[0.39.1]: https://github.com/BoardPandas/Hark/compare/v0.38.5...v0.39.1
+[0.38.5]: https://github.com/BoardPandas/Hark/compare/v0.38.4...v0.38.5
+[0.38.4]: https://github.com/BoardPandas/Hark/compare/v0.36.6...v0.38.4
+[0.36.6]: https://github.com/BoardPandas/Hark/compare/v0.36.5...v0.36.6
+[0.36.5]: https://github.com/BoardPandas/Hark/compare/v0.36.4...v0.36.5
+[0.36.4]: https://github.com/BoardPandas/Hark/compare/v0.36.0...v0.36.4
+[0.36.0]: https://github.com/BoardPandas/Hark/compare/v0.35.8...v0.36.0
+[0.35.8]: https://github.com/BoardPandas/Hark/compare/v0.35.3...v0.35.8
+[0.35.3]: https://github.com/BoardPandas/Hark/compare/v0.35.2...v0.35.3
+[0.35.2]: https://github.com/BoardPandas/Hark/compare/v0.35.1...v0.35.2
+[0.35.1]: https://github.com/BoardPandas/Hark/compare/v0.35.0...v0.35.1
+[0.35.0]: https://github.com/BoardPandas/Hark/compare/v0.34.0...v0.35.0
+[0.34.0]: https://github.com/BoardPandas/Hark/compare/v0.33.0...v0.34.0
+[0.33.0]: https://github.com/BoardPandas/Hark/compare/v0.32.0...v0.33.0
+[0.32.0]: https://github.com/BoardPandas/Hark/compare/v0.31.3...v0.32.0
+[0.31.3]: https://github.com/BoardPandas/Hark/compare/v0.31.2...v0.31.3
+[0.31.2]: https://github.com/BoardPandas/Hark/compare/v0.31.1...v0.31.2
+[0.31.1]: https://github.com/BoardPandas/Hark/compare/v0.31.0...v0.31.1
+[0.31.0]: https://github.com/BoardPandas/Hark/compare/v0.30.5...v0.31.0
+[0.30.5]: https://github.com/BoardPandas/Hark/compare/v0.30.4...v0.30.5
+[0.30.4]: https://github.com/BoardPandas/Hark/compare/v0.30.3...v0.30.4
+[0.30.3]: https://github.com/BoardPandas/Hark/compare/v0.30.0...v0.30.3
+[0.30.0]: https://github.com/BoardPandas/Hark/compare/v0.29.1...v0.30.0
+[0.29.1]: https://github.com/BoardPandas/Hark/compare/v0.29.0...v0.29.1
+[0.29.0]: https://github.com/BoardPandas/Hark/compare/v0.28.0...v0.29.0
+[0.28.0]: https://github.com/BoardPandas/Hark/compare/v0.27.1...v0.28.0
+[0.27.1]: https://github.com/BoardPandas/Hark/compare/v0.27.0...v0.27.1
+[0.27.0]: https://github.com/BoardPandas/Hark/compare/v0.26.0...v0.27.0
+[0.26.0]: https://github.com/BoardPandas/Hark/compare/v0.25.0...v0.26.0
+[0.25.0]: https://github.com/BoardPandas/Hark/compare/v0.24.0...v0.25.0
+[0.24.0]: https://github.com/BoardPandas/Hark/compare/v0.23.1...v0.24.0
+[0.23.1]: https://github.com/BoardPandas/Hark/compare/v0.23.0...v0.23.1
+[0.23.0]: https://github.com/BoardPandas/Hark/compare/v0.22.0...v0.23.0
+[0.22.0]: https://github.com/BoardPandas/Hark/compare/v0.21.3...v0.22.0
+[0.21.3]: https://github.com/BoardPandas/Hark/compare/v0.21.2...v0.21.3
+[0.21.2]: https://github.com/BoardPandas/Hark/compare/v0.21.1...v0.21.2
+[0.21.1]: https://github.com/BoardPandas/Hark/compare/v0.21.0...v0.21.1
+[0.21.0]: https://github.com/BoardPandas/Hark/compare/v0.20.0...v0.21.0
+[0.20.0]: https://github.com/BoardPandas/Hark/compare/v0.19.1...v0.20.0
+[0.19.1]: https://github.com/BoardPandas/Hark/compare/v0.18.1...v0.19.1
+[0.18.1]: https://github.com/BoardPandas/Hark/compare/v0.18.0...v0.18.1
+[0.18.0]: https://github.com/BoardPandas/Hark/compare/v0.14.3...v0.18.0
+[0.14.3]: https://github.com/BoardPandas/Hark/compare/v0.14.0...v0.14.3
+[0.14.0]: https://github.com/BoardPandas/Hark/compare/v0.13.4...v0.14.0
+[0.13.4]: https://github.com/BoardPandas/Hark/compare/v0.13.1...v0.13.4
+[0.13.1]: https://github.com/BoardPandas/Hark/releases/tag/v0.13.1
