@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.68.13] - 2026-11-03
+
+### Changed
+- **CI and release builds run on the newest GitHub runner images.** Ubuntu jobs moved from `ubuntu-latest` (24.04) to `ubuntu-26.04` and macOS jobs from `macos-15` to `macos-26`; Windows was already on the newest image (`windows-latest`, Server 2025). The Linux release build alone stays pinned to `ubuntu-24.04`, so the `.deb`, `.rpm` and tarball still run on Ubuntu 24.04 LTS, Debian 13 and Fedora 40+: building on 26.04 would have raised the glibc floor, and `ubuntu-latest` moves to 26.04 this month, which would have raised it silently.
+- **Workflow actions and CI toolchains updated.** `actions/setup-node` 7.0.0 → 7.1.0, `softprops/action-gh-release` 3.0.2 → 3.0.3, `Swatinem/rust-cache` 2.9.2 → 2.9.3, `dtolnay/rust-toolchain` to the October 2026 `stable` commit, and the Arch build container's digest refreshed. Every action stays SHA-pinned. CI already uses Node 26, the current LTS. The other pins were already current: `checkout` 7.0.1, `upload-artifact` 7.0.2, `download-artifact` 8.0.2, `artifact-signing-action` 2.0.0, `cargo-deb` 3.8.0 and `cargo-generate-rpm` 0.21.1. The signtool NuGet packages stay at the versions `artifact-signing-action` 2.0.0 installs itself.
+
 ## [0.68.12] - 2026-11-03
 
 ### Changed

@@ -1,5 +1,11 @@
 # Generation Metadata
 
+## Runner images and action pins — 2026-11-03 (0.68.13)
+
+- **Source reviewed:** the working tree over `2b8b93b` (0.68.12): every `runs-on` in `ci.yml` and `release.yml` (`ubuntu-26.04`, `macos-26`, `windows-latest`; `linux-build` pinned to `ubuntu-24.04` with a new six-line comment under GLIBC FLOOR), the bumped `setup-node`, `action-gh-release`, `rust-cache` and `rust-toolchain` SHAs, and the refreshed Arch container digest. Global baseline `784272c` is unchanged.
+- **Scope:** Release and Packaging (job table runners, a new paragraph on the runner pins and the `linux-build` exception, and every `release.yml` citation past line 682 shifted by six lines). AUTOGEN markers are preserved.
+- **Validation:** `npm run check:docs` and `npm run check:claude` pass. Each shifted citation was checked against `release.yml` in the working tree. No Rust was built or tested; the workflows were parsed as YAML but not run.
+
 ## Live request time and shifted STT citations — 2026-11-02 (0.68.8)
 
 - **Source reviewed:** `1e44d4f` (0.68.5): `GeminiLiveSession::finish` and `OpenAiLiveSession::finish` now start the `request_ms` clock themselves instead of at session open, the `Transcript` doc in `hark-stt/src/lib.rs` says so, and each adapter gained `request_ms_is_the_wait_after_release_not_the_hold`. HEAD at review was `ce0ea63` (0.68.6). Global baseline `784272c` is unchanged.

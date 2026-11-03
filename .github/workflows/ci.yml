@@ -49,13 +49,13 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest]
+        os: [ubuntu-26.04, windows-latest]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       # Pinned to 24: the guard needs fs.globSync, which lands in Node 22.
       # Matches the pin in release.yml -- change both together.
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: "26"
 
@@ -75,7 +75,7 @@ jobs:
   # claim that the resulting prose is complete or correct.
   docs:
     name: Documentation drift
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -83,7 +83,7 @@ jobs:
           # so the guard needs more than checkout's one-commit default.
           fetch-depth: 0
 
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: "26"
 
@@ -99,14 +99,14 @@ jobs:
   # from `wiring` so it is not run twice by that job's matrix.
   fmt:
     name: Formatting
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       # Pinned by SHA, not by the `stable` branch name: that branch is mutable, so
       # `@stable` would run whatever was last pushed to it. `toolchain: stable` is
       # what actually selects the Rust channel now that the ref no longer says so.
-      - uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c # stable branch @ 2026-07
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable branch @ 2026-10
         with:
           toolchain: stable
           components: rustfmt
@@ -130,17 +130,17 @@ jobs:
   # already there are handled. Do not delete this job.
   audit:
     name: cargo audit
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c # stable branch @ 2026-07
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable branch @ 2026-10
         with:
           toolchain: stable
 
       # Caches ~/.cargo/bin too, so cargo-audit is compiled once and restored
       # afterwards rather than rebuilt on every run.
-      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           key: audit
 
@@ -172,7 +172,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [windows-latest, macos-15, ubuntu-latest]
+        os: [windows-latest, macos-26, ubuntu-26.04]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -226,7 +226,7 @@ jobs:
       # The workspace rust-version = "1.97" floor makes cargo error if a runner's
       # stable ever drifts below it. The action itself is SHA-pinned; see the gate
       # job for why.
-      - uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c # stable branch @ 2026-07
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable branch @ 2026-10
         with:
           toolchain: stable
           components: clippy
@@ -240,7 +240,7 @@ jobs:
       # appends the runner OS and arch either way, so the legs stay apart.
       # Change the name here and there together, or every release check job
       # goes back to compiling from zero.
-      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           shared-key: rust-checks
 
