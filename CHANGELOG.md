@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.68.8] - 2026-11-02
+
+### Fixed
+
+- The developer docs for transcription, voice cleanup, invocations, the spellbook and the glossary now say that a live session's STT time is the wait after release, not the whole hold, and their source citations point at the right lines again. This turns CI's Documentation drift check green on main.
+
 ## [0.68.7] - 2026-11-02
 
 ### Removed

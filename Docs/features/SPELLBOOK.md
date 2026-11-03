@@ -140,7 +140,7 @@ Provider diagnostics retain fixed categories and structural JSON locations, neve
 
 The meeting final pass also takes a vocabulary hint, but through Deepgram's dictation contract directly rather than through this biasing layer: `deepgram_final_pass` forwards `settings.spellbook.terms()` as the same repeated `keyterm` query parameter the batch Deepgram adapter uses ([Transcription](TRANSCRIPTION.md#deepgram-and-gemini-live)).
 
-Sources: [crates/hark-config/src/lib.rs](../../crates/hark-config/src/lib.rs), [crates/hark-pipeline/src/lib.rs](../../crates/hark-pipeline/src/lib.rs), [crates/hark-stt/src/openai_compatible.rs:52-80](../../crates/hark-stt/src/openai_compatible.rs#L52-L80), [crates/hark-stt/src/openai_transcribe.rs:53-75](../../crates/hark-stt/src/openai_transcribe.rs#L53-L75), [crates/hark-stt/src/deepgram.rs:29-47](../../crates/hark-stt/src/deepgram.rs#L29-L47), [crates/hark-stt/src/gemini_live.rs:232-271](../../crates/hark-stt/src/gemini_live.rs#L232-L271)
+Sources: [crates/hark-config/src/lib.rs](../../crates/hark-config/src/lib.rs), [crates/hark-pipeline/src/lib.rs](../../crates/hark-pipeline/src/lib.rs), [crates/hark-stt/src/openai_compatible.rs:52-80](../../crates/hark-stt/src/openai_compatible.rs#L52-L80), [crates/hark-stt/src/openai_transcribe.rs:53-75](../../crates/hark-stt/src/openai_transcribe.rs#L53-L75), [crates/hark-stt/src/deepgram.rs:29-47](../../crates/hark-stt/src/deepgram.rs#L29-L47), [crates/hark-stt/src/gemini_live.rs:233-272](../../crates/hark-stt/src/gemini_live.rs#L233-L272)
 <!-- END:AUTOGEN hark_08_spellbook_biasing -->
 
 ---

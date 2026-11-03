@@ -1,5 +1,11 @@
 # Generation Metadata
 
+## Live request time and shifted STT citations — 2026-11-02 (0.68.8)
+
+- **Source reviewed:** `1e44d4f` (0.68.5): `GeminiLiveSession::finish` and `OpenAiLiveSession::finish` now start the `request_ms` clock themselves instead of at session open, the `Transcript` doc in `hark-stt/src/lib.rs` says so, and each adapter gained `request_ms_is_the_wait_after_release_not_the_hold`. HEAD at review was `ce0ea63` (0.68.6). Global baseline `784272c` is unchanged.
+- **Scope:** Transcription (Errors and Metrics rewritten for live timing; `finish` timing in Gemini Live; `lib.rs` citations shifted by two lines; the drain and drain-test citations corrected), Voice Cleanup (a fused Smart turn's STT time; refusal citation corrected to `444-494`), Invocations (same refusal citation), Spellbook (Sources line for `setup_message` corrected to `233-272`, matching the table above it), and Glossary (new Request time term). AUTOGEN markers are preserved.
+- **Validation:** `node --test scripts/check-docs-sync.test.mjs`, `npm run check:docs` and `npm run check:claude` pass. Every line-range citation edited here was checked against the file at HEAD. No Rust was built or tested for this documentation pass.
+
 ## Development workflow and agent registry — 2026-10-29 (0.68.1)
 
 - **Source reviewed:** `CLAUDE.md` at `d4c3929` (0.68.0), whose last change was the `agents.md` → `AGENT-REGISTRY.md` rename in `0394127` (0.67.1).
