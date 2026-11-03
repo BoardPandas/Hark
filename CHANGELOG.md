@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.68.7] - 2026-11-02
+
+### Removed
+
+- **The agent evals, AI code review and scheduled security scan GitHub Actions workflows.** `agent-evals.yml`, `claude-review.yml`, `security-scan.yml` are deleted from `.github/workflows/` and their past runs are cleared from the Actions tab. `ci.yml` and every other workflow are unchanged.
+
 ## [0.68.6] - 2026-10-30
 
 ### Changed

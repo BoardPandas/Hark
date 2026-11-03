@@ -43,12 +43,9 @@ report as `TIMEOUT` rather than a behavioural failure; raise `EVAL_TIMEOUT_MS` (
 Every run writes the full response and verdict to `.claude/evals/.transcripts/<id>.md`
 (git-ignored). Read it before acting on a failure.
 
-## When it runs in CI
+## When it runs
 
-`.github/workflows/agent-evals.yml` triggers on changes to `CLAUDE.md`, `REVIEW.md`,
-`.claude/**`, or `scripts/**`, plus a weekly schedule. Structure validation always runs.
-The behavioural pass runs only when `ANTHROPIC_API_KEY` is present, and is a required gate
-for configuration changes.
+Locally only. The `agent-evals.yml` CI workflow was removed on 2026-11-02, so nothing runs these cases on push or on a schedule.
 
 ## Case format
 
