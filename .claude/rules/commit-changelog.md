@@ -9,7 +9,7 @@ Before every `git commit`, you MUST:
 ## 1. Update CHANGELOG.md
 
 - Add a `## [x.y.z] - YYYY-MM-DD` section at the top (below `[Unreleased]`) for the version you bump to in step 2, moving any `[Unreleased]` items into it. Entries left only under `[Unreleased]` do not pass the gate.
-- Categorize changes using [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) sections:
+- Categorize changes using [Keep a Changelog](https://keepachangelog.com/en/2.0.0/) sections:
   - **Added** — new features or capabilities
   - **Changed** — changes to existing functionality
   - **Deprecated** — features that will be removed
@@ -27,8 +27,7 @@ Before every `git commit`, you MUST:
   release, because a `v*` tag starts `release.yml` (see `.github/RELEASING.md`). When you cut
   one, add its link and repoint `[Unreleased]` in the same change. A version that is never
   tagged gets no link; never push a tag just to make a link work.
-- Over 100 KB: move the oldest releases and their links into `CHANGELOG-archive.md` (newest
-  first) until CHANGELOG.md is under 50 KB, keeping at least the 10 newest releases there.
+- Over 100 KB: move releases older than 30 days, with their links, into `CHANGELOG-archive.md` (newest first), keeping at least the 10 newest releases in CHANGELOG.md. Archive only what is old enough that it won't need editing (Keep a Changelog 2.0.0).
 
 ## 2. Bump Version in package.json
 

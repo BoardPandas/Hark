@@ -2,10 +2,15 @@
 
 All notable changes to this project will be documented in this file.
 
-The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/2.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+
+## [0.68.11] - 2026-11-03
+
+### Changed
+- **The changelog follows Keep a Changelog 2.0.0.** 2.0.0 keeps the 1.1.0 format, so only the header link moves and no entry is rewritten. As 2.0.0 recommends, releases are archived only once they are old enough not to need editing: past 100 KB, CHANGELOG.md keeps every release from the last 30 days (at least the 10 newest), and releases inside that window that had been archived are back in it. The commit rule says the same.
 
 ## [0.68.10] - 2026-11-03
 

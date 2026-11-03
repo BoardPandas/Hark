@@ -1,7 +1,7 @@
 # Changelog archive
 
 Older releases of this project, moved out of [CHANGELOG.md](CHANGELOG.md) to keep that file short.
-The format is the same: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
+The format is the same: [Keep a Changelog](https://keepachangelog.com/en/2.0.0/).
 
 ## [0.56.1] - 2026-09-28
 
