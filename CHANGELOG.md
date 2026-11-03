@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.68.14] - 2026-11-03
+
+### Fixed
+- **The macOS bundle check passes again.** It asserts that the packaged app's `--version` matches package.json, and the four commits since 0.68.9 had bumped package.json alone, so the binary still reported 0.68.9. The workspace version in Cargo.toml (and the workspace crates in Cargo.lock) moves to 0.68.14 with package.json.
+
+### Security
+- **RUSTSEC-2026-0429 (high, `zip`) is triaged and accepted in `.cargo/audit.toml`, alongside the three earlier `zip` extraction advisories.** It is the same function, `ZipArchive::extract`, which Hark never calls; the only caller in the tree is sherpa-onnx-sys's build script, for the iOS archive Hark does not build. No upgrade can clear it yet: docx-rs 0.4.22, the newest release, requires `zip ^8.6.0`. Its main branch already uses zip 9.0.4, so the entry is retired when the next docx-rs release ships.
+
 ## [0.68.13] - 2026-11-03
 
 ### Changed

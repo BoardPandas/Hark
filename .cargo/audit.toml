@@ -60,13 +60,23 @@ ignore = [
     #   that archive already controls the native code linked into Hark, so
     #   these advisories add no attack.
     #
-    # RE-EVALUATE IF: docx-rs releases against zip >= 9; Hark moves to
-    # sherpa-onnx 2.x (whose -sys crate builds with zip ^9); or anything else
-    # starts depending on zip, above all anything that extracts at runtime
-    # (e.g. a model download).
+    # RUSTSEC-2026-0429 (high, triaged 2026-11-03, 0.68.14) is a fourth in the
+    # same function: `ZipArchive::extract` sizes a symlink target from the
+    # declared uncompressed size and aborts the process when that allocation
+    # is refused. The reasoning above holds unchanged: Hark never calls
+    # `extract` (grep `ZipArchive` and `.extract(` in crates/: no hits), and
+    # sherpa-onnx-sys 1.13.8's build script calls it only for the iOS
+    # xcframework archive, which Hark does not build. docx-rs's main branch
+    # already depends on zip 9.0.4, but no release after 0.4.22 carries it.
+    #
+    # RE-EVALUATE IF: docx-rs releases against zip >= 9 (its main branch already
+    # has); Hark moves to sherpa-onnx 2.x (whose -sys crate builds with zip ^9);
+    # or anything else starts depending on zip, above all anything that extracts
+    # at runtime (e.g. a model download).
     "RUSTSEC-2026-0367",
     "RUSTSEC-2026-0368",
     "RUSTSEC-2026-0369",
+    "RUSTSEC-2026-0429",
 
     # zstd 0.13.3 (-0391, stream data leaking across a reused context) and
     # zstd-safe 7.3.0 (-0398 `Seekable::decompress` length, -0403
