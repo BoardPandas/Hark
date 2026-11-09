@@ -101,7 +101,7 @@ pub fn daily(ui: &mut Ui, days: &[DailyActivity]) {
             egui::pos2(left, plot.top()),
             egui::pos2(left + stride, plot.bottom()),
         );
-        ui.interact(hit, ui.id().with(("daily-bar", i)), Sense::hover())
+        ui.interact(hit, ui.scope_id().with(("daily-bar", i)), Sense::hover())
             .on_hover_text(format!(
                 "{} – {}: {} words",
                 day.first,
@@ -217,7 +217,7 @@ pub fn activity(ui: &mut Ui, data: &Insights) {
             .rect_filled(cell_rect, theme::HEAT_CELL_GAP / 2.0, fill);
         ui.interact(
             cell_rect,
-            ui.id().with(("activity-day", day.date)),
+            ui.scope_id().with(("activity-day", day.date)),
             Sense::hover(),
         )
         .on_hover_text(format!(

@@ -13,8 +13,8 @@ description = "Push-to-talk voice dictation: hold a key, speak, release, and pol
 
 [dependencies]
 # `persistence` remembers window geometry across launches (spec §3.9).
-eframe = { version = "0.36.0", features = ["persistence"] }
-egui = "0.36.0"
+eframe = { version = "0.37.0", features = ["persistence"] }
+egui = "0.37.0"
 env_logger = "0.11"
 hark-autostart = { path = "../hark-autostart" }
 hark-config = { path = "../hark-config" }
@@ -80,7 +80,7 @@ windows = { version = "0.62.2", features = [
 # The meeting Share menu's save dialogs (plan §4.10), Windows only: meetings
 # ship there first (D4), and rfd's Linux portal backend would drag in a second
 # async runtime (plan §8). No default features: those are Linux-only too.
-rfd = { version = "0.17", default-features = false }
+rfd = { version = "0.18", default-features = false }
 # To hand rfd Hark's window as the dialog's parent from a worker thread
 # (plan §4.10); the same 0.6 line winit and rfd already use.
 raw-window-handle = "0.6"
@@ -89,7 +89,10 @@ raw-window-handle = "0.6"
 # gtk::init() plus a running GTK loop on their own thread -- winit already owns
 # the main thread's loop. hark-app therefore drives that second loop itself
 # (crates/hark-app/src/tray/surface_gtk.rs), which means calling gtk directly.
-# Same 0.18 line libappindicator pulls in, so the two unify to one gtk.
+# Same 0.18 line libappindicator pulls in, so the two unify to one gtk. Do not
+# follow crates.io to gtk 0.19 until libappindicator does (0.9.0 still requires
+# gtk/gtk-sys 0.18): gtk-sys declares `links = "gtk-3"`, so two lines cannot
+# coexist in one build and Cargo refuses to resolve.
 [target.'cfg(target_os = "linux")'.dependencies]
 gtk = "0.18"
 
@@ -209,5 +212,5 @@ cc = "1"
 
 [dev-dependencies]
 # Well-formedness check on the Word export's XML parts.
-quick-xml = "0.41"
+quick-xml = "0.42"
 tempfile = "3"

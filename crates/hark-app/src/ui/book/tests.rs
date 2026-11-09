@@ -124,7 +124,7 @@ fn a_focused_page_turn_button_does_not_block_the_keys() {
     frame(&ctx, vec![], |ui| book.show(ui, "Spellbook", &mut entries));
     // Any focused widget makes `egui_wants_keyboard_input` true; the book
     // must still turn while it is a button, not a text field.
-    ctx.memory_mut(|m| m.request_focus(Id::new("some-button")));
+    ctx.memory_mut(|m| m.request_focus(Id::unique("some-button")));
     frame(&ctx, vec![key(Key::PageDown)], |ui| {
         ui.add(egui::Button::new("x")).surrender_focus();
         book.show(ui, "Spellbook", &mut entries);
@@ -193,7 +193,7 @@ impl eframe::Storage for MemoryStorage {
 
 #[test]
 fn the_view_defaults_to_list_and_persists_per_page() {
-    let (spells, invocations) = (Id::new("spells-view"), Id::new("invocations-view"));
+    let (spells, invocations) = (Id::unique("spells-view"), Id::unique("invocations-view"));
     let ctx = Context::default();
     assert_eq!(view(&ctx, spells), BookView::List);
     set_view(&ctx, spells, BookView::Book);

@@ -36,7 +36,7 @@ impl ExcerptDialog {
     pub fn show(&mut self, ctx: &egui::Context) -> DialogAction {
         let mut open = true;
         let mut action = DialogAction::Keep;
-        egui::Window::new("Save an excerpt with audio").id(egui::Id::new("meeting-excerpt"))
+        egui::Window::new("Save an excerpt with audio").id(egui::Id::unique("meeting-excerpt"))
             .collapsible(false).resizable(false).open(&mut open).show(ctx, |ui| {
                 ui.set_max_width(crate::theme::DIALOG_WIDTH);
                 ui.label(&self.export.title);

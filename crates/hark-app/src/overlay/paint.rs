@@ -48,7 +48,7 @@ pub(super) fn paint(
         0.0
     };
     let amp = ctx.animate_value_with_time(
-        egui::Id::new("hark_overlay_amp"),
+        egui::Id::unique("hark_overlay_amp"),
         (meter.level().sqrt() * 1.25).clamp(0.0, 1.0),
         if animated { 0.09 } else { 0.0 },
     );
@@ -125,7 +125,7 @@ pub(super) fn paint(
 /// existing animation/feedback ticks drive this; a hidden pill stays asleep.
 #[cfg(any(windows, test))]
 fn raise_due(ctx: &egui::Context, state: State, now: std::time::Instant) -> bool {
-    let id = egui::Id::new("hark_overlay_last_raise");
+    let id = egui::Id::unique("hark_overlay_last_raise");
     ctx.data_mut(|data| {
         if state == State::Hidden {
             data.remove::<std::time::Instant>(id);

@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.69.3] - 2026-11-09
+
+**Known gaps:** two direct dependencies stay where they are on purpose. `gtk` stays at 0.18: the Linux tray's `libappindicator` 0.9.0, its newest release, still requires GTK 0.18, and two `gtk-sys` lines cannot link into one binary. `windows-core` stays at 0.62 to match the `windows` 0.62.2 crate; 0.100 is a separate windows-rs line that `#[implement]` would resolve against wrongly.
+
+### Changed
+- **The window and settings UI move to egui and eframe 0.37** (from 0.36). Nothing should look or behave differently. Hark's code moves off the APIs 0.37 deprecated: `Id::new` becomes `Id::unique`, which hashes the same way, so remembered UI state such as lettering, appearance and view choices carries over.
+- **Meeting MP3s are encoded with LAME 4.0** (from 3.100), through `mp3lame-encoder` 0.3. The Rust API is byte-for-byte the same as 0.2.5. The vendored LAME is now compiled with the same C toolchain on every platform, so Linux and macOS builds no longer run autotools. It is still LGPL, and `THIRD_PARTY_NOTICES.md` now names 4.0.
+- **Dependency refresh.** Updated: the Windows save dialogs (`rfd` 0.18), `quick-xml` 0.42 (used only by the Word-export tests), `tokio` 1.54, `arboard` 3.7, plus 90-odd compatible patch and minor updates across the lockfile (including `hyper`, `serde_json`, `toml`, `uuid` and `aws-lc-rs`).
+
+### Fixed
+- **Two yanked crates are gone from the lockfile:** `async-executor` 1.14.0 (now 1.14.1) and `clipboard-win` 5.4.1 (now 5.4.3).
+- **CI's documentation drift check passes again.** It had been failing on main since 0.69.2, whose `Cargo.toml` and `rusqlite` changes left Overview, Getting Started and Data Storage behind. Those pages, and the six this release's dependency changes touch, are updated: the bundled SQLite version, the shifted MSRV citation, LAME 4.0, and why saved egui settings survive the `Id::unique` rename.
+
 ## [0.69.2] - 2026-11-09
 
 ### Security

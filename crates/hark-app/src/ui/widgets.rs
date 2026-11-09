@@ -51,7 +51,7 @@ impl Confirm {
     /// (Cancel, Esc, or backdrop click), `None` = still open.
     pub fn show(&mut self, ui: &Ui, id_salt: &str) -> Option<bool> {
         let mut outcome = None;
-        let modal = Modal::new(Id::new(("confirm", id_salt)))
+        let modal = Modal::new(Id::unique(("confirm", id_salt)))
             .frame(theme::dialog_frame(ui.visuals()))
             .show(ui.ctx(), |ui| {
                 ui.set_max_width(theme::DIALOG_WIDTH);

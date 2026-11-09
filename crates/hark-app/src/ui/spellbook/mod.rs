@@ -28,7 +28,7 @@ use egui::{Id, Key, RichText, TextEdit, Ui};
 use hark_config::SpellbookEntry;
 
 fn view_id() -> Id {
-    Id::new("hark-spellbook-view-v1")
+    Id::unique("hark-spellbook-view-v1")
 }
 
 pub struct SpellbookPage {

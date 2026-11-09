@@ -603,7 +603,7 @@ fn missing_from_each_face(faces: &[(&str, &'static [u8])]) -> Vec<String> {
             .map(|(name, _)| {
                 ui.fonts_mut(|f| {
                     let family = FontFamily::Name(format!("probe-{name}").into());
-                    let charmap = f.fonts.font(&family).characters().clone();
+                    let charmap = f.characters(&family).clone();
                     coverage_string()
                         .chars()
                         .filter(|c| !charmap.contains_key(c))
@@ -648,7 +648,7 @@ fn first_faces(lettering: Lettering, families: &[FontFamily]) -> Vec<Vec<(char, 
             .iter()
             .map(|family| {
                 ui.fonts_mut(|f| {
-                    let charmap = f.fonts.font(family).characters().clone();
+                    let charmap = f.characters(family).clone();
                     coverage_string()
                         .chars()
                         .map(|c| (c, charmap.get(&c).map_or("none", |v| &v[0]).to_owned()))

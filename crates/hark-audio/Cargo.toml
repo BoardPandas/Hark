@@ -23,14 +23,16 @@ thiserror = "2"
 hound = "3.5"
 # Meeting-worker acoustic echo cancellation, pinned to the evaluated Rust engine.
 aec3 = "=0.4.0"
-# Meeting audio archive (D9) and sharing (D8): resolves to 0.2.5 (sys 0.1.11,
-# LAME 3.100), confirmed in the CP0 spike. LAME is LGPL and statically
+# Meeting audio archive (D9) and sharing (D8): resolves to 0.3.0 (sys 0.2.0,
+# LAME 4.0; the CP0 spike was on 0.2.5 / LAME 3.100, and 0.3.0's lib.rs is
+# byte-identical to it -- only the vendored LAME moved, now built with `cc` on
+# every platform instead of autotools on unix). LAME is LGPL and statically
 # linked via mp3lame-sys's vendored build; the notice/relink obligation is
 # handled in About + the installer, not here (§4.10/§4.11 of the meetings
 # plan). LL-G HIGH `kb/rust/mp3lame-encode-to-vec-no-reserve.md`: every
 # encode_to_vec/flush_to_vec call must reserve first, or LAME treats the
 # Vec's 0 spare capacity as "unbounded" and overflows the heap.
-mp3lame-encoder = "0.2"
+mp3lame-encoder = "0.3"
 # Decodes the MP3 archive back to PCM for the compress-then-verify step and
 # for exporting audio from an already-compressed meeting. Pure Rust
 # (MPL-2.0), no native codec dependency; only the mp3 feature is enabled.
