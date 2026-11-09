@@ -363,7 +363,7 @@ Transcript segments intersecting that range are included in full, with their tim
 
 ### Word and Windows Share
 
-Word export uses `docx-rs` 0.4.22 with default features disabled. It writes the meeting title, date/duration, notes, action items, and speaker-labelled transcript, preserving Unicode and line breaks and escaping document text. Construction and packing run on a worker; a fixture checks document XML and reopens the resulting DOCX ([Word implementation and test](../../crates/hark-app/src/ui/meetings/share/word.rs), [dependency](../../crates/hark-app/Cargo.toml)).
+Word export writes the five-part WordprocessingML package itself and zips it with `zip` (≥ 9.0.5, Deflate only); it replaced `docx-rs` in 0.69.1 because no docx-rs release could move off a `zip` with open advisories. It writes the meeting title, date/duration, notes, action items, and speaker-labelled transcript, preserving Unicode and line breaks and escaping document text. Construction and packing run on a worker; fixtures check the document XML and reopen the resulting DOCX, confirming every part is present, well-formed and correctly referenced ([Word implementation and test](../../crates/hark-app/src/ui/meetings/share/word.rs), [dependency](../../crates/hark-app/Cargo.toml)).
 
 **Share with Windows** sends formatted meeting text to the native app chooser. Hark keeps the WinRT share source and callback alive on the main UI thread, verifies that the target window belongs to this process, and removes the callback before releasing its apartment. Opening the chooser does not itself send the content to a recipient; the user selects the destination app ([native share source](../../crates/hark-app/src/ui/meetings/share/native.rs)).
 

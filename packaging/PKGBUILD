@@ -42,7 +42,7 @@ depends=('alsa-lib' 'gtk3' 'libappindicator-gtk3' 'libx11' 'libxkbcommon' 'pipew
 #   cmake   aws-lc-sys builds AWS-LC through it, and that arrives via
 #           rustls -> reqwest -- the cloud STT path, not the optional local
 #           engine. `--no-default-features` does not avoid it. (sherpa-onnx-sys
-#           1.13.4 needs no cmake at all: it downloads a prebuilt archive.)
+#           2.0.1 needs no cmake at all: it downloads a prebuilt archive.)
 #   clang   pipewire-sys and libspa-sys run bindgen, which loads libclang.so;
 #           Arch ships that inside `clang` (there is no `libclang` package).
 #   libpipewire  the PipeWire headers and libpipewire-0.3.pc those bindings

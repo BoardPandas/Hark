@@ -1,5 +1,14 @@
 # cargo-audit configuration (https://github.com/rustsec/rustsec/blob/main/cargo-audit/audit.toml.example)
 #
+# RE-TRIAGED 2026-11-09 (0.69.1): the seven zip / zstd / zstd-safe entries
+# (RUSTSEC-2026-0367, -0368, -0369, -0429, -0391, -0398, -0403) are retired,
+# not because the reasoning changed but because both of their triggers fired.
+# Hark moved to sherpa-onnx 2.0.1, whose -sys build script uses zip 9.5.0
+# (and so zstd-safe 8.2.0); and the Word export dropped docx-rs for a
+# hand-written package on zip >= 9.0.5. Nothing in Cargo.lock is below 9.0.5,
+# the floor for the GitHub-only zip advisories (GHSA-m665-v7pm-7grj and four
+# others) that RustSec had not yet indexed.
+#
 # RE-TRIAGED 2026-09-10 during the dependency sweep that took quick-xml to
 # 0.41.0. Two of the three entries that used to live here were the quick-xml
 # denial-of-service pair (RUSTSEC-2026-0194 / -0195), ignored on the argument
@@ -41,54 +50,25 @@ ignore = [
     # advisory, or when ab_glyph releases against a maintained parser.
     "RUSTSEC-2026-0192",
 
-    # zip < 9.0.0, three extraction advisories (triaged 2026-10-29, 0.68.3):
-    # SUID/SGID bits kept on extract (-0367), symlinks with targets outside
-    # the destination (-0368), and Unix permissions applied through symlinks
-    # (-0369). All three are in `ZipArchive::extract` /
-    # `ZipStreamReader::extract`, i.e. unpacking an archive to disk. zip
-    # reaches Hark twice, and neither path extracts an untrusted archive:
+    # glib 0.18.5 unsound `VariantStrIter` (UNSOUND -- a warning, not a
+    # vulnerability; GHSA-wrw7-89jp-8q8g; triaged 2026-11-09, 0.69.1). The
+    # `Iterator` / `DoubleEndedIterator` impls behind
+    # `Variant::array_iter_str()` hand C an out-pointer through a shared `&p`,
+    # so an optimized build drops the write and then dereferences NULL: a
+    # crash, not memory disclosure. Fixed in glib 0.20.
     #
-    # - zip 8.6.0 SHIPS, via docx-rs 0.4.22 (the meeting Word export). Hark
-    #   only writes .docx: docx-rs packs through `ZipWriter`
-    #   (src/zipper/mod.rs), and its reader reads entries by name and never
-    #   calls `extract`. Hark calls `read_docx` only in a unit test, on bytes
-    #   Hark just wrote. docx-rs 0.4.22 is the newest release and requires
-    #   `zip ^8.6.0`, so no zip >= 9 is selectable.
-    # - zip 2.4.2 is a BUILD dependency of sherpa-onnx-sys 1.13.8 and is not
-    #   in the binary. Its build script unpacks the prebuilt engine it
-    #   downloads from k2-fsa's GitHub release. An attacker who can replace
-    #   that archive already controls the native code linked into Hark, so
-    #   these advisories add no attack.
+    # THIS ONE SHIPS, Linux only: glib arrives through gtk 0.18, which the
+    # Linux tray needs (tray-icon 0.26 -> libappindicator 0.9 -> gtk 0.18, and
+    # hark-app's own `gtk = "0.18"` in tray/surface_gtk.rs). The unsound code
+    # runs only if something iterates a GVariant string array through that
+    # type, and nothing does: grepping Hark's crates and the sources of
+    # tray-icon 0.26.0, muda 0.21.0, libappindicator 0.9.0, gtk 0.18.2,
+    # gdk 0.18.2 and gio 0.18.4 for `array_iter_str` / `VariantStrIter` finds
+    # no caller. No upgrade is selectable: gtk-rs ended the GTK 3 bindings at
+    # 0.18, so every GTK 3 tray stack pins glib 0.18.
     #
-    # RUSTSEC-2026-0429 (high, triaged 2026-11-03, 0.68.14) is a fourth in the
-    # same function: `ZipArchive::extract` sizes a symlink target from the
-    # declared uncompressed size and aborts the process when that allocation
-    # is refused. The reasoning above holds unchanged: Hark never calls
-    # `extract` (grep `ZipArchive` and `.extract(` in crates/: no hits), and
-    # sherpa-onnx-sys 1.13.8's build script calls it only for the iOS
-    # xcframework archive, which Hark does not build. docx-rs's main branch
-    # already depends on zip 9.0.4, but no release after 0.4.22 carries it.
-    #
-    # RE-EVALUATE IF: docx-rs releases against zip >= 9 (its main branch already
-    # has); Hark moves to sherpa-onnx 2.x (whose -sys crate builds with zip ^9);
-    # or anything else starts depending on zip, above all anything that extracts
-    # at runtime (e.g. a model download).
-    "RUSTSEC-2026-0367",
-    "RUSTSEC-2026-0368",
-    "RUSTSEC-2026-0369",
-    "RUSTSEC-2026-0429",
-
-    # zstd 0.13.3 (-0391, stream data leaking across a reused context) and
-    # zstd-safe 7.3.0 (-0398 `Seekable::decompress` length, -0403
-    # uninitialized memory on a failed legacy-frame decode), triaged
-    # 2026-10-29 (0.68.3). Both come only through zip 2.4.2's zstd support
-    # above, so they exist only inside sherpa-onnx-sys's build script and are
-    # not in the binary. The fixes (zstd >= 0.14.3, zstd-safe >= 8.2.0) are
-    # semver-incompatible with zip 2.x.
-    #
-    # RE-EVALUATE IF: Hark moves to sherpa-onnx 2.x, or `cargo tree -i zstd`
-    # shows any normal (non-build) dependent.
-    "RUSTSEC-2026-0391",
-    "RUSTSEC-2026-0398",
-    "RUSTSEC-2026-0403",
+    # RE-EVALUATE IF: tray-icon (or Hark's Linux tray) moves off
+    # libappindicator / GTK 3, e.g. to a StatusNotifierItem-over-D-Bus tray;
+    # or any Hark code starts reading GVariants.
+    "RUSTSEC-2024-0429",
 ]

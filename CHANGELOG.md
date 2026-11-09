@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.69.1] - 2026-11-09
+
+### Changed
+- **Word meeting exports are written by Hark itself instead of the docx-rs library.** The file holds the same content and formatting as before: title and heading styles, notes, action items, and each speaker's name in bold in their color, on the same A4 page. It now has five parts instead of fourteen and opens in Word, LibreOffice, Google Docs and Pages. docx-rs had to go because its newest release, 0.4.22, requires a `zip` version with open advisories, and no later release has shipped.
+- **The on-device engine moves to sherpa-onnx 2.0.1** (from 1.13.8). The Rust API Hark uses did not change, and the prebuilt native library downloads the same way. Upstream's one change for NeMo models such as Parakeet is meant to improve very quiet audio; on normal speech its output should not differ.
+
+### Security
+- **Every `zip` advisory reported against Hark is cleared.** Hark had two copies of `zip`: 8.6.0 in the shipped binary, through docx-rs, and 2.4.2 used only while building, through sherpa-onnx-sys. Both are replaced by zip 9.5.0, which fixes all six advisories. Among them is the critical "zip cloaking" parser differential (GHSA-m665-v7pm-7grj, fixed in 9.0.5). The others are symlink-target extraction (GHSA-q7v9-x93c-xqv3, GHSA-hjqx-j4rw-g7xv), ZIP64 legacy-decoder denial of service (GHSA-9hj8-73fh-9963) and AES HMAC bypass (GHSA-8hxf-qr8p-62x4). Hark never extracted an archive, so none of them was reachable. The seven `zip` and `zstd` ignores in `.cargo/audit.toml` that were accepted on that argument are now removed, and the ten `zstd-safe` 7.3.0 unsoundness warnings that came with zip 2.4.2 are gone too.
+- **The glib `VariantStrIter` unsoundness (RUSTSEC-2024-0429, GHSA-wrw7-89jp-8q8g) is triaged and accepted.** glib 0.18.5 ships on Linux only, under the GTK 3 tray stack (tray-icon → libappindicator → gtk 0.18), and no upgrade is possible: the GTK 3 bindings stop at glib 0.18. The affected iterator has no caller in Hark or anywhere in the tray stack. `.cargo/audit.toml` records the reasoning and the trigger to re-evaluate it, which is a tray that no longer uses GTK 3.
+
 ## [0.69.0] - 2026-11-03
 
 ### Added

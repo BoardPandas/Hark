@@ -209,9 +209,9 @@ jobs:
       #                                 Arch container and the PKGBUILD's
       #                                 makedepends are the same toolchain
       # This pair read "sherpa-onnx builds its native engine" until 0.36.4, and
-      # that was wrong in both directions: sherpa-onnx-sys 1.13.4 has no cmake
-      # path at all (its build-dependencies are bzip2/tar/ureq and it downloads
-      # a prebuilt archive), while the crate that does need cmake is on the path
+      # that was wrong in both directions: sherpa-onnx-sys (1.13.4, and still
+      # 2.0.1) has no cmake path at all (it only downloads and unpacks a
+      # prebuilt archive), while the crate that does need cmake is on the path
       # every cloud transcription takes. It cost an afternoon in the PKGBUILD,
       # where the same two were missing from makedepends.
       #

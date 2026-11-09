@@ -43,9 +43,11 @@ hark-stt = { path = "../hark-stt" }
 # shared reqwest client from hark-stt.
 hark-update = { path = "../hark-update" }
 hark-voice = { path = "../hark-voice" }
-# Text-only Word meeting exports (the Share menu); image codecs are
-# unnecessary. Pure Rust, so it builds and ships everywhere meetings do.
-docx-rs = { version = "0.4.22", default-features = false }
+# Packs the text-only Word meeting export (the Share menu), whose parts
+# share/word.rs writes itself. Write-only, Deflate only: no reader-side
+# codecs, no AES. 9.0.5 is the floor because every zip below it carries the
+# extraction and parser advisories (GHSA-m665-v7pm-7grj and others).
+zip = { version = "9.0.5", default-features = false, features = ["deflate-flate2-zlib-rs"] }
 # Local-timezone day grouping and timestamps for the history panel; bundles
 # its own tzdb on Windows (no registry parsing).
 jiff = "0.2"
@@ -206,4 +208,6 @@ gemini-live = ["live-stt"]
 cc = "1"
 
 [dev-dependencies]
+# Well-formedness check on the Word export's XML parts.
+quick-xml = "0.41"
 tempfile = "3"
