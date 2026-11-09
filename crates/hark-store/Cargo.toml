@@ -9,7 +9,7 @@ description = "Hark local storage: SQLite dictation history + lifetime stats wit
 [dependencies]
 # `bundled` compiles SQLite in (3.53.2 at 0.40.1): no system dependency on
 # either target OS, which matters for a self-contained desktop binary.
-rusqlite = { version = "0.40.1", features = ["bundled"] }
+rusqlite = { version = "0.41.1", features = ["bundled"] }
 thiserror = "2"
 jiff = "0.2"
 

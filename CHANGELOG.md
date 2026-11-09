@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.69.2] - 2026-11-09
+
+### Security
+- **History, stats and meetings now use SQLite 3.54.1, which fixes CVE-2026-119375 (RUSTSEC-2026-0459, GHSA-72w2-rjgg-q729).** Older SQLite could return leftover bytes from the process's memory when it opened a database alongside a crafted `-wal` file with a different page size. Hark only opens databases it created itself, in your own profile directory, so exploiting this needed someone who could already write files there. The bundled SQLite comes from `rusqlite` 0.41.1 (was 0.40.2) and `libsqlite3-sys` 0.39.1 (was 0.38.2). Hark's code needed no changes, and `cargo audit` is clean again.
+
 ## [0.69.1] - 2026-11-09
 
 ### Changed
