@@ -1,5 +1,11 @@
 # Generation Metadata
 
+## Dependency refresh and the SQLite citations — 2026-11-09 (0.69.3)
+
+- **Source reviewed:** the working tree over `e032f61` (0.69.2): egui/eframe 0.37 (`Id::new` → `Id::unique`, `Ui::id` → `Ui::scope_id`, `WidgetType` → `Role`, `FontsView::characters`), `mp3lame-encoder` 0.3 / `mp3lame-sys` 0.2 (LAME 4.0, built with `cc`), the new gtk comment in `crates/hark-app/Cargo.toml`, `THIRD_PARTY_NOTICES.md`; plus the 0.69.2 `Cargo.toml` comment that moved `rust-version` to line 31 and the `rusqlite` 0.41.1 bump in `hark-store`, which had left Overview, Getting Started and Data Storage stale on main. Global baseline `784272c` is unchanged.
+- **Scope:** Desktop UI (the deferred-viewport note now says what was observed on eframe 0.36 and that the root-driven design does not depend on it), Configuration (egui-memory keys are `Id::unique` hashes and survive the rename), Spellbook and Invocations (where the view key lives), Meetings and Release and Packaging (LAME 4.0, no autotools), Getting Started (`Cargo.toml:22-31`), Overview (why the MSRV is 1.97, `Cargo.toml:28-31`), Data Storage (bundled SQLite 3.54.1). Every renamed call kept its line, so no other citation moved. AUTOGEN markers are preserved.
+- **Validation:** `node --test scripts/check-docs-sync.test.mjs`, `npm run check:docs` and `npm run check:claude` pass. `cargo clippy --workspace --all-targets -- -D warnings` passes on Linux and on `x86_64-pc-windows-gnu`; `cargo test --workspace` passes on Linux (1479 tests). macOS was not built here.
+
 ## Runner images and action pins — 2026-11-03 (0.68.13)
 
 - **Source reviewed:** the working tree over `2b8b93b` (0.68.12): every `runs-on` in `ci.yml` and `release.yml` (`ubuntu-26.04`, `macos-26`, `windows-latest`; `linux-build` pinned to `ubuntu-24.04` with a new six-line comment under GLIBC FLOOR), the bumped `setup-node`, `action-gh-release`, `rust-cache` and `rust-toolchain` SHAs, and the refreshed Arch container digest. Global baseline `784272c` is unchanged.

@@ -124,7 +124,7 @@ The speaker API keeps the user's choices safe: `set_speaker_name` writes a user 
 <!-- BEGIN:AUTOGEN hark_05_data_storage_history -->
 ## History API
 
-Every `Store` owns one synchronous `rusqlite::Connection`. File-backed connections request WAL mode, use `synchronous = NORMAL`, and wait up to five seconds when the database is busy, which supports the app's one-writer/one-reader arrangement ([lib.rs:30-30](../../crates/hark-store/src/lib.rs#L30-L30), [lib.rs:139-145](../../crates/hark-store/src/lib.rs#L139-L145)).
+SQLite is compiled into the binary rather than taken from the system: `rusqlite` 0.41.1 with the `bundled` feature, which ships SQLite 3.54.1 (the CVE-2026-119375 fix, since 0.69.2) ([hark-store/Cargo.toml](../../crates/hark-store/Cargo.toml)). Every `Store` owns one synchronous `rusqlite::Connection`. File-backed connections request WAL mode, use `synchronous = NORMAL`, and wait up to five seconds when the database is busy, which supports the app's one-writer/one-reader arrangement ([lib.rs:30-30](../../crates/hark-store/src/lib.rs#L30-L30), [lib.rs:139-145](../../crates/hark-store/src/lib.rs#L139-L145)).
 
 | Method | Behavior |
 |---|---|

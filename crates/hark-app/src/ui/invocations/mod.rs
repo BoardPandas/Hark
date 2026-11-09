@@ -19,7 +19,7 @@ use egui::{Id, Label, RichText, Sense, Ui};
 use hark_config::{Invocation, Invocations};
 
 fn view_id() -> Id {
-    Id::new("hark-invocations-view-v1")
+    Id::unique("hark-invocations-view-v1")
 }
 
 /// One-line preview length for the expansion column.

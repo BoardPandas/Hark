@@ -6,7 +6,7 @@ components.
 ## LAME
 
 Hark encodes meeting audio to MP3 (the compressed archive of a kept recording,
-and "Save audio as MP3") with **LAME 3.100**, built from source and linked into
+and "Save audio as MP3") with **LAME 4.0**, built from source and linked into
 the Hark executable through the `mp3lame-sys` / `mp3lame-encoder` crates.
 
 - License: GNU Lesser General Public License, version 2 or later (LGPL-2.0+).

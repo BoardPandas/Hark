@@ -88,7 +88,7 @@ Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; \
 
 Sources: [hark.iss:73-90](../../installer/hark.iss#L73-L90)
 
-Meeting mode encodes recordings to MP3 with LAME through `mp3lame-encoder`/`mp3lame-sys`; LAME is LGPL-2.0+ and statically linked. The installer ships `THIRD_PARTY_NOTICES.md` beside the exe. That notice describes the LAME relink right and also reproduces the selected `aec3 0.4.0` package's complete LICENSE and PATENT files: MIT terms for its new Rust contributions, BSD terms for WebRTC-derived portions, and the accompanying Google patent grant. The package's `MIT OR BSD-3-Clause` manifest shorthand does not replace these component notices ([installer](../../installer/hark.iss), [notices](../../THIRD_PARTY_NOTICES.md)).
+Meeting mode encodes recordings to MP3 with LAME 4.0 through `mp3lame-encoder` 0.3 / `mp3lame-sys` 0.2; LAME is LGPL-2.0+ and statically linked. `mp3lame-sys` 0.2 compiles its vendored LAME with `cc` on every platform, so no build job needs autotools. The installer ships `THIRD_PARTY_NOTICES.md` beside the exe. That notice describes the LAME relink right and also reproduces the selected `aec3 0.4.0` package's complete LICENSE and PATENT files: MIT terms for its new Rust contributions, BSD terms for WebRTC-derived portions, and the accompanying Google patent grant. The package's `MIT OR BSD-3-Clause` manifest shorthand does not replace these component notices ([installer](../../installer/hark.iss), [notices](../../THIRD_PARTY_NOTICES.md)).
 
 The same notice accompanies every binary package:
 

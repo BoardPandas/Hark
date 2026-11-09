@@ -33,7 +33,7 @@ impl Lettering {
 }
 
 fn preference_id() -> Id {
-    Id::new("hark-lettering-v1")
+    Id::unique("hark-lettering-v1")
 }
 
 /// The effective lettering: the saved choice, or the one the theme implies.

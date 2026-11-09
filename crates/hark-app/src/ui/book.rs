@@ -441,7 +441,7 @@ pub fn paint_heading(ui: &mut Ui, text: &str, hue: theme::Hue, width: f32) {
     let heading = heading(ui, text, hue, width);
     let (rect, response) = ui.allocate_exact_size(Vec2::new(width, heading.height), Sense::hover());
     // Painted as two galleys, so tell assistive tech the whole heading.
-    response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Label, true, text));
+    response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Label, true, text));
     let ink = ui.visuals().strong_text_color();
     let cap_width = heading.cap.size().x;
     ui.painter().galley(rect.min, heading.cap, ink);

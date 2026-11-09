@@ -224,7 +224,7 @@ mod tests {
     fn each_settings_section_has_a_unique_scroll_identity() {
         let ids: std::collections::HashSet<_> = Section::ALL
             .into_iter()
-            .map(|section| egui::Id::new(("settings-section", section)))
+            .map(|section| egui::Id::unique(("settings-section", section)))
             .collect();
         assert_eq!(ids.len(), Section::ALL.len());
     }

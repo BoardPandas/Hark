@@ -71,7 +71,7 @@ impl Appearance {
 }
 
 fn preference_id() -> Id {
-    Id::new("hark-appearance-v1")
+    Id::unique("hark-appearance-v1")
 }
 
 pub fn appearance(ctx: &Context) -> Appearance {

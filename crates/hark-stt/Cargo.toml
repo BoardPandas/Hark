@@ -38,7 +38,7 @@ thiserror = "2"
 # runtime driven with block_on from the pipeline worker thread, so neither
 # becomes a process-wide executor and no other adapter's blocking reqwest call
 # ever runs on one (LL-G Rust HIGH, blocking-io-on-tokio).
-tokio = { version = "1.53", default-features = false, features = [
+tokio = { version = "1.54", default-features = false, features = [
     "rt",
     "net",
     "io-util",

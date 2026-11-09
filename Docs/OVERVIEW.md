@@ -100,7 +100,7 @@ Hark is a desktop app with no web infrastructure: no server, database service, a
 | Tray + UI | `tray-icon` + `eframe`/`egui` (native, no webview) | ([README: Tech stack](../README.md#tech-stack), [CLAUDE.md:21](../CLAUDE.md#L21)) |
 | Persistence | `rusqlite`, TOML, and the operating-system keychain | ([README: Tech stack](../README.md#tech-stack), [CLAUDE.md:22](../CLAUDE.md#L22)) |
 
-The workspace declares Rust 1.97 as its minimum supported toolchain ([Cargo.toml:22-31](../Cargo.toml#L22-L31)).
+The workspace declares Rust 1.97 as its minimum supported toolchain, because the bundled SQLite build (`libsqlite3-sys`) uses `cfg_select!` ([Cargo.toml:28-31](../Cargo.toml#L28-L31)).
 
 Sources: [README: Tech stack](../README.md#tech-stack), [CLAUDE.md:9-22](../CLAUDE.md#L9-L22), [Cargo.toml:1-31](../Cargo.toml#L1-L31)
 <!-- END:AUTOGEN hark_01_overview_stack -->

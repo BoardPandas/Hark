@@ -23,12 +23,12 @@ pub enum Action {
 /// widget's positional id: a new dictation shifts entries between rows, and a
 /// live selection must not follow the slot onto different text.
 pub fn selection_id(entry_id: i64) -> Id {
-    Id::new(("history-raw", entry_id))
+    Id::unique(("history-raw", entry_id))
 }
 
 /// Animation key for a row's "Copied" fade.
 pub fn copied_id(entry_id: i64) -> Id {
-    Id::new(("history-copied", entry_id))
+    Id::unique(("history-copied", entry_id))
 }
 
 /// Preview length: roughly two wrapped lines at the list column width.
