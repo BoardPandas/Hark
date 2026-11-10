@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.69.5] - 2026-11-10
+
+### Fixed
+- Keep the Rust binary version aligned with package metadata after the knowledge-workflow update, restoring macOS packaging verification.
+
 ## [0.69.4] - 2026-11-10
 
 ### Changed
@@ -551,7 +556,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 Older releases are in [CHANGELOG-archive.md](CHANGELOG-archive.md).
 
-[Unreleased]: https://github.com/BoardPandas/Hark/compare/v0.69.4...HEAD
+[Unreleased]: https://github.com/BoardPandas/Hark/compare/v0.69.3...HEAD
 [0.69.3]: https://github.com/BoardPandas/Hark/compare/v0.68.5...v0.69.3
 [0.68.5]: https://github.com/BoardPandas/Hark/compare/v0.68.4...v0.68.5
 [0.68.4]: https://github.com/BoardPandas/Hark/compare/v0.68.2...v0.68.4
@@ -579,4 +584,3 @@ Older releases are in [CHANGELOG-archive.md](CHANGELOG-archive.md).
 [0.57.1]: https://github.com/BoardPandas/Hark/compare/v0.57.0...v0.57.1
 [0.57.0]: https://github.com/BoardPandas/Hark/compare/v0.56.1...v0.57.0
 
-[0.69.4]: https://github.com/BoardPandas/Hark/compare/v0.69.3...v0.69.4
