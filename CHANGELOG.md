@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.69.4] - 2026-11-10
+
+### Changed
+- Restore LL-G and BP contributions through authenticated GitHub with atomic commits, privacy review, conflict protection, and commit-specific CI verification; remove Roundtable dependencies from agent guidance.
+
 ## [0.69.3] - 2026-11-09
 
 **Known gaps:** two direct dependencies stay where they are on purpose. `gtk` stays at 0.18: the Linux tray's `libappindicator` 0.9.0, its newest release, still requires GTK 0.18, and two `gtk-sys` lines cannot link into one binary. `windows-core` stays at 0.62 to match the `windows` 0.62.2 crate; 0.100 is a separate windows-rs line that `#[implement]` would resolve against wrongly.
@@ -546,7 +551,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 Older releases are in [CHANGELOG-archive.md](CHANGELOG-archive.md).
 
-[Unreleased]: https://github.com/BoardPandas/Hark/compare/v0.69.3...HEAD
+[Unreleased]: https://github.com/BoardPandas/Hark/compare/v0.69.4...HEAD
 [0.69.3]: https://github.com/BoardPandas/Hark/compare/v0.68.5...v0.69.3
 [0.68.5]: https://github.com/BoardPandas/Hark/compare/v0.68.4...v0.68.5
 [0.68.4]: https://github.com/BoardPandas/Hark/compare/v0.68.2...v0.68.4
@@ -573,3 +578,5 @@ Older releases are in [CHANGELOG-archive.md](CHANGELOG-archive.md).
 [0.57.2]: https://github.com/BoardPandas/Hark/compare/v0.57.1...v0.57.2
 [0.57.1]: https://github.com/BoardPandas/Hark/compare/v0.57.0...v0.57.1
 [0.57.0]: https://github.com/BoardPandas/Hark/compare/v0.56.1...v0.57.0
+
+[0.69.4]: https://github.com/BoardPandas/Hark/compare/v0.69.3...v0.69.4
