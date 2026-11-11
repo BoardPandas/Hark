@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.69.6] - 2026-11-11
+
+### Added
+- Full Google Antigravity (`agy` / T3 Code Antigravity harness) workspace support alongside Claude Code via `scripts/sync-antigravity.mjs` (`--with-skills`) and `.claude/scripts/_antigravity-hook.sh`: generates `.agents/skills/`, `.agents/agents/*.md`, `.agents/rules/*.md`, `.agents/hooks.json`, and `.agents/README.md`, maps Antigravity tool payloads onto `.claude/scripts/`, converts exit-2 blocks into `decision: "deny"` JSON, and queues advisory context for `PreInvocation` (`scripts/antigravity-hooks.test.mjs`).
+
+
 ## [0.69.5] - 2026-11-10
 
 ### Fixed

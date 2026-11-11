@@ -6,8 +6,8 @@ The following files were used as evidence for this page:
 
 - [installer/hark.iss:1-96](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/installer/hark.iss#L1-L96)
 - [.github/workflows/release.yml:1-223](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/.github/workflows/release.yml#L1-L223)
-- [.github/RELEASING.md:1-77](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/.github/RELEASING.md#L1-L77)
-- [package.json:1-7](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/package.json#L1-L7)
+- [.github/RELEASING.md:1-77](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/.github/RELEASING.md#L1-L177)
+- [package.json:1-17](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/package.json#L1-L17)
 - [Cargo.toml:1-29](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/Cargo.toml#L1-L29)
 - [installer/hark.iss:36-65](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/installer/hark.iss#L36-L65)
 - [.github/workflows/release.yml:54-76](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/.github/workflows/release.yml#L54-L76)
@@ -254,7 +254,7 @@ The release workflow enforces this at release time rather than trusting it was d
 
 A missed Cargo bump is therefore caught at release time rather than shipping a binary that misreports its own version, per the pre-commit changelog/version discipline in `.claude/rules/commit-changelog.md`.
 
-Sources: [package.json:1-7](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/package.json#L1-L7), [Cargo.toml:1-29](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/Cargo.toml#L1-L29), [release.yml:54-76](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/.github/workflows/release.yml#L54-L76)
+Sources: [package.json:1-17](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/package.json#L1-L17), [Cargo.toml:1-29](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/Cargo.toml#L1-L29), [release.yml:54-76](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/.github/workflows/release.yml#L54-L76)
 <!-- END:AUTOGEN hark_13_release_packaging_version -->
 
 ---

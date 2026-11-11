@@ -9,7 +9,7 @@ The following files were used as evidence for this page:
 - [README: Project structure](../README.md#project-structure)
 - [README: Configuration and on-device transcription](../README.md#configuration)
 - [README: Privacy](../README.md#privacy)
-- [package.json:1-15](../package.json#L1-L15)
+- [package.json:1-17](../package.json#L1-L17)
 - [Cargo.toml:1-31](../Cargo.toml#L1-L31)
 - [CLAUDE.md:1-24](../CLAUDE.md#L1-L24)
 - [CLAUDE.md:26-46](../CLAUDE.md#L26-L46)
@@ -189,6 +189,7 @@ Sources: [README: Architecture](../README.md#architecture), [CLAUDE.md:26-30](..
 |---|---|
 | Give an AI agent the fastest safe orientation | [Agent Guide](../AGENTS.md) |
 | Pick a Claude subagent and see when to use it | [Agent Registry](../AGENT-REGISTRY.md) |
+| Inspect generated Google Antigravity workspace configuration | [Antigravity Config](../.agents/README.md) |
 | Understand process/thread structure and the pipeline in depth | [Architecture](core/ARCHITECTURE.md) |
 | Install or build the app locally | [Getting Started](GETTING_STARTED.md) |
 | Look up a domain term or acronym | [Glossary](GLOSSARY.md) |

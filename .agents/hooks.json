@@ -1,0 +1,83 @@
+{
+  "claude-code-bootstrap": {
+    "enabled": true,
+    "SessionStart": [
+      {
+        "type": "command",
+        "command": "bash \"$(git rev-parse --show-toplevel)\"/.claude/scripts/_antigravity-hook.sh SessionStart .claude/scripts/session-start-kb-check.sh",
+        "timeout": 30
+      }
+    ],
+    "PreInvocation": [
+      {
+        "type": "command",
+        "command": "bash \"$(git rev-parse --show-toplevel)\"/.claude/scripts/_antigravity-hook.sh PreInvocation",
+        "timeout": 10
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "run_command",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$(git rev-parse --show-toplevel)\"/.claude/scripts/_antigravity-hook.sh PreToolUse .claude/scripts/check-commit-herestring.sh",
+            "timeout": 30
+          },
+          {
+            "type": "command",
+            "command": "bash \"$(git rev-parse --show-toplevel)\"/.claude/scripts/_antigravity-hook.sh PreToolUse .claude/scripts/pre-commit-changelog-reminder.sh",
+            "timeout": 30
+          },
+          {
+            "type": "command",
+            "command": "bash \"$(git rev-parse --show-toplevel)\"/.claude/scripts/_antigravity-hook.sh PreToolUse .claude/scripts/check-changelog-staged.sh",
+            "timeout": 30
+          },
+          {
+            "type": "command",
+            "command": "bash \"$(git rev-parse --show-toplevel)\"/.claude/scripts/_antigravity-hook.sh PreToolUse .claude/scripts/require-release-authorization.sh",
+            "timeout": 30
+          }
+        ]
+      },
+      {
+        "matcher": "write_to_file|replace_file_content|multi_replace_file_content",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$(git rev-parse --show-toplevel)\"/.claude/scripts/_antigravity-hook.sh PreToolUse .claude/scripts/pre-write-kb-check.sh",
+            "timeout": 30
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "run_command",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$(git rev-parse --show-toplevel)\"/.claude/scripts/_antigravity-hook.sh PostToolUse .claude/scripts/post-commit-kb-contribute.sh",
+            "timeout": 30
+          },
+          {
+            "type": "command",
+            "command": "bash \"$(git rev-parse --show-toplevel)\"/.claude/scripts/_antigravity-hook.sh PostToolUse .claude/scripts/post-push-cleanup.sh",
+            "timeout": 30
+          }
+        ]
+      },
+      {
+        "matcher": "write_to_file|replace_file_content|multi_replace_file_content",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$(git rev-parse --show-toplevel)\"/.claude/scripts/_antigravity-hook.sh PostToolUse .claude/scripts/post-edit-format.sh",
+            "timeout": 30
+          }
+        ]
+      }
+    ]
+  }
+}

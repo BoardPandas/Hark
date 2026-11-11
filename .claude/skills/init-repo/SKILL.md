@@ -32,7 +32,7 @@ Before fetching any best practices, check the current date. All recommendations 
 ## Step 2: Read Current State
 
 1. Read `CLAUDE.md` in the repo root (if it exists). Note its contents.
-2. Read `AGENT-REGISTRY.md` in the repo root (if it exists). Note its contents.
+2. Read `.claude/references/agent-registry.md` (older repos: root `agents.md`) if it exists. Note its contents.
 3. Read `README.md` in the repo root (if it exists). Identify the project's tech stack, purpose, and conventions.
 4. Scan the `.claude/` folder (if it exists) using Glob. List all existing files.
 5. Read `.claude/settings.json` (if it exists). Note current settings.
@@ -118,141 +118,48 @@ Compare the current `.claude/` folder against BP practices and web sources. For 
 
 For each gap identified, create or update the file. Follow these rules:
 
-- **Template source:** The canonical template is the `BoardPandas/claude-code-bootstrap` repository (the repo this `.claude/` folder was copied from). Its CLAUDE.md skill table and `agents.md` registry (this repo's `AGENT-REGISTRY.md`) define the full template skill and agent lists. If a template skill, agent, rule, or script is missing here, copy it from that repo (via `git clone` to a temp directory or raw GitHub fetch) rather than reinventing it.
+- **Template source:** The canonical template is the `BoardPandas/claude-code-bootstrap` repository (the repo this `.claude/` folder was copied from). Its CLAUDE.md skill table and `.claude/references/agent-registry.md` define the full template skill and agent lists. If a template skill, agent, rule, or script is missing here, copy it from that repo (via `git clone` to a temp directory or raw GitHub fetch) rather than reinventing it.
 - **Non-destructive:** Never overwrite custom project-specific settings. Merge with existing config.
 - **Skills:** Ensure all template skills exist in `.claude/skills/`. If additional skills are relevant to the detected tech stack, add them.
 - **Agents:** Ensure all template agents exist in `.claude/agents/`. Add others if relevant.
 - **Scripts:** Ensure `.claude/scripts/` contains every shell script referenced by hooks in `settings.json` (e.g., `session-start-kb-check.sh`, the commit-check scripts). A hook that points at a missing script fails on every session start. Copy missing scripts from the template source.
 - **Settings:** Update `.claude/settings.json` with recommended permissions and hooks. Preserve existing custom entries.
-- **Tools reference:** Update `.claude/references/tools.md` with stack-specific CLI tools, install commands, and usage patterns. **Important:** There is no local Docker, no local Postgres, no local Redis -- all infrastructure runs remotely on Northflank and Cloudflare. Do not add local infrastructure tools (docker, docker-compose, psql, redis-cli). Preserve the existing **Available MCP Servers** section that documents all MCP integrations available to Claude Code.
+- **Tools reference:** Update `.claude/references/tools.md` with stack-specific CLI tools, install commands, and usage patterns. **Important:** There is no local Docker, no local Postgres, no local Redis -- server-side infrastructure runs remotely on the project's profile, Cloudflare or Railway (see `.claude/references/infrastructure.md`). Do not add local infrastructure tools (docker, docker-compose, psql, redis-cli). Desktop targets are the exception: their build, signing, and packaging toolchains are local and do belong in tools.md. Preserve the existing **Available MCP Servers** section that documents all MCP integrations available to Claude Code.
 - **CLAUDE.md:** Build a hierarchical CLAUDE.md structure:
-  - Update root `CLAUDE.md` with project-specific stack info, conventions, and skill/agent inventory.
+  - Update root `CLAUDE.md` with project-specific stack info and conventions.
   - Plan (but do not create) subfolder CLAUDE.md files where distinct rules will apply.
-  - Keep each CLAUDE.md file focused and under 200 lines.
+  - Budget by **bytes, not lines**: 16 KB for CLAUDE.md, 20 KB for all always-on context. A line budget keeps passing while single lines grow to thousands of characters. `npm run check:claude` fails on either ceiling.
+  - Do not restate what `instructions.md` or `.claude/references/` already cover. Detail goes down into those; CLAUDE.md keeps pointers. Do not duplicate the skill table either — skills are auto-discovered and their own `description:` is what triggers them; list only which ones are slash-only.
+  - **Required section — `## Commands`:** the build, test, and lint commands, one line each. This is the first thing a new session needs and the last thing anyone remembers to write down.
+  - **Required section — `## Verifying your work`:** the single command that proves a change is good, an example of healthy output, and an explicit statement that a failing check is never to be skipped, deleted, or narrowed. Make verification part of the definition of done.
+  - **Required section — `## Things Claude Gets Wrong`:** seeded from the LL-G entries loaded in Step 3 for this project's stack, plus anything the gap analysis surfaced. The standing rule to write into the section: when a mistake happens twice, the correction goes here.
   - Include in the Planning section: "Every plan MUST end with a Lessons Learned / Gotchas section. After implementation, route discoveries to LL-G via `/add-lesson`, not to local files only."
-- **AGENT-REGISTRY.md:** Update the root AGENT-REGISTRY.md to register all agents. Preserve project-specific content. Never create a root `agents.md`: it is the same file as `AGENTS.md` on Windows and macOS, and `npm run check:claude` fails on paths that differ only by case.
+  - If the project uses the artifact chain, document it: `intent.md` → `spec.md` → `plan.md` → diff, with the owner and approver of each.
+- **Agent registry:** Update `.claude/references/agent-registry.md` to register all agents, preserving project-specific content. A lowercase root `agents.md` from an older template moves there: it collides with Codex's `AGENTS.md` on case-insensitive filesystems (Windows, default macOS), where one silently overwrites the other.
 - **README.md:** If a README exists, add or update the "Claude Code" section. Do not alter other sections.
 
 ## Step 7: Configure Path-Scoped Rules
 
-Create `.claude/rules/` directory with conditional instruction files. Each rule file uses `paths:` frontmatter to load only when working with matching file patterns.
+Read `${CLAUDE_SKILL_DIR}/references/scaffold-templates.md` ("Step 7: Path-Scoped Rule Example & Inventory") before creating rules.
 
-### How rules work
-- Files in `.claude/rules/*.md` have YAML frontmatter with a `paths:` array of glob patterns.
-- A rule file only loads into context when Claude is working with files matching those patterns.
-- This keeps context lean -- backend rules don't load for frontend work and vice versa.
-
-### Rules to create based on detected stack
-
-For every project, create:
-- `.claude/rules/tests.md` — Testing conventions, paths: `["**/test/**", "**/*.test.*", "**/*.spec.*", "**/__tests__/**"]`
-- `.claude/rules/bp-check.md` — RULE 3 enforcement: check BP before modifying infrastructure/tooling configs. Paths: `["CLAUDE.md", ".claude/**", "Dockerfile*", "biome.*", "turbo.json", "vitest.config.*", "jest.config.*", ".github/**"]`
-- `.claude/rules/llg-check.md` — RULE 1 enforcement: check LL-G before writing code. Paths: source directories, e.g. `["src/**", "lib/**", "app/**", "worker/**", "api/**", "scripts/**", "middleware.*"]` (adjust to the detected project layout). Copy the template from the bootstrap repo's `.claude/rules/llg-check.md`.
-
-For frontend projects, also create:
-- `.claude/rules/frontend.md` — Component patterns, styling rules, accessibility. Paths matching frontend source dirs.
-- `.claude/rules/styles.md` — CSS/styling conventions. Paths matching style files.
-
-For backend/API projects, also create:
-- `.claude/rules/api.md` — API conventions, error handling, auth patterns. Paths matching API source dirs.
-- `.claude/rules/database.md` — Migration rules, query patterns, ORM conventions. Paths matching schema/migration files.
-
-For monorepos, create rules scoped to each package/app.
-
-### Example rule file format
-```markdown
----
-paths:
-  - "src/components/**"
-  - "src/ui/**"
----
-
-# Component Rules
-
-- Max 200 lines per component file. Split large components into composition.
-- Always export a single default component per file.
-- Use semantic HTML elements over generic divs.
-```
+Create `.claude/rules/*.md` with conditional `paths:` YAML frontmatter so rules load only when working with matching files (`paths:` is the only scoping key Claude Code reads; prune any glob that matches zero files in this repo so `npm run check:claude` passes). Always create `.claude/rules/tests.md`, `.claude/rules/bp-check.md`, and `.claude/rules/llg-check.md`, plus stack-specific rules (`frontend.md`, `styles.md`, `api.md`, `database.md`, or per-package monorepo rules) per the reference inventory.
 
 ## Step 8: Initialize Agent Memory
 
-Create `.claude/agent-memory/` as a version-controlled team-shared knowledge base.
+Create `.claude/agent-memory/` as a version-controlled team-shared knowledge base containing `README.md`, `patterns.md`, `decisions.md`, and `debugging.md`, using the exact `debugging.md` template and `README.md` guidelines in `${CLAUDE_SKILL_DIR}/references/scaffold-templates.md` ("Step 8: Agent Memory").
 
-### Purpose
-Agent memory is evolving knowledge that agents accumulate during work. Unlike CLAUDE.md (static rules), agent memory captures discovered patterns, debugging insights, and project-specific knowledge that emerges over time.
+## Steps 9 & 10: Optimize Skill and Agent Frontmatter
 
-### Structure to create
-- `.claude/agent-memory/README.md` — Explains the purpose and conventions for this directory.
-- `.claude/agent-memory/patterns.md` — Discovered code patterns and conventions (starts nearly empty).
-- `.claude/agent-memory/decisions.md` — Key technical decisions and their rationale (starts nearly empty).
-- `.claude/agent-memory/debugging.md` — Known gotchas and learning lessons. Initialize with this structure:
+Apply the skill and agent frontmatter guidelines in `${CLAUDE_SKILL_DIR}/references/scaffold-templates.md` ("Steps 9 & 10: Skill and Agent Frontmatter Field Reference"):
 
-  ```markdown
-  # Gotchas & Learning Lessons
-
-  Reference this file before starting work. Add entries when you discover non-obvious behavior, surprising failures, or patterns that wasted time. Don't make the same mistakes twice.
-
-  ## Format
-
-  ### [Number]. [Short descriptive title]
-
-  **Context:** When/where this occurs.
-  **Problem:** What goes wrong.
-  **Solution:** What to do instead.
-  **Why:** Brief explanation of root cause.
-
-  ---
-
-  *Keep entries concise and actionable. Remove entries that no longer apply.*
-  ```
-
-### README content guidelines
-The README should explain:
-- Files are version-controlled and shared across the team.
-- Agents should read relevant memory files before starting work.
-- Agents should update memory files when they discover new patterns or make decisions.
-- Keep entries concise. Remove outdated entries. No session-specific information.
-- Memory files complement CLAUDE.md — CLAUDE.md has rules, agent-memory has discovered knowledge.
-
-## Step 9: Add Skill Frontmatter Optimizations
-
-For each skill, consider adding:
-- `disable-model-invocation: true` for skills that should only be manually invoked
-- `model: haiku` for well-defined step-by-step skills that do not require heavy reasoning
-- `model: sonnet` for analysis and research skills
-- `model: opus` for orchestration and planning skills
-- `context: fork` for skills that should run in isolated subagent context (prevents context contamination in the main session). Good for: analysis skills that produce large output, research skills that fetch many URLs, any skill that shouldn't pollute the main conversation.
-- `agent: <agent-name>` to bind a skill to a specific agent that should execute it. Useful when a skill requires the specialized persona and tools of a particular agent.
-
-## Step 10: Add Agent Frontmatter Optimizations
-
-For each agent, consider adding these frontmatter fields beyond the basics (name, description, model, permissionMode, tools):
-
-- `background: true` — Agent runs in the background without blocking the main session. Good for: long-running analysis, monitoring, continuous review tasks.
-- `isolation: worktree` — Agent runs in a temporary git worktree (isolated copy of repo). Worktree is auto-cleaned if no changes; if changes are made, the worktree path and branch are returned. Good for: implementer agents, parallel feature work, security analysis.
-- `context: <instructions>` — Additional context injected into the agent's system prompt. Use for agent-specific rules that don't belong in the main CLAUDE.md.
-- `skills: [skill1, skill2]` — List of skills this agent can invoke. Restricts which skills are available to the agent.
-- `maxTurns: N` — Maximum agentic iterations. Use for budget control (e.g., `maxTurns: 20` on implementer agents).
-- `memory: user|project|local` — Persistent cross-session memory scope. `user` = `~/.claude/agent-memory/` (cross-project), `project` = `.claude/agent-memory/` (team-shared), `local` = `.claude/agent-memory-local/` (personal, git-ignored). First 200 lines of MEMORY.md are injected into the agent's system prompt on startup.
-
-### Recommended agent enhancements
-
-- **reviewer** agent: Add `memory: project` so it reads `.claude/agent-memory/` on startup and reviews against discovered project patterns and decisions.
-- **architect** agent: Add `memory: project` so it plans against recorded decisions without re-deriving them, and `skills: [plan-repo, spec-developer]` to give it access to planning skills.
-- **Implementer or file-writing agents** (if the project adds any): Consider `isolation: worktree` so their edits land in an isolated copy of the repo.
-
-Two cautions on fields that are easy to over-apply:
-
-- `background: true` is a per-spawn choice, not an agent default. Set it via the `run_in_background` parameter when spawning the agent, not in frontmatter. Baking it in forces async on every spawn and breaks workflows that need the agent's result inline (e.g. parallel explorers feeding a decision).
-- `isolation: worktree` only benefits agents that write files. Do not add it to read-only analysis agents (explorer, reviewer, security, performance, ux-reviewer) -- it adds worktree setup and teardown overhead with nothing to isolate.
-
-Only add these fields when they provide clear value for the project. Do not add them speculatively.
+1. **Skills:** every skill must declare `model:` (`haiku` mechanical, `sonnet` analysis, `opus` orchestration/planning) OR bind `agent:` alongside `context: fork` (without `context: fork`, `agent:` is ignored, and every `allowed-tools` entry must be in the bound agent's `tools:`). Set `disable-model-invocation: true` on slash-only skills and appropriate `effort:` levels.
+2. **Agents:** set `memory: project` on `reviewer`, `architect`, `builder`, `explorer`, and `tester`; set `skills: [plan-repo, spec-developer]` on `architect`; set `isolation: worktree` only on file-writing agents (`builder`), never on read-only analysis agents; avoid setting `background: true` in frontmatter (pass `run_in_background` per spawn instead). Add optional fields only where they provide clear value.
 
 ## Step 11: Configure Hooks
 
 Read `.claude/references/hooks-and-settings.md` for the full catalog: every hook event, the five hook types (command, http, prompt, agent, mcp_tool), the `if:` field, matcher syntax, and the "Hooks to configure based on project needs" recommendations. That file is the single source of truth — do not re-paste the event table into any skill or CLAUDE.md.
 
-For init, configure the always-on defaults from that reference (`SessionStart` knowledge-base reminder, `PreToolUse` `Bash(git commit*)`, `Stop` and `Notification` sounds). The always-on hooks invoke scripts in `.claude/scripts/`; confirm those scripts exist (Step 6) before wiring the hooks, since a hook pointing at a missing script fails on every session start.
+For init, configure the always-on defaults from that reference (`SessionStart` knowledge-base reminder, `PreToolUse` on `Bash` with `if: "Bash(git commit*)"`, `Stop` and `Notification` sounds). The always-on hooks invoke scripts in `.claude/scripts/`; confirm those scripts exist (Step 6) before wiring the hooks, since a hook pointing at a missing script fails on every session start. Wire each one as `bash "$CLAUDE_PROJECT_DIR"/.claude/scripts/<name>.sh`, never by a cwd-relative path, which stops resolving once the shell leaves the repo root.
 
 Then decide on the recommended development/team hooks: in an interactive session, ask the user with AskUserQuestion which ones they want. In a non-interactive or autonomous run, configure only the always-on defaults and list the skipped options in the final report so the user can add them later.
 
@@ -270,134 +177,45 @@ The full optional-settings catalog (`attribution.*`, `autoUpdatesChannel`, `sand
 
 For attribution, language, and autoUpdatesChannel preferences: in an interactive session, ask the user with AskUserQuestion before setting them. In a non-interactive or autonomous run, leave them unset and list them in the final report as pending decisions. Configure the rest based on project analysis.
 
+## Step 12b: Create the Review Policy and Multi-Runtime Mirrors
+
+Required: `scripts/check-claude-wiring.mjs` errors when `REVIEW.md` is missing or
+missing a required section.
+
+### REVIEW.md
+
+Copy the template's `REVIEW.md` to the repo root, then tailor it to this project:
+
+- Keep all four required section headings verbatim -- `## Passes`,
+  `## What "Important" means here`, `## Cap the nits`, `## Do not report`.
+- Adjust **Passes** to the detected stack, set the nit cap deliberately (3 by default), and point **Do not report** at what this project's formatter and CI cover.
+
+### Codex and Antigravity mirrors
+
+Copy the template's `scripts/sync-codex.mjs`, `scripts/sync-antigravity.mjs`, `scripts/sync-codex.test.mjs`, and `scripts/antigravity-hooks.test.mjs` (plus `.claude/scripts/_antigravity-hook.sh`), add `"sync:codex": "node scripts/sync-codex.mjs"` and `"check:codex": "node scripts/sync-codex.mjs --check"` to `package.json`, and prefix `check:claude` with `node scripts/sync-codex.mjs --check && `. Then run `npm run sync:codex`. It generates `AGENTS.md`, `.agents/` (skills, agents, rules, `hooks.json`), and `.codex/` from `CLAUDE.md` and `.claude/`; never hand-edit those. Diff any pre-existing files there first and move project-specific rules into the Claude source.
+
+Verify before moving on (`npm run check:claude && npm test` — both must pass).
+
 ## Step 13: Create instructions.md
 
-Create or update `instructions.md` in the repo root with:
-
-- What the `.claude/` folder contains
-- How to use each skill (trigger phrase and description)
-- Hierarchical CLAUDE.md architecture explanation
-- Path-scoped rules explanation (`.claude/rules/*.md`)
-- Agent memory explanation (`.claude/agent-memory/`)
-- Agent and skill frontmatter fields reference
-- A pointer to `.claude/references/hooks-and-settings.md` for hook events, hook types, matcher syntax, and the full settings catalog. Do not restate that content in instructions.md; link to it so there is one source of truth.
-- Subagent usage best practices
-- Phase-based planning workflow
-- Context management tips
-- How to customize the setup for this specific project
-- How to add new skills, agents, rules, or memory files
+Create or update `instructions.md` in the repo root covering what `.claude/` contains, how to invoke each skill, hierarchical `CLAUDE.md` architecture, path-scoped rules (`.claude/rules/*.md`), agent memory (`.claude/agent-memory/`), agent/skill frontmatter fields, a pointer to `.claude/references/hooks-and-settings.md` (do not restate its catalog), subagent best practices, phase-based planning, context management, and how to add skills/agents/rules/memory.
 
 ## Step 14: BP Verification and Audit
 
-By this point, Steps 3-12 should have already applied the relevant BP practices during configuration. This step verifies the result and creates the audit trail. It runs before the final report so the report reflects the verified end state.
+Verify the result and create the audit trail using `${CLAUDE_SKILL_DIR}/references/scaffold-templates.md` ("Step 14: BP Audit & LL-G Seed Templates"):
 
-**14a. Verify FOUNDATIONAL practices were applied**
-
-Re-run the CHECK items from each FOUNDATIONAL BP practice against the repo. Confirm:
-- [ ] Hierarchical CLAUDE.md under 200 lines with tech stack, standards, workflow
-- [ ] RULE 0 (read-only-first) present in CLAUDE.md
-- [ ] RULE 1 (LL-G integration) present in CLAUDE.md with 4-step protocol
-- [ ] RULE 3 (BP integration) present in CLAUDE.md
-- [ ] Credential deny-list in settings.json
-- [ ] Context management guidance (compact at 50%, handoff docs)
-- [ ] Plans must end with lessons learned stated in CLAUDE.md
-- [ ] Plan-then-execute workflow documented
-- [ ] Anti-pattern awareness documented
-- [ ] `.claude/rules/bp-check.md` exists
-- [ ] `.claude/rules/llg-check.md` exists
-
-If any are missing, apply them now.
-
-**14b. Run RECOMMENDED audit for matching tech tags**
-
-Fetch the relevant concern indexes from BP and check RECOMMENDED practices against the repo. Don't apply these automatically -- just record them.
-
-**14c. Write the audit file**
-
-Write `.claude/bp-audit.md` with full results:
-```markdown
-# BP Audit Results
-Date: <YYYY-MM-DD>
-Score: Y/X (percentage%)
-
-## Failing Practices (fix with `/apply-practice <slug>`)
-
-### FOUNDATIONAL
-- [ ] `<slug>` -- <what's missing>
-
-### RECOMMENDED
-- [ ] `<slug>` -- <what's missing>
-
-## Passing Practices
-- [x] `<slug>` -- <title>
-
-## Note
-Fix failing practices one at a time with `/apply-practice <slug>`. Re-running `/init-repo` refreshes this audit.
-```
-
-**14d. Seed LL-G gotchas into agent-memory**
-
-If LL-G had HIGH-severity entries matching this project's tech stack (from Step 3b), add a summary to `.claude/agent-memory/debugging.md`:
-```markdown
-## Known Gotchas (from LL-G)
-
-These are HIGH-severity gotchas for this project's tech stack.
-See LL-G for full details: https://github.com/BoardPandas/LL-G
-
-- [Gotcha title]: brief summary (tech, severity)
-```
-
-If BP or LL-G are not accessible, note in the report: "BP/LL-G not reachable -- skipping knowledge base integration. Ensure repos are available for full integration."
+1. **14a:** Re-run CHECK items for every FOUNDATIONAL BP practice on the reference checklist; apply any missing ones now.
+2. **14b:** Check RECOMMENDED practices matching this stack's tags from BP (record only; do not auto-apply).
+3. **14c:** Write `.claude/bp-audit.md` using the reference template.
+4. **14d:** Append matching HIGH-severity LL-G gotchas (from Step 3b) to `.claude/agent-memory/debugging.md` using the reference snippet. If BP or LL-G are unreachable, note that in the final report.
 
 ## Step 15: Reset the Changelog and Version Baseline
 
-A project cloned from this template inherits the template's own `CHANGELOG.md` and its `package.json` version. That history describes the bootstrap template's releases, not this project's, so a brand-new project starts life claiming a version and a release log it never had. Reset it to a clean `0.0.1` baseline.
+A project cloned from this template inherits the template's own `CHANGELOG.md` and `package.json` version. Classify before touching anything:
 
-**15a. Classify the existing changelog before touching anything**
-
-Read `CHANGELOG.md` in the repo root and decide which case applies:
-
-- **Absent** -- create a fresh one at `0.0.1`.
-- **Template-inherited** -- entries describe the bootstrap template itself (skills, agents, `.claude/` wiring, plan-repo/init-repo, hook scripts) rather than this project's features. Reset to `0.0.1`.
-- **Project-owned** -- entries describe this project's own features, fixes, or releases. **Do not reset.** Leave `CHANGELOG.md` and the version field exactly as they are and record the decision in the Step 16 report.
-
-If the file is genuinely ambiguous (mixed template and project entries, or a single vague entry), ask with AskUserQuestion in an interactive session. In a non-interactive or autonomous run, leave both files untouched and flag the ambiguity in the report. Never destroy real release history to satisfy this step -- a wrong reset is unrecoverable from the working tree.
-
-This classification is also what makes re-running `/init-repo` safe: once the project has accumulated its own entries, the changelog reads as project-owned and the reset stops applying.
-
-**15b. Write the fresh changelog**
-
-When 15a says to reset, overwrite `CHANGELOG.md` with:
-
-```markdown
-# Changelog
-
-All notable changes to this project will be documented in this file.
-
-The format is based on [Keep a Changelog](https://keepachangelog.com/en/2.0.0/).
-
-## [0.0.1] - <YYYY-MM-DD>
-
-### Added
-- Initial project setup and Claude Code configuration.
-```
-
-Use today's actual date (from the date check at the top of this skill), not a placeholder and not a date copied from the template's entries.
-
-**15c. Reset the version field to 0.0.1**
-
-Set the version to `0.0.1` in whichever manifest this project uses:
-
-- `package.json` -- `"version": "0.0.1"`
-- `pyproject.toml` -- `version = "0.0.1"`
-- `Cargo.toml` -- `version = "0.0.1"`
-- `*.csproj` -- `<Version>0.0.1</Version>`
-
-Reset only the manifest the project actually has; do not create one that does not exist. If the project has no version field anywhere (a Go module, a plain script repo), skip this and note it in the report -- the changelog reset still stands on its own.
-
-**15d. Leave the commit rule in place**
-
-Keep `.claude/rules/commit-changelog.md` as shipped. It is what bumps the project forward from `0.0.1` on every subsequent commit, so the reset gives it a correct starting point rather than resuming mid-way through the template's version history.
+1. **15a:** If `package.json` is still named `claude-code-bootstrap` and `scripts/new-project.mjs` exists, run `node scripts/new-project.mjs` and skip to 15d. Otherwise classify `CHANGELOG.md` as **Absent** (create `0.0.1`), **Template-inherited** (reset to `0.0.1`), or **Project-owned** (**do not reset**; preserve both `CHANGELOG.md` and manifest version). If ambiguous, ask with `AskUserQuestion` (or preserve untouched in autonomous runs and flag in the report).
+2. **15b & 15c:** When resetting, write the fresh `0.0.1` `CHANGELOG.md` (deleting any template-inherited `CHANGELOG-archive.md`) and reset only existing manifest version fields (`package.json`, `pyproject.toml`, `Cargo.toml`, `*.csproj`) per `${CLAUDE_SKILL_DIR}/references/scaffold-templates.md` ("Step 15: Fresh `0.0.1` Changelog & Manifest Baseline").
+3. **15d:** Keep `.claude/rules/commit-changelog.md` as shipped so subsequent commits advance cleanly from `0.0.1`.
 
 ## Step 16: Report
 

@@ -25,7 +25,7 @@ You are a code reviewer. Your role is to evaluate code for correctness, clarity,
 - **Type Safety:** Are types used correctly? Are there implicit any types or unsafe casts?
 - **Test Coverage:** Are new code paths tested? Do tests verify behavior, not implementation?
 - **Dead Code:** Is there unreachable code, unused imports, or commented-out blocks?
-- **Standards Compliance:** Does the code follow the conventions in CLAUDE.md?
+- **Standards Compliance:** Does the code follow the conventions in CLAUDE.md (and `REVIEW.md` when present)?
 - **Security:** Are inputs validated? Are there injection risks?
 - **Performance:** Are there obvious inefficiencies (N+1 queries, unnecessary loops)?
 

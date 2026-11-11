@@ -1,0 +1,342 @@
+# Docs/_toc.yaml -- Table of Contents
+#
+# Generated and maintained by the doc-sync skill.
+# Schema: ../references/toc-schema.md
+#
+# Replace placeholders in {curly braces} with project-specific values.
+
+project:
+  name: "{PROJECT_NAME}"
+  description: "{1-2 sentence project summary}"
+  repo_base_url: "{e.g. https://github.com/owner/repo/blob}"
+  ref_commit_hash: "{git rev-parse HEAD}"
+  branch: "{git rev-parse --abbrev-ref HEAD}"
+  updated_at: "{YYYY-MM-DD}"
+
+pages:
+  # ===========================================================
+  # Overview (root of Docs/)
+  # ===========================================================
+  - id: {repo}_01_overview
+    title: "Overview"
+    folder: ""
+    filename: "OVERVIEW.md"
+    description: "Project introduction, stack, and where to start"
+    category: overview
+    source_files:
+      - "README.md"
+      - "package.json"
+    sections:
+      - id: {repo}_01_overview_introduction
+        title: "Introduction"
+        autogen: true
+        diagrams_needed: false
+        diagram_types: []
+      - id: {repo}_01_overview_purpose
+        title: "Purpose and Users"
+        autogen: true
+        diagrams_needed: false
+        diagram_types: []
+      - id: {repo}_01_overview_stack
+        title: "Technology Stack"
+        autogen: true
+        diagrams_needed: false
+        diagram_types: []
+      - id: {repo}_01_overview_layout
+        title: "Repository Layout"
+        autogen: true
+        diagrams_needed: true
+        diagram_types: ["flowchart"]
+      - id: {repo}_01_overview_entry-points
+        title: "Entry Points"
+        autogen: true
+        diagrams_needed: false
+        diagram_types: []
+      - id: {repo}_01_overview_where-to-start
+        title: "Where to Start"
+        autogen: true
+        diagrams_needed: false
+        diagram_types: []
+      - id: {repo}_01_overview_pitfalls
+        title: "Common Pitfalls"
+        autogen: true
+        diagrams_needed: false
+        diagram_types: []
+    related_pages:
+      - {repo}_02_architecture
+      - {repo}_03_getting-started
+
+  # ===========================================================
+  # Architecture (core/)
+  # ===========================================================
+  - id: {repo}_02_architecture
+    title: "Architecture"
+    folder: "core"
+    filename: "ARCHITECTURE.md"
+    description: "System architecture, services, runtime topology"
+    category: architecture
+    source_files:
+      - "src/**/*.{ts,js,py,go}"
+      - "Dockerfile*"
+      - "docker-compose*.yml"
+      - "infra/**/*"
+    sections:
+      - id: {repo}_02_architecture_system-overview
+        title: "System Overview"
+        autogen: true
+        diagrams_needed: true
+        diagram_types: ["flowchart"]
+      - id: {repo}_02_architecture_environments
+        title: "Environments"
+        autogen: true
+        diagrams_needed: false
+        diagram_types: []
+      - id: {repo}_02_architecture_components
+        title: "Components"
+        autogen: true
+        diagrams_needed: true
+        diagram_types: ["class"]
+      - id: {repo}_02_architecture_communication
+        title: "Service Communication"
+        autogen: true
+        diagrams_needed: true
+        diagram_types: ["sequence"]
+      - id: {repo}_02_architecture_interfaces
+        title: "Interfaces and Contracts"
+        autogen: true
+        diagrams_needed: false
+        diagram_types: []
+      - id: {repo}_02_architecture_runtime
+        title: "Runtime and Deployment"
+        autogen: true
+        diagrams_needed: false
+        diagram_types: []
+      - id: {repo}_02_architecture_scaling
+        title: "Scaling and Performance"
+        autogen: true
+        diagrams_needed: false
+        diagram_types: []
+      - id: {repo}_02_architecture_failure-modes
+        title: "Failure Modes and Reliability"
+        autogen: true
+        diagrams_needed: false
+        diagram_types: []
+    related_pages:
+      - {repo}_01_overview
+      - {repo}_04_api
+
+  # ===========================================================
+  # Getting Started (root of Docs/)
+  # ===========================================================
+  - id: {repo}_03_getting-started
+    title: "Getting Started"
+    folder: ""
+    filename: "GETTING_STARTED.md"
+    description: "Install, configure, and run locally"
+    category: guide
+    source_files:
+      - "README.md"
+      - "package.json"
+      - "Makefile"
+      - "docker-compose.yml"
+      - ".env.example"
+    sections:
+      - id: {repo}_03_getting-started_prerequisites
+        title: "Prerequisites"
+        autogen: true
+        diagrams_needed: false
+        diagram_types: []
+      - id: {repo}_03_getting-started_install
+        title: "Installation"
+        autogen: true
+        diagrams_needed: false
+        diagram_types: []
+      - id: {repo}_03_getting-started_environment
+        title: "Environment Setup"
+        autogen: true
+        diagrams_needed: false
+        diagram_types: []
+      - id: {repo}_03_getting-started_local-services
+        title: "Local Services"
+        autogen: true
+        diagrams_needed: false
+        diagram_types: []
+      - id: {repo}_03_getting-started_run
+        title: "Run"
+        autogen: true
+        diagrams_needed: false
+        diagram_types: []
+      - id: {repo}_03_getting-started_quick-start
+        title: "Quick Start"
+        autogen: true
+        diagrams_needed: false
+        diagram_types: []
+      - id: {repo}_03_getting-started_troubleshooting
+        title: "Troubleshooting"
+        autogen: true
+        diagrams_needed: false
+        diagram_types: []
+    related_pages:
+      - {repo}_01_overview
+      - {repo}_05_configuration
+
+  # ===========================================================
+  # API Reference (api/) -- include for backend repos
+  # ===========================================================
+  - id: {repo}_04_api
+    title: "API Reference"
+    folder: "api"
+    filename: "API_REFERENCE.md"
+    description: "Comprehensive API endpoint reference"
+    category: api
+    source_files:
+      - "src/api/**/*"
+      - "src/routes/**/*"
+      - "openapi.yaml"
+    sections:
+      - id: {repo}_04_api_authentication
+        title: "Authentication Methods"
+        autogen: true
+        diagrams_needed: false
+        diagram_types: []
+      - id: {repo}_04_api_response-patterns
+        title: "Common Response Patterns"
+        autogen: true
+        diagrams_needed: false
+        diagram_types: []
+      - id: {repo}_04_api_rate-limiting
+        title: "Rate Limiting"
+        autogen: true
+        diagrams_needed: false
+        diagram_types: []
+      # Add one section per resource group:
+      # - id: {repo}_04_api_resource-{name}
+      #   title: "{Resource}"
+      #   ...
+    related_pages:
+      - {repo}_02_architecture
+
+  # ===========================================================
+  # Configuration (core/)
+  # ===========================================================
+  - id: {repo}_05_configuration
+    title: "Configuration"
+    folder: "core"
+    filename: "CONFIGURATION.md"
+    description: "Configuration layers and environment variables"
+    category: configuration
+    source_files:
+      - "src/config/**/*"
+      - ".env.example"
+      - "config/**/*"
+    sections:
+      - id: {repo}_05_configuration_overview
+        title: "Overview"
+        autogen: true
+        diagrams_needed: false
+        diagram_types: []
+      - id: {repo}_05_configuration_required-env
+        title: "Required Environment Variables"
+        autogen: true
+        diagrams_needed: false
+        diagram_types: []
+      - id: {repo}_05_configuration_optional-env
+        title: "Optional Environment Variables"
+        autogen: true
+        diagrams_needed: false
+        diagram_types: []
+      - id: {repo}_05_configuration_validation
+        title: "Validation"
+        autogen: true
+        diagrams_needed: false
+        diagram_types: []
+      - id: {repo}_05_configuration_secrets
+        title: "Secret Management"
+        autogen: true
+        diagrams_needed: false
+        diagram_types: []
+    related_pages:
+      - {repo}_03_getting-started
+      - {repo}_06_runbook
+
+  # ===========================================================
+  # Runbook (operations/)
+  # ===========================================================
+  - id: {repo}_06_runbook
+    title: "Runbook"
+    folder: "operations"
+    filename: "RUNBOOK.md"
+    description: "Deployment, rollback, scaling, on-call"
+    category: runbook
+    source_files:
+      - ".github/workflows/**/*"
+      - "infra/**/*"
+      - "src/routes/healthz*"
+    sections:
+      - id: {repo}_06_runbook_overview
+        title: "Overview"
+        autogen: true
+        diagrams_needed: false
+        diagram_types: []
+      - id: {repo}_06_runbook_deployment
+        title: "Deployment"
+        autogen: true
+        diagrams_needed: false
+        diagram_types: []
+      - id: {repo}_06_runbook_health-checks
+        title: "Health Checks"
+        autogen: true
+        diagrams_needed: false
+        diagram_types: []
+      - id: {repo}_06_runbook_scaling
+        title: "Scaling Procedures"
+        autogen: true
+        diagrams_needed: false
+        diagram_types: []
+      - id: {repo}_06_runbook_oncall
+        title: "On-call Procedures"
+        autogen: true
+        diagrams_needed: false
+        diagram_types: []
+      - id: {repo}_06_runbook_incidents
+        title: "Common Incidents"
+        autogen: true
+        diagrams_needed: false
+        diagram_types: []
+      - id: {repo}_06_runbook_recovery
+        title: "Disaster Recovery"
+        autogen: true
+        diagrams_needed: false
+        diagram_types: []
+    related_pages:
+      - {repo}_02_architecture
+
+  # ===========================================================
+  # Glossary (root of Docs/) -- always last
+  # ===========================================================
+  - id: {repo}_99_glossary
+    title: "Glossary"
+    folder: ""
+    filename: "GLOSSARY.md"
+    description: "Domain terms used across the project"
+    category: glossary
+    source_files:
+      - "src/**/*"
+    sections:
+      - id: {repo}_99_glossary_terms
+        title: "Terms"
+        autogen: true
+        diagrams_needed: false
+        diagram_types: []
+      - id: {repo}_99_glossary_acronyms
+        title: "Acronyms"
+        autogen: true
+        diagrams_needed: false
+        diagram_types: []
+    related_pages:
+      - {repo}_01_overview
+
+notes:
+  - "This is a starter TOC. Add per-feature pages under features/ and per-module pages under modules/ as the codebase grows."
+  - "Remove pages whose source material does not exist (do not generate empty stubs)."
+  - "When you add a new top-level service or feature, add a corresponding page rather than letting it grow inside an existing page."

@@ -4,7 +4,7 @@ effort: medium
 description: Run a general code health review across the whole repository, covering correctness risks, error handling gaps, dead code, duplication, oversized files, and repo hygiene, with fix recommendations and pointers to the specialized scan skills for deep dives. Use for periodic checkups or when onboarding an unfamiliar repo.
 user-invocable: true
 argument-hint: [optional: file or directory path to scope the review]
-agent: reviewer
+model: sonnet
 allowed-tools:
   - Read
   - Glob
@@ -21,7 +21,7 @@ You have been asked to perform a general health review of the repository. This i
 1. If the user specified a file or directory, scope the review to that path.
 2. If no scope was specified, review the entire repository.
 3. Identify the tech stack from dependency manifests and file types.
-4. Read CLAUDE.md and any `.claude/rules/*.md` so findings are judged against this project's own standards, not generic ones.
+4. Read `REVIEW.md`, `CLAUDE.md`, and any `.claude/rules/*.md` so findings are judged against this project's own review policy, passes, nit cap, exclusions, and standards, not generic ones.
 
 ## Step 2: Repo Hygiene
 
@@ -72,27 +72,24 @@ Do a light pass only in each of these areas. If you find real signal, record one
 
 ## Step 7: Produce Report
 
-Use the reviewer severity levels. Format the report as follows:
+Follow `REVIEW.md` (`[IMPORTANT|NIT]` severity bar, concrete `Failure:` scenario on every Important finding, nit cap, and **Do not report** exclusions). Format the report as follows:
 
 ```
 # Repo Review Report
 
 ## Summary
 - Files reviewed: <count>
-- Critical: <count>
-- Warnings: <count>
-- Suggestions: <count>
+- Important: <count>
+- Nits: <count> (capped per REVIEW.md)
 
-## Critical (must fix)
-[CRITICAL] <category> - file:line
-  Finding: <description>
+## Important (blocks merge / must fix)
+[IMPORTANT] <file>:<line> -- <one-sentence statement of the defect>
+  Failure: <concrete input or state, and the wrong output, silent failure, or security/data-loss risk>
   Fix: <specific change to make>
 
-## Warnings (should fix)
-(same format)
-
-## Suggestions (nice to have)
-(same format)
+## Nits (optional, capped per REVIEW.md)
+[NIT] <file>:<line> -- <one-sentence statement>
+  Fix: <specific change to make>
 
 ## Recommended Follow-ups
 - <specialized skill>: <one-line reason based on what was found>
@@ -101,4 +98,4 @@ Use the reviewer severity levels. Format the report as follows:
 <brief note on what is in good shape, so the report is calibrated, not just negative>
 ```
 
-Prioritize findings by real-world impact. Every finding must include a specific fix, not vague advice. Do not nitpick style that matches the project's existing conventions.
+Prioritize findings by real-world impact. Every finding must include a specific fix, not vague advice. Do not report anything excluded by `REVIEW.md`.
