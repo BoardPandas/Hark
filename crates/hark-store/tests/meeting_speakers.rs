@@ -143,7 +143,8 @@ fn migration_007_copies_renames_as_user_names_and_keeps_the_old_table() {
     let version: i64 = conn
         .query_row("PRAGMA user_version", [], |r| r.get(0))
         .unwrap();
-    assert_eq!(version, 7);
+    // 008 (entries.delivered) applies on top of the 007 this test is about.
+    assert_eq!(version, 8);
     let types: (String, String, String) = conn
         .query_row(
             "SELECT typeof(speaker_key), typeof(source), typeof(evidence_ms) \

@@ -49,7 +49,7 @@ Full detail + citations: `.claude/agent-memory/explorer/hark_cloud_stt_providers
 - Handle errors explicitly (`Result`/`?`); never swallow. Validate at boundaries (mic input, model output, BYOK responses, file/DB I/O).
 - Avoid premature abstraction. Three similar lines beat a forced helper.
 - Comment only the non-obvious "why", not self-explanatory code.
-- Prefer splitting a file once it passes ~500 lines **and there is a natural seam**. This is a smell to investigate, not a cap to trim to: 14 files are legitimately over it (largest `hark-config/src/lib.rs`, 1168), and lookup tables like `hark-hotkey/src/keycode.rs` and `known.rs` are exempt — splitting a table on an arbitrary line makes it worse. Never compress a file to duck the number.
+- Prefer splitting a file once it passes ~500 lines **and there is a natural seam**. This is a smell to investigate, not a cap to trim to: after the 2026-11-14 split pass 37 source files are still over it, tests aside (largest that builds on Windows: `hark-pipeline/src/meeting/coordinator.rs`, 809; the two Linux-only files near 990 were left whole because this machine cannot compile them), and lookup tables like `hark-hotkey/src/keycode.rs` and `known.rs` are exempt — splitting a table on an arbitrary line makes it worse. Never compress a file to duck the number.
 - Prefer editing existing files over creating new ones.
 - `cargo fmt` + `cargo clippy --all-targets -- -D warnings` must pass. Run tests before declaring done (this machine is coding-only: build/test/lint here; run the app on real macOS/Windows/Linux).
 

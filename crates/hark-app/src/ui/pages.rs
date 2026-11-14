@@ -5,7 +5,7 @@
 use crate::meeting::MeetingController;
 use crate::pipeline::PipelineController;
 use crate::storage::StorageHandle;
-use crate::ui::history::HistoryPage;
+use crate::ui::history::{HistoryPage, Intent as HistoryIntent};
 use crate::ui::home::HomePage;
 use crate::ui::invocations::InvocationsPage;
 use crate::ui::meetings::{MeetingsPage, PageIntent};
@@ -145,17 +145,33 @@ pub fn show(
                 Page::History => {
                     // Adding from a history selection is a two-page gesture:
                     // the term is captured here and finished in the Spellbook,
-                    // where the user replaces the misheard spelling with the
-                    // right one. Navigating is what the user asked for; it
-                    // does cost their place in the list, which is the known
-                    // trade recorded in the plan.
-                    if let Some(term) =
-                        views
-                            .history
-                            .show(ui, storage, storage_error, &settings.hotkey.ptt_key)
-                    {
-                        views.spellbook.prime_add(term);
-                        *page = Page::Spellbook;
+                    // where the user types the right spelling. Saving or
+                    // cancelling there returns here (see `spellbook`); the
+                    // page keeps its expanded row, search and scroll offset
+                    // while away, so that is the place they left.
+                    let added = views.spellbook.last_added().map(str::to_owned);
+                    match views.history.show(
+                        ui,
+                        storage,
+                        storage_error,
+                        &settings.hotkey.ptt_key,
+                        added.as_deref(),
+                    ) {
+                        Some(HistoryIntent::AddTerm(term)) => {
+                            views.spellbook.prime_add(term);
+                            *page = Page::Spellbook;
+                        }
+                        Some(HistoryIntent::UndoAdd) => {
+                            if views.spellbook.undo_last(&mut settings.spellbook.entries)
+                                && !persist_spellbook(ui, settings, pipeline, views)
+                            {
+                                // The failure notice lives on the Spellbook
+                                // page; send the user to it.
+                                *page = Page::Spellbook;
+                            }
+                        }
+                        Some(HistoryIntent::DismissAdded) => views.spellbook.dismiss_added(),
+                        None => {}
                     }
                 }
                 Page::Meetings => {
@@ -179,7 +195,7 @@ pub fn show(
                         None => {}
                     }
                 }
-                Page::Spellbook => spellbook(ui, settings, pipeline, views),
+                Page::Spellbook => spellbook(ui, page, settings, pipeline, views),
                 Page::Invocations => invocations(ui, settings, pipeline, views),
                 Page::Stats => {
                     egui::ScrollArea::vertical()
@@ -236,17 +252,37 @@ fn header(ui: &mut Ui, page: Page) {
 /// later Save does not resurrect deleted terms.
 fn spellbook(
     ui: &mut Ui,
+    page: &mut Page,
     settings: &mut Settings,
     pipeline: &mut PipelineController,
     views: &mut Views,
 ) {
-    if views.spellbook.show(ui, &mut settings.spellbook.entries) {
-        views
-            .spellbook
-            .set_notice(settings::save_to_disk(settings).err());
-        pipeline.start(settings, ui.ctx());
-        views.settings.draft.spellbook = settings.spellbook.clone();
+    let saved = if views.spellbook.show(ui, &mut settings.spellbook.entries) {
+        persist_spellbook(ui, settings, pipeline, views)
+    } else {
+        true
+    };
+    // After the save, and only if it worked: a failed one must leave the user
+    // on the page that shows the notice, not carry them away from it.
+    if views.spellbook.take_return_to_history() && saved {
+        *page = Page::History;
     }
+}
+
+/// Write the Spellbook and restart the pipeline. Returns false when the save
+/// failed; the notice is on the Spellbook page.
+fn persist_spellbook(
+    ui: &Ui,
+    settings: &mut Settings,
+    pipeline: &mut PipelineController,
+    views: &mut Views,
+) -> bool {
+    let failure = settings::save_to_disk(settings).err();
+    let saved = failure.is_none();
+    views.spellbook.set_notice(failure);
+    pipeline.start(settings, ui.ctx());
+    views.settings.draft.spellbook = settings.spellbook.clone();
+    saved
 }
 
 /// Invocation edits persist immediately and restart the pipeline (the

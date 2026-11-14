@@ -25,7 +25,7 @@ impl SpellbookEntries<'_> {
     }
 
     fn is_new(&self, index: usize) -> bool {
-        self.page.last_added.as_deref() == Some(self.entries[index].term.as_str())
+        self.page.last_added() == Some(self.entries[index].term.as_str())
     }
 }
 
@@ -213,7 +213,10 @@ mod tests {
         ctx.data_mut(|d| d.insert_persisted(view_id(), "book".to_owned()));
         let mut page = SpellbookPage::new();
         let mut entries = vec![entry("Eldrazi", &["al drazi"]), entry("Kozilek", &[])];
-        page.last_added = Some("Kozilek".to_owned());
+        page.last_added = Some(super::edit::Added {
+            term: "Kozilek".to_owned(),
+            merged_alias: None,
+        });
         let mut violet = egui::Color32::TRANSPARENT;
         let mut texts = Vec::new();
         for _ in 0..2 {

@@ -35,10 +35,26 @@ pub use voices::{
 /// internally). Mirrored so transport-error mapping can name the right bound.
 pub const CONNECT_TIMEOUT_MS: u64 = 3_000;
 
-/// Per-request total timeout for cleanup calls (`RequestBuilder::timeout`),
-/// tighter than STT's 15 s: cleanup failure has a graceful fallback (inject
-/// the uncleaned text), so it fails fast and never retries.
+/// Ceiling of the per-request total timeout for cleanup calls
+/// (`RequestBuilder::timeout`), tighter than STT's 15 s: cleanup failure has a
+/// graceful fallback (inject the uncleaned text), so it fails fast and never
+/// retries. A request gets [`cleanup_timeout_ms`], which only reaches this for
+/// a long input.
 pub const CLEANUP_TIMEOUT_MS: u64 = 10_000;
+/// What a cleanup call is allowed for even a one-word input. LLM latency has a
+/// fat tail, so this is not lower.
+pub const CLEANUP_TIMEOUT_FLOOR_MS: u64 = 4_000;
+
+/// Per-request timeout for cleaning `input_chars` characters: the floor plus
+/// 5 ms per character, capped at [`CLEANUP_TIMEOUT_MS`] (reached at 1,200
+/// characters). A short dictation that hangs now falls back to its uncleaned
+/// text after seconds rather than ten.
+pub fn cleanup_timeout_ms(input_chars: usize) -> u64 {
+    (input_chars as u64)
+        .saturating_mul(5)
+        .saturating_add(CLEANUP_TIMEOUT_FLOOR_MS)
+        .clamp(CLEANUP_TIMEOUT_FLOOR_MS, CLEANUP_TIMEOUT_MS)
+}
 
 /// One cleanup result. `request_ms` is the full HTTP round trip as seen by
 /// the caller (added to release-to-inject latency when cleanup runs).
@@ -57,4 +73,20 @@ pub trait CleanupProvider: Send {
 
     /// Short label for logs and errors ("openai", "gemini").
     fn label(&self) -> &str;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn cleanup_timeout_scales_with_input_between_floor_and_cap() {
+        assert_eq!(cleanup_timeout_ms(0), 4_000);
+        assert_eq!(cleanup_timeout_ms(1), 4_005);
+        assert_eq!(cleanup_timeout_ms(200), 5_000);
+        assert_eq!(cleanup_timeout_ms(1_199), 9_995);
+        assert_eq!(cleanup_timeout_ms(1_200), CLEANUP_TIMEOUT_MS);
+        assert_eq!(cleanup_timeout_ms(1_000_000), CLEANUP_TIMEOUT_MS);
+        assert_eq!(cleanup_timeout_ms(usize::MAX), CLEANUP_TIMEOUT_MS);
+    }
 }

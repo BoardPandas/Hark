@@ -3,6 +3,7 @@
 //! worker threads (hark-pipeline); this module never blocks the UI thread.
 
 use crate::storage::{self, RecordPolicy, StorageCmd};
+use crate::ui::history::recovery::{self, Recovery, Request};
 use hark_config::Settings;
 use hark_pipeline::{FailStage, LevelMeter, PipelineEvent, PipelineHandle};
 use std::sync::atomic::AtomicBool;
@@ -67,6 +68,11 @@ pub struct PipelineController {
     /// conflict is still there. Cleared when the pipeline restarts, which is
     /// what saving a new shortcut does.
     shortcut_warning: Option<String>,
+    /// The last dictation whose words did not reach the cursor, shared with the
+    /// History page through the egui context. This side keeps it in step with
+    /// the event stream and carries the page's retry/dismiss requests to the
+    /// pipeline, which only this controller can reach.
+    recovery: Arc<Recovery>,
 }
 
 impl PipelineController {
@@ -86,6 +92,7 @@ impl PipelineController {
             recording: None,
             feedback: None,
             shortcut_warning: None,
+            recovery: Arc::new(Recovery::default()),
         }
     }
 
@@ -127,6 +134,7 @@ impl PipelineController {
     /// running with a visible cause in the footer.
     pub fn start(&mut self, settings: &Settings, ctx: &egui::Context) {
         self.stop();
+        recovery::register(ctx, &self.recovery);
         if let Err(e) = self.start_shared(settings, ctx) {
             self.mark_stopped(e);
         }
@@ -258,6 +266,8 @@ impl PipelineController {
         self.level = None;
         self.recording = None;
         self.shortcut_warning = None;
+        // A held clip lived in the worker the line above dropped.
+        self.recovery.pipeline_stopped();
     }
 
     pub fn drain_meeting_toggles(&self) -> usize {
@@ -280,11 +290,13 @@ impl PipelineController {
     /// blocks: `try_recv` only. An `Errored` status is naturally sticky: it
     /// stands until the next event (the next dictation) replaces it.
     pub fn drain_events(&mut self) {
+        self.forward_recovery_request();
         let Some(rx) = &self.events else { return };
         while let Ok(event) = rx.try_recv() {
             if matches!(event, PipelineEvent::Injected(_)) {
                 self.injected += 1;
             }
+            self.recovery.observe(&event);
             if let PipelineEvent::ShortcutIntercepted { key } = &event {
                 self.shortcut_warning = Some(key.clone());
             }
@@ -300,6 +312,25 @@ impl PipelineController {
             }
             self.status = next;
         }
+    }
+
+    /// Pass the History banner's click to the pipeline. The page cannot reach
+    /// the handle, and a click repaints the window, so the next pass of
+    /// `App::logic` (which calls `drain_events`) is prompt enough.
+    fn forward_recovery_request(&mut self) {
+        match (self.recovery.take_request(), &self.handle) {
+            (Some(Request::Retry), Some(handle)) => handle.retry_held_clip(),
+            (Some(Request::Dismiss), Some(handle)) => handle.dismiss_held_clip(),
+            // No pipeline means no clip: let the banner go rather than spin.
+            (Some(_), None) => self.recovery.pipeline_stopped(),
+            (None, _) => {}
+        }
+    }
+
+    /// The shared slot behind the History banner.
+    #[cfg(test)]
+    fn recovery(&self) -> &Recovery {
+        &self.recovery
     }
 }
 
@@ -425,6 +456,18 @@ fn next_status(event: PipelineEvent) -> Option<PipelineStatus> {
         // Idle is the whole story the footer needs.
         PipelineEvent::Injected(_) => PipelineStatus::Idle,
         PipelineEvent::ShortcutIntercepted { .. } => return None,
+        // The words exist; only the paste failed. The detail stays out of the
+        // line: it is an OS error summary, and the useful part is where the
+        // text went.
+        PipelineEvent::NotPasted { .. } => PipelineStatus::Errored {
+            detail: "Couldn't paste. Open History to copy the text.".to_string(),
+            key_related: false,
+        },
+        // Worker bookkeeping about a held clip; `Failed` already moved the
+        // footer, and the History banner carries the rest.
+        PipelineEvent::ClipHeld { .. } => return None,
+        // A retry's text is waiting in History; nothing is in flight now.
+        PipelineEvent::Recovered(_) => PipelineStatus::Idle,
         PipelineEvent::Failed { stage, detail } => match stage {
             // A tap on the chord is the user's own doing and needs no reply;
             // an empty transcript means the provider heard nothing to write.
@@ -440,7 +483,13 @@ fn next_status(event: PipelineEvent) -> Option<PipelineStatus> {
             FailStage::GatedTooQuiet => PipelineStatus::Hint {
                 detail: "Didn't catch that. Check your microphone.".to_string(),
             },
-            FailStage::Audio | FailStage::Transcribe | FailStage::Inject | FailStage::Internal => {
+            // The pipeline keeps this clip in memory, so the footer can say
+            // where to go; the key check reads the error, not the pointer.
+            FailStage::Transcribe => PipelineStatus::Errored {
+                key_related: detail.to_ascii_lowercase().contains("key"),
+                detail: format!("{}. Try again from History.", detail.trim_end_matches('.')),
+            },
+            FailStage::Audio | FailStage::Inject | FailStage::Internal => {
                 PipelineStatus::Errored {
                     // Crude but effective: auth errors say "check your API
                     // key", keychain errors name the keychain.
@@ -452,9 +501,33 @@ fn next_status(event: PipelineEvent) -> Option<PipelineStatus> {
     })
 }
 
+/// The storage command an event calls for, if any. A delivered dictation is
+/// recorded whatever the capture setting (the counters tick; capture decides
+/// whether the text is kept). One that never reached the cursor is a History
+/// row and nothing else, so with capture off nothing is stored at all: the
+/// banner's Copy still works from memory, which is all that setting allows.
+fn storage_command(event: &PipelineEvent, policy: &RecordPolicy) -> Option<StorageCmd> {
+    match event {
+        PipelineEvent::Injected(record) => Some(StorageCmd::Record {
+            record: record.clone(),
+            capture: policy.capture,
+            retention: policy.retention,
+        }),
+        PipelineEvent::NotPasted { record, .. } | PipelineEvent::Recovered(record)
+            if policy.capture =>
+        {
+            Some(StorageCmd::RecordUndelivered {
+                record: record.clone(),
+                retention: policy.retention,
+            })
+        }
+        _ => None,
+    }
+}
+
 /// Forward pipeline events onto a UI-side channel, waking the event loop per
 /// event (`request_repaint` is the sanctioned cross-thread wake-up), and tee
-/// `Injected` records to the storage thread. Both sends are non-blocking
+/// records to the storage thread ([`storage_command`]). Both sends are non-blocking
 /// (unbounded channels), so the UI lane never waits on storage or vice
 /// versa. The injection already happened before the event was emitted, so a
 /// DB write can never precede it (CP4 acceptance). Exits when the pipeline
@@ -474,14 +547,10 @@ fn spawn_repaint_pump(
                     feedback.publish(&event);
                     ctx.request_repaint_of(crate::overlay::viewport_id());
                 }
-                if let (PipelineEvent::Injected(record), Some((storage_tx, policy))) =
-                    (&event, &storage)
-                {
-                    let _ = storage_tx.send(StorageCmd::Record {
-                        record: record.clone(),
-                        capture: policy.capture,
-                        retention: policy.retention,
-                    });
+                if let Some((storage_tx, policy)) = &storage {
+                    if let Some(cmd) = storage_command(&event, policy) {
+                        let _ = storage_tx.send(cmd);
+                    }
                 }
                 if tx.send(event).is_err() {
                     break;
@@ -494,317 +563,4 @@ fn spawn_repaint_pump(
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use hark_pipeline::DictationRecord;
-
-    /// The accounts `carry_key_with` asked to copy, if it asked at all.
-    fn carry_asked(toml: &str, migrations: hark_config::Migrations) -> Option<(String, String)> {
-        let settings = Settings::from_toml(toml).unwrap();
-        let asked = std::cell::RefCell::new(None);
-        carry_key_with(&settings, &migrations, |from, to| {
-            *asked.borrow_mut() = Some((from.to_string(), to.to_string()));
-            Ok(hark_keychain::CopyOutcome::SourceMissing)
-        });
-        asked.into_inner()
-    }
-
-    #[test]
-    fn a_groq_key_carry_is_retried_on_launches_after_the_migration() {
-        // The migrating launch's keychain failed; the file is already v7 and
-        // reports no migration. The key must still be carried.
-        let groq = "[provider]\nkind = \"openai-compatible\"\n\
-                    base_url = \"https://api.groq.com/openai/v1\"\nmodel = \"whisper-large-v3-turbo\"";
-        let expected = Some(("groq".to_string(), "openai-compatible".to_string()));
-        assert_eq!(
-            carry_asked(groq, hark_config::Migrations::default()),
-            expected
-        );
-        // A just-converted proxy endpoint is carried on its migrating launch.
-        let proxy =
-            "[provider]\nkind = \"openai-compatible\"\nbase_url = \"https://groq-proxy.example/v1\"";
-        let migrated = hark_config::Migrations {
-            stt_from_groq: true,
-            cleanup_from_groq: true,
-        };
-        assert_eq!(carry_asked(proxy, migrated), expected);
-    }
-
-    #[test]
-    fn no_keychain_is_touched_when_no_groq_key_is_owed() {
-        for toml in [
-            "",
-            "[provider]\nkind = \"openai\"",
-            "[provider]\nkind = \"openai-compatible\"\nbase_url = \"http://localhost:8000/v1\"",
-        ] {
-            assert_eq!(
-                carry_asked(toml, hark_config::Migrations::default()),
-                None,
-                "{toml:?}"
-            );
-        }
-    }
-
-    #[test]
-    fn a_failed_carry_is_logged_not_fatal() {
-        let settings = Settings::from_toml(
-            "[provider]\nkind = \"openai-compatible\"\nbase_url = \"https://api.groq.com/openai/v1\"",
-        )
-        .unwrap();
-        carry_key_with(&settings, &hark_config::Migrations::default(), |from, _| {
-            Err(hark_keychain::KeyError::Backend {
-                account: from.to_string(),
-                detail: "locked".to_string(),
-            })
-        });
-    }
-
-    #[test]
-    fn meeting_toggles_survive_an_absent_dictation_worker() {
-        use hark_hotkey::{PttEvent, ShortcutEvent};
-        let (tx, rx) = mpsc::channel();
-        let (ptt_tx, ptt_rx) = mpsc::channel();
-        drop(ptt_rx); // Missing provider key: no dictation worker exists.
-        let meetings = spawn_shortcut_pump(rx, ptt_tx, egui::Context::default()).unwrap();
-        tx.send(ShortcutEvent::Dictation(PttEvent::Down)).unwrap();
-        tx.send(ShortcutEvent::MeetingToggle).unwrap();
-        tx.send(ShortcutEvent::Dictation(PttEvent::Up)).unwrap();
-        tx.send(ShortcutEvent::MeetingToggle).unwrap();
-        drop(tx);
-        assert_eq!(meetings.iter().count(), 2);
-    }
-
-    #[test]
-    fn meeting_toggle_never_waits_for_dictation_to_drain_its_input() {
-        use hark_hotkey::{PttEvent, ShortcutEvent};
-        let (tx, rx) = mpsc::channel();
-        let (ptt_tx, ptt_rx) = mpsc::channel();
-        let meetings = spawn_shortcut_pump(rx, ptt_tx, egui::Context::default()).unwrap();
-        tx.send(ShortcutEvent::Dictation(PttEvent::Down)).unwrap();
-        tx.send(ShortcutEvent::MeetingToggle).unwrap();
-        meetings
-            .recv_timeout(std::time::Duration::from_secs(1))
-            .unwrap();
-        assert_eq!(ptt_rx.try_recv(), Ok(PttEvent::Down));
-        drop(tx);
-        assert_eq!(
-            ptt_rx.recv_timeout(std::time::Duration::from_secs(1)),
-            Err(mpsc::RecvTimeoutError::Disconnected)
-        );
-    }
-
-    #[test]
-    fn disabled_meetings_never_bind_a_shortcut() {
-        let mut settings = Settings::default();
-        settings.meeting.enabled = false;
-        settings.meeting.toggle_key = Some("LCtrl+F11".into());
-        assert_eq!(meeting_chord(&settings).unwrap(), None);
-        if !hark_pipeline::meeting::meetings_supported() {
-            settings.meeting.enabled = true;
-            assert_eq!(meeting_chord(&settings).unwrap(), None);
-        }
-    }
-
-    fn record() -> Box<DictationRecord> {
-        Box::new(DictationRecord {
-            raw_text: "raw".to_string(),
-            final_text: "final".to_string(),
-            voice: "clean".to_string(),
-            stt_provider: "deepgram".to_string(),
-            stt_model: "nova-3".to_string(),
-            cleanup_model: None,
-            invocation: None,
-            audio_ms: 900,
-            stt_ms: 300,
-            cleanup_ms: None,
-            total_ms: 450,
-            spellbook_replacements: Some(0),
-            foreground_app: None,
-        })
-    }
-
-    #[test]
-    fn happy_path_walks_recording_processing_idle() {
-        assert!(matches!(
-            next_status(PipelineEvent::Recording).expect("moves the status"),
-            PipelineStatus::Recording
-        ));
-        assert!(matches!(
-            next_status(PipelineEvent::Processing).expect("moves the status"),
-            PipelineStatus::Processing
-        ));
-        assert!(matches!(
-            next_status(PipelineEvent::Injected(record())).expect("moves the status"),
-            PipelineStatus::Idle
-        ));
-    }
-
-    #[test]
-    fn informational_endings_return_to_idle_not_error() {
-        for stage in [
-            FailStage::GatedTooShort,
-            FailStage::EmptyTranscript,
-            FailStage::Abandoned,
-        ] {
-            let s = next_status(PipelineEvent::Failed {
-                stage,
-                detail: "informational".to_string(),
-            })
-            .expect("moves the status");
-            assert!(matches!(s, PipelineStatus::Idle), "stage {stage:?}");
-        }
-    }
-
-    /// "We heard nothing" must neither vanish (the old behaviour, which left
-    /// users unable to tell a quiet mic from a broken app) nor raise an error
-    /// banner: it is a hint, with the settings jump attached.
-    #[test]
-    fn a_too_quiet_capture_hints_rather_than_erroring_or_vanishing() {
-        let s = next_status(PipelineEvent::Failed {
-            stage: FailStage::GatedTooQuiet,
-            detail: "no speech detected".to_string(),
-        })
-        .expect("moves the status");
-        match s {
-            PipelineStatus::Hint { detail } => {
-                assert!(detail.contains("microphone"), "unhelpful hint: {detail}")
-            }
-            other => panic!("expected a hint, got {:?}", std::mem::discriminant(&other)),
-        }
-    }
-
-    #[test]
-    fn auth_failures_are_key_related_errors() {
-        let s = next_status(PipelineEvent::Failed {
-            stage: FailStage::Transcribe,
-            detail: "authentication rejected by deepgram: check your API key".to_string(),
-        })
-        .expect("moves the status");
-        match s {
-            PipelineStatus::Errored {
-                key_related,
-                detail,
-            } => {
-                assert!(key_related);
-                assert!(detail.contains("deepgram"));
-            }
-            _ => panic!("expected Errored"),
-        }
-    }
-
-    #[test]
-    fn network_failures_are_errors_without_the_settings_jump() {
-        let s = next_status(PipelineEvent::Failed {
-            stage: FailStage::Transcribe,
-            detail: "request to deepgram timed out after 15000 ms".to_string(),
-        })
-        .expect("moves the status");
-        assert!(matches!(
-            s,
-            PipelineStatus::Errored {
-                key_related: false,
-                ..
-            }
-        ));
-    }
-
-    #[test]
-    fn drain_counts_injections_and_stop_does_not_reset_the_count() {
-        let (tx, rx) = mpsc::channel();
-        let mut controller = PipelineController::new(None);
-        controller.events = Some(rx);
-        tx.send(PipelineEvent::Injected(record())).unwrap();
-        tx.send(PipelineEvent::Recording).unwrap();
-        tx.send(PipelineEvent::Injected(record())).unwrap();
-        controller.drain_events();
-        assert_eq!(controller.injected_count(), 2);
-        // The Get Started card keys off "ever dictated this session";
-        // a settings-save restart must not forget that.
-        controller.stop();
-        assert_eq!(controller.injected_count(), 2);
-    }
-
-    #[test]
-    fn an_interception_report_persists_without_moving_the_status() {
-        let (tx, rx) = mpsc::channel();
-        let mut controller = PipelineController::new(None);
-        controller.events = Some(rx);
-        tx.send(PipelineEvent::Recording).unwrap();
-        tx.send(PipelineEvent::ShortcutIntercepted {
-            key: "F12".to_string(),
-        })
-        .unwrap();
-        controller.drain_events();
-        // It lands mid-hold, and the footer must still say Recording.
-        assert!(matches!(controller.status(), PipelineStatus::Recording));
-        assert_eq!(controller.shortcut_warning(), Some("F12"));
-        // The next dictation replaces the status, not the conflict.
-        tx.send(PipelineEvent::Injected(record())).unwrap();
-        controller.drain_events();
-        assert_eq!(controller.shortcut_warning(), Some("F12"));
-        // Saving a new shortcut restarts the pipeline, which clears it.
-        controller.stop();
-        assert_eq!(controller.shortcut_warning(), None);
-    }
-
-    #[test]
-    fn the_next_dictation_replaces_a_sticky_error() {
-        // Errored has no special-case handling: any newer event wins.
-        assert!(matches!(
-            next_status(PipelineEvent::Recording).expect("moves the status"),
-            PipelineStatus::Recording
-        ));
-    }
-
-    #[test]
-    fn pump_tees_injected_records_to_storage_and_forwards_every_event() {
-        let policy = RecordPolicy {
-            capture: false,
-            retention: hark_store::Retention {
-                max_entries: 7,
-                max_age_days: 3,
-            },
-        };
-        let (pipeline_tx, pipeline_rx) = mpsc::channel();
-        let (storage_tx, storage_rx) = mpsc::channel();
-        let ui_rx = spawn_repaint_pump(
-            pipeline_rx,
-            egui::Context::default(),
-            Some((storage_tx, policy)),
-            None,
-        );
-
-        pipeline_tx.send(PipelineEvent::Recording).unwrap();
-        pipeline_tx.send(PipelineEvent::Processing).unwrap();
-        pipeline_tx.send(PipelineEvent::Injected(record())).unwrap();
-        drop(pipeline_tx); // pump drains, then exits
-
-        let ui_events: Vec<_> = ui_rx.iter().collect();
-        assert_eq!(ui_events.len(), 3, "the UI lane sees every event");
-
-        let teed: Vec<_> = storage_rx.iter().collect();
-        assert_eq!(teed.len(), 1, "only Injected reaches storage");
-        match &teed[0] {
-            StorageCmd::Record {
-                record,
-                capture,
-                retention,
-            } => {
-                assert_eq!(record.final_text, "final");
-                assert!(!capture, "the pump forwards the run's policy");
-                assert_eq!(retention.max_entries, 7);
-                assert_eq!(retention.max_age_days, 3);
-            }
-            _ => panic!("expected a Record command"),
-        }
-    }
-
-    #[test]
-    fn pump_without_storage_still_forwards_events() {
-        let (pipeline_tx, pipeline_rx) = mpsc::channel();
-        let ui_rx = spawn_repaint_pump(pipeline_rx, egui::Context::default(), None, None);
-        pipeline_tx.send(PipelineEvent::Injected(record())).unwrap();
-        drop(pipeline_tx);
-        assert_eq!(ui_rx.iter().count(), 1);
-    }
-}
+mod tests;

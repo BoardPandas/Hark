@@ -42,6 +42,7 @@ const MIGRATIONS: &[&str] = &[
     include_str!("../migrations/005_insight_events.sql"),
     include_str!("../migrations/006_meeting_transcript_status.sql"),
     include_str!("../migrations/007_meeting_speakers.sql"),
+    include_str!("../migrations/008_entries_delivered.sql"),
 ];
 
 const BUSY_TIMEOUT: Duration = Duration::from_secs(5);
@@ -90,6 +91,11 @@ pub struct NewDictation {
     pub spellbook_replacements: Option<i64>,
     /// Opt-in application identity only; never a window or document title.
     pub foreground_app: Option<String>,
+    /// False when the words were transcribed but never reached the cursor (the
+    /// paste failed, or the user retried the clip from History). Such a row is
+    /// kept so the words are not lost, but it is not a completed dictation:
+    /// see [`Store::record`].
+    pub delivered: bool,
 }
 
 /// One stored history row. No `Debug` derive: carries transcript content.
@@ -107,6 +113,8 @@ pub struct Entry {
     pub stt_ms: i64,
     pub cleanup_ms: Option<i64>,
     pub total_ms: i64,
+    /// False for a dictation that was transcribed but never pasted.
+    pub delivered: bool,
 }
 
 /// Lifetime counters (numbers only, safe to log or Debug-format).
@@ -204,13 +212,20 @@ impl Store {
     /// Persist one dictation: entry row (only when `capture`) plus stats
     /// update, in one transaction. With capture off, no transcript content
     /// is written but the numeric counters still tick.
+    ///
+    /// An undelivered dictation (`d.delivered == false`) is a History row and
+    /// nothing else: it ticks no lifetime counter and records no insight
+    /// event. "Words dictated" and "time saved" are credit for text that
+    /// reached the user's app, and `total_ms` is a release-to-inject time
+    /// that never completed. The user may still copy the words out of History;
+    /// that is not something Hark can observe, so it is not counted either.
     pub fn record(&mut self, d: &NewDictation, capture: bool) -> Result<(), StoreError> {
         let tx = self.conn.transaction()?;
         if capture {
             tx.execute(
                 "INSERT INTO entries (ts_ms, raw_text, final_text, voice, stt_provider, \
-                 stt_model, cleanup_model, invocation, stt_ms, cleanup_ms, total_ms) \
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+                 stt_model, cleanup_model, invocation, stt_ms, cleanup_ms, total_ms, delivered) \
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
                 params![
                     d.ts_ms,
                     d.raw_text,
@@ -223,8 +238,13 @@ impl Store {
                     d.stt_ms,
                     d.cleanup_ms,
                     d.total_ms,
+                    d.delivered,
                 ],
             )?;
+        }
+        if !d.delivered {
+            tx.commit()?;
+            return Ok(());
         }
         tx.execute(
             "UPDATE stats SET dictations = dictations + 1, words = words + ?1, \
@@ -272,7 +292,8 @@ impl Store {
         offset: u32,
     ) -> Result<Vec<Entry>, StoreError> {
         const COLS: &str = "id, ts_ms, raw_text, final_text, voice, stt_provider, \
-                            stt_model, cleanup_model, invocation, stt_ms, cleanup_ms, total_ms";
+                            stt_model, cleanup_model, invocation, stt_ms, cleanup_ms, total_ms, \
+                            delivered";
         let map = |r: &rusqlite::Row<'_>| -> rusqlite::Result<Entry> {
             Ok(Entry {
                 id: r.get(0)?,
@@ -287,6 +308,7 @@ impl Store {
                 stt_ms: r.get(9)?,
                 cleanup_ms: r.get(10)?,
                 total_ms: r.get(11)?,
+                delivered: r.get(12)?,
             })
         };
         let rows = match search.map(str::trim).filter(|s| !s.is_empty()) {

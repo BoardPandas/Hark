@@ -42,6 +42,15 @@ pub enum StorageCmd {
         capture: bool,
         retention: Retention,
     },
+    /// Persist a dictation that never reached the cursor (the paste failed, or
+    /// it was recovered from a held clip) as a flagged History row, then prune.
+    /// Only ever sent when history capture is on, so it carries no `capture`
+    /// flag: with capture off nothing is stored. Never ticks a stats counter;
+    /// see `hark_store::Store::record`.
+    RecordUndelivered {
+        record: Box<DictationRecord>,
+        retention: Retention,
+    },
     /// Re-apply retention now. Sent on every pipeline start so a lowered cap
     /// takes effect at save/startup, not at the next dictation.
     Prune(Retention),
@@ -228,7 +237,13 @@ fn apply(store: &mut Store, meetings_dir: &Path, cmd: StorageCmd) -> Result<bool
             retention,
         } => {
             let now_ms = unix_now_ms();
-            store.record(&new_dictation(*record, now_ms), capture)?;
+            store.record(&new_dictation(*record, now_ms, true), capture)?;
+            store.prune(retention, now_ms)?;
+            Ok(true)
+        }
+        StorageCmd::RecordUndelivered { record, retention } => {
+            let now_ms = unix_now_ms();
+            store.record(&new_dictation(*record, now_ms, false), true)?;
             store.prune(retention, now_ms)?;
             Ok(true)
         }
@@ -255,7 +270,7 @@ fn apply(store: &mut Store, meetings_dir: &Path, cmd: StorageCmd) -> Result<bool
 
 /// Stamp the record with the wall clock at persist time (ms precision; the
 /// hot path does not carry a timestamp and the write runs right after it).
-fn new_dictation(r: DictationRecord, ts_ms: i64) -> NewDictation {
+fn new_dictation(r: DictationRecord, ts_ms: i64, delivered: bool) -> NewDictation {
     NewDictation {
         ts_ms,
         raw_text: r.raw_text,
@@ -273,6 +288,7 @@ fn new_dictation(r: DictationRecord, ts_ms: i64) -> NewDictation {
             .spellbook_replacements
             .map(|count| count.min(i64::MAX as u64) as i64),
         foreground_app: r.foreground_app,
+        delivered,
     }
 }
 
@@ -371,6 +387,43 @@ mod tests {
         assert_eq!(entries[0].final_text, "three final words");
         assert!(entries[0].ts_ms > 0, "persist time stamps the entry");
         assert_eq!(store.stats().expect("stats").total_ms, 800);
+    }
+
+    #[test]
+    fn an_undelivered_record_is_a_flagged_history_row_and_no_statistic() {
+        let mut store = Store::open_in_memory().expect("open");
+        let changed = apply(
+            &mut store,
+            no_meetings(),
+            StorageCmd::RecordUndelivered {
+                record: record(),
+                retention: KEEP_ALL,
+            },
+        )
+        .expect("apply");
+        assert!(changed, "History must repaint to show the row");
+
+        let entries = store.entries(None, 10, 0).expect("entries");
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].final_text, "three final words");
+        assert!(!entries[0].delivered);
+        assert_eq!(store.stats().expect("stats").dictations, 0);
+    }
+
+    #[test]
+    fn an_ordinary_record_is_marked_delivered() {
+        let mut store = Store::open_in_memory().expect("open");
+        apply(
+            &mut store,
+            no_meetings(),
+            StorageCmd::Record {
+                record: record(),
+                capture: true,
+                retention: KEEP_ALL,
+            },
+        )
+        .expect("apply");
+        assert!(store.entries(None, 1, 0).expect("entries")[0].delivered);
     }
 
     #[test]

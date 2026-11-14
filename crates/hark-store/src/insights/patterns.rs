@@ -19,14 +19,17 @@ pub(super) fn analyze(
     start_ms: i64,
     request: &InsightsRequest,
 ) -> Result<VoicePatterns, StoreError> {
+    // Undelivered rows are not dictations the user completed; the analysis
+    // matches the lifetime counters, which skip them too.
     let matching_dictations = conn.query_row(
-        "SELECT COUNT(*) FROM entries WHERE ts_ms >= ?1 AND ts_ms <= ?2",
+        "SELECT COUNT(*) FROM entries WHERE ts_ms >= ?1 AND ts_ms <= ?2 AND delivered = 1",
         params![start_ms, request.now_ms],
         |r| r.get::<_, i64>(0),
     )?;
     let mut query = conn.prepare(
         "SELECT CASE WHEN invocation IS NULL THEN final_text ELSE raw_text END \
-         FROM entries WHERE ts_ms >= ?1 AND ts_ms <= ?2 ORDER BY ts_ms DESC, id DESC LIMIT ?3",
+         FROM entries WHERE ts_ms >= ?1 AND ts_ms <= ?2 AND delivered = 1 \
+         ORDER BY ts_ms DESC, id DESC LIMIT ?3",
     )?;
     let mut rows = query.query(params![start_ms, request.now_ms, MAX_ENTRIES as i64])?;
     let mut words = HashMap::<String, i64>::new();

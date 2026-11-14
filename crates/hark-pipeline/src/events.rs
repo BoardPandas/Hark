@@ -87,15 +87,35 @@ pub enum PipelineEvent {
     Recording,
     /// The chord released; encode + STT request are in flight.
     Processing,
-    /// The on-device model is being read into RAM. Emitted only for the first
-    /// dictation that needs it (the engine then stays resident), but that load
-    /// is a multi-second pause, so the UI must be able to say why rather than
-    /// looking hung.
+    /// The on-device model is being read into RAM. Emitted only when a
+    /// dictation has to wait for it (mid-preload, or after a failed preload;
+    /// the engine then stays resident), because that wait is a multi-second
+    /// pause and the UI must be able to say why rather than looking hung.
     LoadingLocalModel,
     /// The dictation injected successfully; the record goes to history.
     Injected(Box<DictationRecord>),
     /// The dictation ended without injecting.
     Failed { stage: FailStage, detail: String },
+    /// The words were transcribed, spellbook-corrected and cleaned, but the
+    /// paste into the focused app failed. Replaces `Failed { Inject }` for this
+    /// case: the record is the user's text, delivered so it is not thrown away.
+    /// `detail` is an error summary, never transcript content.
+    NotPasted {
+        record: Box<DictationRecord>,
+        detail: String,
+    },
+    /// Whether the worker is holding the audio of a dictation whose
+    /// transcription failed, in memory only, so the user can ask for a retry.
+    /// Sent after the matching `Failed { Transcribe }` (`held: true`), when a
+    /// retry fails or is refused while the clip is still held, when the clip is
+    /// dropped because a later dictation succeeded, and when a retry request
+    /// finds nothing held (`held: false`). The UI keeps its banner in step with
+    /// this rather than guessing from other events.
+    ClipHeld { held: bool },
+    /// A retry of the held clip produced text. It was **not** pasted: the user
+    /// asked from Hark's own window, so the cursor is no longer where the
+    /// dictation was aimed. The clip is gone; the text is the UI's to keep.
+    Recovered(Box<DictationRecord>),
     /// Not about any one dictation: a push-to-talk key (its config name, e.g.
     /// "F12") is being intercepted by another program, typically a key
     /// remapper. Arrives mid-hold, at most once per key per pipeline run. The

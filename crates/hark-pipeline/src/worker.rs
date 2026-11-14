@@ -2,25 +2,43 @@
 //! encode, transcribe (one retry max), inject. Runs on its own thread; all
 //! logging is lengths/counts/millis, never key material, audio, or text.
 
-use crate::events::{DictationRecord, FailStage, PipelineEvent};
-use crate::local::{LocalPlan, Source, Transcriber};
-use crate::retry::should_retry;
+use crate::events::{FailStage, PipelineEvent};
+use crate::input::WorkerInput;
+use crate::local::{LocalPlan, Source};
 use crate::state::{advance, Action, Event, PipelineState};
 use crate::stream::LiveTurn;
 use hark_audio::ring::Consumer;
 use hark_audio::WindowParams;
 use hark_hotkey::PttEvent;
 use hark_inject::InjectSettings;
-use hark_spellbook::{Corrector, Expander, Expansion};
-use hark_stt::{LiveStt, SttError, SttProvider, Transcript};
-use hark_voice::{over_expanded, reads_as_reply, skips_cleanup, CleanupProvider, Voice};
+use hark_spellbook::{Corrector, Expander};
+use hark_stt::{LiveStt, SttProvider};
+use hark_voice::{CleanupProvider, Voice};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+mod engines;
+mod held;
+mod record;
+mod shape;
+
+#[cfg(test)]
+mod held_tests;
 #[cfg(test)]
 mod recovery_tests;
+#[cfg(test)]
+mod tests;
+
+use engines::transcribe_clip;
+use held::{retry_requested, HeldClip};
+use record::{build_record, RecordParts};
+use shape::shape_transcript;
+
+// Named only by a doc comment on `Worker`.
+#[cfg(doc)]
+use shape::strip_single_word_period;
 
 /// The resolved cleanup step: adapter, effective voice, and gate threshold.
 /// `None` on the worker means Verbatim (or degraded-to-Verbatim): no cleanup
@@ -97,11 +115,21 @@ pub(crate) struct Worker {
     /// `CaptureHandle::discontinuities`. Monotonic: the worker samples it at
     /// both ends of a hold and reports the difference.
     pub discontinuities: Arc<AtomicU64>,
+    /// The one clip whose transcription failed for good, kept so the user can
+    /// retry from History instead of re-speaking. Memory only: never written
+    /// to disk, never logged. At most one; see [`HeldClip`].
+    pub held: Option<HeldClip>,
 }
 
 /// The one long-lived worker loop. Exits when the hotkey listener drops its
 /// sender (pipeline shutdown).
-pub(crate) fn run(mut worker: Worker, rx: Receiver<crate::input::Edge>) {
+pub(crate) fn run(mut worker: Worker, rx: Receiver<WorkerInput>) {
+    // Read the on-device model in while the connection pre-warms below, so the
+    // first dictation (primary) or first rescue (backup) skips the cold load.
+    // A helper thread does the reading; nothing here waits for it.
+    if let Some(plan) = worker.local.as_mut() {
+        plan.start_preload(worker.control.clone());
+    }
     // Primary-mode never issues a cloud request, so warming a connection to a
     // provider we will not call would just be a pointless network round trip.
     if worker.provider.is_some() && !worker.control.is_cancelled() {
@@ -130,7 +158,7 @@ pub(crate) fn run(mut worker: Worker, rx: Receiver<crate::input::Edge>) {
         }
         // While recording, wake regularly to push whatever the ring has
         // gained; otherwise block, so an idle Hark costs nothing.
-        let edge = if matches!(state, PipelineState::Recording { .. }) && live.pump.is_some() {
+        let input = if matches!(state, PipelineState::Recording { .. }) && live.pump.is_some() {
             match rx.recv_timeout(PUMP_INTERVAL) {
                 Ok(event) => event,
                 Err(RecvTimeoutError::Timeout) => {
@@ -152,6 +180,17 @@ pub(crate) fn run(mut worker: Worker, rx: Receiver<crate::input::Edge>) {
         if worker.control.is_cancelled() {
             break;
         }
+        let edge = match input {
+            WorkerInput::Edge(edge) => edge,
+            WorkerInput::RetryHeld => {
+                retry_requested(&mut worker, state);
+                continue;
+            }
+            WorkerInput::DismissHeld => {
+                worker.held = None;
+                continue;
+            }
+        };
         // The input observer timestamps and admits cycles even while this
         // worker is blocked in a provider. Queue latency cannot crop speech.
         let at_abs = edge.at_abs;
@@ -319,7 +358,7 @@ fn report_discontinuities(worker: &Worker, at_down: u64) {
 /// `AssertUnwindSafe` is the honest claim here rather than a shrug: everything
 /// reachable is either immutable after construction (corrector, expander,
 /// provider) or an owned handle whose invariants do not span a dictation
-/// (the lazily-loaded on-device engine, the ring reader). The state machine is
+/// (the resident on-device engine, the ring reader). The state machine is
 /// driven back to Idle explicitly below rather than left wherever it stopped.
 fn dictate_guarded(
     worker: &mut Worker,
@@ -373,7 +412,7 @@ fn dictate(
     let released = Instant::now();
     // Cloned up front so reporting a failure does not hold a borrow of
     // `worker` across the transcription step, which needs `&mut` for the
-    // lazily-loaded on-device engine. `Sender` clones are cheap.
+    // on-device engine's slot. `Sender` clones are cheap.
     let events = worker.events.clone();
     let fail = |stage: FailStage, detail: String| {
         let _ = events.send(PipelineEvent::Failed { stage, detail });
@@ -461,40 +500,40 @@ fn dictate(
         encode_started.elapsed().as_millis()
     );
 
-    let mode = worker
-        .local
-        .as_ref()
-        .map_or(hark_config::LocalMode::Off, |p| p.mode);
-    let local_ready = worker.local.as_ref().is_some_and(|p| p.is_ready());
-    let mut engines = Engines {
-        // Disjoint field borrows: `provider` shared, `local` mutable.
-        provider: worker.provider.as_deref(),
-        wav: &wav,
-        local: worker.local.as_mut(),
-        samples: &clip.samples_16k,
-        events: &events,
-        // A stream that reached release and then failed was this dictation's
-        // first attempt, so the replay is its one retry. Retrying the replay
-        // too made three attempts, and against a stranded Gemini turn that
-        // was 26 s with every keypress queued behind it.
-        may_retry: !streamed_attempt,
-        control: &worker.control,
-    };
     let delivered_by_stream = streamed.is_some();
     let (source, transcript) = match streamed {
         Some(transcript) => (Source::Cloud, transcript),
         None => {
             // In this arm the stream produced nothing, so an attempted stream
-            // is a failed one.
-            let outcome =
-                match crate::local::transcribe(mode, local_ready, streamed_attempt, &mut engines) {
-                    Ok(o) => o,
-                    Err(e) => {
-                        log::error!("transcription failed: {e}");
-                        fail(FailStage::Transcribe, e.to_string());
-                        return advance(state, Event::Aborted).0;
+            // is a failed one, and it spent this dictation's first attempt:
+            // the replay is the one retry. Retrying the replay too made three
+            // attempts, and against a stranded Gemini turn that was 26 s with
+            // every keypress queued behind it.
+            let outcome = match transcribe_clip(
+                worker,
+                &clip.samples_16k,
+                &wav,
+                streamed_attempt,
+                !streamed_attempt,
+            ) {
+                Ok(o) => o,
+                Err(e) => {
+                    log::error!("transcription failed: {e}");
+                    fail(FailStage::Transcribe, e.to_string());
+                    // Keep the audio so the user can retry from History rather
+                    // than speak it all again. A retired pipeline has nobody
+                    // left to ask.
+                    if !worker.control.is_cancelled() {
+                        worker.held = Some(HeldClip {
+                            samples: clip.samples_16k,
+                            audio_ms,
+                            foreground_app: foreground.and_then(|rx| rx.try_recv().ok().flatten()),
+                        });
+                        let _ = events.send(PipelineEvent::ClipHeld { held: true });
                     }
-                };
+                    return advance(state, Event::Aborted).0;
+                }
+            };
             (outcome.source, outcome.transcript)
         }
     };
@@ -511,824 +550,62 @@ fn dictate(
         );
         return advance(state, Event::Aborted).0;
     }
+    // This dictation produced words, so a clip kept from an earlier failure is
+    // stale: the user has moved on.
+    if worker.held.take().is_some() {
+        let _ = events.send(PipelineEvent::ClipHeld { held: false });
+    }
 
-    let (text, pass_one_replacements) = corrected_text(&worker.corrector, &transcript.text);
-    let expanded = expanded_text(&worker.expander, text);
-    // Canned text is authored, not spoken: it never reaches a cleanup model
-    // that would rewrite it, and never pays for the call. `None` here makes
-    // `cleaned_text` hit its passthrough on the first line, which is the
-    // whole protection -- see `expanded_text` for why it must be control
-    // flow and not a prompt clause.
-    // A fused provider (Gemini Live in SMART mode) already returned cleaned
-    // text. Running a voice on top would rewrite an already-rewritten utterance
-    // and bill a second model to do it, so the plan is dropped rather than the
-    // call being made and discarded.
-    let provider_cleaned = transcript.cleaned.is_some();
-    let plan = worker
-        .cleanup
-        .as_ref()
-        .filter(|_| should_run_cleanup(expanded.fired.is_some(), provider_cleaned));
-    if worker.control.is_cancelled() {
+    let Some(shaped) = shape_transcript(worker, &transcript) else {
         return PipelineState::Idle;
-    }
-    let mut cleaned = cleaned_text(plan, &worker.corrector, expanded.text);
-    // A single spoken word is almost never a sentence, so the trailing period
-    // the provider or a cleanup voice adds is noise. Gated on the setting, and
-    // never applied to a fired invocation: its canned text is authored
-    // verbatim (a one-token expansion like "Ph.D." must keep its dot).
-    if worker.strip_single_word_period && expanded.fired.is_none() {
-        cleaned.text = strip_single_word_period(&cleaned.text);
-    }
+    };
+    let cleaned = shaped.cleaned;
     let Some(result) = worker
         .control
         .inject(|| inject(&cleaned.text, &worker.inject))
     else {
         return PipelineState::Idle;
     };
+    let total_ms = released.elapsed().as_millis() as u64;
+    let chars = cleaned.text.chars().count();
+    let request_ms = transcript.request_ms;
+    let record = build_record(
+        worker,
+        RecordParts {
+            transcript,
+            cleaned,
+            fired: shaped.fired,
+            pass_one_replacements: shaped.pass_one_replacements,
+            provider_cleaned: shaped.provider_cleaned,
+            source,
+            delivered_by_stream,
+            audio_ms,
+            total_ms,
+            // Advisory metadata must never hold up successful delivery.
+            foreground_app: foreground.and_then(|rx| rx.try_recv().ok().flatten()),
+        },
+    );
     match result {
         Ok(()) => {
-            let total_ms = released.elapsed().as_millis() as u64;
             log::info!(
-                "dictation injected: {} chars, {} {} ms, release-to-inject {total_ms} ms",
-                cleaned.text.chars().count(),
+                "dictation injected: {chars} chars, {} {request_ms} ms, release-to-inject {total_ms} ms",
                 match source {
                     Source::Cloud => "request",
                     _ => "on-device decode",
                 },
-                transcript.request_ms,
             );
-            // Name the engine and model that actually produced this line. A
-            // fallback dictation credited to the cloud provider, or a batch
-            // rescue credited to the realtime model, would make history lie
-            // about why a transcript reads the way it does.
-            let stt_model = match source {
-                Source::Cloud if delivered_by_stream => worker.stream_model.clone(),
-                Source::Cloud => worker.batch_model.clone(),
-                _ => worker
-                    .local
-                    .as_ref()
-                    .map_or_else(String::new, |p| p.spec.id.to_string()),
-            };
-            // The labels state what actually shaped the text: a skipped,
-            // gated, or failed cleanup call means the entry is verbatim, so
-            // a disappointing result never blames the wrong model.
-            let cleanup_ran = cleaned.request_ms.is_some();
-            let (voice, cleanup_model) = match worker.cleanup.as_ref().filter(|_| cleanup_ran) {
-                Some(plan) => (plan.voice.name().to_string(), Some(plan.model.clone())),
-                // A fused provider did the cleanup inside the transcription
-                // call, so the STT model is the cleanup model. Labelling this
-                // "verbatim" would tell the user nothing rewrote their text
-                // when something plainly did.
-                None if provider_cleaned => ("smart".to_string(), Some(stt_model.clone())),
-                None => (Voice::Verbatim.name().to_string(), None),
-            };
-            let _ = events.send(PipelineEvent::Injected(Box::new(DictationRecord {
-                raw_text: transcript.text,
-                final_text: cleaned.text,
-                voice,
-                stt_provider: source.label(&worker.cloud_label),
-                stt_model,
-                cleanup_model,
-                invocation: expanded.fired,
-                audio_ms,
-                stt_ms: transcript.request_ms as u64,
-                cleanup_ms: cleaned.request_ms,
-                total_ms,
-                spellbook_replacements: Some(
-                    pass_one_replacements.saturating_add(cleaned.spellbook_replacements),
-                ),
-                // Advisory metadata must never hold up successful delivery.
-                foreground_app: foreground.and_then(|rx| rx.try_recv().ok().flatten()),
-            })));
+            let _ = events.send(PipelineEvent::Injected(Box::new(record)));
             advance(state, Event::Injected).0
         }
         Err(e) => {
-            log::error!("injection failed: {e}");
-            fail(FailStage::Inject, e.to_string());
+            // The words exist; the paste did not land. Hand them to the UI so
+            // they are not thrown away with the error.
+            log::error!("injection failed ({chars} chars kept for the UI): {e}");
+            let _ = events.send(PipelineEvent::NotPasted {
+                record: Box::new(record),
+                detail: e.to_string(),
+            });
             advance(state, Event::Aborted).0
         }
-    }
-}
-
-/// Outcome of the cleanup pass. `request_ms` is present only when a cleanup
-/// response actually shaped `text`; every degraded path (no plan, gate,
-/// provider error) leaves it `None` so the dictation record stays honest.
-pub(crate) struct CleanupOutcome {
-    pub text: String,
-    pub request_ms: Option<u64>,
-    pub spellbook_replacements: u64,
-}
-
-/// Whether Hark should spend a cleanup call on this dictation.
-///
-/// Two independent reasons not to, both control flow rather than prompt
-/// wording: a fired invocation is authored text that must reach the cursor
-/// verbatim, and a fused provider has already done the rewrite in the
-/// transcription call.
-pub(crate) fn should_run_cleanup(fired_invocation: bool, provider_cleaned: bool) -> bool {
-    !fired_invocation && !provider_cleaned
-}
-
-/// The optional voice-cleanup pass between spellbook pass 1 and injection.
-/// Fail-open at every layer: no plan (Verbatim or degraded), a gated short
-/// utterance, or any cleanup error all inject the pass-1 text unchanged; a
-/// dictation is never lost to the optional feature. Spellbook pass 2 runs
-/// only when cleanup actually rewrote the text, repairing any term the model
-/// re-mangled. Logs counts, millis, and config labels only.
-fn cleaned_text(plan: Option<&CleanupPlan>, corrector: &Corrector, text: String) -> CleanupOutcome {
-    let passthrough = |text: String| CleanupOutcome {
-        text,
-        request_ms: None,
-        spellbook_replacements: 0,
-    };
-    let Some(plan) = plan else {
-        return passthrough(text);
-    };
-    if skips_cleanup(&text, plan.skip_below_words) {
-        log::info!(
-            "cleanup skipped (short utterance: {} words)",
-            text.split_whitespace().count()
-        );
-        return passthrough(text);
-    }
-    match plan.cleaner.clean(&text) {
-        // Custom is the user's own prompt, so an expansion there was asked
-        // for; every built-in voice is an edit and must not grow the text.
-        Ok(cleaned)
-            if plan.voice != Voice::Custom
-                && over_expanded(&text, &cleaned.text, plan.max_expansion_ratio) =>
-        {
-            log::warn!(
-                "cleanup rejected: voice={} model={} expanded {} -> {} words (limit {}x); \
-                 injecting uncleaned transcript",
-                plan.voice.name(),
-                plan.model,
-                text.split_whitespace().count(),
-                cleaned.text.split_whitespace().count(),
-                plan.max_expansion_ratio
-            );
-            passthrough(text)
-        }
-        // Dictation that sounds like a request ("proceed however you
-        // recommend") can be answered instead of edited. Custom is exempt for
-        // the same reason as above: a translate prompt keeps no words at all.
-        Ok(cleaned) if plan.voice != Voice::Custom && reads_as_reply(&text, &cleaned.text) => {
-            log::warn!(
-                "cleanup rejected: voice={} model={} replied to the transcript instead of \
-                 editing it; injecting uncleaned transcript",
-                plan.voice.name(),
-                plan.model
-            );
-            passthrough(text)
-        }
-        Ok(cleaned) => {
-            log::info!(
-                "cleanup: voice={} model={} {}->{} chars, request {} ms",
-                plan.voice.name(),
-                plan.model,
-                text.chars().count(),
-                cleaned.text.chars().count(),
-                cleaned.request_ms
-            );
-            let (text, spellbook_replacements) = corrected_text(corrector, &cleaned.text);
-            CleanupOutcome {
-                text,
-                request_ms: Some(cleaned.request_ms as u64),
-                spellbook_replacements,
-            }
-        }
-        Err(e) => {
-            log::warn!("cleanup failed ({e}); injecting uncleaned transcript");
-            passthrough(text)
-        }
-    }
-}
-
-/// The invocation pass, between spellbook pass 1 and cleanup. Pure (the
-/// testable seam); logs whether one fired and the millis, never the trigger
-/// phrase or the expansion (both are user content).
-///
-/// Running after pass 1 is deliberate: pass 1 canonicalizes the *spoken*
-/// words, which can only help a trigger match (matching lowercases both
-/// sides, so casing changes are harmless). The expansion is inserted
-/// afterwards and is therefore never touched by the spellbook.
-///
-/// A caller that sees `fired.is_some()` **must** skip cleanup. That is not a
-/// preference, it is the four failure modes this avoids:
-///
-/// 1. `hark_voice::over_expanded` allows `max(words * ratio, words + 3)`, so
-///    a 3-word utterance expanding to 60 words gets an allowance of 6 and
-///    the expansion would be *silently discarded* in favour of the literal
-///    words the user said.
-/// 2. A short, free, instant dictation would turn into a billed LLM round
-///    trip on the release-to-inject path.
-/// 3. No HTTP call at all: no latency, no cost, no failure mode.
-/// 4. Spellbook pass 2 never runs over the expansion, so phonetic
-///    post-correction cannot mangle URLs or product names the user typed
-///    into their own canned text.
-///
-/// It has to be control flow rather than persuasion: every built-in voice
-/// already carries `LENGTH_DISCIPLINE_CLAUSE` telling the model not to
-/// expand a short remark into a paragraph, so a prompt clause would be
-/// fighting the rest of the prompt.
-fn expanded_text(expander: &Expander, text: String) -> Expansion {
-    let started = Instant::now();
-    let expansion = expander.expand(&text);
-    if expansion.fired.is_some() {
-        log::info!(
-            "invocation fired: {} -> {} chars in {} ms; cleanup skipped",
-            text.split_whitespace().count(),
-            expansion.text.chars().count(),
-            started.elapsed().as_millis()
-        );
-    }
-    expansion
-}
-
-/// The spellbook pass between transcript and injection. Pure (the testable
-/// seam); logs counts and millis only, never transcript text or terms.
-fn corrected_text(corrector: &Corrector, transcript_text: &str) -> (String, u64) {
-    let started = Instant::now();
-    let (text, replacements) = corrector.correct(transcript_text);
-    log::info!(
-        "spellbook: {replacements} replacements in {} ms",
-        started.elapsed().as_millis()
-    );
-    (text, replacements as u64)
-}
-
-/// Drop a trailing period from a single-word utterance ("Hello." -> "Hello").
-/// Pure (the testable seam). Only a single `.` is removed, and only when a
-/// word is left after it: multi-word text, other sentence punctuation (`?` and
-/// `!` can be exactly what a lone word meant), and a bare "." are all returned
-/// unchanged. Surrounding whitespace is trimmed only on the strip path, where
-/// a lone word never carries meaningful spacing.
-fn strip_single_word_period(text: &str) -> String {
-    let trimmed = text.trim();
-    if trimmed.split_whitespace().count() == 1 {
-        if let Some(stripped) = trimmed.strip_suffix('.') {
-            if !stripped.is_empty() {
-                return stripped.to_string();
-            }
-        }
-    }
-    text.to_string()
-}
-
-/// Binds one dictation's audio to whichever engines this worker has, so the
-/// cloud/local policy in [`crate::local`] can stay pure and testable.
-struct Engines<'a> {
-    provider: Option<&'a dyn SttProvider>,
-    /// Empty in primary mode, where no WAV is ever encoded.
-    wav: &'a [u8],
-    local: Option<&'a mut LocalPlan>,
-    samples: &'a [f32],
-    events: &'a Sender<PipelineEvent>,
-    /// False when a live stream already spent this dictation's first attempt.
-    may_retry: bool,
-    control: &'a crate::lifecycle::RunControl,
-}
-
-impl Transcriber for Engines<'_> {
-    fn cloud(&mut self) -> Option<Result<Transcript, SttError>> {
-        let provider = self.provider?;
-        Some(transcribe_with_retry(
-            provider,
-            self.wav,
-            self.may_retry,
-            self.control,
-        ))
-    }
-
-    fn local(&mut self) -> Result<Transcript, hark_local_stt::LocalSttError> {
-        if self.control.is_cancelled() {
-            return Err(hark_local_stt::LocalSttError::EngineUnavailable);
-        }
-        let plan = self
-            .local
-            .as_mut()
-            .ok_or(hark_local_stt::LocalSttError::EngineUnavailable)?;
-        // First use reads ~670 MB of weights into RAM, which takes seconds.
-        // Say so before blocking, or the app just looks hung.
-        if !plan.is_loaded() {
-            let _ = self.events.send(PipelineEvent::LoadingLocalModel);
-        }
-        let engine = plan.engine()?;
-        if self.control.is_cancelled() {
-            return Err(hark_local_stt::LocalSttError::EngineUnavailable);
-        }
-        let decoded = engine.transcribe(self.samples)?;
-        Ok(Transcript {
-            text: decoded.text,
-            // The local engine transcribes only; cleanup stays a separate step.
-            cleaned: None,
-            request_ms: decoded.request_ms,
-        })
-    }
-}
-
-/// At most one retry, and only when `should_retry` says the failure class
-/// warrants it (timeout / connect-class). `may_retry` is false when this call
-/// is itself the retry of a live stream that failed.
-fn transcribe_with_retry(
-    provider: &dyn SttProvider,
-    wav: &[u8],
-    may_retry: bool,
-    control: &crate::lifecycle::RunControl,
-) -> Result<Transcript, SttError> {
-    if control.is_cancelled() {
-        return Err(SttError::Provider {
-            provider: "pipeline".into(),
-            detail: "dictation cancelled".into(),
-        });
-    }
-    match provider.transcribe(wav) {
-        Ok(t) => Ok(t),
-        Err(e) if may_retry && should_retry(&e) && !control.is_cancelled() => {
-            log::warn!("transcription failed ({e}); retrying once");
-            provider.transcribe(wav)
-        }
-        Err(e) => Err(e),
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use std::cell::Cell;
-
-    /// Scripted provider: pops one result per call, counts calls.
-    struct MockProvider {
-        calls: Cell<u32>,
-        script: std::cell::RefCell<Vec<Result<Transcript, SttError>>>,
-    }
-
-    impl MockProvider {
-        fn new(script: Vec<Result<Transcript, SttError>>) -> Self {
-            MockProvider {
-                calls: Cell::new(0),
-                script: std::cell::RefCell::new(script),
-            }
-        }
-        fn ok(text: &str) -> Result<Transcript, SttError> {
-            Ok(Transcript {
-                text: text.to_string(),
-                cleaned: None,
-                request_ms: 1,
-            })
-        }
-        fn timeout() -> Result<Transcript, SttError> {
-            Err(SttError::Timeout {
-                provider: "mock".to_string(),
-                configured_ms: 15_000,
-            })
-        }
-        fn auth() -> Result<Transcript, SttError> {
-            Err(SttError::Auth {
-                provider: "mock".to_string(),
-                status: 401,
-                detail: String::new(),
-            })
-        }
-    }
-
-    impl SttProvider for MockProvider {
-        fn transcribe(&self, _wav: &[u8]) -> Result<Transcript, SttError> {
-            self.calls.set(self.calls.get() + 1);
-            self.script.borrow_mut().remove(0)
-        }
-        fn label(&self) -> &str {
-            "mock"
-        }
-    }
-
-    #[test]
-    fn success_needs_one_call() {
-        let p = MockProvider::new(vec![MockProvider::ok("hello")]);
-        let t = transcribe_with_retry(&p, b"wav", true, &Default::default()).unwrap();
-        assert_eq!(t.text, "hello");
-        assert_eq!(p.calls.get(), 1);
-    }
-
-    #[test]
-    fn timeout_retries_exactly_once_then_succeeds() {
-        let p = MockProvider::new(vec![
-            MockProvider::timeout(),
-            MockProvider::ok("second try"),
-        ]);
-        let t = transcribe_with_retry(&p, b"wav", true, &Default::default()).unwrap();
-        assert_eq!(t.text, "second try");
-        assert_eq!(p.calls.get(), 2);
-    }
-
-    // Transcript (frozen hark-stt) has no Debug impl, so unwrap_err is
-    // unavailable; unwrap the error by hand.
-    fn expect_err(result: Result<Transcript, SttError>) -> SttError {
-        match result {
-            Err(e) => e,
-            Ok(t) => panic!(
-                "expected an error, got a transcript of {} chars",
-                t.text.len()
-            ),
-        }
-    }
-
-    #[test]
-    fn double_timeout_fails_after_two_calls_total() {
-        let p = MockProvider::new(vec![MockProvider::timeout(), MockProvider::timeout()]);
-        let err = expect_err(transcribe_with_retry(&p, b"wav", true, &Default::default()));
-        assert!(matches!(err, SttError::Timeout { .. }));
-        assert_eq!(p.calls.get(), 2, "never a second retry");
-    }
-
-    #[test]
-    fn a_replay_after_a_failed_stream_is_the_retry() {
-        // The stream already made the first attempt. Retrying its replay as
-        // well was three attempts; against a stranded Gemini turn, 26 s.
-        let p = MockProvider::new(vec![MockProvider::timeout()]);
-        let err = expect_err(transcribe_with_retry(
-            &p,
-            b"wav",
-            false,
-            &Default::default(),
-        ));
-        assert!(matches!(err, SttError::Timeout { .. }));
-        assert_eq!(p.calls.get(), 1);
-    }
-
-    #[test]
-    fn auth_fails_without_any_retry() {
-        let p = MockProvider::new(vec![MockProvider::auth()]);
-        let err = expect_err(transcribe_with_retry(&p, b"wav", true, &Default::default()));
-        assert!(matches!(err, SttError::Auth { .. }));
-        assert_eq!(p.calls.get(), 1, "4xx must never retry");
-    }
-
-    // The worker path from a provider transcript to the text handed to
-    // hark_inject::inject: transcribe (with retry) then the spellbook
-    // pass. Injection itself is I/O, validated on real hardware at CP6.
-
-    #[test]
-    fn misspelled_transcript_is_corrected_before_injection() {
-        let p = MockProvider::new(vec![MockProvider::ok(
-            "tell vosburg the madero build is green",
-        )]);
-        let corrector = Corrector::from_terms(&["Vossburg".to_string(), "Modero".to_string()]);
-
-        let transcript = transcribe_with_retry(&p, b"wav", true, &Default::default()).unwrap();
-        let (text, replacements) = corrected_text(&corrector, &transcript.text);
-        assert_eq!(text, "tell Vossburg the Modero build is green");
-        assert_eq!(replacements, 2);
-    }
-
-    #[test]
-    fn empty_spellbook_leaves_the_transcript_untouched() {
-        let corrector = Corrector::new(&[]);
-        assert_eq!(
-            corrected_text(&corrector, "as it was"),
-            ("as it was".into(), 0)
-        );
-    }
-
-    // --- single-word period stripping (pure seam) ---
-
-    #[test]
-    fn a_single_word_loses_its_trailing_period() {
-        assert_eq!(strip_single_word_period("Hello."), "Hello");
-        assert_eq!(strip_single_word_period("yes"), "yes");
-        assert_eq!(strip_single_word_period("42."), "42");
-        // Trimmed only on the strip path; a lone word carries no real spacing.
-        assert_eq!(strip_single_word_period("  Okay.  "), "Okay");
-    }
-
-    #[test]
-    fn multi_word_and_other_endings_are_left_alone() {
-        // More than one word is a sentence; its period stays.
-        assert_eq!(strip_single_word_period("we shipped it."), "we shipped it.");
-        // Only '.' is touched: a lone word may actually have meant the query.
-        assert_eq!(strip_single_word_period("What?"), "What?");
-        assert_eq!(strip_single_word_period("Stop!"), "Stop!");
-        // No trailing period, nothing to do (and a mid-word dot is not one).
-        assert_eq!(strip_single_word_period("3.14"), "3.14");
-        // A word must remain: a bare period is returned as-is, never emptied.
-        assert_eq!(strip_single_word_period("."), ".");
-    }
-
-    // --- the cleanup pass (scripted MockCleaner, pattern: MockProvider) ---
-
-    use hark_voice::{Cleaned, CleanupError, CleanupProvider};
-
-    /// Scripted cleaner: pops one result per call, counts calls.
-    struct MockCleaner {
-        calls: Cell<u32>,
-        script: std::cell::RefCell<Vec<Result<Cleaned, CleanupError>>>,
-    }
-
-    impl MockCleaner {
-        fn ok(text: &str) -> Result<Cleaned, CleanupError> {
-            Ok(Cleaned {
-                text: text.to_string(),
-                request_ms: 1,
-            })
-        }
-        fn provider_err() -> Result<Cleaned, CleanupError> {
-            Err(CleanupError::Provider {
-                provider: "mock".to_string(),
-                detail: "scripted failure".to_string(),
-            })
-        }
-        fn plan(script: Vec<Result<Cleaned, CleanupError>>, skip_below_words: u32) -> CleanupPlan {
-            CleanupPlan {
-                cleaner: Box::new(MockCleaner {
-                    calls: Cell::new(0),
-                    script: std::cell::RefCell::new(script),
-                }),
-                voice: hark_voice::Voice::Clean,
-                model: "mock-model".to_string(),
-                skip_below_words,
-                max_expansion_ratio: 1.4,
-                prewarm_url: None,
-            }
-        }
-    }
-
-    impl CleanupProvider for MockCleaner {
-        fn clean(&self, _text: &str) -> Result<Cleaned, CleanupError> {
-            self.calls.set(self.calls.get() + 1);
-            self.script.borrow_mut().remove(0)
-        }
-        fn label(&self) -> &str {
-            "mock"
-        }
-    }
-
-    #[test]
-    fn an_ordinary_dictation_runs_cleanup() {
-        assert!(should_run_cleanup(false, false));
-    }
-
-    #[test]
-    fn a_fired_invocation_never_reaches_a_cleanup_model() {
-        assert!(!should_run_cleanup(true, false));
-    }
-
-    #[test]
-    fn a_fused_provider_result_is_not_cleaned_twice() {
-        // Gemini Live in SMART mode already rewrote the utterance; a second
-        // voice pass would rewrite the rewrite and bill a second model.
-        assert!(!should_run_cleanup(false, true));
-        assert!(!should_run_cleanup(true, true));
-    }
-
-    #[test]
-    fn cleaned_text_is_injected_after_spellbook_pass_2() {
-        let corrector = Corrector::new(&[]);
-        let plan = MockCleaner::plan(vec![MockCleaner::ok("Cleaned and polished.")], 0);
-        let out = cleaned_text(
-            Some(&plan),
-            &corrector,
-            "so um cleaned and uh polished".to_string(),
-        );
-        assert_eq!(out.text, "Cleaned and polished.");
-        // A successful cleanup reports its wall time for the record.
-        assert!(out.request_ms.is_some());
-        assert_eq!(out.spellbook_replacements, 0);
-    }
-
-    #[test]
-    fn insights_count_actual_corrections_in_both_passes() {
-        let corrector = Corrector::from_terms(&["Vossburg".into(), "Modero".into()]);
-        let (text, first) = corrected_text(&corrector, "tell vosburg the madero build is green");
-        let plan = MockCleaner::plan(
-            vec![MockCleaner::ok("Tell Vossburg the madero build is green.")],
-            0,
-        );
-        let cleaned = cleaned_text(Some(&plan), &corrector, text);
-        assert_eq!(first, 2);
-        assert_eq!(cleaned.spellbook_replacements, 1);
-        assert_eq!(cleaned.text, "Tell Vossburg the Modero build is green.");
-        assert_eq!(first + cleaned.spellbook_replacements, 3);
-    }
-
-    #[test]
-    fn an_over_expanded_cleanup_is_discarded_for_the_pass_1_text() {
-        let corrector = Corrector::new(&[]);
-        // Five words in, a paragraph out: the reported Professional/Clean
-        // failure. The call still happened, so the cost was paid, but the
-        // user gets what they said rather than what the model wrote.
-        let plan = MockCleaner::plan(
-            vec![MockCleaner::ok(
-                "I wanted to follow up regarding our release timeline. After giving it some \
-                 thought, I believe we should aim to ship this coming Friday. Please let me \
-                 know if that works for you.",
-            )],
-            0,
-        );
-        let out = cleaned_text(
-            Some(&plan),
-            &corrector,
-            "we should ship it friday".to_string(),
-        );
-        assert_eq!(out.text, "we should ship it friday");
-        // Rejected cleanup must not claim a model shaped the record.
-        assert_eq!(out.request_ms, None);
-    }
-
-    #[test]
-    fn a_cleanup_that_answers_the_dictation_is_discarded_for_the_pass_1_text() {
-        let corrector = Corrector::new(&[]);
-        // The reported failure, word for word: same length, so the expansion
-        // guard passed it, and it was injected into the user's chat box.
-        let plan = MockCleaner::plan(
-            vec![MockCleaner::ok(
-                "Please provide the transcript you would like me to rewrite.",
-            )],
-            0,
-        );
-        let said = "Proceed however you recommend to make this as best as possible.";
-        let out = cleaned_text(Some(&plan), &corrector, said.to_string());
-        assert_eq!(out.text, said);
-        assert_eq!(out.request_ms, None);
-    }
-
-    #[test]
-    fn a_same_length_cleanup_is_kept() {
-        let corrector = Corrector::new(&[]);
-        let plan = MockCleaner::plan(vec![MockCleaner::ok("We should ship it Friday.")], 0);
-        let out = cleaned_text(
-            Some(&plan),
-            &corrector,
-            "so um we should ship it friday".to_string(),
-        );
-        assert_eq!(out.text, "We should ship it Friday.");
-        assert!(out.request_ms.is_some());
-    }
-
-    #[test]
-    fn custom_voice_may_expand_freely() {
-        let corrector = Corrector::new(&[]);
-        let long = "Dear team, I wanted to write and let you know that we should aim to ship \
-                    this coming Friday. Please let me know if that works. Best regards.";
-        let mut plan = MockCleaner::plan(vec![MockCleaner::ok(long)], 0);
-        plan.voice = hark_voice::Voice::Custom;
-        let out = cleaned_text(
-            Some(&plan),
-            &corrector,
-            "we should ship it friday".to_string(),
-        );
-        // The user's own prompt asked for this; the guard must not fight it.
-        assert_eq!(out.text, long);
-        assert!(out.request_ms.is_some());
-    }
-
-    #[test]
-    fn ratio_of_zero_disables_the_expansion_guard() {
-        let corrector = Corrector::new(&[]);
-        // Long, but still the speaker's words, so only the ratio is on trial.
-        let long = vec!["we should ship it friday"; 40].join(" ");
-        let mut plan = MockCleaner::plan(vec![MockCleaner::ok(&long)], 0);
-        plan.max_expansion_ratio = 0.0;
-        let out = cleaned_text(
-            Some(&plan),
-            &corrector,
-            "we should ship it friday".to_string(),
-        );
-        assert_eq!(out.text, long);
-    }
-
-    #[test]
-    fn cleanup_error_injects_the_pass_1_text() {
-        let corrector = Corrector::new(&[]);
-        let plan = MockCleaner::plan(vec![MockCleaner::provider_err()], 0);
-        let out = cleaned_text(
-            Some(&plan),
-            &corrector,
-            "the original transcript stands".to_string(),
-        );
-        assert_eq!(out.text, "the original transcript stands");
-        // Degraded: the record must not claim a cleanup model shaped this.
-        assert_eq!(out.request_ms, None);
-        assert_eq!(out.spellbook_replacements, 0);
-    }
-
-    #[test]
-    fn no_plan_means_verbatim_and_no_calls() {
-        let corrector = Corrector::new(&[]);
-        let out = cleaned_text(None, &corrector, "exactly as spoken".to_string());
-        assert_eq!(out.text, "exactly as spoken");
-        assert_eq!(out.request_ms, None);
-    }
-
-    #[test]
-    fn short_utterance_never_calls_the_cleaner() {
-        let corrector = Corrector::new(&[]);
-        // An empty script would panic on any call; not panicking IS the
-        // assertion that the gate short-circuited before the cleaner.
-        let plan = MockCleaner::plan(vec![], 5);
-        let out = cleaned_text(Some(&plan), &corrector, "um send it".to_string());
-        assert_eq!(out.text, "um send it");
-        assert_eq!(out.request_ms, None);
-    }
-
-    #[test]
-    fn gate_threshold_zero_always_calls() {
-        let corrector = Corrector::new(&[]);
-        let plan = MockCleaner::plan(vec![MockCleaner::ok("Hi.")], 0);
-        // One word, but the gate is disabled: the (scripted) cleaner runs.
-        assert_eq!(
-            cleaned_text(Some(&plan), &corrector, "hi".to_string()).text,
-            "Hi."
-        );
-    }
-
-    // --- invocations: the expansion must never reach the cleanup model ---
-
-    fn expander(phrase: &str, expansion: &str, scope: hark_spellbook::Scope) -> Expander {
-        Expander::new(&[(phrase.to_string(), expansion.to_string(), scope)])
-    }
-
-    const CANNED: &str = "You have access to the Support Forge tools: ticketing, remote \
-                          assist, and the asset inventory. Raise a ticket for anything \
-                          that needs an escalation, and the on-call engineer will pick \
-                          it up within the hour.";
-
-    /// The load-bearing test for the whole feature.
-    ///
-    /// The cleaner's script is **empty**, so any call to it panics: not
-    /// panicking IS the assertion. It proves the `Option::filter` in
-    /// `dictate` short-circuits before the cleanup call, which is what
-    /// keeps `over_expanded` from silently discarding the expansion (a
-    /// 2-word utterance gets an allowance of 5 words, so a 40-word
-    /// expansion would lose every time).
-    ///
-    /// The corrector is hostile on purpose: it would rewrite "Forge" inside
-    /// the canned text if spellbook pass 2 ever ran over it. It must not.
-    #[test]
-    fn a_fired_invocation_never_calls_the_cleaner() {
-        let corrector = Corrector::from_terms(&["Forj".to_string()]);
-        let expander = expander("access granted", CANNED, hark_spellbook::Scope::Utterance);
-        // Shaped like `Worker::cleanup` so the branch below is the real one.
-        let cleanup = Some(MockCleaner::plan(vec![], 0));
-
-        let expanded = expanded_text(&expander, "access granted".to_string());
-        assert_eq!(expanded.fired.as_deref(), Some("access granted"));
-
-        // Exactly the branch `dictate` runs.
-        let plan = cleanup.as_ref().filter(|_| expanded.fired.is_none());
-        assert!(plan.is_none(), "a fired invocation must null the plan");
-        let out = cleaned_text(plan, &corrector, expanded.text);
-
-        assert_eq!(
-            out.text, CANNED,
-            "canned text is injected byte for byte: no cleanup, no pass 2"
-        );
-        assert_eq!(
-            out.request_ms, None,
-            "no cleanup ran, so the record must not claim one did"
-        );
-    }
-
-    #[test]
-    fn no_invocation_leaves_the_cleanup_path_identical() {
-        let corrector = Corrector::new(&[]);
-        let expander = expander("access granted", CANNED, hark_spellbook::Scope::Utterance);
-        let cleanup = Some(MockCleaner::plan(
-            vec![MockCleaner::ok("Cleaned and polished.")],
-            0,
-        ));
-
-        let expanded = expanded_text(&expander, "so um cleaned and uh polished".to_string());
-        assert_eq!(expanded.fired, None);
-        assert_eq!(expanded.text, "so um cleaned and uh polished");
-
-        let plan = cleanup.as_ref().filter(|_| expanded.fired.is_none());
-        assert!(plan.is_some(), "an ordinary dictation still gets cleanup");
-        let out = cleaned_text(plan, &corrector, expanded.text);
-        assert_eq!(out.text, "Cleaned and polished.");
-        assert!(out.request_ms.is_some());
-    }
-
-    #[test]
-    fn an_empty_invocation_set_is_a_pure_passthrough() {
-        let expander = Expander::new(&[]);
-        let out = expanded_text(&expander, "nothing configured".to_string());
-        assert_eq!(out.text, "nothing configured");
-        assert_eq!(out.fired, None);
-    }
-
-    #[test]
-    fn terms_mangled_by_the_model_are_repaired_by_pass_2() {
-        let corrector = Corrector::from_terms(&["Vossburg".to_string(), "Modero".to_string()]);
-        // The mock "model" re-mangles both spellbook terms.
-        let plan = MockCleaner::plan(
-            vec![MockCleaner::ok("Tell vosburg the madero build is green.")],
-            0,
-        );
-        let out = cleaned_text(
-            Some(&plan),
-            &corrector,
-            "tell Vossburg the Modero build is green".to_string(),
-        );
-        assert_eq!(out.text, "Tell Vossburg the Modero build is green.");
     }
 }

@@ -8,8 +8,12 @@ The following files were used as evidence for this page:
 - [crates/hark-spellbook/src/matcher.rs](../../crates/hark-spellbook/src/matcher.rs)
 - [crates/hark-config/src/invocations.rs](../../crates/hark-config/src/invocations.rs)
 - [crates/hark-pipeline/src/worker.rs](../../crates/hark-pipeline/src/worker.rs)
+- [crates/hark-pipeline/src/worker/shape.rs](../../crates/hark-pipeline/src/worker/shape.rs)
+- [crates/hark-pipeline/src/worker/tests.rs](../../crates/hark-pipeline/src/worker/tests.rs)
+- [crates/hark-pipeline/src/plan.rs](../../crates/hark-pipeline/src/plan.rs)
 - [crates/hark-pipeline/src/events.rs](../../crates/hark-pipeline/src/events.rs)
 - [crates/hark-stt/src/gemini_live.rs](../../crates/hark-stt/src/gemini_live.rs)
+- [crates/hark-stt/src/gemini_live/mode.rs](../../crates/hark-stt/src/gemini_live/mode.rs)
 - [crates/hark-store/src/lib.rs](../../crates/hark-store/src/lib.rs)
 - [crates/hark-app/src/ui/invocations/mod.rs](../../crates/hark-app/src/ui/invocations/mod.rs)
 - [crates/hark-app/src/ui/invocations/editor.rs](../../crates/hark-app/src/ui/invocations/editor.rs)
@@ -30,7 +34,7 @@ The following files were used as evidence for this page:
 
 An invocation pairs a spoken trigger phrase with a block of canned text. When the pipeline hears the trigger, the canned text is injected exactly as the user authored it, rather than whatever the speech-to-text provider transcribed. It is a text-expander built on top of dictation: say "access granted", get the paragraph listing what a support tech has access to.
 
-The pass runs on the pipeline worker thread between spellbook pass 1 and the optional cleanup call ([worker.rs:222-230](https://github.com/BoardPandas/Hark/blob/bcfcc3fef6f02252870fc3f06440d99992818ade/crates/hark-pipeline/src/worker.rs#L222-L230)). Running after pass 1 is deliberate: pass 1 canonicalizes the *spoken* words, which can only help a trigger match, and the expansion is inserted afterwards so the spellbook never rewrites it ([worker.rs:349-356](https://github.com/BoardPandas/Hark/blob/bcfcc3fef6f02252870fc3f06440d99992818ade/crates/hark-pipeline/src/worker.rs#L349-L356)).
+The pass runs on the pipeline worker thread between spellbook pass 1 and the optional cleanup call, inside `shape_transcript` ([worker/shape.rs:23-57](../../crates/hark-pipeline/src/worker/shape.rs#L23-L57)). Running after pass 1 is deliberate: pass 1 canonicalizes the *spoken* words, which can only help a trigger match, and the expansion is inserted afterwards so the spellbook never rewrites it ([worker/shape.rs:157-164](../../crates/hark-pipeline/src/worker/shape.rs#L157-L164)).
 
 ```mermaid
 graph TD
@@ -49,10 +53,10 @@ graph TD
 Three properties define the feature, and each is enforced by control flow rather than convention:
 
 - **Verbatim injection.** The expansion is moved into the result string untouched; nothing downstream rewrites it ([expander.rs:159-165](https://github.com/BoardPandas/Hark/blob/bcfcc3fef6f02252870fc3f06440d99992818ade/crates/hark-spellbook/src/expander.rs#L159-L165)).
-- **Cleanup is skipped entirely** when a trigger fires, so no model can reword the text and no request is billed ([worker.rs:229](https://github.com/BoardPandas/Hark/blob/bcfcc3fef6f02252870fc3f06440d99992818ade/crates/hark-pipeline/src/worker.rs#L229)).
-- **Stats count what was spoken**, not what was pasted ([lib.rs:354-359](https://github.com/BoardPandas/Hark/blob/bcfcc3fef6f02252870fc3f06440d99992818ade/crates/hark-store/src/lib.rs#L354-L359)).
+- **Cleanup is skipped entirely** when a trigger fires, so no model can reword the text and no request is billed ([worker/shape.rs:36-39](../../crates/hark-pipeline/src/worker/shape.rs#L36-L39), [worker/shape.rs:68-76](../../crates/hark-pipeline/src/worker/shape.rs#L68-L76)).
+- **Stats count what was spoken**, not what was pasted ([hark-store lib.rs:411-424](../../crates/hark-store/src/lib.rs#L411-L424)).
 
-Sources: [worker.rs:218-270](https://github.com/BoardPandas/Hark/blob/bcfcc3fef6f02252870fc3f06440d99992818ade/crates/hark-pipeline/src/worker.rs#L218-L270), [expander.rs:1-30](https://github.com/BoardPandas/Hark/blob/bcfcc3fef6f02252870fc3f06440d99992818ade/crates/hark-spellbook/src/expander.rs#L1-L30), [lib.rs:340-360](https://github.com/BoardPandas/Hark/blob/bcfcc3fef6f02252870fc3f06440d99992818ade/crates/hark-store/src/lib.rs#L340-L360)
+Sources: [worker/shape.rs:23-76](../../crates/hark-pipeline/src/worker/shape.rs#L23-L76), [expander.rs:1-30](https://github.com/BoardPandas/Hark/blob/bcfcc3fef6f02252870fc3f06440d99992818ade/crates/hark-spellbook/src/expander.rs#L1-L30), [hark-store lib.rs:405-424](../../crates/hark-store/src/lib.rs#L405-L424)
 <!-- END:AUTOGEN hark_08b_invocations_overview -->
 
 ---
@@ -92,20 +96,24 @@ Sources: [expander.rs:14-215](https://github.com/BoardPandas/Hark/blob/bcfcc3fef
 <!-- BEGIN:AUTOGEN hark_08b_invocations_cleanup -->
 ## Why a Fired Invocation Skips Cleanup
 
-When a trigger fires, `dictate` nulls the cleanup plan before calling `cleaned_text`, which makes it hit its passthrough on the first line ([worker.rs:222-230](https://github.com/BoardPandas/Hark/blob/bcfcc3fef6f02252870fc3f06440d99992818ade/crates/hark-pipeline/src/worker.rs#L222-L230)):
+When a trigger fires, `shape_transcript` nulls the cleanup plan before calling `cleaned_text`, which makes it hit its passthrough on the first line. The lines that do it, with the comments and the cancellation check between them left out ([worker/shape.rs:24-43](../../crates/hark-pipeline/src/worker/shape.rs#L24-L43)):
 
 ```rust
-let text = corrected_text(&worker.corrector, &transcript.text);
+let (text, pass_one_replacements) = corrected_text(&worker.corrector, &transcript.text);
 let expanded = expanded_text(&worker.expander, text);
-// Canned text is authored, not spoken: it never reaches a cleanup model
-// that would rewrite it, and never pays for the call.
-let plan = worker.cleanup.as_ref().filter(|_| expanded.fired.is_none());
-let cleaned = cleaned_text(plan, &worker.corrector, expanded.text);
+let provider_cleaned = transcript.cleaned.is_some();
+let plan = worker
+    .cleanup
+    .as_ref()
+    .filter(|_| should_run_cleanup(expanded.fired.is_some(), provider_cleaned));
+let mut cleaned = cleaned_text(plan, &worker.corrector, expanded.text);
 ```
 
-Sources: [worker.rs:222-230](https://github.com/BoardPandas/Hark/blob/bcfcc3fef6f02252870fc3f06440d99992818ade/crates/hark-pipeline/src/worker.rs#L222-L230)
+`should_run_cleanup` is false when an invocation fired or when a fused provider already cleaned the text ([worker/shape.rs:68-76](../../crates/hark-pipeline/src/worker/shape.rs#L68-L76)). `shape_transcript` is the one path for both a live dictation and a retry of a held clip from History, so a recovered dictation that says a trigger phrase fires the invocation and skips cleanup in exactly the same way ([worker/shape.rs:11-20](../../crates/hark-pipeline/src/worker/shape.rs#L11-L20)).
 
-That single `Option::filter` closes four failure modes at once ([worker.rs:359-374](https://github.com/BoardPandas/Hark/blob/bcfcc3fef6f02252870fc3f06440d99992818ade/crates/hark-pipeline/src/worker.rs#L359-L374)):
+Sources: [worker/shape.rs:23-76](../../crates/hark-pipeline/src/worker/shape.rs#L23-L76)
+
+That single `Option::filter` closes four failure modes at once ([worker/shape.rs:166-178](../../crates/hark-pipeline/src/worker/shape.rs#L166-L178)):
 
 | Failure mode | What would happen without the filter |
 |---|---|
@@ -114,20 +122,20 @@ That single `Option::filter` closes four failure modes at once ([worker.rs:359-3
 | Latency and failure surface | An HTTP call that can time out or error would sit on the hot path for text that needed no model at all |
 | Spellbook pass 2 | Phonetic post-correction would run over the expansion and could mangle URLs or product names inside the user's own authored text |
 
-The protection has to be control flow rather than persuasion. Every built-in voice already carries `LENGTH_DISCIPLINE_CLAUSE`, instructing the model not to expand a short remark into a paragraph, so a "leave this untouched" prompt clause would be fighting the rest of the prompt ([worker.rs:374-378](https://github.com/BoardPandas/Hark/blob/bcfcc3fef6f02252870fc3f06440d99992818ade/crates/hark-pipeline/src/worker.rs#L374-L378), [voices.rs:127-134](https://github.com/BoardPandas/Hark/blob/bcfcc3fef6f02252870fc3f06440d99992818ade/crates/hark-voice/src/voices.rs#L127-L134)).
+The protection has to be control flow rather than persuasion. Every built-in voice already carries `LENGTH_DISCIPLINE_CLAUSE`, instructing the model not to expand a short remark into a paragraph, so a "leave this untouched" prompt clause would be fighting the rest of the prompt ([worker/shape.rs:180-183](../../crates/hark-pipeline/src/worker/shape.rs#L180-L183), [voices.rs:127-134](https://github.com/BoardPandas/Hark/blob/bcfcc3fef6f02252870fc3f06440d99992818ade/crates/hark-voice/src/voices.rs#L127-L134)).
 
-The regression test gives its `MockCleaner` an **empty script**, so any call to it panics — not panicking is the assertion. Its corrector is hostile in the same test, which simultaneously pins that spellbook pass 2 never runs over the expansion ([worker.rs:754-790](https://github.com/BoardPandas/Hark/blob/bcfcc3fef6f02252870fc3f06440d99992818ade/crates/hark-pipeline/src/worker.rs#L754-L790)).
+The regression test gives its `MockCleaner` an **empty script**, so any call to it panics — not panicking is the assertion. Its corrector is hostile in the same test, which simultaneously pins that spellbook pass 2 never runs over the expansion (`a_fired_invocation_never_calls_the_cleaner`, [worker/tests.rs:408-438](../../crates/hark-pipeline/src/worker/tests.rs#L408-L438)). A separate test pins the decision itself: `should_run_cleanup(true, _)` is false ([worker/tests.rs:219-230](../../crates/hark-pipeline/src/worker/tests.rs#L219-L230)).
 
 **Accepted cost:** an `Anywhere` trigger inside a longer sentence means that whole dictation loses its cleanup pass, so filler words around the inserted text survive as spoken. The editor states this next to the scope control rather than leaving it to be discovered ([editor.rs:176-186](https://github.com/BoardPandas/Hark/blob/bcfcc3fef6f02252870fc3f06440d99992818ade/crates/hark-app/src/ui/invocations/editor.rs#L176-L186)).
 
-Sources: [worker.rs:218-270](https://github.com/BoardPandas/Hark/blob/bcfcc3fef6f02252870fc3f06440d99992818ade/crates/hark-pipeline/src/worker.rs#L218-L270), [worker.rs:349-395](https://github.com/BoardPandas/Hark/blob/bcfcc3fef6f02252870fc3f06440d99992818ade/crates/hark-pipeline/src/worker.rs#L349-L395), [editor.rs:158-187](https://github.com/BoardPandas/Hark/blob/bcfcc3fef6f02252870fc3f06440d99992818ade/crates/hark-app/src/ui/invocations/editor.rs#L158-L187)
+Sources: [worker/shape.rs:23-76](../../crates/hark-pipeline/src/worker/shape.rs#L23-L76), [worker/shape.rs:157-196](../../crates/hark-pipeline/src/worker/shape.rs#L157-L196), [editor.rs:158-187](https://github.com/BoardPandas/Hark/blob/bcfcc3fef6f02252870fc3f06440d99992818ade/crates/hark-app/src/ui/invocations/editor.rs#L158-L187)
 A fired expansion also passes through cancellation admission immediately before injection. Stopping the pipeline while transcription or cleanup is outstanding prevents a late paste, including canned text. A live failure still consumes the single replay budget; none of these lifecycle checks rewrite an expansion or enable cleanup for it ([worker](../../crates/hark-pipeline/src/worker.rs), [injection admission](../../crates/hark-pipeline/src/lifecycle.rs), [live attempt accounting](../../crates/hark-pipeline/src/stream.rs)).
 Gemini Live must finish the transcription turn before its text reaches
 invocation matching. A premature socket close now takes the existing full-clip
 replay path instead of treating a transcript prefix as the complete utterance.
 Final text sharing a frame with the completion marker is retained. Once an
 invocation fires, its configured expansion still bypasses cleanup and rewriting
-([live finalization](../../crates/hark-stt/src/gemini_live.rs),
+([live finalization](../../crates/hark-stt/src/gemini_live/session.rs#L187-L293),
 [pipeline](../../crates/hark-pipeline/src/worker.rs)).
 <!-- END:AUTOGEN hark_08b_invocations_cleanup -->
 
@@ -136,7 +144,7 @@ invocation fires, its configured expansion still bypasses cleanup and rewriting
 <!-- BEGIN:AUTOGEN hark_08b_invocations_config -->
 ## Configuration
 
-The `[invocations]` section lives in its own module because `hark-config/src/lib.rs` was already over the project's 500-line rule ([invocations.rs:1-11](https://github.com/BoardPandas/Hark/blob/bcfcc3fef6f02252870fc3f06440d99992818ade/crates/hark-config/src/invocations.rs#L1-L11)). It is the last field on `Settings`, because it is the only section holding a TOML array-of-tables and those must follow every scalar key ([lib.rs:308-311](https://github.com/BoardPandas/Hark/blob/bcfcc3fef6f02252870fc3f06440d99992818ade/crates/hark-config/src/lib.rs#L308-L311)).
+The `[invocations]` section has lived in its own module from the start, because `hark-config/src/lib.rs` was already over the project's 500-line guideline when it was added ([invocations.rs:1-11](https://github.com/BoardPandas/Hark/blob/bcfcc3fef6f02252870fc3f06440d99992818ade/crates/hark-config/src/invocations.rs#L1-L11)). Every other section now has its own module too ([Configuration](../core/CONFIGURATION.md#settings-schema)). It is the last field on `Settings`, because it is the only section holding a TOML array-of-tables and those must follow every scalar key ([lib.rs:153-158](../../crates/hark-config/src/lib.rs#L153-L158)).
 
 | Field | Type | Default | Meaning |
 |---|---|---|---|
@@ -167,9 +175,9 @@ There is also **no `Settings::validate` rule** for invocations. Hard-rejecting a
 
 An invalid or duplicate alternate is skipped individually; it does not disable an otherwise valid primary trigger. The pipeline reports only skipped counts, never the user-authored phrases or expansions.
 
-The matcher itself is a derived artifact, rebuilt from the TOML on every pipeline start and cached nowhere, so the config file stays the single owner ([lib.rs:107-143](https://github.com/BoardPandas/Hark/blob/bcfcc3fef6f02252870fc3f06440d99992818ade/crates/hark-pipeline/src/lib.rs#L107-L143)).
+The matcher itself is a derived artifact, rebuilt from the TOML on every pipeline start and cached nowhere, so the config file stays the single owner (`build_expander`, [pipeline plan.rs:11-57](../../crates/hark-pipeline/src/plan.rs#L11-L57)).
 
-Sources: [invocations.rs:1-60](https://github.com/BoardPandas/Hark/blob/bcfcc3fef6f02252870fc3f06440d99992818ade/crates/hark-config/src/invocations.rs#L1-L60), [lib.rs:294-330](https://github.com/BoardPandas/Hark/blob/bcfcc3fef6f02252870fc3f06440d99992818ade/crates/hark-config/src/lib.rs#L294-L330), [lib.rs:107-143](https://github.com/BoardPandas/Hark/blob/bcfcc3fef6f02252870fc3f06440d99992818ade/crates/hark-pipeline/src/lib.rs#L107-L143)
+Sources: [invocations.rs:1-60](https://github.com/BoardPandas/Hark/blob/bcfcc3fef6f02252870fc3f06440d99992818ade/crates/hark-config/src/invocations.rs#L1-L60), [hark-config lib.rs:128-159](../../crates/hark-config/src/lib.rs#L128-L159), [pipeline plan.rs:11-57](../../crates/hark-pipeline/src/plan.rs#L11-L57)
 <!-- END:AUTOGEN hark_08b_invocations_config -->
 
 ---
@@ -197,7 +205,7 @@ The test panel builds its preview `Expander` only when a `preview_dirty` flag is
 
 Editor validation calls `hark_spellbook::phrase_word_count` and `normalized_phrase` rather than splitting on whitespace locally, so the editor, the row warnings, and the matcher can never disagree about what counts as a word — "access-granted" is two. Primary triggers and alternates share one collision namespace across invocations, preventing ambiguous rules ([aliases.rs](../../crates/hark-app/src/ui/invocations/aliases.rs)).
 
-Persistence carries four obligations in order, and the last one is load-bearing ([pages.rs:142-160](https://github.com/BoardPandas/Hark/blob/bcfcc3fef6f02252870fc3f06440d99992818ade/crates/hark-app/src/ui/pages.rs#L142-L160)):
+Persistence carries four obligations in order, and the last one is load-bearing ([pages.rs:288-309](../../crates/hark-app/src/ui/pages.rs#L288-L309)):
 
 ```rust
 if views.invocations.show(ui, &mut settings.invocations) {
@@ -209,7 +217,7 @@ if views.invocations.show(ui, &mut settings.invocations) {
 
 Without that final line the Settings page keeps its pre-edit copy of the whole `Settings` struct and writes it wholesale on Save, resurrecting every deleted invocation — silent data loss with no error surfaced.
 
-Sources: [mod.rs:1-302](https://github.com/BoardPandas/Hark/blob/bcfcc3fef6f02252870fc3f06440d99992818ade/crates/hark-app/src/ui/invocations/mod.rs#L1-L302), [editor.rs:1-371](https://github.com/BoardPandas/Hark/blob/bcfcc3fef6f02252870fc3f06440d99992818ade/crates/hark-app/src/ui/invocations/editor.rs#L1-L371), [pages.rs:142-160](https://github.com/BoardPandas/Hark/blob/bcfcc3fef6f02252870fc3f06440d99992818ade/crates/hark-app/src/ui/pages.rs#L142-L160)
+Sources: [mod.rs:1-302](https://github.com/BoardPandas/Hark/blob/bcfcc3fef6f02252870fc3f06440d99992818ade/crates/hark-app/src/ui/invocations/mod.rs#L1-L302), [editor.rs:1-371](https://github.com/BoardPandas/Hark/blob/bcfcc3fef6f02252870fc3f06440d99992818ade/crates/hark-app/src/ui/invocations/editor.rs#L1-L371), [pages.rs:288-309](../../crates/hark-app/src/ui/pages.rs#L288-L309)
 <!-- END:AUTOGEN hark_08b_invocations_ui -->
 
 ---
@@ -217,9 +225,9 @@ Sources: [mod.rs:1-302](https://github.com/BoardPandas/Hark/blob/bcfcc3fef6f0225
 <!-- BEGIN:AUTOGEN hark_08b_invocations_edge -->
 ## Edge Cases
 
-**History and stats honesty.** `DictationRecord` carries the trigger that fired ([events.rs:26-35](https://github.com/BoardPandas/Hark/blob/bcfcc3fef6f02252870fc3f06440d99992818ade/crates/hark-pipeline/src/events.rs#L26-L35)), migration 003 adds a nullable `invocation` column with no backfill — every pre-003 row genuinely is "not an invocation" ([003_entries_invocation.sql:1-6](https://github.com/BoardPandas/Hark/blob/bcfcc3fef6f02252870fc3f06440d99992818ade/crates/hark-store/migrations/003_entries_invocation.sql#L1-L6)) — and the History row gains a badge plus a detail line naming the trigger ([row.rs:129-143](https://github.com/BoardPandas/Hark/blob/bcfcc3fef6f02252870fc3f06440d99992818ade/crates/hark-app/src/ui/history/row.rs#L129-L143)).
+**History and stats honesty.** `DictationRecord` carries the trigger that fired ([events.rs:27-31](../../crates/hark-pipeline/src/events.rs#L27-L31)), migration 003 adds a nullable `invocation` column with no backfill — every pre-003 row genuinely is "not an invocation" ([003_entries_invocation.sql:1-6](https://github.com/BoardPandas/Hark/blob/bcfcc3fef6f02252870fc3f06440d99992818ade/crates/hark-store/migrations/003_entries_invocation.sql#L1-L6)) — and the History row gains a badge plus a detail line naming the trigger ([row.rs:179-195](../../crates/hark-app/src/ui/history/row.rs#L179-L195), [row.rs:239-260](../../crates/hark-app/src/ui/history/row.rs#L239-L260)). An invocation row is also the one kind of History row that never offers text for the Spellbook: it holds canned text the user typed, not words anyone spoke, so there is nothing misheard in it to correct ([selection.rs:50-54](../../crates/hark-app/src/ui/history/selection.rs#L50-L54)).
 
-The stats counter is the subtle one. The Stats page values every word at 1500 ms ("time saved vs typing at 40 WPM"), so counting the injected text would let a two-word trigger producing a 300-word expansion fabricate roughly seven and a half minutes of saved time. `spoken_word_count` counts `raw_text` when an invocation fired ([lib.rs:346-359](https://github.com/BoardPandas/Hark/blob/bcfcc3fef6f02252870fc3f06440d99992818ade/crates/hark-store/src/lib.rs#L346-L359)):
+The stats counter is the subtle one. The Stats page values every word at 1500 ms ("time saved vs typing at 40 WPM"), so counting the injected text would let a two-word trigger producing a 300-word expansion fabricate roughly seven and a half minutes of saved time. `spoken_word_count` counts `raw_text` when an invocation fired ([hark-store lib.rs:411-424](../../crates/hark-store/src/lib.rs#L411-L424)):
 
 ```rust
 fn spoken_word_count(d: &NewDictation) -> i64 {
@@ -230,7 +238,7 @@ fn spoken_word_count(d: &NewDictation) -> i64 {
 }
 ```
 
-Sources: [lib.rs:354-359](https://github.com/BoardPandas/Hark/blob/bcfcc3fef6f02252870fc3f06440d99992818ade/crates/hark-store/src/lib.rs#L354-L359)
+Sources: [hark-store lib.rs:419-424](../../crates/hark-store/src/lib.rs#L419-L424)
 
 Other behaviours worth knowing:
 
@@ -238,13 +246,13 @@ Other behaviours worth knowing:
 - **Casing and surrounding punctuation are irrelevant** to a whole-utterance hit, because they sit outside token spans ([expander.rs:151-155](https://github.com/BoardPandas/Hark/blob/bcfcc3fef6f02252870fc3f06440d99992818ade/crates/hark-spellbook/src/expander.rs#L151-L155)).
 - **Alternates are exact and report the primary trigger.** They normalize casing and punctuation but never gain phonetic reach; history therefore names the rule the user authored, not the provider's mishearing.
 - **Multiple different `Anywhere` triggers may fire in one dictation**; `fired` reports the first, which is enough to suppress cleanup and badge the row ([expander.rs:173-215](https://github.com/BoardPandas/Hark/blob/bcfcc3fef6f02252870fc3f06440d99992818ade/crates/hark-spellbook/src/expander.rs#L173-L215)).
-- **Never log phrases or expansions.** `Invocation` derives `Debug` because `Settings` does, so a stray `{settings:?}` would dump every expansion to disk; the pipeline logs only counts and millis ([invocations.rs:39-43](https://github.com/BoardPandas/Hark/blob/bcfcc3fef6f02252870fc3f06440d99992818ade/crates/hark-config/src/invocations.rs#L39-L43), [worker.rs:376-392](https://github.com/BoardPandas/Hark/blob/bcfcc3fef6f02252870fc3f06440d99992818ade/crates/hark-pipeline/src/worker.rs#L376-L392)).
+- **Never log phrases or expansions.** `Invocation` derives `Debug` because `Settings` does, so a stray `{settings:?}` would dump every expansion to disk; the pipeline logs only counts and millis ([invocations.rs:39-43](https://github.com/BoardPandas/Hark/blob/bcfcc3fef6f02252870fc3f06440d99992818ade/crates/hark-config/src/invocations.rs#L39-L43), [worker/shape.rs:184-196](../../crates/hark-pipeline/src/worker/shape.rs#L184-L196)).
 
-**Fused Gemini cleanup is already wired.** In Smart mode Gemini returns one tidied string in both `Transcript::text` and `Transcript::cleaned`; the pipeline matches invocations against `text` and uses `cleaned.is_some()` to suppress its separate cleanup call ([gemini_live.rs:496-517](../../crates/hark-stt/src/gemini_live.rs#L496-L517), [worker.rs:460-476](../../crates/hark-pipeline/src/worker.rs#L460-L476)). A fired invocation still wins after transcription: `expanded_text` replaces the provider string with the user-authored expansion, and `should_run_cleanup` prevents another model from rewriting it. The tradeoff is explicit: Smart-mode triggers are matched against Gemini's tidied wording rather than a guaranteed verbatim transcript, so Verbatim mode is preferable when literal trigger evidence matters. The one Smart output that is never matched is Gemini's canned refusal ("I'm just a language model and can't help with that."): `checked_text` rejects it before the pipeline sees it, and the Verbatim replay that follows is what the matcher checks ([gemini_live.rs:444-494](../../crates/hark-stt/src/gemini_live.rs#L444-L494)).
+**Fused Gemini cleanup is already wired.** In Smart mode Gemini returns one tidied string in both `Transcript::text` and `Transcript::cleaned`; the pipeline matches invocations against `text` and uses `cleaned.is_some()` to suppress its separate cleanup call ([gemini_live/mode.rs:101-122](../../crates/hark-stt/src/gemini_live/mode.rs#L101-L122), [worker/shape.rs:31-39](../../crates/hark-pipeline/src/worker/shape.rs#L31-L39)). A fired invocation still wins after transcription: `expanded_text` replaces the provider string with the user-authored expansion, and `should_run_cleanup` prevents another model from rewriting it. The tradeoff is explicit: Smart-mode triggers are matched against Gemini's tidied wording rather than a guaranteed verbatim transcript, so Verbatim mode is preferable when literal trigger evidence matters. The one Smart output that is never matched is Gemini's canned refusal ("I'm just a language model and can't help with that."): `checked_text` rejects it before the pipeline sees it, and the Verbatim replay that follows is what the matcher checks ([gemini_live/mode.rs:49-99](../../crates/hark-stt/src/gemini_live/mode.rs#L49-L99)).
 
 **Deferred on purpose.** Placeholders or variables in expansions (`{date}`, `{cursor}`) are not supported: they would break the byte-for-byte invariant this design's safety argument rests on. Sending trigger phrases to the STT provider as bias or keyterm hints is also deferred — biasing raises recall but also raises the odds the provider hallucinates a trigger out of similar-sounding audio, the wrong direction when a false fire pastes a paragraph.
 
-Sources: [expander.rs:188-273](../../crates/hark-spellbook/src/expander.rs#L188-L273), [worker.rs:460-483](../../crates/hark-pipeline/src/worker.rs#L460-L483), [gemini_live.rs:496-517](../../crates/hark-stt/src/gemini_live.rs#L496-L517), [store/lib.rs](../../crates/hark-store/src/lib.rs), [003_entries_invocation.sql](../../crates/hark-store/migrations/003_entries_invocation.sql)
+Sources: [expander.rs:188-273](../../crates/hark-spellbook/src/expander.rs#L188-L273), [worker/shape.rs:23-76](../../crates/hark-pipeline/src/worker/shape.rs#L23-L76), [gemini_live/mode.rs:49-122](../../crates/hark-stt/src/gemini_live/mode.rs#L49-L122), [store/lib.rs](../../crates/hark-store/src/lib.rs), [003_entries_invocation.sql](../../crates/hark-store/migrations/003_entries_invocation.sql)
 Detailed Insights retain invocation flags and counts independently of transcript capture for up to 366 days. Dictated-word totals still use spoken `raw_text` for invocation dictations. The separate **Words in invocation output** metric counts the full final text inserted on those rows; an anywhere-scope invocation includes surrounding speech, so the metric does not claim to isolate only the canned expansion. Optional local word/phrase analysis also uses spoken raw text for invocation rows. None of these metrics rewrites an expansion or adds cleanup ([numeric persistence](../../crates/hark-store/src/insights/persistence.rs), [local analysis](../../crates/hark-store/src/insights/patterns.rs)).
 <!-- END:AUTOGEN hark_08b_invocations_edge -->
 

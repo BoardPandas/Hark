@@ -160,6 +160,140 @@ jobs:
       - name: cargo audit
         run: cargo audit
 
+  # Dependency licenses, bans and sources, from deny.toml. A separate job for the
+  # same reason as `audit` (installing cargo-deny compiles), and a separate job
+  # rather than a step in `audit` so a license failure and an advisory failure
+  # are told apart at a glance.
+  #
+  # ADVISORIES ARE DELIBERATELY NOT CHECKED HERE: `cargo audit` and
+  # .cargo/audit.toml own them. Running `cargo deny check advisories` as well
+  # would mean triaging every advisory in two files.
+  #
+  # Hark bundles LGPL LAME (mp3lame-encoder / mp3lame-sys), allowed by name in
+  # deny.toml and noticed in THIRD_PARTY_NOTICES.md. This job is what stops a
+  # second, unreviewed copyleft dependency arriving unnoticed.
+  #
+  # WHEN THIS FAILS: read the license in the report, then fix deny.toml
+  # deliberately (see its header) or drop the dependency. Do not delete this job.
+  #
+  # Not mirrored in release.yml: that workflow does not re-run `cargo audit`
+  # either, so this follows that precedent. It does not touch release.yml's
+  # triggers or its signing path.
+  deny:
+    name: cargo deny (licenses, bans, sources)
+    runs-on: ubuntu-26.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable branch @ 2026-10
+        with:
+          toolchain: stable
+
+      # Caches ~/.cargo/bin too, so cargo-deny is compiled once and restored.
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          key: deny
+
+      # Pinned, unlike cargo-audit: deny.toml's schema is cargo-deny's own and
+      # has changed between releases, so an unrelated upstream release must not
+      # be able to turn this job red. 0.20.2 is the version deny.toml was written
+      # and verified against; bump it on purpose.
+      - name: Install cargo-deny
+        run: cargo install cargo-deny --version 0.20.2 --locked
+
+      # Reads deny.toml. `bans` only warns on duplicate crate versions for now
+      # (see deny.toml), so the log is long but the job is green; only a license
+      # outside the allowlist, a banned crate, or a non-crates.io source fails it.
+      - name: cargo deny
+        run: cargo deny check licenses bans sources
+
+  # Test coverage, measured and published but not yet gated: there is no
+  # baseline to set a floor from, and a guessed floor either blocks unrelated
+  # work or means nothing. Once a few green runs on main have produced a
+  # baseline, add a floor here (cargo llvm-cov report --fail-under-lines N).
+  #
+  # Runs the whole workspace suite ONCE, instrumented, and derives both outputs
+  # from that single run: the lcov file as an artifact, and the summary table on
+  # the run page. Linux only, which is also the only leg where coverage of the
+  # evdev/uinput/GTK code is measurable at all. Not a substitute for the `rust`
+  # job's tests; it needs the same system libraries to build.
+  coverage:
+    name: coverage (llvm-cov)
+    needs: [wiring, fmt]
+    runs-on: ubuntu-26.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # KEEP IN STEP with the `rust` job's "Install Linux build dependencies"
+      # step above, which carries the package-by-package reasons. The two lists
+      # must stay identical: this job compiles the same workspace.
+      - name: Install Linux build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libasound2-dev libgtk-3-dev libayatana-appindicator3-dev \
+            libxkbcommon-dev libx11-dev pkg-config cmake clang \
+            libpipewire-0.3-dev libpipewire-0.3-modules
+
+      # llvm-tools provides llvm-cov and llvm-profdata, which cargo-llvm-cov
+      # runs to turn the raw profile data into reports. (rustup's older name for
+      # this component, llvm-tools-preview, is the one cargo-llvm-cov's docs use.)
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable branch @ 2026-10
+        with:
+          toolchain: stable
+          components: llvm-tools
+
+      # Its own cache key: an instrumented build is a different set of artifacts
+      # from the `rust` job's, and sharing rust-checks would bloat that cache
+      # and evict the entries release.yml's check jobs restore. Also caches
+      # ~/.cargo/bin, so cargo-llvm-cov is compiled once.
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          key: coverage
+
+      # Same reset as the `rust` job, pointed at cargo-llvm-cov's own target
+      # directory (target/llvm-cov-target), which is where sherpa-onnx-sys looks
+      # for its prebuilt native libraries when it is built under coverage.
+      - name: Reset sherpa-onnx native cache
+        shell: bash
+        run: |
+          cargo clean --package sherpa-onnx-sys --target-dir target/llvm-cov-target
+          rm -rf target/llvm-cov-target/sherpa-onnx-prebuilt
+
+      # Unpinned, like cargo-audit: cargo-llvm-cov must track the stable
+      # toolchain's LLVM, so freezing it would break the job on a Rust release.
+      - name: Install cargo-llvm-cov
+        run: cargo install cargo-llvm-cov --locked
+
+      # --no-report: run the suite once and keep the raw profile data, then
+      # render each output from it with `report`. Running `cargo llvm-cov` twice
+      # would build and run every test twice. A failing test fails this step.
+      - name: Run the workspace tests under coverage
+        run: cargo llvm-cov --workspace --no-report
+
+      - name: Write the lcov report
+        run: cargo llvm-cov report --lcov --output-path lcov.info
+
+      # The default `report` output is the per-file summary table. It goes in a
+      # code fence because it is column-aligned plain text.
+      - name: Publish the coverage summary
+        run: |
+          {
+            echo '### Test coverage'
+            echo '```text'
+            cargo llvm-cov report
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload the lcov report
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: coverage-lcov
+          path: lcov.info
+          if-no-files-found: error
+          retention-days: 14
+          overwrite: true
+
   # Build and test on the platforms Hark ships on -- all three of them since
   # 0.36.0, when Linux became a ship target rather than a place the workspace
   # merely happened to compile.

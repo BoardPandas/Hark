@@ -1,0 +1,90 @@
+# cargo-deny configuration: dependency licenses, bans and sources.
+# Run by the `deny` job in .github/workflows/ci.yml:
+#
+#   cargo deny check licenses bans sources
+#
+# ADVISORIES ARE NOT CHECKED HERE. The `cargo audit` job and .cargo/audit.toml
+# own vulnerability and unmaintained triage, with a reason and a re-evaluation
+# trigger on every ignore. Triaging them twice in two files would let the two
+# lists drift, so deny.toml has no [advisories] section and CI never runs
+# `cargo deny check advisories`.
+#
+# WHEN THIS FAILS: a new dependency (or a new version of one) arrived under a
+# license that is not listed below. Read the license, decide whether Hark can
+# ship it inside an MIT-licensed binary, and only then add it -- to `allow` if
+# it is plainly permissive, or to a `[[licenses.exceptions]]` entry naming the
+# one crate if it is not. Every exception needs a one-line reason. Do not
+# widen `allow` to make the job green.
+
+[graph]
+# The targets Hark ships, from release.yml: the Windows installer
+# (windows-latest, MSVC), the Apple Silicon disk image (macos-26) and the
+# Linux deb/rpm/tarball/Arch package (x86_64 glibc). Without this, cargo-deny
+# resolves every target any dependency mentions (Android, iOS, wasm, BSDs) and
+# would police licenses of code that is never compiled into a Hark build.
+targets = [
+    "x86_64-pc-windows-msvc",
+    "aarch64-apple-darwin",
+    "x86_64-unknown-linux-gnu",
+]
+
+[licenses]
+# Every license that appears in the shipped dependency tree and is permissive
+# or file-level weak copyleft, verified against Cargo.lock with
+# `cargo deny list`. Strong-copyleft licenses (GPL, LGPL, AGPL) are NOT here.
+allow = [
+    "0BSD",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "BSL-1.0",
+    "CC0-1.0",
+    "CDLA-Permissive-2.0", # webpki-roots / webpki-root-certs (Mozilla CA data)
+    "ISC",
+    "MIT",
+    "MIT-0",
+    "MPL-2.0", # option-ext and the symphonia crates: file-level copyleft, used unmodified
+    "OFL-1.1", # fonts bundled by epaint_default_fonts (egui's default fonts)
+    "Ubuntu-font-1.0", # likewise, the Ubuntu font in epaint_default_fonts
+    "Unicode-3.0",
+    "Unlicense",
+    "Zlib",
+    "bzip2-1.0.6", # libbz2-rs-sys
+]
+
+# Where a crate is dual-licensed with a license not allowed above (self_cell is
+# "Apache-2.0 OR GPL-2.0-only"), cargo-deny accepts the expression as long as
+# one side is allowed, so the GPL side is simply never taken.
+
+# LGPL LAME, a deliberate and documented choice. Hark encodes meeting audio to
+# MP3 with LAME, built from source and linked into the executable through
+# these two crates (declared LGPL-3.0). THIRD_PARTY_NOTICES.md carries the
+# notice and the relinking instructions the LGPL requires, and the release
+# jobs check that notice is in every package. Allowed for exactly these crates
+# so any OTHER LGPL dependency still fails the job. (Both crates declare the
+# deprecated SPDX id "LGPL-3.0", so every run prints two parse-error warnings
+# for them; the id still matches here and the warnings are not a failure.)
+[[licenses.exceptions]]
+crate = "mp3lame-encoder"
+allow = ["LGPL-3.0"]
+
+[[licenses.exceptions]]
+crate = "mp3lame-sys"
+allow = ["LGPL-3.0"]
+
+[bans]
+# WARN, not deny, on purpose: the graph carries documented, deliberate
+# duplicate versions (egui/winit/wgpu and their transitive dependencies pull in
+# two generations of several crates) that Hark cannot resolve from its own
+# Cargo.toml. Denying them would make this job red on day one. Tighten to
+# "deny" with a `skip` list once the duplicates worth blocking are known.
+multiple-versions = "warn"
+wildcards = "allow"
+
+[sources]
+# Only crates.io. A git or alternate-registry dependency is a supply-chain
+# decision that should be made on purpose, in this file.
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]

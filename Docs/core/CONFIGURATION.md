@@ -5,8 +5,9 @@
 The following files were used as evidence for this page:
 
 - [crates/hark-config/src/lib.rs](../../crates/hark-config/src/lib.rs)
-- [crates/hark-config/src/lib.rs](../../crates/hark-config/src/lib.rs)
-- [crates/hark-config/src/lib.rs](../../crates/hark-config/src/lib.rs)
+- [crates/hark-config/src/load_save.rs](../../crates/hark-config/src/load_save.rs)
+- [crates/hark-config/src/provider.rs](../../crates/hark-config/src/provider.rs)
+- [crates/hark-config/src/hotkey.rs](../../crates/hark-config/src/hotkey.rs), [audio.rs](../../crates/hark-config/src/audio.rs), [inject.rs](../../crates/hark-config/src/inject.rs), [spellbook.rs](../../crates/hark-config/src/spellbook.rs), [history.rs](../../crates/hark-config/src/history.rs), [insights.rs](../../crates/hark-config/src/insights.rs), [updates.rs](../../crates/hark-config/src/updates.rs), [startup.rs](../../crates/hark-config/src/startup.rs), [general.rs](../../crates/hark-config/src/general.rs), [output.rs](../../crates/hark-config/src/output.rs)
 - [crates/hark-config/src/groq_migration.rs](../../crates/hark-config/src/groq_migration.rs)
 - [crates/hark-config/src/voice.rs:1-65](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/crates/hark-config/src/voice.rs#L1-L65)
 - [crates/hark-config/src/voice.rs:67-152](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/crates/hark-config/src/voice.rs#L67-L152)
@@ -15,7 +16,7 @@ The following files were used as evidence for this page:
 - [crates/hark-keychain/src/lib.rs:119-169](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/crates/hark-keychain/src/lib.rs#L119-L169)
 - [config/default-config.toml:1-48](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/config/default-config.toml#L1-L48)
 - [crates/hark-config/src/meeting.rs](../../crates/hark-config/src/meeting.rs)
-- [config/default-config.toml:82-119](../../config/default-config.toml#L82-L119)
+- [config/default-config.toml:85-122](../../config/default-config.toml#L85-L122)
 
 </details>
 
@@ -28,7 +29,7 @@ The following files were used as evidence for this page:
 <!-- BEGIN:AUTOGEN hark_04_configuration_layers -->
 ## Configuration Layers
 
-Hark layers three sources into one effective `Settings` value: compiled-in defaults, the user's `config.toml`, and (for API keys only) an environment override. The `hark-config` crate owns the TOML half; SQLite storage lives in `hark-store` instead ([lib.rs](../../crates/hark-config/src/lib.rs)).
+Hark layers three sources into one effective `Settings` value: compiled-in defaults, the user's `config.toml`, and (for API keys only) an environment override. The `hark-config` crate owns the TOML half; SQLite storage lives in `hark-store` instead ([lib.rs:1-9](../../crates/hark-config/src/lib.rs#L1-L9)).
 
 | Layer | Source | Override order |
 |---|---|---|
@@ -36,9 +37,9 @@ Hark layers three sources into one effective `Settings` value: compiled-in defau
 | Config file | `config.toml` (per-OS path, see [File Locations](#file-locations)) | medium |
 | Environment | `HARK_STT_KEY` / `HARK_CLEANUP_KEY` (keys only, dev/CI path) | highest |
 
-A missing config file is not an error: `Settings::load` treats `NotFound` as "use the defaults," which is how first-run onboarding works without a setup wizard ([lib.rs](../../crates/hark-config/src/lib.rs)). A missing *key* inside an existing file behaves the same way because every settings struct carries `#[serde(default)]`, so partially-written or hand-edited files fill in gaps from the corresponding `Default` impl. Unknown keys in the file are tolerated (forward compatibility) rather than rejected ([lib.rs](../../crates/hark-config/src/lib.rs)).
+A missing config file is not an error: `Settings::load` treats `NotFound` as "use the defaults," which is how first-run onboarding works without a setup wizard ([load_save.rs:52-94](../../crates/hark-config/src/load_save.rs#L52-L94)). A missing *key* inside an existing file behaves the same way because every settings struct carries `#[serde(default)]`, so partially-written or hand-edited files fill in gaps from the corresponding `Default` impl. Unknown keys in the file are tolerated (forward compatibility) rather than rejected ([load_save.rs:7-11](../../crates/hark-config/src/load_save.rs#L7-L11)).
 
-API keys never live in `config.toml` at all: they resolve through `HARK_STT_KEY` / `HARK_CLEANUP_KEY` or the OS keychain, and the empty-vs-unset distinction matters for the env path (`HARK_STT_KEY=` with nothing after it is treated as unset, not an empty key) ([lib.rs](../../crates/hark-config/src/lib.rs)).
+API keys never live in `config.toml` at all: they resolve through `HARK_STT_KEY` / `HARK_CLEANUP_KEY` or the OS keychain, and the empty-vs-unset distinction matters for the env path (`HARK_STT_KEY=` with nothing after it is treated as unset, not an empty key) ([lib.rs:4-5](../../crates/hark-config/src/lib.rs#L4-L5)).
 
 ```toml
 # config/default-config.toml:9-11
@@ -47,7 +48,7 @@ API keys never live in `config.toml` at all: they resolve through `HARK_STT_KEY`
 # with the provider label as the account name (e.g. "deepgram").
 ```
 
-Sources: [lib.rs](../../crates/hark-config/src/lib.rs), [lib.rs](../../crates/hark-config/src/lib.rs), [default-config.toml:1-11](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/config/default-config.toml#L1-L11)
+Sources: [lib.rs:1-9](../../crates/hark-config/src/lib.rs#L1-L9), [load_save.rs:7-94](../../crates/hark-config/src/load_save.rs#L7-L94), [default-config.toml:1-11](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/config/default-config.toml#L1-L11)
 <!-- END:AUTOGEN hark_04_configuration_layers -->
 
 ---
@@ -55,40 +56,42 @@ Sources: [lib.rs](../../crates/hark-config/src/lib.rs), [lib.rs](../../crates/ha
 <!-- BEGIN:AUTOGEN hark_04_configuration_schema -->
 ## Settings Schema
 
-The `Settings` struct is the single source of truth for the config schema; every section below is a field on it, each with its own `Default` impl ([lib.rs](../../crates/hark-config/src/lib.rs)). Saving re-serializes the full struct, so unknown keys a user hand-added are dropped once the schema is additive ([lib.rs](../../crates/hark-config/src/lib.rs)).
+The `Settings` struct is the single source of truth for the config schema; every section below is a field on it, each with its own `Default` impl ([lib.rs:128-182](../../crates/hark-config/src/lib.rs#L128-L182)). Saving re-serializes the full struct, so unknown keys a user hand-added are dropped once the schema is additive ([lib.rs:7-9](../../crates/hark-config/src/lib.rs#L7-L9)).
+
+The crate is one module per section. `lib.rs` keeps the `Settings` struct, the schema version, cross-field validation and the default paths. `load_save.rs` holds the loader, the migration backup and the saver. Each section's struct and defaults sit in a file named after it: `provider.rs`, `hotkey.rs`, `audio.rs`, `inject.rs`, `spellbook.rs`, `history.rs`, `insights.rs`, `updates.rs`, `startup.rs`, `general.rs` and `output.rs`, beside the older `voice.rs`, `local.rs`, `meeting.rs`, `invocations.rs` and `groq_migration.rs`. The public names are unchanged: `lib.rs` re-exports every type, so `hark_config::Provider` still resolves ([lib.rs:11-46](../../crates/hark-config/src/lib.rs#L11-L46)).
 
 | Section | Key | Type | Default | Meaning |
 |---|---|---|---|---|
-| top-level | `version` | `u32` | `7` (`CONFIG_VERSION`) | Schema stamp written on save; older versions migrate with a backup on load ([lib.rs:28-51](../../crates/hark-config/src/lib.rs#L28-L51)) |
-| `[provider]` | `kind` | enum | `"deepgram"` | STT provider: `deepgram` \| `openai` \| `gemini` \| `openai-compatible`. `groq` is no longer a kind; schema 7 migrates it (see [Groq Retirement](#groq-retirement-schema-7)) ([lib.rs:104-130](../../crates/hark-config/src/lib.rs#L104-L130)) |
-| `[provider]` | `base_url` | `Option<String>` | per-kind (e.g. `https://api.deepgram.com`) | Required explicit for `openai-compatible` ([lib.rs](../../crates/hark-config/src/lib.rs)) |
-| `[provider]` | `model` | `Option<String>` | per-kind (e.g. `nova-3`) | Resolved model name sent in the request ([lib.rs](../../crates/hark-config/src/lib.rs)) |
-| `[provider]` | `live_mode` | enum | `"verbatim"` | Gemini only: `verbatim` (literal transcript, then the cleanup voice) \| `smart` (Gemini tidies in the same call; the voice does not run) ([lib.rs:143-146](../../crates/hark-config/src/lib.rs#L143-L146)) |
-| `[provider]` | `live` | `bool` | `false` | OpenAI only, ignored by every other kind: **Live transcribe**. `true` streams to `gpt-live-transcribe` over OpenAI's realtime WebSocket while the key is held, with the same `openai` key. Billed per audio minute, about 4× gpt-transcribe ($0.017/min vs $0.0045/min). Not written when `false`. A `gpt-live-*` `model` turns it on too; a pinned batch `model` is kept and comes back when it is off. Dictation only: a failed or empty stream falls back to gpt-transcribe over REST, and meeting live-transcript chunks always use the batch route ([lib.rs:147-162](../../crates/hark-config/src/lib.rs#L147-L162), [lib.rs:261-284](../../crates/hark-config/src/lib.rs#L261-L284), [Transcription](../features/TRANSCRIPTION.md#openai-live-transcribe)) |
-| `[hotkey]` | `ptt_key` | `String` | `"LCtrl+LWin"` | `"+"`-joined chord; hold all keys to record, release any to stop ([lib.rs](../../crates/hark-config/src/lib.rs)) |
-| `[audio]` | `input_device` | `Option<String>` | `None` | cpal device name; `None` or a stale name falls back to the OS default mic ([lib.rs](../../crates/hark-config/src/lib.rs)) |
-| `[audio]` | `preroll_ms` | `u32` | `300` | Audio kept from before the chord registers ([lib.rs](../../crates/hark-config/src/lib.rs)) |
-| `[audio]` | `tail_ms` | `u32` | `150` | Audio kept after release; adds directly to release-to-inject latency ([lib.rs](../../crates/hark-config/src/lib.rs)) |
-| `[audio]` | `max_hold_s` | `u32` | `120` | Max hold; on exceed, transcribe what's captured so far ([lib.rs](../../crates/hark-config/src/lib.rs)) |
-| `[audio]` | `min_speech_ms` | `u32` | `250` | Holds shorter than this are dropped, no network request ([lib.rs](../../crates/hark-config/src/lib.rs)) |
-| `[audio]` | `silence_rms` | `f32` | `0.01` | Clips below this RMS are dropped, no network request ([lib.rs](../../crates/hark-config/src/lib.rs)) |
-| `[inject]` | `strategy` | enum | `"clipboard"` | `clipboard` (stash/set/paste/restore) or `type` (character-by-character) ([lib.rs](../../crates/hark-config/src/lib.rs)) |
-| `[inject]` | `set_paste_delay_ms` | `u64` | `50` | Delay between clipboard set and the synthesized paste ([lib.rs](../../crates/hark-config/src/lib.rs)) |
-| `[inject]` | `paste_restore_delay_ms` | `u64` | `50` | Delay between paste and restoring the old clipboard ([lib.rs](../../crates/hark-config/src/lib.rs)) |
-| `[inject]` | `clipboard_retries` | `u32` | `8` | Bounded retries while another process holds the clipboard ([lib.rs](../../crates/hark-config/src/lib.rs)) |
-| `[spellbook]` | `terms` | `Vec<String>` | `[]` | Canonical terms for phonetic correction and provider biasing; aliases the legacy `bias_terms` key ([lib.rs](../../crates/hark-config/src/lib.rs)) |
+| top-level | `version` | `u32` | `7` (`CONFIG_VERSION`) | Schema stamp written on save; older versions migrate with a backup on load ([lib.rs:52-74](../../crates/hark-config/src/lib.rs#L52-L74)) |
+| `[provider]` | `kind` | enum | `"deepgram"` | STT provider: `deepgram` \| `openai` \| `gemini` \| `openai-compatible`. `groq` is no longer a kind; schema 7 migrates it (see [Groq Retirement](#groq-retirement-schema-7)) ([provider.rs:3-30](../../crates/hark-config/src/provider.rs#L3-L30)) |
+| `[provider]` | `base_url` | `Option<String>` | per-kind (e.g. `https://api.deepgram.com`) | Required explicit for `openai-compatible` ([provider.rs:36-38](../../crates/hark-config/src/provider.rs#L36-L38), [provider.rs:105-121](../../crates/hark-config/src/provider.rs#L105-L121)) |
+| `[provider]` | `model` | `Option<String>` | per-kind (e.g. `nova-3`) | Resolved model name sent in the request ([provider.rs:39-41](../../crates/hark-config/src/provider.rs#L39-L41), [provider.rs:123-141](../../crates/hark-config/src/provider.rs#L123-L141)) |
+| `[provider]` | `live_mode` | enum | `"verbatim"` | Gemini only: `verbatim` (literal transcript, then the cleanup voice) \| `smart` (Gemini tidies in the same call; the voice does not run) ([provider.rs:42-45](../../crates/hark-config/src/provider.rs#L42-L45), [provider.rs:75-92](../../crates/hark-config/src/provider.rs#L75-L92)) |
+| `[provider]` | `live` | `bool` | `false` | OpenAI only, ignored by every other kind: **Live transcribe**. `true` streams to `gpt-live-transcribe` over OpenAI's realtime WebSocket while the key is held, with the same `openai` key. Billed per audio minute, about 4× gpt-transcribe ($0.017/min vs $0.0045/min). Not written when `false`. A `gpt-live-*` `model` turns it on too; a pinned batch `model` is kept and comes back when it is off. Dictation only: a failed or empty stream falls back to gpt-transcribe over REST, and meeting live-transcript chunks always use the batch route ([provider.rs:46-61](../../crates/hark-config/src/provider.rs#L46-L61), [provider.rs:160-183](../../crates/hark-config/src/provider.rs#L160-L183), [Transcription](../features/TRANSCRIPTION.md#openai-live-transcribe)) |
+| `[hotkey]` | `ptt_key` | `String` | `"LCtrl+LWin"` | `"+"`-joined chord; hold all keys to record, release any to stop ([hotkey.rs:5-24](../../crates/hark-config/src/hotkey.rs#L5-L24)) |
+| `[audio]` | `input_device` | `Option<String>` | `None` | cpal device name; `None` or a stale name falls back to the OS default mic ([audio.rs:6-10](../../crates/hark-config/src/audio.rs#L6-L10)) |
+| `[audio]` | `preroll_ms` | `u32` | `300` | Audio kept from before the chord registers ([audio.rs:11-12](../../crates/hark-config/src/audio.rs#L11-L12)) |
+| `[audio]` | `tail_ms` | `u32` | `150` | Audio kept after release; adds directly to release-to-inject latency ([audio.rs:13-15](../../crates/hark-config/src/audio.rs#L13-L15)) |
+| `[audio]` | `max_hold_s` | `u32` | `120` | Max hold; on exceed, transcribe what's captured so far ([audio.rs:16-17](../../crates/hark-config/src/audio.rs#L16-L17)) |
+| `[audio]` | `min_speech_ms` | `u32` | `250` | Holds shorter than this are dropped, no network request ([audio.rs:18-19](../../crates/hark-config/src/audio.rs#L18-L19)) |
+| `[audio]` | `silence_rms` | `f32` | `0.01` | Clips below this RMS are dropped, no network request ([audio.rs:20-24](../../crates/hark-config/src/audio.rs#L20-L24)) |
+| `[inject]` | `strategy` | enum | `"clipboard"` | `clipboard` (stash/set/paste/restore) or `type` (character-by-character) ([inject.rs:3-16](../../crates/hark-config/src/inject.rs#L3-L16)) |
+| `[inject]` | `set_paste_delay_ms` | `u64` | `50` | Delay between clipboard set and the synthesized paste ([inject.rs:17-20](../../crates/hark-config/src/inject.rs#L17-L20)) |
+| `[inject]` | `paste_restore_delay_ms` | `u64` | `50` | Delay between paste and restoring the old clipboard ([inject.rs:21-22](../../crates/hark-config/src/inject.rs#L21-L22)) |
+| `[inject]` | `clipboard_retries` | `u32` | `8` | Bounded retries while another process holds the clipboard ([inject.rs:23-24](../../crates/hark-config/src/inject.rs#L23-L24)) |
+| `[spellbook]` | `terms` | `Vec<String>` | `[]` | Canonical terms for phonetic correction and provider biasing; aliases the legacy `bias_terms` key ([spellbook.rs](../../crates/hark-config/src/spellbook.rs)) |
 | `[voice]` | see [Voice Presets Config](#voice-presets-config) | | | |
-| `[history]` | `capture` | `bool` | `true` | `false` stores no dictation content; lifetime counters and up to 366 days of numeric Insights still update ([lib.rs](../../crates/hark-config/src/lib.rs)) |
-| `[history]` | `max_entries` | `u32` | `1000` | Keep at most this many newest entries (>= 1) ([lib.rs](../../crates/hark-config/src/lib.rs)) |
-| `[history]` | `max_age_days` | `u32` | `90` | Delete entries older than this many days (>= 1) ([lib.rs](../../crates/hark-config/src/lib.rs)) |
+| `[history]` | `capture` | `bool` | `true` | `false` stores no dictation content; lifetime counters and up to 366 days of numeric Insights still update ([history.rs:10-11](../../crates/hark-config/src/history.rs#L10-L11)) |
+| `[history]` | `max_entries` | `u32` | `1000` | Keep at most this many newest entries (>= 1) ([history.rs:12-13](../../crates/hark-config/src/history.rs#L12-L13)) |
+| `[history]` | `max_age_days` | `u32` | `90` | Delete entries older than this many days (>= 1) ([history.rs:14-15](../../crates/hark-config/src/history.rs#L14-L15)) |
 | `[insights]` | `track_apps` | `bool` | `false` | Opt into one app-identity snapshot per dictation; no titles or continuous tracking. Best effort on Windows/macOS/local X11; unavailable on Wayland |
 | `[insights]` | `analyze_text` | `bool` | `false` | Opt into local word/phrase analysis of retained transcripts; no provider requests or extra persisted text |
-| `[updates]` | `check_on_startup` | `bool` | `true` | Check GitHub Releases once at startup and surface a banner ([lib.rs](../../crates/hark-config/src/lib.rs)) |
-| `[startup]` | `launch_at_login` | `bool` | `true` | Source of truth for the OS startup entry; `hark-autostart` reconciles to it ([lib.rs](../../crates/hark-config/src/lib.rs)) |
+| `[updates]` | `check_on_startup` | `bool` | `true` | Check GitHub Releases once at startup and surface a banner ([updates.rs:3-18](../../crates/hark-config/src/updates.rs#L3-L18)) |
+| `[startup]` | `launch_at_login` | `bool` | `true` | Source of truth for the OS startup entry; `hark-autostart` reconciles to it ([startup.rs:3-19](../../crates/hark-config/src/startup.rs#L3-L19)) |
 | `[general]` | `always_on_top` | `bool` | `false` | Keep the main Hark window above other windows; applied at startup and after Save |
 | `[general]` | `exit_on_close` | `bool` | `false` | Exit on the window's X instead of hiding in the tray. Close Program and tray Quit always exit |
 | `[meeting]` | `enabled` | `bool` | `true` | Master switch for meeting transcription; every other `[meeting]` key is inert while this is `false` ([meeting.rs](../../crates/hark-config/src/meeting.rs)) |
-| `[meeting]` | `toggle_key` | `Option<String>` | `None` | Optional Windows start/stop chord; blank in the UI clears it. Conflicts with push-to-talk are rejected ([meeting settings](../../crates/hark-config/src/meeting.rs), [validation](../../crates/hark-config/src/lib.rs)) |
+| `[meeting]` | `toggle_key` | `Option<String>` | `None` | Optional Windows start/stop chord; blank in the UI clears it. Conflicts with push-to-talk are rejected ([meeting settings](../../crates/hark-config/src/meeting.rs), [validation](../../crates/hark-config/src/lib.rs#L184-L201)) |
 | `[meeting]` | `mic_device` | `Option<String>` | `None` | cpal device name for "Me"; unset is automatic: the mic the call app is recording from (Windows), else the communications-default microphone ([meeting.rs](../../crates/hark-config/src/meeting.rs)) |
 | `[meeting]` | `system_source` | enum | `"app"` | `app` (a detected meeting's own process tree) \| `all` (everything except Hark; always used for a manual start) ([meeting.rs](../../crates/hark-config/src/meeting.rs)) |
 | `[meeting]` | `echo_cancellation` | `bool` | `false` | **Reduce speaker echo**: process only the microphone against captured playback, before recording and live transcription. Applies from the next meeting after Save ([meeting.rs](../../crates/hark-config/src/meeting.rs), [settings](../../crates/hark-app/src/ui/settings/meetings.rs)) |
@@ -116,14 +119,14 @@ Appearance is intentionally outside `config.toml`. These preferences persist in 
 
 Each key is an `egui::Id::unique` hash of the string shown. egui 0.37 renamed `Id::new` to `Id::unique` without changing the hash, so values saved by 0.69.2 and earlier still load. An unknown value (from a newer build) keeps the default or derived value and never resets another preference; an older build reading `parchment` keeps Light ([appearance](../../crates/hark-app/src/theme/appearance.rs), [lettering](../../crates/hark-app/src/theme/lettering.rs), [book view](../../crates/hark-app/src/ui/book.rs), [privacy controls](../../crates/hark-app/src/ui/settings/preferences.rs)).
 
-`[meeting]` is additive: it was added after `[local_stt]` and before `[[invocations.entries]]`, and a config file written before it existed loads unchanged, filling every key from `Meeting::default()` via `#[serde(default)]` ([meeting.rs](../../crates/hark-config/src/meeting.rs), [lib.rs](../../crates/hark-config/src/lib.rs)). An out-of-range `audio_cap_mb` is clamped in place with a logged warning rather than rejected outright, on the same "typo, not a reason to refuse to start" reasoning `Settings::from_toml` already applies to the spellbook migration ([meeting.rs](../../crates/hark-config/src/meeting.rs), [lib.rs](../../crates/hark-config/src/lib.rs)).
+`[meeting]` is additive: it was added after `[local_stt]` and before `[[invocations.entries]]`, and a config file written before it existed loads unchanged, filling every key from `Meeting::default()` via `#[serde(default)]` ([meeting.rs](../../crates/hark-config/src/meeting.rs), [lib.rs:128-159](../../crates/hark-config/src/lib.rs#L128-L159)). An out-of-range `audio_cap_mb` is clamped in place with a logged warning rather than rejected outright, on the same "typo, not a reason to refuse to start" reasoning `Settings::from_toml` already applies to the spellbook migration ([meeting.rs](../../crates/hark-config/src/meeting.rs), [load_save.rs:32-38](../../crates/hark-config/src/load_save.rs#L32-L38)).
 
-`invocations` is the last field on `Settings` deliberately: it is the only section holding a TOML array-of-tables, and those must follow every scalar key ([lib.rs](../../crates/hark-config/src/lib.rs)). It is also the one section with **no `validate` rule**: rejecting a malformed entry would make a hand-edited config unloadable and leave the user no UI to repair it, so unusable entries are skipped at pipeline start instead (see [Invocations](../features/INVOCATIONS.md)) ([invocations.rs:1-11](https://github.com/BoardPandas/Hark/blob/bcfcc3fef6f02252870fc3f06440d99992818ade/crates/hark-config/src/invocations.rs#L1-L11)).
+`invocations` is the last field on `Settings` deliberately: it is the only section holding a TOML array-of-tables, and those must follow every scalar key ([lib.rs:153-158](../../crates/hark-config/src/lib.rs#L153-L158)). It is also the one section with **no `validate` rule**: rejecting a malformed entry would make a hand-edited config unloadable and leave the user no UI to repair it, so unusable entries are skipped at pipeline start instead (see [Invocations](../features/INVOCATIONS.md)) ([invocations.rs:1-11](https://github.com/BoardPandas/Hark/blob/bcfcc3fef6f02252870fc3f06440d99992818ade/crates/hark-config/src/invocations.rs#L1-L11)).
 
-`Provider::resolved_base_url` and `resolved_model` fill in the per-kind defaults when the file leaves them unset ([lib.rs](../../crates/hark-config/src/lib.rs)):
+`Provider::resolved_base_url` and `resolved_model` fill in the per-kind defaults when the file leaves them unset ([provider.rs:104-141](../../crates/hark-config/src/provider.rs#L104-L141)):
 
 ```rust
-// crates/hark-config/src/lib.rs:229-242
+// crates/hark-config/src/provider.rs:128-141
 pub fn resolved_model(&self) -> String {
     if let Some(model) = &self.model {
         return model.clone();
@@ -140,14 +143,14 @@ pub fn resolved_model(&self) -> String {
 }
 ```
 
-`resolved_model` is the configured model, not always the one a dictation sends. With Live transcribe on, `live_transcribe_model` substitutes `gpt-live-transcribe` (or a pinned `gpt-live-*` model) and leaves `model` alone, and the pipeline's `stt_route` is what the footer and history name ([lib.rs:261-284](../../crates/hark-config/src/lib.rs#L261-L284), [pipeline lib.rs `stt_route`](../../crates/hark-pipeline/src/lib.rs)).
+`resolved_model` is the configured model, not always the one a dictation sends. With Live transcribe on, `live_transcribe_model` substitutes `gpt-live-transcribe` (or a pinned `gpt-live-*` model) and leaves `model` alone, and the pipeline's `stt_route` is what the footer and history name ([provider.rs:160-183](../../crates/hark-config/src/provider.rs#L160-L183), [`stt_route`, pipeline route.rs:12-24](../../crates/hark-pipeline/src/route.rs#L12-L24)).
 
-`Settings::validate` (run on every load and every save) enforces the cross-field rules: `openai-compatible` requires an explicit `base_url`, `ptt_key` must not be blank, and both `history` caps must be >= 1 ([lib.rs](../../crates/hark-config/src/lib.rs)). The annotated `default-config.toml` mirrors this table and ships as the on-disk documentation for a fresh install ([default-config.toml:13-47](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/config/default-config.toml#L13-L47)).
+`Settings::validate` (run on every load and every save) enforces the cross-field rules: `openai-compatible` requires an explicit `base_url`, `ptt_key` must not be blank, and both `history` caps must be >= 1 ([lib.rs:203-240](../../crates/hark-config/src/lib.rs#L203-L240)). The annotated `default-config.toml` mirrors this table and ships as the on-disk documentation for a fresh install ([default-config.toml:13-47](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/config/default-config.toml#L13-L47)).
 
-Sources: [lib.rs](../../crates/hark-config/src/lib.rs), [lib.rs](../../crates/hark-config/src/lib.rs), [default-config.toml:1-48](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/config/default-config.toml#L1-L48), [crates/hark-config/src/meeting.rs](../../crates/hark-config/src/meeting.rs), [config/default-config.toml:82-119](../../config/default-config.toml#L82-L119)
+Sources: [lib.rs:128-240](../../crates/hark-config/src/lib.rs#L128-L240), [provider.rs:1-184](../../crates/hark-config/src/provider.rs#L1-L184), [default-config.toml:1-48](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/config/default-config.toml#L1-L48), [crates/hark-config/src/meeting.rs](../../crates/hark-config/src/meeting.rs), [config/default-config.toml:85-122](../../config/default-config.toml#L85-L122)
 ### Meeting Shortcut Migration
 
-Schema 4 adds `meeting.toggle_key`, defaulting to `None`. Schema 5 adds `gemini_model` and the explicit Gemini choice. Migration from either schema 3 or 4 preserves `none`/`deepgram`, an explicit model/binding, and deliberate auto-stop values; it never opts into Gemini automatically. `Settings::load` writes a versioned backup before persisting a migrated file; for a v3 file this is `config.toml.v3.bak`. The v3 → v4 migration preserves final-pass selection and deliberate auto-stop settings, including 60 seconds. An explicit shortcut already present in an older file is retained ([migration and backup tests](../../crates/hark-config/src/meeting.rs), [load/save](../../crates/hark-config/src/lib.rs)).
+Schema 4 adds `meeting.toggle_key`, defaulting to `None`. Schema 5 adds `gemini_model` and the explicit Gemini choice. Migration from either schema 3 or 4 preserves `none`/`deepgram`, an explicit model/binding, and deliberate auto-stop values; it never opts into Gemini automatically. `Settings::load` writes a versioned backup before persisting a migrated file; for a v3 file this is `config.toml.v3.bak`. The v3 → v4 migration preserves final-pass selection and deliberate auto-stop settings, including 60 seconds. An explicit shortcut already present in an older file is retained ([migration and backup tests](../../crates/hark-config/src/meeting.rs), [load/save](../../crates/hark-config/src/load_save.rs#L52-L124)).
 
 Schema 6 adds `meeting.echo_cancellation`, defaulting to `false` when absent.
 Migration preserves an explicit value and existing meeting preferences; it does
@@ -156,11 +159,11 @@ meeting, so the active recording keeps one processing configuration throughout.
 See [speaker echo reduction](../features/MEETINGS.md#reduce-speaker-echo) for the
 capture scope and fallback behavior ([settings and migration](../../crates/hark-config/src/meeting.rs)).
 
-`validate_meeting_shortcut` parses both chords through `hark-hotkey` and rejects invalid names, empty configured strings, equal key sets, and either-direction subsets. For the default push-to-talk `LCtrl+LWin`, `LWin+LCtrl`, `LCtrl`, and `LCtrl+LWin+M` conflict; `LCtrl+F11` does not. The settings UI converts blank text to `None`, shows validation errors immediately, and restarts the shared listener after a valid save. This version adds no final-pass provider or model setting ([validation](../../crates/hark-config/src/lib.rs), [settings](../../crates/hark-app/src/ui/settings/meetings.rs)).
+`validate_meeting_shortcut` parses both chords through `hark-hotkey` and rejects invalid names, empty configured strings, equal key sets, and either-direction subsets. For the default push-to-talk `LCtrl+LWin`, `LWin+LCtrl`, `LCtrl`, and `LCtrl+LWin+M` conflict; `LCtrl+F11` does not. The settings UI converts blank text to `None`, shows validation errors immediately, and restarts the shared listener after a valid save. This version adds no final-pass provider or model setting ([validation](../../crates/hark-config/src/lib.rs#L184-L201), [settings](../../crates/hark-app/src/ui/settings/meetings.rs)).
 
 ### Groq Retirement (schema 7)
 
-Schema 7 removes Groq as both an STT and a cleanup provider. `ProviderKind` has no `#[serde(other)]`, so an unknown `kind` fails the *whole* parse; the app would then fall back to defaults behind a banner, and the next Save would write those defaults over the user's file. The migration therefore runs on the raw TOML tree before serde sees it, for any file stamped below 7, and is idempotent ([lib.rs:627-667](../../crates/hark-config/src/lib.rs#L627-L667), [groq_migration.rs:1-45](../../crates/hark-config/src/groq_migration.rs#L1-L45)):
+Schema 7 removes Groq as both an STT and a cleanup provider. `ProviderKind` has no `#[serde(other)]`, so an unknown `kind` fails the *whole* parse; the app would then fall back to defaults behind a banner, and the next Save would write those defaults over the user's file. The migration therefore runs on the raw TOML tree before serde sees it, for any file stamped below 7, and is idempotent ([load_save.rs:13-50](../../crates/hark-config/src/load_save.rs#L13-L50), [groq_migration.rs:1-45](../../crates/hark-config/src/groq_migration.rs#L1-L45)):
 
 | Saved shape | After migration |
 |---|---|
@@ -170,7 +173,7 @@ Schema 7 removes Groq as both an STT and a cleanup provider. `ProviderKind` has 
 
 Sources: [groq_migration.rs:47-122](../../crates/hark-config/src/groq_migration.rs#L47-L122).
 
-Config cannot reach the keychain, so `Settings::load_with_migrations` returns a `Migrations` report alongside the settings. At startup the app reads `Migrations::key_copy()` and calls `hark_keychain::copy_key_if_empty("groq", "openai-compatible")`. The copy happens only when the `openai-compatible` slot is empty, never moves or deletes the `groq` entry, and logs account labels only. An occupied slot logs a warning telling the user to store the right key in Settings if dictation reports it rejected. A second launch loads an already-migrated file and reports nothing ([lib.rs:56-80](../../crates/hark-config/src/lib.rs#L56-L80), [lib.rs:684-711](../../crates/hark-config/src/lib.rs#L684-L711), [keychain lib.rs:119-166](../../crates/hark-keychain/src/lib.rs#L119-L166), [app pipeline.rs `carry_migrated_key`](../../crates/hark-app/src/pipeline.rs), [app.rs:472-476](../../crates/hark-app/src/app.rs#L472-L476)). The versioned backup is `config.toml.v6.bak` for a schema-6 file, written before the migrated file is saved, as with every earlier schema step.
+Config cannot reach the keychain, so `Settings::load_with_migrations` returns a `Migrations` report alongside the settings. At startup the app reads `Migrations::key_copy()` and calls `hark_keychain::copy_key_if_empty("groq", "openai-compatible")`. The copy happens only when the `openai-compatible` slot is empty, never moves or deletes the `groq` entry, and logs account labels only. An occupied slot logs a warning telling the user to store the right key in Settings if dictation reports it rejected. A second launch loads an already-migrated file and reports nothing ([lib.rs:79-104](../../crates/hark-config/src/lib.rs#L79-L104), [load_save.rs:70-94](../../crates/hark-config/src/load_save.rs#L70-L94), [keychain lib.rs:119-166](../../crates/hark-keychain/src/lib.rs#L119-L166), [`carry_migrated_key`, app pipeline.rs:337-390](../../crates/hark-app/src/pipeline.rs#L337-L390), [app.rs:472-476](../../crates/hark-app/src/app.rs#L472-L476)). The versioned backup is `config.toml.v6.bak` for a schema-6 file, written before the migrated file is saved, as with every earlier schema step.
 <!-- END:AUTOGEN hark_04_configuration_schema -->
 
 ---
@@ -216,9 +219,9 @@ Sources: [voice.rs:1-152](https://github.com/BoardPandas/Hark/blob/1c1738716fa4c
 <!-- BEGIN:AUTOGEN hark_04_configuration_loadsave -->
 ## Load and Save
 
-`Settings::load` uses defaults for a missing file and returns other I/O errors. Existing files pass through the schema-7 Groq fix-up on the TOML tree, then `from_toml`, field migrations, and validation. `Settings::load_with_migrations` is the same load, plus the `Migrations` report the app needs for the keychain copy (see [Groq Retirement](#groq-retirement-schema-7)). If their schema version is older than `CONFIG_VERSION`, Hark creates the versioned backup and immediately saves the migrated settings. Both writes are best-effort: a failed backup keeps the original file, and a failed save is logged. Migrated settings are still returned in memory; successful in-memory migration does not prove persistence ([implementation](../../crates/hark-config/src/lib.rs), [v3 migration fixture](../../crates/hark-config/src/meeting.rs)).
+`Settings::load` uses defaults for a missing file and returns other I/O errors. Existing files pass through the schema-7 Groq fix-up on the TOML tree, then `from_toml`, field migrations, and validation. `Settings::load_with_migrations` is the same load, plus the `Migrations` report the app needs for the keychain copy (see [Groq Retirement](#groq-retirement-schema-7)). If their schema version is older than `CONFIG_VERSION`, Hark creates the versioned backup and immediately saves the migrated settings. Both writes are best-effort: a failed backup keeps the original file, and a failed save is logged. Migrated settings are still returned in memory; successful in-memory migration does not prove persistence ([implementation](../../crates/hark-config/src/load_save.rs#L6-L124), [v3 migration fixture](../../crates/hark-config/src/meeting.rs)).
 
-Saving writes a pretty TOML representation through a temporary file and replaces the destination. `validate_meeting_shortcut` also applies to hand-built settings at runtime before installing the listener. The optional meeting shortcut is omitted from serialized TOML when unassigned ([settings](../../crates/hark-config/src/lib.rs), [meeting fields](../../crates/hark-config/src/meeting.rs)).
+Saving writes a pretty TOML representation through a temporary file and replaces the destination. `validate_meeting_shortcut` also applies to hand-built settings at runtime before installing the listener. The optional meeting shortcut is omitted from serialized TOML when unassigned ([save, load_save.rs:126-155](../../crates/hark-config/src/load_save.rs#L126-L155), [shortcut validation, lib.rs:184-201](../../crates/hark-config/src/lib.rs#L184-L201), [meeting fields](../../crates/hark-config/src/meeting.rs)).
 <!-- END:AUTOGEN hark_04_configuration_loadsave -->
 
 ---
@@ -267,12 +270,12 @@ Sources: [keychain/lib.rs:1-95](https://github.com/BoardPandas/Hark/blob/1c17387
 <!-- BEGIN:AUTOGEN hark_04_configuration_locations -->
 ## File Locations
 
-`default_config_path` and `default_data_dir` resolve the per-OS config file and data directory; both return `None` when the OS gives no home directory (headless CI), and callers fall back to in-memory defaults in that case ([lib.rs](../../crates/hark-config/src/lib.rs)).
+`default_config_path` and `default_data_dir` resolve the per-OS config file and data directory; both return `None` when the OS gives no home directory (headless CI), and callers fall back to in-memory defaults in that case ([lib.rs:243-316](../../crates/hark-config/src/lib.rs#L243-L316)).
 
 | Item | Windows | macOS |
 |---|---|---|
-| `config.toml` | `%APPDATA%\hark\config.toml` | `~/Library/Application Support/hark/config.toml` ([lib.rs](../../crates/hark-config/src/lib.rs)) |
-| Data dir (`hark.db` lives here) | `%APPDATA%\hark` (coincides with the config dir) | `~/Library/Application Support/hark` ([lib.rs](../../crates/hark-config/src/lib.rs)) |
+| `config.toml` | `%APPDATA%\hark\config.toml` | `~/Library/Application Support/hark/config.toml` ([lib.rs:243-284](../../crates/hark-config/src/lib.rs#L243-L284)) |
+| Data dir (`hark.db` lives here) | `%APPDATA%\hark` (coincides with the config dir) | `~/Library/Application Support/hark` ([lib.rs:286-316](../../crates/hark-config/src/lib.rs#L286-L316)) |
 | API key | OS credential store (Credential Manager on Windows, Keychain on macOS); service `"hark"`, account = provider label | same ([keychain/lib.rs:24-25](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/crates/hark-keychain/src/lib.rs#L24-L25)) |
 
 The header comment in `default-config.toml` documents the same paths for anyone reading the shipped default file directly ([default-config.toml:1-7](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/config/default-config.toml#L1-L7)):
@@ -288,7 +291,7 @@ The header comment in `default-config.toml` documents the same paths for anyone 
 # shown here.
 ```
 
-Sources: [lib.rs](../../crates/hark-config/src/lib.rs), [keychain/lib.rs:24-25](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/crates/hark-keychain/src/lib.rs#L24-L25), [default-config.toml:1-7](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/config/default-config.toml#L1-L7)
+Sources: [lib.rs:243-324](../../crates/hark-config/src/lib.rs#L243-L324), [keychain/lib.rs:24-25](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/crates/hark-keychain/src/lib.rs#L24-L25), [default-config.toml:1-7](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/config/default-config.toml#L1-L7)
 <!-- END:AUTOGEN hark_04_configuration_locations -->
 
 ---

@@ -15,6 +15,8 @@ mod error;
 pub mod fixture;
 pub mod gemini;
 pub mod gemini_live;
+#[cfg(feature = "live")]
+mod live_transport;
 pub mod meeting;
 pub mod meeting_gemini;
 pub mod metrics;
@@ -28,8 +30,45 @@ pub use error::{error_for_status, error_for_transport, SttError};
 
 /// Connect timeout for provider requests. Latency is the product: fail fast.
 pub const CONNECT_TIMEOUT_MS: u64 = 3_000;
-/// Total request timeout (connect + upload + transcription + download).
+/// Total request timeout (connect + upload + transcription + download). The
+/// ceiling for every batch request: a dictation gets less for a short clip
+/// (see [`dictation_timeout_ms`]), a meeting chunk and the shared client get
+/// exactly this.
 pub const TOTAL_TIMEOUT_MS: u64 = 15_000;
+/// What a dictation batch request is allowed even for a near-empty clip. Not
+/// lower: OpenAI-compatible endpoints include slow self-hosted servers, and
+/// the first request after idle pays a cold connection.
+pub const DICTATION_TIMEOUT_FLOOR_MS: u64 = 6_000;
+
+/// Per-attempt total timeout for a dictation batch request carrying
+/// `audio_ms` of audio: the floor plus half the clip length, capped at
+/// [`TOTAL_TIMEOUT_MS`] (reached at 18 s of audio). A hung provider used to
+/// cost the full 15 s on every attempt, and a retry doubled it.
+pub fn dictation_timeout_ms(audio_ms: u64) -> u64 {
+    DICTATION_TIMEOUT_FLOOR_MS
+        .saturating_add(audio_ms / 2)
+        .clamp(DICTATION_TIMEOUT_FLOOR_MS, TOTAL_TIMEOUT_MS)
+}
+
+/// Duration of a 16 kHz mono PCM16 WAV from its byte length (44-byte header,
+/// 32 000 bytes per second). A file with extra chunks reads slightly long,
+/// which only makes the timeout marginally more generous.
+fn wav_audio_ms(wav_bytes: &[u8]) -> u64 {
+    const HEADER_BYTES: usize = 44;
+    const BYTES_PER_SEC: u64 = wav::SAMPLE_RATE as u64 * wav::BITS_PER_SAMPLE as u64 / 8;
+    wav_bytes.len().saturating_sub(HEADER_BYTES) as u64 * 1_000 / BYTES_PER_SEC
+}
+
+/// The total timeout one batch request runs under. `fixed` is `Some` for a
+/// caller that needs an exact bound (meeting chunks, the on-device fallback's
+/// shortened leash); `None` is a dictation, scaled to the clip.
+///
+/// Set on each request rather than on the client because a request-level
+/// timeout replaces the client's: the shared client's flat total no longer
+/// decides anything for the adapters below.
+pub(crate) fn request_total_ms(fixed: Option<u64>, wav_bytes: &[u8]) -> u64 {
+    fixed.unwrap_or_else(|| dictation_timeout_ms(wav_audio_ms(wav_bytes)))
+}
 
 /// One transcription result. `request_ms` is the full HTTP round trip as seen
 /// by the caller (the dominant share of release-to-inject latency). For a
@@ -98,6 +137,10 @@ pub trait SttProvider: Send {
 /// Build the adapter for a meeting's live-transcript chunks. The same as
 /// [`build`] except that Gemini Live is tuned for 20-30 s clips that may hold
 /// no speech (see [`gemini_live::Finalize::MEETING_CHUNK`]).
+///
+/// A batch adapter here keeps the flat [`TOTAL_TIMEOUT_MS`] rather than the
+/// dictation timeout scaled to clip length: a chunk is not waited on, and a
+/// short final chunk must not get less patience than a long one.
 pub fn build_meeting_chunks(
     config: &ProviderConfig,
     client: reqwest::blocking::Client,
@@ -106,28 +149,56 @@ pub fn build_meeting_chunks(
         ProviderKind::GeminiLive => Ok(Box::new(
             gemini_live::GeminiLive::new(config, config.live_mode)?.for_meeting_chunks(),
         )),
-        _ => build(config, client),
+        _ => build_with(config, client, Some(TOTAL_TIMEOUT_MS)),
     }
 }
 
-/// Build the adapter for a config, sharing the process-wide HTTP client.
+/// Build the adapter for a dictation, sharing the process-wide HTTP client.
+/// Each batch request is bounded by [`dictation_timeout_ms`] for its clip.
 pub fn build(
     config: &ProviderConfig,
     client: reqwest::blocking::Client,
 ) -> Result<Box<dyn SttProvider>, SttError> {
+    build_with(config, client, None)
+}
+
+/// [`build`] with every batch request held to exactly `total_ms`, however long
+/// the clip. For the on-device fallback, whose shortened leash is a fixed
+/// budget (see [`client_with_timeout`]); a request-level timeout replaces the
+/// client's, so a client built with a short total only keeps it if the
+/// adapter is built through here with the same value.
+pub fn build_with_total_timeout(
+    config: &ProviderConfig,
+    client: reqwest::blocking::Client,
+    total_ms: u64,
+) -> Result<Box<dyn SttProvider>, SttError> {
+    build_with(config, client, Some(total_ms))
+}
+
+fn build_with(
+    config: &ProviderConfig,
+    client: reqwest::blocking::Client,
+    fixed_total_ms: Option<u64>,
+) -> Result<Box<dyn SttProvider>, SttError> {
     match config.kind {
-        ProviderKind::OpenAiCompatible => Ok(Box::new(openai_compatible::OpenAiCompatible::new(
-            config, client,
-        ))),
-        ProviderKind::OpenAiTranscribe => Ok(Box::new(openai_transcribe::OpenAiTranscribe::new(
-            config, client,
-        ))),
-        ProviderKind::Deepgram => Ok(Box::new(deepgram::Deepgram::new(config, client)?)),
+        ProviderKind::OpenAiCompatible => Ok(Box::new(
+            openai_compatible::OpenAiCompatible::new(config, client)
+                .with_total_timeout(fixed_total_ms),
+        )),
+        ProviderKind::OpenAiTranscribe => Ok(Box::new(
+            openai_transcribe::OpenAiTranscribe::new(config, client)
+                .with_total_timeout(fixed_total_ms),
+        )),
+        ProviderKind::Deepgram => Ok(Box::new(
+            deepgram::Deepgram::new(config, client)?.with_total_timeout(fixed_total_ms),
+        )),
         ProviderKind::GeminiLive => Ok(Box::new(gemini_live::GeminiLive::new(
             config,
             config.live_mode,
         )?)),
-        ProviderKind::Gemini => Ok(Box::new(gemini::Gemini::new(config, client))),
+        ProviderKind::Gemini => Ok(Box::new(
+            gemini::Gemini::new(config, client).with_total_timeout(fixed_total_ms),
+        )),
         // The replay adapter: a finished clip over the realtime socket, so
         // Test connection exercises the live path. A dictation the stream
         // could not carry, and every meeting chunk, go to the batch REST
@@ -178,7 +249,8 @@ pub fn shared_client() -> Result<reqwest::blocking::Client, SttError> {
 }
 
 /// A client identical to [`shared_client`] but with a different total request
-/// budget.
+/// budget. Adapters override it per request, so pair it with
+/// [`build_with_total_timeout`].
 ///
 /// This exists for the on-device fallback: when a local model is armed and
 /// ready, waiting the full [`TOTAL_TIMEOUT_MS`] before failing over would make
@@ -227,5 +299,61 @@ mod tests {
         assert!(static_trust_roots().unwrap().len() > 100);
         assert!(shared_client().is_ok());
         assert!(meeting::final_pass_client().is_ok());
+    }
+
+    #[test]
+    fn dictation_timeout_scales_with_the_clip_between_floor_and_cap() {
+        assert_eq!(dictation_timeout_ms(0), 6_000);
+        assert_eq!(dictation_timeout_ms(1_000), 6_500);
+        assert_eq!(dictation_timeout_ms(10_000), 11_000);
+        assert_eq!(dictation_timeout_ms(17_999), 14_999);
+        assert_eq!(dictation_timeout_ms(18_000), TOTAL_TIMEOUT_MS);
+        assert_eq!(dictation_timeout_ms(600_000), TOTAL_TIMEOUT_MS);
+        assert_eq!(dictation_timeout_ms(u64::MAX), TOTAL_TIMEOUT_MS);
+    }
+
+    #[test]
+    fn wav_audio_ms_reads_duration_from_byte_length() {
+        let one_second = wav::encode_wav_16k_mono(&vec![0.0; 16_000]);
+        assert_eq!(wav_audio_ms(&one_second), 1_000);
+        assert_eq!(wav_audio_ms(&wav::encode_wav_16k_mono(&[])), 0);
+        // Shorter than a header: no underflow.
+        assert_eq!(wav_audio_ms(b"RIFF"), 0);
+    }
+
+    #[test]
+    fn a_fixed_bound_wins_over_clip_scaling() {
+        let one_second = wav::encode_wav_16k_mono(&vec![0.0; 16_000]);
+        assert_eq!(request_total_ms(None, &one_second), 6_500);
+        assert_eq!(request_total_ms(Some(15_000), &one_second), 15_000);
+        assert_eq!(request_total_ms(Some(6_000), &[]), 6_000);
+    }
+
+    // A server that accepts and never answers must surface as a Timeout that
+    // names the bound in force, not the 15 s cap or the client's.
+    #[test]
+    fn a_hung_batch_request_times_out_naming_its_own_bound() {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let base_url = format!("http://{}", listener.local_addr().unwrap());
+        let _hold = std::thread::spawn(move || {
+            let _conn = listener.accept();
+            std::thread::sleep(std::time::Duration::from_secs(3));
+        });
+        let config = ProviderConfig {
+            kind: ProviderKind::OpenAiCompatible,
+            label: "test".to_string(),
+            base_url,
+            model: "m".to_string(),
+            api_key: "k".to_string(),
+            bias_terms: Vec::new(),
+            cleanup_instruction: None,
+            live_mode: gemini_live::TranscribeMode::Verbatim,
+        };
+        let adapter = build_with_total_timeout(&config, shared_client().unwrap(), 300).unwrap();
+        let wav = wav::encode_wav_16k_mono(&[0.0; 1_600]);
+        match adapter.transcribe(&wav) {
+            Err(SttError::Timeout { configured_ms, .. }) => assert_eq!(configured_ms, 300),
+            other => panic!("expected a 300 ms timeout, got {:?}", other.err()),
+        }
     }
 }

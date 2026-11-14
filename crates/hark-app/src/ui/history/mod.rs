@@ -10,17 +10,31 @@
 //! windowed LIMIT queries plus a "Show more" sentinel bound the work
 //! instead, and the retention cap bounds the worst case.
 
+pub(crate) mod recovery;
 mod row;
+mod selection;
 
 use crate::storage::{StorageCmd, StorageHandle};
 use crate::theme;
 use crate::ui::selectable::Selection;
+use crate::ui::spellbook::{added_line, AddedChoice};
 use crate::ui::{format, widgets};
 use egui::{Align, Color32, Key, Layout, Modifiers, RichText, ScrollArea, TextEdit, Ui};
 use hark_store::{Entry, StoreError};
 use jiff::tz::TimeZone;
 
 const PAGE_SIZE: u32 = 100;
+
+/// What the page asks its caller to do; the page owns neither the Spellbook
+/// nor navigation.
+pub enum Intent {
+    /// Open the Spellbook editor primed with this misheard span.
+    AddTerm(String),
+    /// Undo the add the notice above the list reports.
+    UndoAdd,
+    /// Stop reporting that add.
+    DismissAdded,
+}
 
 pub struct HistoryPage {
     search: String,
@@ -44,9 +58,9 @@ pub struct HistoryPage {
     confirm: Option<widgets::Confirm>,
     focus_search: bool,
     tz: TimeZone,
-    /// The one live text selection across the whole list (Slice 0 spike):
-    /// selecting in a second row must retire the first, so the page owns it
-    /// rather than each row.
+    /// The one live text selection across the whole list: selecting in a
+    /// second row must retire the first, so the page owns it rather than each
+    /// row.
     selection: Option<Selection>,
 }
 
@@ -69,13 +83,17 @@ impl HistoryPage {
         }
     }
 
+    /// `added` is the term the user just sent to the Spellbook from here, if
+    /// the notice for it is still up.
     pub fn show(
         &mut self,
         ui: &mut Ui,
         storage: Option<&StorageHandle>,
         unavailable: Option<&str>,
         chord: &str,
-    ) -> Option<String> {
+        added: Option<&str>,
+    ) -> Option<Intent> {
+        recovery::show(ui);
         let Some(storage) = storage else {
             widgets::empty_state(
                 ui,
@@ -116,6 +134,9 @@ impl HistoryPage {
             return None;
         }
 
+        // After the early returns above, so a click on it can never be dropped
+        // by one of them.
+        let notice = added.and_then(|term| added_line(ui, term, true));
         let requested_term = self.list(ui, storage);
 
         // Esc collapses the expanded row, unless a modal owns Esc right now.
@@ -136,7 +157,12 @@ impl HistoryPage {
                 None => {}
             }
         }
-        requested_term
+        match (requested_term, notice) {
+            (Some(term), _) => Some(Intent::AddTerm(term)),
+            (None, Some(AddedChoice::Undo)) => Some(Intent::UndoAdd),
+            (None, Some(AddedChoice::Dismiss)) => Some(Intent::DismissAdded),
+            (None, None) => None,
+        }
     }
 
     /// Re-query when the cache key moves (a write landed, the search edited,
@@ -229,6 +255,17 @@ impl HistoryPage {
             .id_salt("history-list")
             .auto_shrink([false, false])
             .show(ui, |ui| {
+                // A selection on text no longer on screen (row collapsed,
+                // entry deleted or pruned, search narrowed) must not keep the
+                // Add button live.
+                if let Some(sel) = &self.selection {
+                    let shown = self.entries.iter().any(|entry| {
+                        selection::holds_selection(entry, self.expanded == Some(entry.id), sel)
+                    });
+                    if !shown {
+                        self.selection = None;
+                    }
+                }
                 let mut last_day: Option<String> = None;
                 for entry in &self.entries {
                     let day = format::day_label(entry.ts_ms, now_ms, &self.tz);
@@ -245,14 +282,7 @@ impl HistoryPage {
                     // action cluster is laid out above the transcript that
                     // owns the selection. Owned, so the immutable borrow of
                     // `self.selection` ends before the row takes it mutably.
-                    let selected: Option<String> = self
-                        .selection
-                        .as_ref()
-                        .filter(|s| s.owned_by(row::selection_id(entry.id)))
-                        .and_then(|s| {
-                            hark_spellbook::snapped_text(entry.raw_text.trim(), s.range())
-                        })
-                        .map(str::to_owned);
+                    let selected = selection::selected_text(entry, expanded, &self.selection);
                     let view = row::RowView {
                         expanded,
                         copied,

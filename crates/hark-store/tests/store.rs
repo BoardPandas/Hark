@@ -20,6 +20,7 @@ fn dictation(ts_ms: i64, raw: &str, fin: &str) -> NewDictation {
         total_ms: 800,
         spellbook_replacements: Some(0),
         foreground_app: None,
+        delivered: true,
     }
 }
 
@@ -74,6 +75,95 @@ fn capture_off_ticks_stats_but_stores_no_content() {
     let stats = store.stats().expect("stats");
     assert_eq!(stats.dictations, 1, "counters still tick with capture off");
     assert_eq!(stats.words, 2);
+}
+
+#[test]
+fn the_delivered_flag_round_trips_and_defaults_to_delivered() {
+    let mut store = Store::open_in_memory().expect("open");
+    store
+        .record(&dictation(1_000, "raw", "pasted words"), true)
+        .expect("record pasted");
+    let mut stranded = dictation(2_000, "raw", "stranded words");
+    stranded.delivered = false;
+    store.record(&stranded, true).expect("record stranded");
+
+    let entries = store.entries(None, 10, 0).expect("entries");
+    assert_eq!(entries[0].final_text, "stranded words");
+    assert!(!entries[0].delivered, "newest row is the undelivered one");
+    assert_eq!(entries[1].final_text, "pasted words");
+    assert!(entries[1].delivered);
+}
+
+#[test]
+fn an_undelivered_dictation_is_history_only_and_ticks_no_counter() {
+    let mut store = Store::open_in_memory().expect("open");
+    let mut stranded = dictation(1_000, "raw words", "three final words");
+    stranded.delivered = false;
+    store.record(&stranded, true).expect("record");
+
+    assert_eq!(store.entry_count(None).expect("count"), 1);
+    let stats = store.stats().expect("stats");
+    assert_eq!(
+        (
+            stats.dictations,
+            stats.words,
+            stats.audio_ms,
+            stats.total_ms
+        ),
+        (0, 0, 0, 0),
+        "words that never reached the cursor are not credited"
+    );
+}
+
+#[test]
+fn an_undelivered_dictation_with_capture_off_stores_nothing_at_all() {
+    let mut store = Store::open_in_memory().expect("open");
+    let mut stranded = dictation(1_000, "private words", "private words");
+    stranded.delivered = false;
+    store.record(&stranded, false).expect("record");
+
+    assert_eq!(store.entry_count(None).expect("count"), 0);
+    assert_eq!(store.stats().expect("stats").dictations, 0);
+}
+
+#[test]
+fn migration_008_marks_every_existing_row_delivered() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let db_path = dir.path().join("hark.db");
+
+    // A database exactly as migration 007 left it, with a row in it.
+    {
+        let conn = rusqlite::Connection::open(&db_path).expect("raw open");
+        for sql in [
+            include_str!("../migrations/001_init.sql"),
+            include_str!("../migrations/002_stats_total_ms.sql"),
+            include_str!("../migrations/003_entries_invocation.sql"),
+            include_str!("../migrations/004_meetings.sql"),
+            include_str!("../migrations/005_insight_events.sql"),
+            include_str!("../migrations/006_meeting_transcript_status.sql"),
+            include_str!("../migrations/007_meeting_speakers.sql"),
+        ] {
+            conn.execute_batch(sql).expect("apply");
+        }
+        conn.pragma_update(None, "user_version", 7).expect("stamp");
+        conn.execute(
+            "INSERT INTO entries (ts_ms, raw_text, final_text, voice, stt_provider, \
+             stt_model, stt_ms, total_ms) VALUES (1, 'r', 'f', 'clean', 'deepgram', \
+             'nova-3', 100, 200)",
+            [],
+        )
+        .expect("seed entry");
+    }
+
+    let mut store = Store::open(&db_path).expect("open runs migration 008");
+    let entries = store.entries(None, 10, 0).expect("entries");
+    assert_eq!(entries.len(), 1);
+    assert!(entries[0].delivered, "pre-008 rows were all pasted");
+
+    let mut stranded = dictation(2, "raw", "kept words");
+    stranded.delivered = false;
+    store.record(&stranded, true).expect("record after upgrade");
+    assert!(!store.entries(None, 1, 0).expect("entries")[0].delivered);
 }
 
 #[test]

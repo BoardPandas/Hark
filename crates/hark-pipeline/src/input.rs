@@ -3,12 +3,24 @@
 use crate::lifecycle::RunControl;
 use hark_audio::ring::Consumer;
 use hark_hotkey::PttEvent;
-use std::sync::mpsc::{self, Receiver};
+use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::Arc;
 
 pub(crate) struct Edge {
     pub event: PttEvent,
     pub at_abs: u64,
+}
+
+/// Everything the worker thread blocks on: an admitted push-to-talk edge, or a
+/// request from the UI about the one clip the worker may be holding after a
+/// failed transcription. One merged channel, because std's `mpsc` has no
+/// select and the worker must wake for either.
+pub(crate) enum WorkerInput {
+    Edge(Edge),
+    /// Transcribe the held clip again (honoured only while idle).
+    RetryHeld,
+    /// The user gave up on the held clip; drop it.
+    DismissHeld,
 }
 
 #[derive(Default)]
@@ -39,12 +51,16 @@ impl Admission {
     }
 }
 
+/// Start the observer. Returns the worker's receiver plus a sender onto the
+/// same channel for recovery requests; whoever keeps that sender must drop it
+/// before waiting for the worker, or the worker's `recv` never disconnects.
 pub(crate) fn route(
     input: Receiver<PttEvent>,
     clock: Consumer,
     run: Arc<RunControl>,
-) -> std::io::Result<Receiver<Edge>> {
+) -> std::io::Result<(Receiver<WorkerInput>, Sender<WorkerInput>)> {
     let (tx, rx) = mpsc::channel();
+    let commands = tx.clone();
     std::thread::Builder::new()
         .name("hark-dictation-input".into())
         .spawn(move || {
@@ -54,13 +70,13 @@ pub(crate) fn route(
                     break;
                 }
                 if let Some(edge) = admission.observe(event, clock.total_written(), &run) {
-                    if tx.send(edge).is_err() {
+                    if tx.send(WorkerInput::Edge(edge)).is_err() {
                         break;
                     }
                 }
             }
         })?;
-    Ok(rx)
+    Ok((rx, commands))
 }
 
 #[cfg(test)]
@@ -115,12 +131,16 @@ mod tests {
         let (producer, consumer) = hark_audio::ring::ring(1_000);
         let run = Arc::new(RunControl::default());
         let (tx, input) = mpsc::channel();
-        let output = route(input, consumer, run.clone()).unwrap();
+        let (output, commands) = route(input, consumer, run.clone()).unwrap();
+        let edge = |input: WorkerInput| match input {
+            WorkerInput::Edge(edge) => edge,
+            _ => panic!("expected an edge"),
+        };
         tx.send(PttEvent::Down).unwrap();
-        assert_eq!(output.recv().unwrap().at_abs, 0);
+        assert_eq!(edge(output.recv().unwrap()).at_abs, 0);
         producer.push(&[0.2; 100]);
         tx.send(PttEvent::Up).unwrap();
-        assert_eq!(output.recv().unwrap().at_abs, 100);
+        assert_eq!(edge(output.recv().unwrap()).at_abs, 100);
 
         tx.send(PttEvent::Down).unwrap();
         // Advisory events are an ordered barrier proving the busy Down
@@ -128,17 +148,21 @@ mod tests {
         let warning = PttEvent::Intercepted(hark_hotkey::PttKeyCode::LCtrl);
         tx.send(warning).unwrap();
         assert!(matches!(
-            output.recv().unwrap().event,
+            edge(output.recv().unwrap()).event,
             PttEvent::Intercepted(_)
         ));
         run.finish_cycle();
         producer.push(&[0.2; 100]);
         tx.send(PttEvent::Up).unwrap();
         tx.send(PttEvent::Down).unwrap();
-        let next = output.recv().unwrap();
+        let next = edge(output.recv().unwrap());
         assert!(matches!(next.event, PttEvent::Down));
         assert_eq!(next.at_abs, 200);
+        // Recovery requests share the worker's channel with the edges.
+        commands.send(WorkerInput::RetryHeld).unwrap();
+        assert!(matches!(output.recv().unwrap(), WorkerInput::RetryHeld));
         drop(tx);
+        drop(commands);
         assert!(output.recv().is_err());
     }
 }

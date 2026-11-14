@@ -39,6 +39,7 @@ fn dictation(ts_ms: i64) -> NewDictation {
         total_ms: 200,
         spellbook_replacements: Some(0),
         foreground_app: None,
+        delivered: true,
     }
 }
 
@@ -359,6 +360,29 @@ fn text_analysis_requires_opt_in_and_does_not_count_canned_expansion() {
         empty.patterns.expect("empty analysis").sampled_dictations,
         0
     );
+}
+
+#[test]
+fn undelivered_rows_are_not_counted_or_analysed_as_completed_dictations() {
+    let mut store = Store::open_in_memory().expect("store");
+    let mut query = request("2026-09-30T12:00:00Z", 7);
+    query.analyze_text = true;
+    let mut d = dictation(query.now_ms);
+    d.final_text = "delivered words here".into();
+    store.record(&d, true).expect("delivered");
+    d.final_text = "stranded words here".into();
+    d.delivered = false;
+    store.record(&d, true).expect("undelivered");
+
+    assert_eq!(store.entry_count(None).expect("both stay in History"), 2);
+    let insights = store.insights(&query).expect("insights");
+    assert_eq!(insights.period.dictations, 1);
+    assert_eq!(insights.lifetime.dictations, 1);
+    let patterns = insights.patterns.expect("analysis");
+    assert_eq!(patterns.matching_dictations, 1);
+    assert_eq!(patterns.sampled_dictations, 1);
+    assert!(!patterns.words.iter().any(|w| w.text == "stranded"));
+    assert!(patterns.words.iter().any(|w| w.text == "delivered"));
 }
 
 #[test]

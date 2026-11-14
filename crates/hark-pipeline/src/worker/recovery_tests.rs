@@ -1,5 +1,6 @@
 use super::*;
 use crate::lifecycle::RunControl;
+use hark_stt::{SttError, Transcript};
 use std::cell::Cell;
 use std::sync::mpsc;
 
@@ -31,7 +32,7 @@ impl SttProvider for RetiringProvider {
     }
 }
 
-fn worker(provider: Box<dyn SttProvider>, control: Arc<RunControl>) -> Worker {
+pub(super) fn worker(provider: Box<dyn SttProvider>, control: Arc<RunControl>) -> Worker {
     let (producer, consumer) = hark_audio::ring::ring(48_000);
     producer.push(&vec![0.25; 48_000]);
     let (events, _) = mpsc::channel();
@@ -61,6 +62,7 @@ fn worker(provider: Box<dyn SttProvider>, control: Arc<RunControl>) -> Worker {
         recording: Arc::new(AtomicBool::new(false)),
         control,
         discontinuities: Arc::new(AtomicU64::new(0)),
+        held: None,
     }
 }
 
@@ -345,7 +347,7 @@ fn worker_reopens_admission_after_a_gated_hold() {
     };
     worker.events = events;
     let (tx, raw) = mpsc::channel();
-    let routed = crate::input::route(raw, worker.consumer.reader(), control).unwrap();
+    let (routed, commands) = crate::input::route(raw, worker.consumer.reader(), control).unwrap();
     let thread = std::thread::spawn(move || run(worker, routed));
     tx.send(PttEvent::Down).unwrap();
     assert!(matches!(receive(), PipelineEvent::Recording));
@@ -367,5 +369,6 @@ fn worker_reopens_admission_after_a_gated_hold() {
     tx.send(PttEvent::Down).unwrap();
     assert!(matches!(receive(), PipelineEvent::Recording));
     drop(tx);
+    drop(commands);
     thread.join().unwrap();
 }

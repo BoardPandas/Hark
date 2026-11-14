@@ -14,7 +14,7 @@
 > - **v0.20.0:** Invocations — say a trigger phrase, get a block of text you wrote, injected verbatim and never reworded by a cleanup voice.
 > - **v0.18.0:** Opt-in on-device transcription with a downloadable Parakeet model, usable as a cloud backup or as the primary engine.
 
-This is the canonical wiki for Hark, a push-to-talk voice dictation desktop app targeting Windows, macOS and Linux, written in Rust with BYOK cloud transcription and optional on-device STT, plus Windows meeting transcription. Windows and Linux have end-to-end push-to-talk today; the macOS CGEventTap hook remains an explicit implementation gap. Generated sections cite the source they describe; `_meta/SUMMARY.md` records known gaps rather than implying every page is current.
+This is the canonical wiki for Hark, a push-to-talk voice dictation desktop app targeting Windows, macOS and Linux, written in Rust with BYOK cloud transcription and optional on-device STT, plus bot-free meeting transcription on Windows, macOS 14.2+ and Linux. Windows, macOS and Linux all have native push-to-talk hooks (`WH_KEYBOARD_LL`, CGEventTap and evdev). Generated sections cite the source they describe; `_meta/SUMMARY.md` records known gaps rather than implying every page is current.
 
 ## Quick Start
 
@@ -29,7 +29,7 @@ This is the canonical wiki for Hark, a push-to-talk voice dictation desktop app 
 | **Transcribe offline, with no provider** | [ON_DEVICE_STT.md](features/ON_DEVICE_STT.md) |
 | **Cut a signed release** | [RELEASE_AND_PACKAGING.md](operations/RELEASE_AND_PACKAGING.md) |
 | **Look up a term** | [GLOSSARY.md](GLOSSARY.md) |
-| **Record and transcribe a meeting (Windows)** | [MEETINGS.md](features/MEETINGS.md) |
+| **Record and transcribe a meeting** | [MEETINGS.md](features/MEETINGS.md) |
 
 ---
 
@@ -60,7 +60,7 @@ One page per major subsystem of the dictation pipeline and the desktop shell.
 | [TEXT_INJECTION.md](features/TEXT_INJECTION.md) | Clipboard stash-set-paste-restore injection with an enigo keystroke fallback. |
 | [DESKTOP_UI.md](features/DESKTOP_UI.md) | The tray daemon, the recording overlay, and the egui settings/history/stats window. |
 | [UPDATES_AND_AUTOSTART.md](features/UPDATES_AND_AUTOSTART.md) | The in-app update checker with Windows self-update, and launch-at-login registration. |
-| [MEETINGS.md](features/MEETINGS.md) | Bot-free meeting transcription (Windows): OS loopback capture, live Me/Them transcript, the Deepgram final pass, notes, the audio storage cap, and sharing. |
+| [MEETINGS.md](features/MEETINGS.md) | Bot-free meeting transcription (Windows, macOS 14.2+ and Linux): OS loopback capture, live Me/Them transcript, the Deepgram final pass, notes, the audio storage cap, and sharing. |
 
 ---
 

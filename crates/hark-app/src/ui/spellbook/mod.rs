@@ -22,7 +22,7 @@ mod edit;
 use crate::theme;
 use crate::ui::book::{Book, BookView};
 use crate::ui::widgets;
-use edit::{add_alias, add_entry, commit_edit, is_common_word, remove_alias, undo_add};
+use edit::{add_alias, add_entry, commit_edit, is_common_word, remove_alias, undo_add, Added};
 use egui::text::{CCursor, CCursorRange};
 use egui::{Id, Key, RichText, TextEdit, Ui};
 use hark_config::SpellbookEntry;
@@ -49,8 +49,11 @@ pub struct SpellbookPage {
     /// by selecting text in History.
     primed_from: Option<String>,
     add_needs_focus: bool,
-    /// Last term added this session, offered for one-click undo.
-    last_added: Option<String>,
+    /// Last add this session, offered for one-click undo here and on History.
+    last_added: Option<Added>,
+    /// The user finished (saved or cancelled) a History handoff, so the caller
+    /// should take them back to the entry they were reading.
+    return_to_history: bool,
     /// The book view's position. The view choice itself is persisted.
     book: Book,
 }
@@ -69,6 +72,7 @@ impl SpellbookPage {
             primed_from: None,
             add_needs_focus: false,
             last_added: None,
+            return_to_history: false,
             book: Book::default(),
         }
     }
@@ -93,6 +97,30 @@ impl SpellbookPage {
         self.add_needs_focus = true;
         self.last_added = None;
         self.edit = None;
+    }
+
+    /// The term of the add that can still be undone, for History's notice.
+    pub fn last_added(&self) -> Option<&str> {
+        self.last_added.as_ref().map(|a| a.term.as_str())
+    }
+
+    pub fn dismiss_added(&mut self) {
+        self.last_added = None;
+    }
+
+    /// Undo the last add. Returns true when `entries` changed (caller persists).
+    pub fn undo_last(&mut self, entries: &mut Vec<SpellbookEntry>) -> bool {
+        let Some(added) = self.last_added.take() else {
+            return false;
+        };
+        undo_add(entries, &added)
+    }
+
+    /// True once, after a History handoff was saved or cancelled. The caller
+    /// holds off acting on it until the save has been written: a failed save
+    /// must leave the user on the page that shows why.
+    pub fn take_return_to_history(&mut self) -> bool {
+        std::mem::take(&mut self.return_to_history)
     }
 
     /// Render. Returns true when `entries` changed (caller persists then).
@@ -176,7 +204,7 @@ impl SpellbookPage {
 
         // Arrived from a History selection: name what was heard, so the term
         // field reads as "type the correction" rather than "type something".
-        if let Some(heard) = &self.primed_from {
+        if let Some(heard) = self.primed_from.clone() {
             ui.horizontal_wrapped(|ui| {
                 ui.label(
                     theme::icon_text(theme::icons::LIGHTNING)
@@ -190,6 +218,15 @@ impl SpellbookPage {
                     ))
                     .small(),
                 );
+                // Back out without adding anything and land on the entry the
+                // user was reading.
+                if ui
+                    .link(RichText::new("Cancel").small())
+                    .on_hover_text("Back to History without adding anything")
+                    .clicked()
+                {
+                    self.cancel_handoff();
+                }
             });
             ui.add_space(2.0);
         }
@@ -212,6 +249,13 @@ impl SpellbookPage {
             }
             if response.lost_focus() && ui.input(|i| i.key_pressed(Key::Enter)) {
                 submit = true;
+            }
+            // TextEdit surrenders focus on Esc, so that frame is `lost_focus`.
+            if self.primed_from.is_some()
+                && response.lost_focus()
+                && ui.input(|i| i.key_pressed(Key::Escape))
+            {
+                self.cancel_handoff();
             }
             if ui
                 .add_enabled(
@@ -248,12 +292,16 @@ impl SpellbookPage {
     /// entry, which may be an existing one that just gained an alias.
     fn submit_add(&mut self, entries: &mut Vec<SpellbookEntry>) -> bool {
         let term = self.add.trim().to_string();
+        let existed = entries.iter().any(|e| e.term == term);
         let changed = add_entry(entries, &self.add, &self.add_alias);
         if changed {
             if let Some(index) = entries.iter().position(|e| e.term == term) {
                 self.book.anchor = index;
             }
-            self.last_added = Some(term);
+            // An add to an existing term changed it only by the alias.
+            let merged_alias = existed.then(|| self.add_alias.trim().to_string());
+            self.last_added = Some(Added { term, merged_alias });
+            self.return_to_history |= self.primed_from.is_some();
         }
         self.add.clear();
         self.add_alias.clear();
@@ -261,30 +309,24 @@ impl SpellbookPage {
         changed
     }
 
+    fn cancel_handoff(&mut self) {
+        self.add.clear();
+        self.add_alias.clear();
+        self.primed_from = None;
+        self.return_to_history = true;
+    }
+
     /// One-click undo for the last add: a wrong term corrupts every later
     /// dictation containing that sound, so unmaking it must be cheaper than
     /// making it.
     fn undo_row(&mut self, ui: &mut Ui, entries: &mut Vec<SpellbookEntry>) -> bool {
-        let Some(added) = self.last_added.clone() else {
+        let Some(term) = self.last_added() else {
             return false;
         };
         let mut changed = false;
-        ui.horizontal_wrapped(|ui| {
-            ui.label(
-                theme::icon_text(theme::icons::CHECK)
-                    .small()
-                    .color(theme::success(ui.visuals())),
-            );
-            ui.label(
-                RichText::new(format!("Added \u{201C}{added}\u{201D}"))
-                    .small()
-                    .color(theme::success(ui.visuals())),
-            );
-            if ui.link(RichText::new("Undo").small()).clicked() {
-                changed = undo_add(entries, &added);
-                self.last_added = None;
-            }
-        });
+        if added_line(ui, term, false) == Some(AddedChoice::Undo) {
+            changed = self.undo_last(entries);
+        }
         ui.add_space(2.0);
         changed
     }
@@ -429,6 +471,38 @@ impl SpellbookPage {
     }
 }
 
+#[derive(PartialEq, Eq)]
+pub enum AddedChoice {
+    Undo,
+    Dismiss,
+}
+
+/// The "Added X" confirmation with its one-click Undo, shared by this page and
+/// History (the handoff returns there). `dismissable` adds a way to clear it
+/// without undoing, for where it would otherwise stay up indefinitely.
+pub fn added_line(ui: &mut Ui, term: &str, dismissable: bool) -> Option<AddedChoice> {
+    let mut choice = None;
+    ui.horizontal_wrapped(|ui| {
+        ui.label(
+            theme::icon_text(theme::icons::CHECK)
+                .small()
+                .color(theme::success(ui.visuals())),
+        );
+        ui.label(
+            RichText::new(format!("Added \u{201C}{term}\u{201D}"))
+                .small()
+                .color(theme::success(ui.visuals())),
+        );
+        if ui.link(RichText::new("Undo").small()).clicked() {
+            choice = Some(AddedChoice::Undo);
+        }
+        if dismissable && ui.link(RichText::new("Dismiss").small().weak()).clicked() {
+            choice = Some(AddedChoice::Dismiss);
+        }
+    });
+    choice
+}
+
 /// Warn, never block, when an alias is made entirely of common words: it would
 /// fire on ordinary speech. The user may still know better than the guard --
 /// niche jargon really can be spelled like a common word -- so this informs the
@@ -453,3 +527,6 @@ fn alias_warning(ui: &mut Ui, alias: &str) {
         );
     });
 }
+
+#[cfg(test)]
+mod tests;

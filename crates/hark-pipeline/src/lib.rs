@@ -14,7 +14,9 @@ mod input;
 mod lifecycle;
 mod local;
 pub mod meeting;
+mod plan;
 mod retry;
+mod route;
 mod state;
 mod stream;
 mod worker;
@@ -22,12 +24,16 @@ mod worker;
 pub use events::{DictationRecord, FailStage, PipelineEvent};
 pub use hark_audio::LevelMeter;
 pub use retry::should_retry;
+pub use route::{batch_stt_route, provider_config, stt_route};
 pub use state::{advance, Action, Event, PipelineState};
 
-use hark_audio::WindowParams;
 use hark_config::Settings;
-use hark_inject::{InjectSettings, Strategy};
-use hark_stt::{ProviderConfig, SttError};
+use hark_stt::SttError;
+use plan::{
+    build_cleanup, build_expander, build_local, inject_settings, live_adapter, window_params,
+};
+use route::fallback_config;
+pub(crate) use route::meeting_chunk_config;
 use std::sync::atomic::AtomicBool;
 use std::sync::mpsc;
 use std::sync::Arc;
@@ -74,10 +80,35 @@ pub struct PipelineHandle {
     /// True exactly while a dictation is capturing audio.
     recording: Arc<AtomicBool>,
     control: Arc<lifecycle::RunControl>,
+    /// Recovery requests onto the worker's input channel. Taken and dropped
+    /// first in `Drop`: while this sender lives the worker's `recv` cannot
+    /// disconnect, and the join below would wait out its whole grace.
+    commands: Option<mpsc::Sender<input::WorkerInput>>,
     _capture: hark_audio::CaptureHandle,
 }
 
 impl PipelineHandle {
+    /// Ask the worker to transcribe again the one clip it kept after a failed
+    /// transcription. Fire and forget: the answer arrives as
+    /// [`PipelineEvent::Recovered`] (text, never pasted), or as
+    /// `Failed` + [`PipelineEvent::ClipHeld`] when it fails or the worker is
+    /// busy, or as `ClipHeld { held: false }` when there is nothing to retry.
+    pub fn retry_held_clip(&self) {
+        self.send_command(input::WorkerInput::RetryHeld);
+    }
+
+    /// Drop the held clip. No reply: the UI has already let go of it.
+    pub fn dismiss_held_clip(&self) {
+        self.send_command(input::WorkerInput::DismissHeld);
+    }
+
+    fn send_command(&self, command: input::WorkerInput) {
+        if let Some(commands) = &self.commands {
+            // Only fails once the worker is gone, when there is nothing to ask.
+            let _ = commands.send(command);
+        }
+    }
+
     /// Hand the settings recorder the listener's raw key stream. The hook stays
     /// exactly where it is — the pipeline is not stopped and no second hook is
     /// installed — so recording rides the code path dictation already proves
@@ -126,6 +157,7 @@ impl PipelineHandle {
 impl Drop for PipelineHandle {
     fn drop(&mut self) {
         self.control.cancel();
+        drop(self.commands.take());
         // Stop the hook thread; its exit drops the sender, which ends the
         // worker's receive loop.
         drop(self.listener.take());
@@ -158,364 +190,6 @@ fn join_within(
             let _ = worker.join();
             true
         }
-    }
-}
-
-/// Whether this build links the WebSocket adapters (hark-stt's `live`).
-const LIVE_BUILD: bool = cfg!(feature = "live");
-
-/// Which adapter and model the STT settings select. Pure and silent, so the
-/// status line can name the model a dictation really uses on every frame.
-///
-/// OpenAI with Live transcribe on streams to the realtime adapter. A build
-/// without the WebSocket client runs what the toggle being off would run (the
-/// pinned batch model, else gpt-transcribe) rather than failing every
-/// dictation; [`provider_config`] is where that gets logged.
-pub fn stt_route(provider: &hark_config::Provider) -> (hark_stt::ProviderKind, String) {
-    match provider.live_transcribe_model() {
-        Some(model) if LIVE_BUILD => (hark_stt::ProviderKind::OpenAiLive, model),
-        _ => batch_stt_route(provider),
-    }
-}
-
-/// The adapter and model that take a finished clip: what the dictation falls
-/// back to when the stream did not carry it, and what every meeting chunk
-/// uses. The same as [`stt_route`] except for OpenAI with Live transcribe,
-/// where it is what the toggle being off would run — the pinned batch model,
-/// else gpt-transcribe — and never the realtime model.
-pub fn batch_stt_route(provider: &hark_config::Provider) -> (hark_stt::ProviderKind, String) {
-    if !provider.uses_live_transcribe() {
-        return batch_route(provider);
-    }
-    batch_route(&hark_config::Provider {
-        live: false,
-        model: provider
-            .model
-            .clone()
-            .filter(|m| !m.starts_with("gpt-live-")),
-        ..provider.clone()
-    })
-}
-
-fn batch_route(provider: &hark_config::Provider) -> (hark_stt::ProviderKind, String) {
-    let kind = match provider.kind {
-        hark_config::ProviderKind::Deepgram => hark_stt::ProviderKind::Deepgram,
-        hark_config::ProviderKind::Gemini => hark_stt::ProviderKind::GeminiLive,
-        // Same endpoint, two contracts: the model decides which, so this arm is
-        // guarded on the model rather than split across the provider kinds.
-        hark_config::ProviderKind::Openai | hark_config::ProviderKind::OpenaiCompatible
-            if provider.uses_keywords_biasing() =>
-        {
-            hark_stt::ProviderKind::OpenAiTranscribe
-        }
-        hark_config::ProviderKind::Openai | hark_config::ProviderKind::OpenaiCompatible => {
-            hark_stt::ProviderKind::OpenAiCompatible
-        }
-    };
-    (kind, provider.resolved_model())
-}
-
-/// Map the settings enum onto the STT crate's provider taxonomy (see
-/// [`stt_route`]); OpenAI and any custom endpoint share the OpenAI-compatible
-/// contract.
-///
-/// Public because the settings "Test connection" flow builds the exact same
-/// config the pipeline would run with; a passing test therefore validates
-/// the real path, not a parallel reimplementation.
-pub fn provider_config(
-    settings: &Settings,
-    api_key: String,
-) -> Result<ProviderConfig, PipelineError> {
-    let (kind, model) = stt_route(&settings.provider);
-    if settings.provider.uses_live_transcribe() && !LIVE_BUILD {
-        log::warn!(
-            "Live transcribe is on, but this build has no WebSocket client; \
-             OpenAI dictation uses batch {model} instead"
-        );
-    }
-    // Settings::load validated this; guard again for hand-built Settings.
-    let base_url = settings.provider.resolved_base_url().ok_or_else(|| {
-        PipelineError::Config("openai-compatible provider requires a base_url".to_string())
-    })?;
-    Ok(ProviderConfig {
-        kind,
-        label: settings.provider.kind.label().to_string(),
-        base_url,
-        model,
-        api_key,
-        bias_terms: settings.spellbook.terms(),
-        // No settings path selects the batch fused adapter: the Interactions
-        // API prototype is driven by its spike, not by the app. Gemini Live
-        // does its fusing through `live_mode` instead.
-        cleanup_instruction: None,
-        live_mode: match settings.provider.live_mode {
-            hark_config::LiveMode::Verbatim => hark_stt::gemini_live::TranscribeMode::Verbatim,
-            hark_config::LiveMode::Smart => hark_stt::gemini_live::TranscribeMode::Smart,
-        },
-    })
-}
-
-/// The config for the batch adapter, on the [`batch_stt_route`]. For a
-/// provider that streams, that adapter only ever runs when the stream did not
-/// carry the dictation. `cfg` is the [`provider_config`] for `provider`: the
-/// key, label, base URL and spellbook terms are kept, only the adapter, model
-/// and transcript mode can differ.
-///
-/// OpenAI Live falls back to REST gpt-transcribe (or the pinned batch model),
-/// not to a replay over the realtime socket. That replay would reuse the very
-/// endpoint and `session.update` that just failed, so a proxy that blocks
-/// WebSocket upgrades, a realtime outage, a key without access to the model,
-/// or one spellbook term the API rejects would lose the dictation outright
-/// unless on-device backup happened to be set up.
-///
-/// Gemini Live in SMART mode can strand a turn outright (see
-/// `TranscribeMode::Smart`): a spoken edit command that leaves nothing makes
-/// the server go silent until the budget runs out. Replaying the clip in SMART
-/// repeats the exact request that just hung, and in one user's log it hung
-/// again six times out of seven. The replay asks for the literal transcript
-/// instead. It arrives with `cleaned: None`, so the user's cleanup voice still
-/// polishes it, exactly as it would any verbatim dictation.
-fn fallback_config(provider: &hark_config::Provider, cfg: &ProviderConfig) -> ProviderConfig {
-    let (kind, model) = batch_stt_route(provider);
-    ProviderConfig {
-        kind,
-        model,
-        live_mode: hark_stt::gemini_live::TranscribeMode::Verbatim,
-        ..cfg.clone()
-    }
-}
-
-/// The config a meeting's live-transcript chunks run with: the batch route,
-/// whatever Live transcribe says. A 20-30 s chunk is a finished clip with no
-/// hold to overlap, so the realtime model would bill about 3.8x
-/// gpt-transcribe's rate for no latency gain.
-pub(crate) fn meeting_chunk_config(
-    settings: &Settings,
-    api_key: String,
-) -> Result<ProviderConfig, PipelineError> {
-    let cfg = provider_config(settings, api_key)?;
-    Ok(fallback_config(&settings.provider, &cfg))
-}
-
-/// Build the invocation expander from the configured triggers (same
-/// parallel-enums pattern as `provider_config` for the STT kinds).
-///
-/// The matcher is a **derived artifact**: it is rebuilt from the TOML on
-/// every pipeline start and never cached anywhere, so the config file stays
-/// the single owner (LL-G `architecture/transient-cache-without-drift`).
-/// Entries that cannot arm are skipped by the expander itself; only the
-/// counts are logged, never a phrase or an expansion.
-fn build_expander(invocations: &hark_config::Invocations) -> hark_spellbook::Expander {
-    let entries: Vec<(String, Vec<String>, String, hark_spellbook::Scope)> = invocations
-        .entries
-        .iter()
-        .map(|i| {
-            let scope = match i.scope {
-                hark_config::Scope::Utterance => hark_spellbook::Scope::Utterance,
-                hark_config::Scope::Anywhere => hark_spellbook::Scope::Anywhere,
-            };
-            (
-                i.phrase.clone(),
-                i.aliases.clone(),
-                i.expansion.clone(),
-                scope,
-            )
-        })
-        .collect();
-    let expander = hark_spellbook::Expander::with_aliases(&entries);
-    if expander.skipped() > 0 {
-        log::warn!(
-            "{} invocation(s) will not fire (need {}+ words, a non-empty expansion, \
-             and a trigger no earlier entry already uses); {} armed",
-            expander.skipped(),
-            hark_spellbook::MIN_TRIGGER_WORDS,
-            expander.armed()
-        );
-    } else if expander.armed() > 0 {
-        log::info!("{} invocation(s) armed", expander.armed());
-    }
-    if expander.skipped_aliases() > 0 {
-        log::warn!(
-            "{} invocation alternate(s) ignored (need {}+ words and a phrase no earlier \
-             trigger or alternate already uses)",
-            expander.skipped_aliases(),
-            hark_spellbook::MIN_TRIGGER_WORDS,
-        );
-    }
-    expander
-}
-
-/// Map the config-side voice name onto the voice crate's enum (same parallel
-/// -enums pattern as `provider_config` for the STT kinds).
-fn effective_voice(name: hark_config::VoiceName) -> hark_voice::Voice {
-    match name {
-        hark_config::VoiceName::Verbatim => hark_voice::Voice::Verbatim,
-        hark_config::VoiceName::Grammar => hark_voice::Voice::Grammar,
-        hark_config::VoiceName::Clean => hark_voice::Voice::Clean,
-        hark_config::VoiceName::Professional => hark_voice::Voice::Professional,
-        hark_config::VoiceName::Casual => hark_voice::Voice::Casual,
-        hark_config::VoiceName::Notes => hark_voice::Voice::Notes,
-        hark_config::VoiceName::Concise => hark_voice::Voice::Concise,
-        hark_config::VoiceName::Direct => hark_voice::Voice::Direct,
-        hark_config::VoiceName::Plain => hark_voice::Voice::Plain,
-        hark_config::VoiceName::Pirate => hark_voice::Voice::Pirate,
-        hark_config::VoiceName::Custom => hark_voice::Voice::Custom,
-    }
-}
-
-/// Build the optional cleanup step. Fail-open at every layer (unresolvable
-/// provider, missing key, adapter build failure): warn once and return None,
-/// which the worker treats as Verbatim. The pipeline must start regardless;
-/// STT keeps working when the optional feature cannot.
-fn build_cleanup(
-    settings: &Settings,
-    client: reqwest::blocking::Client,
-    stt_api_key: &str,
-) -> Option<worker::CleanupPlan> {
-    use hark_config::{CleanupKeySource, CleanupResolution};
-
-    let resolved = match hark_config::resolve_cleanup_provider(
-        &settings.provider,
-        &settings.voice,
-        settings.voice.default,
-    ) {
-        CleanupResolution::Verbatim => return None,
-        CleanupResolution::VerbatimWithWarning { reason } => {
-            log::warn!("cleanup disabled: {reason}");
-            return None;
-        }
-        CleanupResolution::Resolved(r) => r,
-    };
-
-    let api_key = match &resolved.key_source {
-        // The "share one provider+key" case: no second keychain read.
-        CleanupKeySource::ReuseSttKey => stt_api_key.to_string(),
-        CleanupKeySource::Account(account) => {
-            match hark_keychain::resolve_key_for(hark_keychain::CLEANUP_ENV_OVERRIDE, account) {
-                Ok(k) => k,
-                Err(e) => {
-                    log::warn!("cleanup key unavailable ({e}); running verbatim");
-                    return None;
-                }
-            }
-        }
-    };
-
-    let voice = effective_voice(settings.voice.default);
-    let config = hark_voice::openai_compatible::CleanupConfig {
-        label: resolved.kind.label().to_string(),
-        base_url: resolved.base_url.clone(),
-        model: resolved.model.clone(),
-        api_key,
-        temperature: resolved.temperature,
-        reasoning_effort: resolved.reasoning_effort.clone(),
-        voice,
-        custom_prompt: settings.voice.custom_prompt.clone(),
-        spellbook_terms: settings.spellbook.terms(),
-    };
-    let adapter = match hark_voice::openai_compatible::OpenAiCompatibleChat::new(&config, client) {
-        Ok(a) => a,
-        Err(e) => {
-            log::warn!("cleanup adapter build failed ({e}); running verbatim");
-            return None;
-        }
-    };
-
-    // Second pre-warm only when the cleanup endpoint differs from the STT
-    // one (base-URL comparison; a same-host false positive just costs one
-    // harmless extra GET).
-    let prewarm_url = (settings.provider.resolved_base_url().as_deref()
-        != Some(resolved.base_url.as_str()))
-    .then(|| resolved.base_url.clone());
-
-    log::info!(
-        "cleanup: voice={} provider={} model={}, gate: skip below {} words, \
-         reject above {}x input words",
-        voice.name(),
-        resolved.kind.label(),
-        resolved.model,
-        settings.voice.skip_below_words,
-        settings.voice.max_expansion_ratio
-    );
-    Some(worker::CleanupPlan {
-        cleaner: Box::new(adapter),
-        voice,
-        model: resolved.model,
-        skip_below_words: settings.voice.skip_below_words,
-        max_expansion_ratio: settings.voice.max_expansion_ratio,
-        prewarm_url,
-    })
-}
-
-/// Build the on-device plan, or `None` when local STT is off or unusable.
-///
-/// Fail-open like `build_cleanup`: an unknown model id or a missing data
-/// directory warns and degrades to cloud-only rather than refusing to start.
-/// The one exception is primary mode, where degrading silently would leave
-/// the user with no engine at all — so that case logs an error, and the
-/// worker's policy surfaces it on the first dictation.
-fn build_local(settings: &Settings) -> Option<local::LocalPlan> {
-    let cfg = &settings.local_stt;
-    if !cfg.mode.uses_local() {
-        return None;
-    }
-    if !hark_local_stt::LocalEngine::is_available() {
-        log::warn!(
-            "local STT is set to {} but this build has no on-device engine; using cloud only",
-            cfg.mode.label()
-        );
-        return None;
-    }
-    let (spec, dir) = match hark_local_stt::resolve(&cfg.model) {
-        Ok(pair) => pair,
-        Err(e) => {
-            log::error!("local STT unavailable: {e}");
-            return None;
-        }
-    };
-    let plan = local::LocalPlan::new(cfg.mode, spec, dir, cfg.threads);
-    if !plan.is_ready() {
-        log::warn!(
-            "local model {} is not downloaded yet; mode={}",
-            spec.id,
-            cfg.mode.label()
-        );
-    }
-    Some(plan)
-}
-
-/// The streaming adapter for this run, if the provider has one. Gated on the
-/// same `uses_cloud` as the batch adapter: primary local mode promises no
-/// provider is contacted, and a live session opened on key-down would break
-/// that promise before a single sample was sent. So `build` is not even
-/// called there, whichever live provider is configured.
-fn live_adapter(
-    mode: hark_config::LocalMode,
-    cfg: &ProviderConfig,
-    build: impl FnOnce(&ProviderConfig) -> Option<Box<dyn hark_stt::LiveStt>>,
-) -> Option<Box<dyn hark_stt::LiveStt>> {
-    mode.uses_cloud().then(|| build(cfg)).flatten()
-}
-
-fn window_params(audio: &hark_config::Audio) -> WindowParams {
-    WindowParams {
-        preroll_ms: audio.preroll_ms,
-        tail_ms: audio.tail_ms,
-        max_hold_s: audio.max_hold_s,
-        min_speech_ms: audio.min_speech_ms,
-        silence_rms: audio.silence_rms,
-    }
-}
-
-fn inject_settings(inject: &hark_config::Inject) -> InjectSettings {
-    InjectSettings {
-        strategy: match inject.strategy {
-            hark_config::InjectStrategy::Clipboard => Strategy::Clipboard,
-            hark_config::InjectStrategy::Type => Strategy::Type,
-        },
-        set_paste_delay_ms: inject.set_paste_delay_ms,
-        paste_restore_delay_ms: inject.paste_restore_delay_ms,
-        clipboard_retries: inject.clipboard_retries,
     }
 }
 
@@ -579,16 +253,20 @@ fn run_inner(
         // slower than no fallback at all.
         let fallback_armed = mode == hark_config::LocalMode::Fallback
             && local.as_ref().is_some_and(|p| p.is_ready());
-        let stt_client = if fallback_armed {
-            log::info!(
-                "on-device fallback armed; cloud requests capped at {} ms",
-                settings.local_stt.fallback_after_ms
-            );
-            hark_stt::client_with_timeout(settings.local_stt.fallback_after_ms)?
+        if fallback_armed {
+            let leash_ms = settings.local_stt.fallback_after_ms;
+            log::info!("on-device fallback armed; cloud requests capped at {leash_ms} ms");
+            // The adapter sets a per-request timeout, which replaces the
+            // client's. Building it with the same fixed budget is what keeps
+            // the leash from being stretched back out to the clip-length one.
+            Some(hark_stt::build_with_total_timeout(
+                &fallback_cfg,
+                hark_stt::client_with_timeout(leash_ms)?,
+                leash_ms,
+            )?)
         } else {
-            client.clone()
-        };
-        Some(hark_stt::build(&fallback_cfg, stt_client)?)
+            Some(hark_stt::build(&fallback_cfg, client.clone())?)
+        }
     } else {
         log::info!("local STT is primary; no cloud provider will be contacted");
         None
@@ -619,7 +297,7 @@ fn run_inner(
 
     let recording = Arc::new(AtomicBool::new(false));
     let control = Arc::new(lifecycle::RunControl::default());
-    let ptt_rx = input::route(ptt_rx, consumer.reader(), control.clone())
+    let (ptt_rx, commands) = input::route(ptt_rx, consumer.reader(), control.clone())
         .map_err(|e| PipelineError::Config(format!("cannot start dictation input: {e}")))?;
     let w = worker::Worker {
         consumer,
@@ -645,6 +323,7 @@ fn run_inner(
         recording: recording.clone(),
         control: control.clone(),
         discontinuities,
+        held: None,
     };
     let (done_tx, worker_done) = mpsc::channel();
     let worker = std::thread::Builder::new()
@@ -663,504 +342,10 @@ fn run_inner(
         level,
         recording,
         control,
+        commands: Some(commands),
         _capture: capture,
     })
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn settings_from(toml: &str) -> Settings {
-        Settings::from_toml(toml).unwrap()
-    }
-
-    /// A thread wired the way `run` wires the worker, held inside its "dictation"
-    /// until `release` fires.
-    fn worker_blocked_until(
-        release: mpsc::Receiver<()>,
-    ) -> (std::thread::JoinHandle<()>, mpsc::Receiver<()>) {
-        let (done_tx, done) = mpsc::channel();
-        let handle = std::thread::spawn(move || {
-            let _done: mpsc::Sender<()> = done_tx;
-            let _ = release.recv();
-        });
-        (handle, done)
-    }
-
-    #[test]
-    fn a_worker_that_has_returned_is_joined() {
-        let (release_tx, release) = mpsc::channel();
-        let (worker, done) = worker_blocked_until(release);
-        release_tx.send(()).unwrap();
-        assert!(join_within(worker, &done, Duration::from_secs(5)));
-    }
-
-    #[test]
-    fn a_worker_stuck_in_a_dictation_is_not_waited_on_past_the_grace() {
-        // The freeze this replaced: shutdown joined a worker sitting out a
-        // stalled provider, and the UI thread sat there with it.
-        let (release_tx, release) = mpsc::channel();
-        let (worker, done) = worker_blocked_until(release);
-        let started = std::time::Instant::now();
-        assert!(!join_within(worker, &done, Duration::from_millis(50)));
-        assert!(started.elapsed() < Duration::from_secs(2));
-        // Let the abandoned thread finish rather than leak it into other tests.
-        release_tx.send(()).unwrap();
-    }
-
-    #[test]
-    fn a_worker_that_panicked_still_counts_as_finished() {
-        let (done_tx, done) = mpsc::channel();
-        let worker = std::thread::spawn(move || {
-            let _done: mpsc::Sender<()> = done_tx;
-            panic!("dictation blew up");
-        });
-        assert!(join_within(worker, &done, Duration::from_secs(5)));
-    }
-
-    #[test]
-    fn default_settings_map_to_deepgram_nova3() {
-        let cfg = provider_config(&settings_from(""), "KEY".to_string()).unwrap();
-        assert_eq!(cfg.kind, hark_stt::ProviderKind::Deepgram);
-        assert_eq!(cfg.label, "deepgram");
-        assert_eq!(cfg.base_url, "https://api.deepgram.com");
-        assert_eq!(cfg.model, "nova-3");
-        assert_eq!(cfg.api_key, "KEY");
-        assert!(cfg.bias_terms.is_empty());
-    }
-
-    #[test]
-    fn whisper_family_models_share_the_openai_compatible_adapter() {
-        // A custom Whisper server, and OpenAI pinned back to a Whisper-family
-        // model: both speak the single-`prompt` contract.
-        for (kind, url, model) in [
-            (
-                "openai-compatible",
-                "http://localhost:8000/v1",
-                "whisper-large-v3-turbo",
-            ),
-            ("openai", "https://api.openai.com/v1", "whisper-1"),
-        ] {
-            let cfg = provider_config(
-                &settings_from(&format!(
-                    "[provider]\nkind = \"{kind}\"\nmodel = \"{model}\"\nbase_url = \"{url}\""
-                )),
-                "K".to_string(),
-            )
-            .unwrap();
-            assert_eq!(cfg.kind, hark_stt::ProviderKind::OpenAiCompatible);
-            assert_eq!(cfg.label, kind);
-            assert_eq!(cfg.base_url, url);
-            assert_eq!(cfg.model, model);
-        }
-    }
-
-    #[test]
-    fn a_migrated_groq_config_still_reaches_groq_through_the_compatible_adapter() {
-        // Schema 7 retired the preset; the endpoint it named must not move.
-        let cfg = provider_config(
-            &settings_from("version = 6\n[provider]\nkind = \"groq\""),
-            "K".to_string(),
-        )
-        .unwrap();
-        assert_eq!(cfg.kind, hark_stt::ProviderKind::OpenAiCompatible);
-        assert_eq!(cfg.label, "openai-compatible");
-        assert_eq!(cfg.base_url, "https://api.groq.com/openai/v1");
-        assert_eq!(cfg.model, "whisper-large-v3-turbo");
-    }
-
-    #[test]
-    fn gemini_routes_to_the_live_adapter_and_carries_the_mode() {
-        let cfg = provider_config(
-            &settings_from("[provider]\nkind = \"gemini\""),
-            "K".to_string(),
-        )
-        .unwrap();
-        assert_eq!(cfg.kind, hark_stt::ProviderKind::GeminiLive);
-        assert_eq!(cfg.model, "gemini-3.5-transcribe-live");
-        assert_eq!(
-            cfg.live_mode,
-            hark_stt::gemini_live::TranscribeMode::Verbatim
-        );
-
-        let smart = provider_config(
-            &settings_from("[provider]\nkind = \"gemini\"\nlive_mode = \"smart\""),
-            "K".to_string(),
-        )
-        .unwrap();
-        assert_eq!(
-            smart.live_mode,
-            hark_stt::gemini_live::TranscribeMode::Smart
-        );
-    }
-
-    #[test]
-    fn a_smart_stream_falls_back_to_a_verbatim_replay() {
-        // SMART strands a turn on "scratch that"; replaying the same clip in
-        // SMART hung again. Only the mode may differ -- the fallback must
-        // still reach the same provider, model and key.
-        let settings = settings_from("[provider]\nkind = \"gemini\"\nlive_mode = \"smart\"");
-        let smart = provider_config(&settings, "K".to_string()).unwrap();
-        let fallback = fallback_config(&settings.provider, &smart);
-        assert_eq!(
-            fallback.live_mode,
-            hark_stt::gemini_live::TranscribeMode::Verbatim
-        );
-        assert_eq!(fallback.kind, smart.kind);
-        assert_eq!(fallback.model, smart.model);
-        assert_eq!(fallback.api_key, smart.api_key);
-    }
-
-    #[test]
-    fn the_openai_default_routes_to_the_gpt_transcribe_adapter() {
-        let cfg = provider_config(
-            &settings_from("[provider]\nkind = \"openai\""),
-            "K".to_string(),
-        )
-        .unwrap();
-        assert_eq!(cfg.kind, hark_stt::ProviderKind::OpenAiTranscribe);
-        assert_eq!(cfg.label, "openai");
-        assert_eq!(cfg.base_url, "https://api.openai.com/v1");
-        assert_eq!(cfg.model, "gpt-transcribe");
-    }
-
-    #[test]
-    fn a_gateway_proxying_gpt_transcribe_gets_the_same_contract() {
-        // The contract follows the model, not the vendor: an openai-compatible
-        // base_url pointed at a gpt-transcribe proxy must not fall back to the
-        // Whisper `prompt` packing.
-        let cfg = provider_config(
-            &settings_from(
-                "[provider]\nkind = \"openai-compatible\"\n\
-                 base_url = \"https://gateway.example/v1\"\nmodel = \"gpt-transcribe\"",
-            ),
-            "K".to_string(),
-        )
-        .unwrap();
-        assert_eq!(cfg.kind, hark_stt::ProviderKind::OpenAiTranscribe);
-    }
-
-    // --- OpenAI Live transcribe. The contract with hark-stt's adapter: kind
-    // OpenAiLive, label "openai", the OpenAI HTTPS base (the adapter derives
-    // wss:// from it), the live model, the OpenAI key, the spellbook terms. ---
-
-    fn openai_live(extra: &str) -> ProviderConfig {
-        provider_config(
-            &settings_from(&format!(
-                "[provider]\nkind = \"openai\"\n{extra}\n[spellbook]\nterms = [\"Hark\"]"
-            )),
-            "OPENAI-KEY".to_string(),
-        )
-        .unwrap()
-    }
-
-    #[cfg(feature = "live")]
-    #[test]
-    fn openai_with_live_on_routes_to_the_realtime_adapter() {
-        let cfg = openai_live("live = true");
-        assert_eq!(cfg.kind, hark_stt::ProviderKind::OpenAiLive);
-        assert_eq!(cfg.label, "openai");
-        assert_eq!(cfg.base_url, "https://api.openai.com/v1");
-        assert_eq!(cfg.model, "gpt-live-transcribe");
-        assert_eq!(cfg.api_key, "OPENAI-KEY");
-        assert_eq!(cfg.bias_terms, vec!["Hark"]);
-    }
-
-    #[cfg(feature = "live")]
-    #[test]
-    fn live_keeps_a_custom_openai_base_url_for_the_adapter_to_derive_from() {
-        let cfg = openai_live("live = true\nbase_url = \"https://proxy.example/v1\"");
-        assert_eq!(cfg.kind, hark_stt::ProviderKind::OpenAiLive);
-        assert_eq!(cfg.base_url, "https://proxy.example/v1");
-    }
-
-    #[cfg(feature = "live")]
-    #[test]
-    fn a_pinned_batch_model_never_reaches_the_realtime_adapter() {
-        let cfg = openai_live("live = true\nmodel = \"whisper-1\"");
-        assert_eq!(cfg.kind, hark_stt::ProviderKind::OpenAiLive);
-        assert_eq!(cfg.model, "gpt-live-transcribe");
-    }
-
-    #[cfg(feature = "live")]
-    #[test]
-    fn a_hand_edited_gpt_live_model_routes_to_the_realtime_adapter() {
-        // Replaces the old "never reaches an adapter" pin: the multipart
-        // endpoint still rejects this model, so it must go to the WebSocket
-        // one, toggle or no toggle, and a dated snapshot is sent as pinned.
-        let cfg = openai_live("model = \"gpt-live-transcribe\"");
-        assert_eq!(cfg.kind, hark_stt::ProviderKind::OpenAiLive);
-        assert_eq!(cfg.model, "gpt-live-transcribe");
-        let dated = openai_live("model = \"gpt-live-transcribe-2026-10-01\"");
-        assert_eq!(dated.kind, hark_stt::ProviderKind::OpenAiLive);
-        assert_eq!(dated.model, "gpt-live-transcribe-2026-10-01");
-    }
-
-    #[cfg(not(feature = "live"))]
-    #[test]
-    fn without_the_websocket_client_live_falls_back_to_batch() {
-        // Failing every dictation would be worse than the slower path.
-        for extra in ["live = true", "model = \"gpt-live-transcribe\""] {
-            let cfg = openai_live(extra);
-            assert_eq!(
-                cfg.kind,
-                hark_stt::ProviderKind::OpenAiTranscribe,
-                "{extra}"
-            );
-            assert_eq!(cfg.model, "gpt-transcribe", "{extra}");
-        }
-        // A pinned batch model is what "off" would run, so that is what runs.
-        let pinned = openai_live("live = true\nmodel = \"whisper-1\"");
-        assert_eq!(pinned.kind, hark_stt::ProviderKind::OpenAiCompatible);
-        assert_eq!(pinned.model, "whisper-1");
-    }
-
-    #[test]
-    fn openai_with_live_off_is_still_batch_gpt_transcribe() {
-        let cfg = openai_live("live = false");
-        assert_eq!(cfg.kind, hark_stt::ProviderKind::OpenAiTranscribe);
-        assert_eq!(cfg.model, "gpt-transcribe");
-        let pinned = openai_live("model = \"whisper-1\"");
-        assert_eq!(pinned.kind, hark_stt::ProviderKind::OpenAiCompatible);
-        assert_eq!(pinned.model, "whisper-1");
-    }
-
-    #[test]
-    fn live_on_any_other_provider_is_ignored() {
-        let deepgram = provider_config(
-            &settings_from("[provider]\nkind = \"deepgram\"\nlive = true"),
-            "K".to_string(),
-        )
-        .unwrap();
-        assert_eq!(deepgram.kind, hark_stt::ProviderKind::Deepgram);
-        assert_eq!(deepgram.model, "nova-3");
-        let gemini = provider_config(
-            &settings_from("[provider]\nkind = \"gemini\"\nlive = true"),
-            "K".to_string(),
-        )
-        .unwrap();
-        assert_eq!(gemini.kind, hark_stt::ProviderKind::GeminiLive);
-        assert_eq!(gemini.model, "gemini-3.5-transcribe-live");
-    }
-
-    #[test]
-    fn the_route_names_the_model_the_dictation_record_will_carry() {
-        // `run` hands provider_cfg.model to the worker as `stream_model` and
-        // the fallback's as `batch_model`; history and stats record whichever
-        // path produced the text. The footer reads the same route.
-        let s = settings_from("[provider]\nkind = \"openai\"\nlive = true");
-        let cfg = provider_config(&s, "K".to_string()).unwrap();
-        assert_eq!(stt_route(&s.provider).1, cfg.model);
-        let expected = if LIVE_BUILD {
-            "gpt-live-transcribe"
-        } else {
-            "gpt-transcribe"
-        };
-        assert_eq!(cfg.model, expected);
-        assert_eq!(fallback_config(&s.provider, &cfg).model, "gpt-transcribe");
-    }
-
-    // --- The batch route: the dictation fallback and meeting chunks. ---
-
-    #[cfg(feature = "live")]
-    #[test]
-    fn with_live_on_the_stream_is_realtime_and_the_fallback_is_rest_gpt_transcribe() {
-        // A fallback over the same realtime socket lost the dictation to
-        // whatever had just broken the stream: a proxy refusing WebSocket
-        // upgrades, a realtime outage, a rejected spellbook term.
-        let s = settings_from(
-            "[provider]\nkind = \"openai\"\nlive = true\n[spellbook]\nterms = [\"Hark\"]",
-        );
-        let live = provider_config(&s, "OPENAI-KEY".to_string()).unwrap();
-        assert_eq!(live.kind, hark_stt::ProviderKind::OpenAiLive);
-        assert_eq!(live.model, "gpt-live-transcribe");
-
-        let fallback = fallback_config(&s.provider, &live);
-        assert_eq!(fallback.kind, hark_stt::ProviderKind::OpenAiTranscribe);
-        assert_eq!(fallback.model, "gpt-transcribe");
-        // Same provider, same key, same endpoint host: nothing to re-enter.
-        assert_eq!(fallback.label, "openai");
-        assert_eq!(fallback.base_url, "https://api.openai.com/v1");
-        assert_eq!(fallback.api_key, "OPENAI-KEY");
-        assert_eq!(fallback.bias_terms, vec!["Hark"]);
-
-        // The streaming adapter is still built from the live config.
-        let asked = std::cell::Cell::new(false);
-        live_adapter(s.local_stt.mode, &live, |c| {
-            assert_eq!(c.kind, hark_stt::ProviderKind::OpenAiLive);
-            assert_eq!(c.model, "gpt-live-transcribe");
-            asked.set(true);
-            None
-        });
-        assert!(asked.get());
-    }
-
-    #[cfg(feature = "live")]
-    #[test]
-    fn the_fallback_honours_a_pinned_batch_model_and_never_a_live_one() {
-        let pinned =
-            settings_from("[provider]\nkind = \"openai\"\nlive = true\nmodel = \"whisper-1\"");
-        let cfg = provider_config(&pinned, "K".to_string()).unwrap();
-        let fallback = fallback_config(&pinned.provider, &cfg);
-        assert_eq!(fallback.kind, hark_stt::ProviderKind::OpenAiCompatible);
-        assert_eq!(fallback.model, "whisper-1");
-
-        // Live through a hand-edited model: the fallback is the default batch.
-        let edited =
-            settings_from("[provider]\nkind = \"openai\"\nmodel = \"gpt-live-transcribe\"");
-        let cfg = provider_config(&edited, "K".to_string()).unwrap();
-        assert_eq!(cfg.kind, hark_stt::ProviderKind::OpenAiLive);
-        let fallback = fallback_config(&edited.provider, &cfg);
-        assert_eq!(fallback.kind, hark_stt::ProviderKind::OpenAiTranscribe);
-        assert_eq!(fallback.model, "gpt-transcribe");
-    }
-
-    #[test]
-    fn without_live_the_fallback_is_the_configured_route() {
-        for toml in [
-            "",
-            "[provider]\nkind = \"openai\"",
-            "[provider]\nkind = \"openai\"\nlive = false\nmodel = \"whisper-1\"",
-            "[provider]\nkind = \"gemini\"",
-            "[provider]\nkind = \"openai-compatible\"\nbase_url = \"http://localhost:8000/v1\"\nmodel = \"whisper-large-v3\"",
-        ] {
-            let s = settings_from(toml);
-            let cfg = provider_config(&s, "K".to_string()).unwrap();
-            let fallback = fallback_config(&s.provider, &cfg);
-            assert_eq!(fallback.kind, cfg.kind, "{toml:?}");
-            assert_eq!(fallback.model, cfg.model, "{toml:?}");
-            assert_eq!(fallback.base_url, cfg.base_url, "{toml:?}");
-        }
-    }
-
-    #[test]
-    fn meeting_chunks_take_the_batch_route_and_ignore_live() {
-        // A chunk is a finished clip: streaming it buys no latency and bills
-        // the realtime rate, about 3.8x gpt-transcribe.
-        for toml in [
-            "[provider]\nkind = \"openai\"\nlive = true",
-            "[provider]\nkind = \"openai\"\nmodel = \"gpt-live-transcribe\"",
-        ] {
-            let cfg = meeting_chunk_config(&settings_from(toml), "K".to_string()).unwrap();
-            assert_eq!(cfg.kind, hark_stt::ProviderKind::OpenAiTranscribe, "{toml}");
-            assert_eq!(cfg.model, "gpt-transcribe", "{toml}");
-            assert_eq!(cfg.label, "openai");
-        }
-        // Gemini's chunks still go over its own socket, verbatim.
-        let gemini = meeting_chunk_config(
-            &settings_from("[provider]\nkind = \"gemini\"\nlive_mode = \"smart\""),
-            "K".to_string(),
-        )
-        .unwrap();
-        assert_eq!(gemini.kind, hark_stt::ProviderKind::GeminiLive);
-        assert_eq!(
-            gemini.live_mode,
-            hark_stt::gemini_live::TranscribeMode::Verbatim
-        );
-    }
-
-    #[test]
-    fn primary_on_device_mode_never_builds_a_live_session_for_openai_live() {
-        let primary = settings_from(
-            "[provider]\nkind = \"openai\"\nlive = true\n[local_stt]\nmode = \"primary\"",
-        );
-        let cfg = provider_config(&primary, "K".to_string()).unwrap();
-        let asked = std::cell::Cell::new(false);
-        let live = live_adapter(primary.local_stt.mode, &cfg, |_| {
-            asked.set(true);
-            None
-        });
-        assert!(live.is_none());
-        assert!(!asked.get(), "primary mode must not even ask for a session");
-
-        // The gate is the mode, not the provider: a cloud mode does ask.
-        let cloud = settings_from("[provider]\nkind = \"openai\"\nlive = true");
-        live_adapter(cloud.local_stt.mode, &cfg, |c| {
-            assert_eq!(c.label, "openai");
-            asked.set(true);
-            None
-        });
-        assert!(asked.get());
-    }
-
-    #[test]
-    fn spellbook_terms_feed_provider_bias_terms() {
-        let s = settings_from("[spellbook]\nterms = [\"Hark\", \"Levenshtein\"]");
-        let cfg = provider_config(&s, "K".to_string()).unwrap();
-        assert_eq!(cfg.bias_terms, vec!["Hark", "Levenshtein"]);
-    }
-
-    #[test]
-    fn audio_settings_map_to_window_params() {
-        let s = settings_from("[audio]\npreroll_ms = 200\ntail_ms = 100\nmax_hold_s = 30");
-        let w = window_params(&s.audio);
-        assert_eq!(w.preroll_ms, 200);
-        assert_eq!(w.tail_ms, 100);
-        assert_eq!(w.max_hold_s, 30);
-        assert_eq!(w.min_speech_ms, 250); // default carried through
-    }
-
-    #[test]
-    fn inject_settings_map_including_strategy() {
-        let s = settings_from("[inject]\nstrategy = \"type\"\nclipboard_retries = 3");
-        let i = inject_settings(&s.inject);
-        assert_eq!(i.strategy, Strategy::Type);
-        assert_eq!(i.clipboard_retries, 3);
-        assert_eq!(i.set_paste_delay_ms, 50); // default carried through
-    }
-
-    // --- cleanup plan wiring. Only paths that never read the real OS
-    // keychain are exercised here: Verbatim, warn-and-degrade, STT key
-    // reuse, and one Account-path test that the HARK_CLEANUP_KEY env
-    // override satisfies before the keyring would be touched. ---
-
-    fn client() -> reqwest::blocking::Client {
-        hark_stt::shared_client().unwrap()
-    }
-
-    #[test]
-    fn verbatim_voice_never_constructs_a_cleaner() {
-        let s = settings_from("[provider]\nkind = \"openai\"\n[voice]\ndefault = \"verbatim\"");
-        assert!(build_cleanup(&s, client(), "STT-KEY").is_none());
-    }
-
-    #[test]
-    fn default_deepgram_config_degrades_to_no_cleaner() {
-        // Out-of-the-box config: Deepgram STT + Clean voice. Warn, no plan,
-        // and crucially no error: the pipeline must start.
-        assert!(build_cleanup(&settings_from(""), client(), "STT-KEY").is_none());
-    }
-
-    #[test]
-    fn openai_stt_inherits_into_a_cleanup_plan_without_keychain() {
-        let s = settings_from(
-            "[provider]\nkind = \"openai\"\n[voice]\nskip_below_words = 3\n[spellbook]\nterms = [\"Hark\"]",
-        );
-        let plan = build_cleanup(&s, client(), "STT-KEY").expect("inherit path builds a plan");
-        assert_eq!(plan.voice, hark_voice::Voice::Clean);
-        assert_eq!(plan.model, "gpt-5-nano");
-        assert_eq!(plan.skip_below_words, 3);
-        assert_eq!(plan.cleaner.label(), "openai");
-        // Same endpoint as STT: no second pre-warm needed.
-        assert_eq!(plan.prewarm_url, None);
-    }
-
-    #[test]
-    fn explicit_provider_with_env_key_prewarns_the_differing_host() {
-        // Deepgram STT + explicit Gemini cleanup: the Account path resolves
-        // via HARK_CLEANUP_KEY before any keyring read, and the differing
-        // endpoint gets its own pre-warm URL.
-        std::env::set_var("HARK_CLEANUP_KEY", "env-test-key");
-        let s = settings_from("[voice.provider]\nkind = \"gemini\"");
-        let plan = build_cleanup(&s, client(), "STT-KEY");
-        std::env::remove_var("HARK_CLEANUP_KEY");
-        let plan = plan.expect("env-keyed explicit provider builds a plan");
-        assert_eq!(plan.model, "gemini-3.5-flash-lite");
-        assert_eq!(plan.cleaner.label(), "gemini");
-        assert_eq!(
-            plan.prewarm_url.as_deref(),
-            Some("https://generativelanguage.googleapis.com/v1beta/openai")
-        );
-    }
-}
+mod tests;

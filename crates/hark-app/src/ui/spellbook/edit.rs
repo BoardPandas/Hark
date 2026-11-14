@@ -87,12 +87,30 @@ pub fn remove_alias(entries: &mut [SpellbookEntry], index: usize, alias_index: u
     }
 }
 
-/// Remove the entry a just-added term created. Matches by term rather than
-/// index because the list can move underneath the undo affordance.
-pub fn undo_add(entries: &mut Vec<SpellbookEntry>, added: &str) -> bool {
-    match entries.iter().position(|e| e.term == added) {
-        Some(index) => {
-            entries.remove(index);
+/// What an add did, so undoing it takes back exactly that and nothing more.
+#[derive(Clone, PartialEq, Eq)]
+pub struct Added {
+    pub term: String,
+    /// Set when the term already existed and the add only attached this alias
+    /// to it. Undo must then remove the alias, not the entry: the entry, and
+    /// every alias it already had, is not something this add made.
+    pub merged_alias: Option<String>,
+}
+
+/// Take back an add. Matches by term rather than index because the list can
+/// move underneath the undo affordance.
+pub fn undo_add(entries: &mut Vec<SpellbookEntry>, added: &Added) -> bool {
+    let Some(index) = entries.iter().position(|e| e.term == added.term) else {
+        return false;
+    };
+    let Some(alias) = &added.merged_alias else {
+        entries.remove(index);
+        return true;
+    };
+    let aliases = &mut entries[index].aliases;
+    match aliases.iter().position(|a| a.eq_ignore_ascii_case(alias)) {
+        Some(at) => {
+            aliases.remove(at);
             true
         }
         None => false,
@@ -214,13 +232,31 @@ mod tests {
         assert!(!remove_alias(&mut entries, 9, 0));
     }
 
+    fn added(term: &str, merged_alias: Option<&str>) -> Added {
+        Added {
+            term: term.to_string(),
+            merged_alias: merged_alias.map(str::to_string),
+        }
+    }
+
     #[test]
     fn undo_removes_the_added_entry_and_tolerates_it_being_gone() {
         let mut entries = vec![entry("Hark", &[]), entry("Eldrazi", &["Al Drazi"])];
-        assert!(undo_add(&mut entries, "Eldrazi"));
+        assert!(undo_add(&mut entries, &added("Eldrazi", None)));
         assert_eq!(entries.len(), 1);
-        assert!(!undo_add(&mut entries, "Eldrazi"));
+        assert!(!undo_add(&mut entries, &added("Eldrazi", None)));
         assert_eq!(entries.len(), 1);
+    }
+
+    #[test]
+    fn undoing_an_alias_merge_keeps_the_entry_that_was_already_there() {
+        // Typing an existing term in the History handoff only attaches the
+        // alias; undoing that must not delete the entry and its other aliases.
+        let mut entries = vec![entry("Eldrazi", &["El Drossy", "Al Drazi"])];
+        assert!(undo_add(&mut entries, &added("Eldrazi", Some("al drazi"))));
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].aliases, ["El Drossy"]);
+        assert!(!undo_add(&mut entries, &added("Eldrazi", Some("Al Drazi"))));
     }
 
     #[test]

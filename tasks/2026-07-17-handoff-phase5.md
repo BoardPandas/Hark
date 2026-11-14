@@ -1,7 +1,7 @@
 # Handoff: Phase 4 complete, Phase 5 (Ship) Windows-side landed, macOS + single-instance remain
 
 **Date:** 2026-07-17. Load this as the starting context for the next session.
-**Canonical scope:** `tasks/plan-repo.md` §"Phase 5, Polish / Ship" (line ~153) is the one-line source of truth. There is **no dedicated Phase 5 spec doc yet** — the remaining macOS work needs a planning session before execution (plan in one session, execute in another). The two feature plans already executed this phase are `tasks/2026-07-17-windows-installer-autostart.md` and `tasks/majestic-percolating-puffin.md` (in-app updater); both carry Lessons Learned sections routed to LL-G.
+**Canonical scope:** `tasks/plan-repo.md` §"Phase 5, Polish / Ship" (line ~153) is the one-line source of truth. There is **no dedicated Phase 5 spec doc yet** — the remaining macOS work needs a planning session before execution (plan in one session, execute in another). The two feature plans already executed this phase are `tasks/2026-07-17-windows-installer-autostart.md` and `tasks/2026-07-17-plan-update-checker.md` (in-app updater); both carry Lessons Learned sections routed to LL-G.
 
 ## Repo state
 

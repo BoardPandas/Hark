@@ -172,6 +172,10 @@ pub(super) fn privacy_line(mode: LocalMode) -> &'static str {
     }
 }
 
+/// Hark's measured resident memory once the on-device engine is loaded. The
+/// weights are ~670 MB on disk; the pipeline reads them in at start (`local.rs`).
+const LOADED_MODEL_RAM: &str = "1.2 GB";
+
 /// The visible line under the selected mode radio (R6). The timeout comes
 /// from config so the copy cannot drift from what the pipeline does.
 pub(super) fn mode_line(mode: LocalMode, fallback_after_ms: u64) -> Option<String> {
@@ -179,7 +183,8 @@ pub(super) fn mode_line(mode: LocalMode, fallback_after_ms: u64) -> Option<Strin
         LocalMode::Off => None,
         LocalMode::Fallback => Some(format!(
             "Audio goes to your cloud provider first. If it fails or takes longer than {} s, \
-             Hark transcribes the clip on this computer.",
+             Hark transcribes the clip on this computer. Backup keeps the model loaded in \
+             memory (about {LOADED_MODEL_RAM}) so a rescue is instant.",
             seconds(fallback_after_ms)
         )),
         LocalMode::Primary => {
@@ -304,5 +309,9 @@ mod tests {
         assert!(mode_line(LocalMode::Fallback, 2_500)
             .unwrap()
             .contains("longer than 2.5 s,"));
+        // Backup is the mode that keeps the model resident, so it says so.
+        assert!(mode_line(LocalMode::Fallback, 6_000)
+            .unwrap()
+            .contains("keeps the model loaded in memory (about 1.2 GB)"));
     }
 }

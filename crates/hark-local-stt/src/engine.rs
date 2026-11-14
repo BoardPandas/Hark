@@ -23,11 +23,11 @@ pub struct LocalTranscript {
 }
 
 /// A loaded recognizer. Construction is expensive (hundreds of MB read into
-/// RAM); the pipeline builds one lazily on first use and keeps it resident.
+/// RAM); the pipeline loads one at start, or on first use, and keeps it resident.
 ///
-/// Not `Send`: it is created on, and only used from, the pipeline worker
-/// thread. That is also why the pipeline loads it lazily there rather than
-/// building it during `run()` on the caller's thread.
+/// `Send` (sherpa's recognizer is `Send + Sync`), which is what lets the
+/// pipeline load it on a helper thread at start and hand it to the worker.
+/// A test in `hark-pipeline` pins that.
 pub struct LocalEngine {
     #[cfg(feature = "engine")]
     recognizer: sherpa_onnx::OfflineRecognizer,

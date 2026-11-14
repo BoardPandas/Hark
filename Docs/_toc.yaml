@@ -67,8 +67,14 @@ pages:
       - "crates/hark-app/src/main.rs"
       - "crates/hark-app/src/app.rs"
       - "crates/hark-app/src/pipeline.rs"
+      - "crates/hark-app/src/pipeline/*.rs"
+      - "crates/hark-app/src/ui/history/recovery.rs"
       - "crates/hark-pipeline/src/lib.rs"
+      - "crates/hark-pipeline/src/route.rs"
+      - "crates/hark-pipeline/src/plan.rs"
+      - "crates/hark-pipeline/src/tests.rs"
       - "crates/hark-pipeline/src/worker.rs"
+      - "crates/hark-pipeline/src/worker/*.rs"
       - "crates/hark-pipeline/src/input.rs"
       - "crates/hark-pipeline/src/lifecycle.rs"
       - "crates/hark-pipeline/src/worker/recovery_tests.rs"
@@ -92,7 +98,11 @@ pages:
         autogen: true
         source_files:
           - "crates/hark-pipeline/src/lib.rs"
+          - "crates/hark-pipeline/src/route.rs"
+          - "crates/hark-pipeline/src/plan.rs"
           - "crates/hark-pipeline/src/worker.rs"
+          - "crates/hark-pipeline/src/worker/*.rs"
+          - "crates/hark-pipeline/src/input.rs"
           - "crates/hark-pipeline/src/stream.rs"
         diagrams_needed: true
         diagram_types: ["sequence"]
@@ -110,6 +120,7 @@ pages:
         source_files:
           - "crates/hark-pipeline/src/events.rs"
           - "crates/hark-app/src/pipeline.rs"
+          - "crates/hark-app/src/pipeline/*.rs"
         diagrams_needed: false
         diagram_types: []
       - id: hark_02_architecture_retry
@@ -122,6 +133,11 @@ pages:
       - id: hark_02_architecture_failure
         title: "Failure Modes"
         autogen: true
+        source_files:
+          - "crates/hark-pipeline/src/events.rs"
+          - "crates/hark-pipeline/src/worker/held.rs"
+          - "crates/hark-pipeline/src/worker/held_tests.rs"
+          - "crates/hark-app/src/ui/history/recovery.rs"
         diagrams_needed: false
         diagram_types: []
     related_pages:
@@ -189,6 +205,18 @@ pages:
     category: configuration
     source_files:
       - "crates/hark-config/src/lib.rs"
+      - "crates/hark-config/src/load_save.rs"
+      - "crates/hark-config/src/provider.rs"
+      - "crates/hark-config/src/hotkey.rs"
+      - "crates/hark-config/src/audio.rs"
+      - "crates/hark-config/src/inject.rs"
+      - "crates/hark-config/src/spellbook.rs"
+      - "crates/hark-config/src/history.rs"
+      - "crates/hark-config/src/insights.rs"
+      - "crates/hark-config/src/updates.rs"
+      - "crates/hark-config/src/startup.rs"
+      - "crates/hark-config/src/general.rs"
+      - "crates/hark-config/src/output.rs"
       - "crates/hark-config/src/groq_migration.rs"
       - "crates/hark-config/src/voice.rs"
       - "crates/hark-keychain/src/lib.rs"
@@ -201,6 +229,7 @@ pages:
         autogen: true
         source_files:
           - "crates/hark-config/src/lib.rs"
+          - "crates/hark-config/src/load_save.rs"
         diagrams_needed: false
         diagram_types: []
       - id: hark_04_configuration_schema
@@ -208,6 +237,17 @@ pages:
         autogen: true
         source_files:
           - "crates/hark-config/src/lib.rs"
+          - "crates/hark-config/src/provider.rs"
+          - "crates/hark-config/src/hotkey.rs"
+          - "crates/hark-config/src/audio.rs"
+          - "crates/hark-config/src/inject.rs"
+          - "crates/hark-config/src/spellbook.rs"
+          - "crates/hark-config/src/history.rs"
+          - "crates/hark-config/src/insights.rs"
+          - "crates/hark-config/src/updates.rs"
+          - "crates/hark-config/src/startup.rs"
+          - "crates/hark-config/src/general.rs"
+          - "crates/hark-config/src/output.rs"
           - "config/default-config.toml"
         diagrams_needed: false
         diagram_types: []
@@ -223,6 +263,7 @@ pages:
         autogen: true
         source_files:
           - "crates/hark-config/src/lib.rs"
+          - "crates/hark-config/src/load_save.rs"
           - "crates/hark-config/src/groq_migration.rs"
         diagrams_needed: false
         diagram_types: []
@@ -256,11 +297,16 @@ pages:
       - "crates/hark-store/migrations/003_entries_invocation.sql"
       - "crates/hark-store/tests/store.rs"
       - "crates/hark-store/migrations/004_meetings.sql"
+      - "crates/hark-store/migrations/008_entries_delivered.sql"
+      - "crates/hark-store/tests/meeting_speakers.rs"
       - "crates/hark-store/src/meetings.rs"
       - "crates/hark-app/src/storage/mod.rs"
       - "crates/hark-app/src/storage/meetings.rs"
       - "crates/hark-app/src/app.rs"
+      - "crates/hark-app/src/pipeline.rs"
       - "crates/hark-config/src/lib.rs"
+      - "crates/hark-config/src/history.rs"
+      - "crates/hark-config/src/load_save.rs"
       - "crates/hark-pipeline/src/events.rs"
       - "crates/hark-meeting/src/storage.rs"
       - "crates/hark-meeting/src/storage_fs.rs"
@@ -285,6 +331,7 @@ pages:
           - "crates/hark-store/migrations/002_stats_total_ms.sql"
           - "crates/hark-store/migrations/003_entries_invocation.sql"
           - "crates/hark-store/migrations/004_meetings.sql"
+          - "crates/hark-store/migrations/008_entries_delivered.sql"
           - "crates/hark-store/src/meetings.rs"
           - "crates/hark-store/tests/store.rs"
         diagrams_needed: true
@@ -322,6 +369,7 @@ pages:
         source_files:
           - "crates/hark-app/src/storage/mod.rs"
           - "crates/hark-app/src/storage/meetings.rs"
+          - "crates/hark-app/src/pipeline.rs"
           - "crates/hark-pipeline/src/events.rs"
         diagrams_needed: false
         diagram_types: []
@@ -355,8 +403,7 @@ pages:
       - "crates/hark-audio/src/spool.rs"
       - "crates/hark-audio/src/stereo.rs"
       - "crates/hark-audio/src/mp3.rs"
-      - "crates/hark-audio/src/mp3/excerpt.rs"
-      - "crates/hark-audio/src/mp3/pending.rs"
+      - "crates/hark-audio/src/mp3/*.rs"
       - "crates/hark-hotkey/src/lib.rs"
       - "crates/hark-hotkey/src/hook_win.rs"
       - "crates/hark-hotkey/src/hook_mac.rs"
@@ -364,6 +411,7 @@ pages:
       - "crates/hark-hotkey/src/mac_ffi.rs"
       - "crates/hark-hotkey/src/hook_linux.rs"
       - "crates/hark-hotkey/src/edges.rs"
+      - "crates/hark-hotkey/src/edges/*.rs"
       - "crates/hark-hotkey/src/shortcuts.rs"
       - "crates/hark-hotkey/src/capture.rs"
       - "crates/hark-hotkey/src/keycode.rs"
@@ -409,6 +457,7 @@ pages:
         autogen: true
         source_files:
           - "crates/hark-hotkey/src/edges.rs"
+          - "crates/hark-hotkey/src/edges/*.rs"
           - "crates/hark-hotkey/src/shortcuts.rs"
         diagrams_needed: false
         diagram_types: []
@@ -427,8 +476,7 @@ pages:
           - "crates/hark-audio/src/spool.rs"
           - "crates/hark-audio/src/stereo.rs"
           - "crates/hark-audio/src/mp3.rs"
-          - "crates/hark-audio/src/mp3/excerpt.rs"
-          - "crates/hark-audio/src/mp3/pending.rs"
+          - "crates/hark-audio/src/mp3/*.rs"
         diagrams_needed: false
         diagram_types: []
       - id: hark_06_audio_capture_notes
@@ -455,8 +503,14 @@ pages:
       - "crates/hark-stt/src/openai_compatible.rs"
       - "crates/hark-stt/src/openai_transcribe.rs"
       - "crates/hark-stt/src/deepgram.rs"
+      - "crates/hark-stt/src/gemini.rs"
       - "crates/hark-stt/src/gemini_live.rs"
+      - "crates/hark-stt/src/gemini_live/*.rs"
+      - "crates/hark-stt/src/gemini_live/session/*.rs"
       - "crates/hark-stt/src/openai_live.rs"
+      - "crates/hark-stt/src/openai_live/*.rs"
+      - "crates/hark-stt/src/openai_live/session/*.rs"
+      - "crates/hark-stt/src/live_transport.rs"
       - "crates/hark-stt/examples/openai_live_probe.rs"
       - "crates/hark-stt/src/wav.rs"
       - "crates/hark-stt/src/error.rs"
@@ -468,6 +522,7 @@ pages:
         source_files:
           - "crates/hark-stt/src/lib.rs"
           - "crates/hark-stt/src/config.rs"
+          - "crates/hark-stt/src/live_transport.rs"
         diagrams_needed: true
         diagram_types: ["class"]
       - id: hark_07_transcription_openai
@@ -484,6 +539,9 @@ pages:
         source_files:
           - "crates/hark-stt/src/deepgram.rs"
           - "crates/hark-stt/src/gemini_live.rs"
+          - "crates/hark-stt/src/gemini_live/*.rs"
+          - "crates/hark-stt/src/gemini_live/session/*.rs"
+          - "crates/hark-stt/src/live_transport.rs"
         diagrams_needed: false
         diagram_types: []
       - id: hark_07_transcription_openai_live
@@ -491,6 +549,9 @@ pages:
         autogen: true
         source_files:
           - "crates/hark-stt/src/openai_live.rs"
+          - "crates/hark-stt/src/openai_live/*.rs"
+          - "crates/hark-stt/src/openai_live/session/*.rs"
+          - "crates/hark-stt/src/live_transport.rs"
           - "crates/hark-stt/examples/openai_live_probe.rs"
         diagrams_needed: false
         diagram_types: []
@@ -536,9 +597,11 @@ pages:
       - "crates/hark-local-stt/src/engine.rs"
       - "crates/hark-local-stt/src/error.rs"
       - "crates/hark-pipeline/src/local.rs"
+      - "crates/hark-pipeline/src/worker/engines.rs"
       - "crates/hark-config/src/local.rs"
       - "crates/hark-app/src/model_download.rs"
       - "crates/hark-app/src/ui/settings/local.rs"
+      - "crates/hark-app/src/ui/settings/stt_card.rs"
     sections:
       - id: hark_07b_on_device_stt_modes
         title: "The three modes"
@@ -560,6 +623,7 @@ pages:
         autogen: false
         source_files:
           - "crates/hark-pipeline/src/local.rs"
+          - "crates/hark-pipeline/src/worker/engines.rs"
         diagrams_needed: false
         diagram_types: []
       - id: hark_07b_on_device_stt_feature
@@ -587,13 +651,19 @@ pages:
       - "crates/hark-spellbook/src/snap.rs"
       - "crates/hark-spellbook/src/expander.rs"
       - "crates/hark-config/src/lib.rs"
+      - "crates/hark-config/src/spellbook.rs"
       - "crates/hark-pipeline/src/lib.rs"
+      - "crates/hark-pipeline/src/route.rs"
+      - "crates/hark-pipeline/src/worker/shape.rs"
       - "crates/hark-stt/src/openai_compatible.rs"
       - "crates/hark-stt/src/openai_transcribe.rs"
       - "crates/hark-stt/src/deepgram.rs"
       - "crates/hark-stt/src/gemini_live.rs"
-      - "crates/hark-app/src/ui/spellbook/mod.rs"
-      - "crates/hark-app/src/ui/spellbook/edit.rs"
+      - "crates/hark-stt/src/gemini_live/wire.rs"
+      - "crates/hark-stt/src/openai_live/wire.rs"
+      - "crates/hark-app/src/ui/spellbook/*.rs"
+      - "crates/hark-app/src/ui/history/selection.rs"
+      - "crates/hark-app/src/ui/selectable.rs"
     sections:
       - id: hark_08_spellbook_overview
         title: "Overview"
@@ -621,12 +691,13 @@ pages:
         title: "Provider Biasing"
         autogen: true
         source_files:
-          - "crates/hark-config/src/lib.rs"
-          - "crates/hark-pipeline/src/lib.rs"
+          - "crates/hark-config/src/spellbook.rs"
+          - "crates/hark-pipeline/src/route.rs"
           - "crates/hark-stt/src/openai_compatible.rs"
           - "crates/hark-stt/src/openai_transcribe.rs"
           - "crates/hark-stt/src/deepgram.rs"
-          - "crates/hark-stt/src/gemini_live.rs"
+          - "crates/hark-stt/src/gemini_live/wire.rs"
+          - "crates/hark-stt/src/openai_live/wire.rs"
         diagrams_needed: false
         diagram_types: []
       - id: hark_08_spellbook_api
@@ -644,9 +715,10 @@ pages:
         source_files:
           - "crates/hark-spellbook/src/lib.rs"
           - "crates/hark-spellbook/src/matcher.rs"
-          - "crates/hark-config/src/lib.rs"
-          - "crates/hark-app/src/ui/spellbook/mod.rs"
-          - "crates/hark-app/src/ui/spellbook/edit.rs"
+          - "crates/hark-config/src/spellbook.rs"
+          - "crates/hark-app/src/ui/spellbook/*.rs"
+          - "crates/hark-app/src/ui/history/selection.rs"
+          - "crates/hark-app/src/ui/selectable.rs"
         diagrams_needed: false
         diagram_types: []
     related_pages:
@@ -666,7 +738,11 @@ pages:
       - "crates/hark-spellbook/src/expander.rs"
       - "crates/hark-config/src/invocations.rs"
       - "crates/hark-pipeline/src/worker.rs"
+      - "crates/hark-pipeline/src/worker/shape.rs"
+      - "crates/hark-pipeline/src/worker/tests.rs"
+      - "crates/hark-pipeline/src/plan.rs"
       - "crates/hark-stt/src/gemini_live.rs"
+      - "crates/hark-stt/src/gemini_live/mode.rs"
       - "crates/hark-app/src/ui/invocations/mod.rs"
       - "crates/hark-app/src/ui/invocations/editor.rs"
     sections:
@@ -687,6 +763,8 @@ pages:
         autogen: true
         source_files:
           - "crates/hark-pipeline/src/worker.rs"
+          - "crates/hark-pipeline/src/worker/shape.rs"
+          - "crates/hark-pipeline/src/worker/tests.rs"
         diagrams_needed: false
         diagram_types: []
       - id: hark_08b_invocations_config
@@ -727,10 +805,15 @@ pages:
       - "crates/hark-voice/src/error.rs"
       - "crates/hark-config/src/voice.rs"
       - "crates/hark-config/src/lib.rs"
+      - "crates/hark-config/src/provider.rs"
       - "crates/hark-pipeline/src/lib.rs"
+      - "crates/hark-pipeline/src/plan.rs"
       - "crates/hark-pipeline/src/worker.rs"
+      - "crates/hark-pipeline/src/worker/shape.rs"
+      - "crates/hark-pipeline/src/worker/record.rs"
       - "crates/hark-stt/src/lib.rs"
       - "crates/hark-stt/src/gemini_live.rs"
+      - "crates/hark-stt/src/gemini_live/mode.rs"
     sections:
       - id: hark_09_voice_cleanup_overview
         title: "Overview"
@@ -750,8 +833,9 @@ pages:
         autogen: true
         source_files:
           - "crates/hark-voice/src/openai_compatible.rs"
+          - "crates/hark-voice/src/lib.rs"
           - "crates/hark-config/src/voice.rs"
-          - "crates/hark-pipeline/src/lib.rs"
+          - "crates/hark-pipeline/src/plan.rs"
         diagrams_needed: false
         diagram_types: []
       - id: hark_09_voice_cleanup_pipeline
@@ -759,9 +843,11 @@ pages:
         autogen: true
         source_files:
           - "crates/hark-pipeline/src/worker.rs"
+          - "crates/hark-pipeline/src/worker/shape.rs"
+          - "crates/hark-pipeline/src/worker/record.rs"
           - "crates/hark-stt/src/lib.rs"
-          - "crates/hark-stt/src/gemini_live.rs"
-          - "crates/hark-config/src/lib.rs"
+          - "crates/hark-stt/src/gemini_live/mode.rs"
+          - "crates/hark-config/src/provider.rs"
         diagrams_needed: false
         diagram_types: []
       - id: hark_09_voice_cleanup_api
@@ -777,7 +863,7 @@ pages:
         source_files:
           - "crates/hark-voice/src/error.rs"
           - "crates/hark-voice/src/openai_compatible.rs"
-          - "crates/hark-pipeline/src/worker.rs"
+          - "crates/hark-pipeline/src/worker/shape.rs"
         diagrams_needed: false
         diagram_types: []
     related_pages:
@@ -906,7 +992,9 @@ pages:
       - "crates/hark-app/src/ui/mod.rs"
       - "crates/hark-app/src/ui/shell.rs"
       - "crates/hark-app/src/ui/pages.rs"
-      - "crates/hark-app/src/ui/history/mod.rs"
+      - "crates/hark-app/src/ui/history/*.rs"
+      - "crates/hark-app/src/ui/selectable.rs"
+      - "crates/hark-app/src/pipeline.rs"
       - "crates/hark-app/src/ui/stats.rs"
       - "crates/hark-app/src/ui/settings/mod.rs"
       - "crates/hark-app/src/ui/settings/live_rows.rs"
@@ -954,7 +1042,8 @@ pages:
         title: "Home, Insights, and Editors"
         autogen: true
         source_files:
-          - "crates/hark-app/src/ui/history/mod.rs"
+          - "crates/hark-app/src/ui/history/*.rs"
+          - "crates/hark-app/src/ui/selectable.rs"
           - "crates/hark-app/src/ui/stats.rs"
           - "crates/hark-app/src/ui/settings/mod.rs"
         diagrams_needed: false
@@ -993,6 +1082,7 @@ pages:
       - "package.json"
       - "Cargo.toml"
       - ".github/workflows/ci.yml"
+      - "deny.toml"
     sections:
       - id: hark_13_release_packaging_overview
         title: "Overview"
@@ -1015,6 +1105,7 @@ pages:
         source_files:
           - ".github/workflows/release.yml"
           - ".github/workflows/ci.yml"
+          - "deny.toml"
         diagrams_needed: false
         diagram_types: []
       - id: hark_13_release_packaging_signing
@@ -1050,7 +1141,9 @@ pages:
       - "crates/hark-stt/src/lib.rs"
       - "crates/hark-audio/src/ring.rs"
       - "crates/hark-hotkey/src/edges.rs"
+      - "crates/hark-hotkey/src/edges/chord.rs"
       - "crates/hark-pipeline/src/events.rs"
+      - "crates/hark-pipeline/src/worker/held.rs"
       - "crates/hark-stt/src/meeting.rs"
     sections:
       - id: hark_14_glossary_terms
@@ -1080,13 +1173,13 @@ pages:
       - "crates/hark-meeting/src/chunker.rs"
       - "crates/hark-meeting/src/merge.rs"
       - "crates/hark-meeting/src/detect.rs"
+      - "crates/hark-meeting/src/detect/*.rs"
       - "crates/hark-meeting/src/probe/mod.rs"
       - "crates/hark-meeting/src/probe/win.rs"
       - "crates/hark-meeting/src/probe/mac.rs"
       - "crates/hark-meeting/src/probe/linux.rs"
       - "crates/hark-meeting/src/probe/linux_windows.rs"
       - "crates/hark-meeting/src/probe/watch_linux.rs"
-      - "crates/hark-meeting/src/probe/watch_win.rs"
       - "crates/hark-meeting/src/storage.rs"
       - "crates/hark-meeting/src/storage_fs.rs"
       - "crates/hark-meeting/src/export.rs"
@@ -1104,6 +1197,8 @@ pages:
       - "crates/hark-app/src/ui/meetings/assign.rs"
       - "crates/hark-pipeline/src/meeting/mod.rs"
       - "crates/hark-pipeline/src/meeting/coordinator.rs"
+      - "crates/hark-pipeline/src/meeting/coordinator/*.rs"
+      - "crates/hark-pipeline/src/route.rs"
       - "crates/hark-pipeline/src/meeting/recorder.rs"
       - "crates/hark-pipeline/src/meeting/recorder_tests.rs"
       - "crates/hark-pipeline/src/meeting/echo.rs"
@@ -1170,14 +1265,15 @@ pages:
         autogen: true
         source_files:
           - "crates/hark-meeting/src/detect.rs"
+          - "crates/hark-meeting/src/detect/*.rs"
           - "crates/hark-meeting/src/probe/mod.rs"
           - "crates/hark-meeting/src/probe/win.rs"
           - "crates/hark-meeting/src/probe/mac.rs"
           - "crates/hark-meeting/src/probe/linux.rs"
           - "crates/hark-meeting/src/probe/linux_windows.rs"
           - "crates/hark-meeting/src/probe/watch_linux.rs"
-          - "crates/hark-meeting/src/probe/watch_win.rs"
           - "crates/hark-pipeline/src/meeting/coordinator.rs"
+          - "crates/hark-pipeline/src/meeting/coordinator/*.rs"
         diagrams_needed: false
         diagram_types: []
       - id: hark_15_meetings_live

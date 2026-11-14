@@ -16,6 +16,10 @@ pub(super) enum State {
     ProviderError,
     InsertError,
     Quiet,
+    /// The words were transcribed but the paste failed; they are in History.
+    NotPasted,
+    /// Transcription failed and the audio is held for a retry from History.
+    TranscriptionHeld,
 }
 
 impl State {
@@ -30,6 +34,11 @@ impl State {
             Self::ProviderError => "Check provider",
             Self::InsertError => "Couldn't insert",
             Self::Quiet => "No speech heard",
+            // The pill is a fixed 192 px, so these are the short forms of
+            // "Couldn't paste. Open History to copy the text." and "Couldn't
+            // transcribe. Try again from History."; the footer says it in full.
+            Self::NotPasted => "Not pasted: History",
+            Self::TranscriptionHeld => "Retry from History",
         }
     }
 
@@ -37,6 +46,8 @@ impl State {
         match self {
             Self::Inserted => Some(1_000),
             Self::AudioError | Self::ProviderError | Self::InsertError | Self::Quiet => Some(3_000),
+            // Longer: these tell the user where to go, not just what happened.
+            Self::NotPasted | Self::TranscriptionHeld => Some(4_000),
             _ => None,
         }
     }
@@ -67,6 +78,14 @@ impl Feedback {
             PipelineEvent::Processing => State::Processing,
             PipelineEvent::LoadingLocalModel => State::LoadingModel,
             PipelineEvent::Injected(_) => State::Inserted,
+            PipelineEvent::NotPasted { .. } => State::NotPasted,
+            PipelineEvent::ClipHeld { held: true } => State::TranscriptionHeld,
+            // The worker's bookkeeping, not a result for the pill: the words
+            // that ended a held clip's story arrive as their own event.
+            PipelineEvent::ClipHeld { held: false } => return,
+            // A retry the user asked for from Hark's own window: the pill
+            // belongs to dictation, and the banner already shows the result.
+            PipelineEvent::Recovered(_) => State::Hidden,
             PipelineEvent::Failed { stage, .. } => match stage {
                 FailStage::GatedTooShort | FailStage::EmptyTranscript | FailStage::Abandoned => {
                     State::Hidden
@@ -130,6 +149,8 @@ impl Feedback {
             6 => State::ProviderError,
             7 => State::InsertError,
             8 => State::Quiet,
+            9 => State::NotPasted,
+            10 => State::TranscriptionHeld,
             // The worker's live flag decides when recording ends, not an old
             // Recording event waiting for the parent's next pass.
             _ => State::Hidden,
@@ -177,6 +198,52 @@ mod tests {
         feedback.disable();
         feedback.publish_at(State::Inserted, 20);
         assert_eq!(feedback.state_at(true, 21), State::Hidden);
+    }
+
+    fn record() -> Box<hark_pipeline::DictationRecord> {
+        Box::new(hark_pipeline::DictationRecord {
+            raw_text: String::new(),
+            final_text: String::new(),
+            voice: String::new(),
+            stt_provider: String::new(),
+            stt_model: String::new(),
+            cleanup_model: None,
+            invocation: None,
+            audio_ms: 0,
+            stt_ms: 0,
+            cleanup_ms: None,
+            total_ms: 0,
+            spellbook_replacements: None,
+            foreground_app: None,
+        })
+    }
+
+    #[test]
+    fn a_failed_paste_and_a_held_clip_both_point_at_history_and_then_expire() {
+        let feedback = Feedback::new();
+        feedback.publish(&PipelineEvent::NotPasted {
+            record: record(),
+            detail: String::new(),
+        });
+        assert_eq!(feedback.state_at(false, 0), State::NotPasted);
+        assert!(State::NotPasted.label().contains("History"));
+        feedback.publish_at(State::NotPasted, 1_000);
+        assert_eq!(feedback.state_at(false, 4_999), State::NotPasted);
+        assert_eq!(feedback.state_at(false, 5_000), State::Hidden);
+
+        feedback.publish(&PipelineEvent::ClipHeld { held: true });
+        assert_eq!(feedback.state_at(false, 0), State::TranscriptionHeld);
+        assert!(State::TranscriptionHeld.label().contains("History"));
+    }
+
+    #[test]
+    fn dropping_a_held_clip_leaves_the_pill_alone_and_a_recovery_clears_it() {
+        let feedback = Feedback::new();
+        feedback.publish(&PipelineEvent::Processing);
+        feedback.publish(&PipelineEvent::ClipHeld { held: false });
+        assert_eq!(feedback.state_at(false, 0), State::Processing);
+        feedback.publish(&PipelineEvent::Recovered(record()));
+        assert_eq!(feedback.state_at(false, 0), State::Hidden);
     }
 
     #[test]

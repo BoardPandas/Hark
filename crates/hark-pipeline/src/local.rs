@@ -1,14 +1,127 @@
-//! The on-device half of transcription: the lazily-loaded engine and the
-//! cloud/local policy that decides which one produces a given dictation.
+//! The on-device half of transcription: the resident engine (preloaded when
+//! the mode can need it) and the cloud/local policy that decides which one
+//! produces a given dictation.
 //!
 //! The policy is pure enough to unit-test without a network or a model: it
 //! is expressed over a [`Transcriber`] trait that the real cloud adapter and
 //! the real engine both satisfy, and that the tests fake.
 
+use crate::lifecycle::RunControl;
 use hark_config::LocalMode;
 use hark_local_stt::{LocalEngine, LocalSttError, ModelSpec};
 use hark_stt::{SttError, Transcript};
 use std::path::PathBuf;
+use std::sync::mpsc::{self, Receiver, TryRecvError};
+use std::sync::Arc;
+
+/// Whether to read the model into RAM as soon as the pipeline starts, so the
+/// first dictation (Primary) or the first rescue (Backup) does not pay the
+/// ~1.2 s cold load. Off never loads anything, and a model that is not on disk
+/// has nothing to load.
+pub(crate) fn should_preload(mode: LocalMode, model_on_disk: bool) -> bool {
+    mode.uses_local() && model_on_disk
+}
+
+/// Where the engine is: not requested, being loaded by the preload helper, or
+/// resident. Generic over the engine so the wait-for-preload behaviour is
+/// testable without a 670 MB model.
+enum Slot<E> {
+    Empty,
+    Loading(Receiver<Result<E, LocalSttError>>),
+    Loaded(E),
+}
+
+struct EngineSlot<E> {
+    slot: Slot<E>,
+}
+
+impl<E: Send + 'static> EngineSlot<E> {
+    fn new() -> Self {
+        EngineSlot { slot: Slot::Empty }
+    }
+
+    /// Run `load` on a short-lived helper thread and park its result here for
+    /// the next caller. Never joined: the helper owns only a sender, so a
+    /// pipeline that stops mid-load just lets the thread finish and drop the
+    /// engine. A spawn failure is a warning; the lazy path still works.
+    fn start_preload(&mut self, load: impl FnOnce() -> Result<E, LocalSttError> + Send + 'static) {
+        if !matches!(self.slot, Slot::Empty) {
+            return;
+        }
+        let (tx, rx) = mpsc::channel();
+        let spawned = std::thread::Builder::new()
+            .name("hark-local-preload".into())
+            .spawn(move || {
+                let _ = tx.send(load());
+            });
+        match spawned {
+            Ok(_) => self.slot = Slot::Loading(rx),
+            Err(e) => log::warn!("could not start the on-device model preload ({e})"),
+        }
+    }
+
+    /// Collect a finished preload without blocking. A failed or vanished
+    /// preload is only a warning: the slot goes back to `Empty` and the next
+    /// `get_or_load` loads lazily, exactly as if no preload had run.
+    fn poll(&mut self) {
+        let Slot::Loading(rx) = &self.slot else {
+            return;
+        };
+        match rx.try_recv() {
+            Ok(Ok(engine)) => self.slot = Slot::Loaded(engine),
+            Ok(Err(e)) => {
+                log::warn!("on-device model preload failed ({e}); will load on first use");
+                self.slot = Slot::Empty;
+            }
+            Err(TryRecvError::Empty) => {}
+            Err(TryRecvError::Disconnected) => {
+                log::warn!(
+                    "on-device model preload ended without a result; will load on first use"
+                );
+                self.slot = Slot::Empty;
+            }
+        }
+    }
+
+    fn is_loaded(&self) -> bool {
+        matches!(self.slot, Slot::Loaded(_))
+    }
+
+    fn is_loading(&self) -> bool {
+        matches!(self.slot, Slot::Loading(_))
+    }
+
+    /// The engine. Takes the preloaded one if it has arrived, WAITS for one
+    /// still loading (a second load would hold two copies of the weights), and
+    /// only otherwise runs `load` itself.
+    fn get_or_load(
+        &mut self,
+        load: impl FnOnce() -> Result<E, LocalSttError>,
+    ) -> Result<&E, LocalSttError> {
+        if let Slot::Loading(rx) = &self.slot {
+            match rx.recv() {
+                Ok(Ok(engine)) => self.slot = Slot::Loaded(engine),
+                Ok(Err(e)) => {
+                    log::warn!("on-device model preload failed ({e}); loading now");
+                    self.slot = Slot::Empty;
+                }
+                Err(_) => {
+                    log::warn!("on-device model preload ended without a result; loading now");
+                    self.slot = Slot::Empty;
+                }
+            }
+        }
+        if matches!(self.slot, Slot::Empty) {
+            self.slot = Slot::Loaded(load()?);
+        }
+        match &self.slot {
+            Slot::Loaded(engine) => Ok(engine),
+            // Both other states were resolved above; an error is safer than a
+            // panic on the dictation path if that ever stops being true.
+            _ => Err(LocalSttError::EngineUnavailable),
+        }
+    }
+}
 
 /// Everything the worker needs to run the on-device engine, including the
 /// engine itself once something has forced it to load.
@@ -17,10 +130,10 @@ pub(crate) struct LocalPlan {
     pub spec: &'static ModelSpec,
     pub dir: PathBuf,
     pub threads: u32,
-    /// Loaded on first use and then kept resident: reloading ~670 MB of
-    /// weights per dictation would dominate release-to-inject latency.
-    /// `None` means "not loaded yet", not "unavailable".
-    engine: Option<LocalEngine>,
+    /// Resident once loaded, by the startup preload or by first use: reloading
+    /// ~670 MB of weights per dictation would dominate release-to-inject
+    /// latency. Empty means "not loaded yet", not "unavailable".
+    engine: EngineSlot<LocalEngine>,
 }
 
 impl LocalPlan {
@@ -30,33 +143,52 @@ impl LocalPlan {
             spec,
             dir,
             threads,
-            engine: None,
+            engine: EngineSlot::new(),
         }
     }
 
-    /// The engine, loading it if this is the first call. The load is seconds
-    /// long, so callers should have already told the UI something is
-    /// happening.
+    /// Start loading the model in the background when the mode can need it
+    /// ([`should_preload`]). Returns at once; the first dictation never waits
+    /// for this to *start*, only (briefly) for a load already under way.
+    pub fn start_preload(&mut self, control: Arc<RunControl>) {
+        if !should_preload(self.mode, self.is_ready()) || control.is_cancelled() {
+            return;
+        }
+        let (spec, dir, threads) = (self.spec, self.dir.clone(), self.threads);
+        self.engine.start_preload(move || {
+            // A pipeline retired before this thread got going has no use for
+            // 670 MB of weights.
+            if control.is_cancelled() {
+                return Err(LocalSttError::EngineUnavailable);
+            }
+            LocalEngine::load(spec, &dir, threads)
+        });
+    }
+
+    /// The engine, loading it if nothing has yet. The load is seconds long, so
+    /// callers should have already told the UI something is happening (see
+    /// [`LocalPlan::needs_load_wait`]).
     pub fn engine(&mut self) -> Result<&LocalEngine, LocalSttError> {
-        if self.engine.is_none() {
-            let engine = LocalEngine::load(self.spec, &self.dir, self.threads)?;
-            self.engine = Some(engine);
-        }
-        // Just populated above (or already present), so this cannot fail.
-        Ok(self
-            .engine
-            .as_ref()
-            .expect("engine was just loaded into place"))
+        let (spec, dir, threads) = (self.spec, &self.dir, self.threads);
+        self.engine
+            .get_or_load(|| LocalEngine::load(spec, dir, threads))
     }
 
-    /// Whether the weights are on disk right now. Cheap (metadata only).
+    /// Whether using the engine now would block on a load: nothing is loaded
+    /// and either a preload is still running or a lazy load is next. False when
+    /// the preload has already finished, so "loading model" is only announced
+    /// for a wait the user actually feels.
+    pub fn needs_load_wait(&mut self) -> bool {
+        self.engine.poll();
+        !self.engine.is_loaded()
+    }
+
+    /// Whether the weights are on disk (or already in RAM) right now. Cheap
+    /// (metadata only).
     pub fn is_ready(&self) -> bool {
-        self.engine.is_some() || self.spec.status_in(&self.dir).is_ready()
-    }
-
-    /// Whether the model has already been loaded into RAM.
-    pub fn is_loaded(&self) -> bool {
-        self.engine.is_some()
+        self.engine.is_loaded()
+            || self.engine.is_loading()
+            || self.spec.status_in(&self.dir).is_ready()
     }
 }
 
@@ -440,6 +572,122 @@ mod tests {
             assert_eq!(source, Source::Cloud);
             assert_eq!(f.local_calls, 0, "{mode:?} must not load the model");
         }
+    }
+
+    // --- preload: which modes, and one load only ---
+
+    #[test]
+    fn only_backup_and_primary_preload_and_only_with_a_model_on_disk() {
+        assert!(should_preload(LocalMode::Fallback, true));
+        assert!(should_preload(LocalMode::Primary, true));
+        assert!(!should_preload(LocalMode::Off, true), "Off never loads");
+        assert!(!should_preload(LocalMode::Fallback, false));
+        assert!(!should_preload(LocalMode::Primary, false));
+        assert!(!should_preload(LocalMode::Off, false));
+    }
+
+    #[test]
+    fn the_real_engine_can_cross_to_the_preload_thread() {
+        fn assert_send<T: Send + 'static>() {}
+        assert_send::<LocalEngine>();
+    }
+
+    /// A preload that finishes only when the test opens its gate.
+    fn gated_preload(
+        slot: &mut EngineSlot<u32>,
+        loads: &Arc<std::sync::atomic::AtomicU32>,
+        result: Result<u32, LocalSttError>,
+    ) -> mpsc::Sender<()> {
+        let (open, gate) = mpsc::channel::<()>();
+        let loads = loads.clone();
+        slot.start_preload(move || {
+            loads.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            let _ = gate.recv();
+            result
+        });
+        open
+    }
+
+    #[test]
+    fn a_dictation_during_a_preload_waits_for_it_instead_of_loading_twice() {
+        use std::sync::atomic::{AtomicU32, Ordering};
+        let preloads = Arc::new(AtomicU32::new(0));
+        let lazy_loads = Arc::new(AtomicU32::new(0));
+        let mut slot = EngineSlot::<u32>::new();
+        let open = gated_preload(&mut slot, &preloads, Ok(7));
+        assert!(slot.is_loading());
+        slot.poll();
+        assert!(slot.is_loading(), "still loading: nothing to collect yet");
+
+        let lazy = lazy_loads.clone();
+        let dictation = std::thread::spawn(move || {
+            let got = *slot
+                .get_or_load(|| {
+                    lazy.fetch_add(1, Ordering::SeqCst);
+                    Ok(99)
+                })
+                .unwrap();
+            (got, slot)
+        });
+        open.send(()).unwrap();
+        let (got, slot) = dictation.join().unwrap();
+
+        assert_eq!(got, 7, "the preloaded engine is the one used");
+        assert_eq!(preloads.load(Ordering::SeqCst), 1);
+        assert_eq!(lazy_loads.load(Ordering::SeqCst), 0, "no second load");
+        assert!(slot.is_loaded());
+    }
+
+    #[test]
+    fn a_finished_preload_is_collected_without_blocking_or_a_wait_notice() {
+        let loads = Arc::new(std::sync::atomic::AtomicU32::new(0));
+        let mut slot = EngineSlot::<u32>::new();
+        let open = gated_preload(&mut slot, &loads, Ok(5));
+        open.send(()).unwrap();
+        // Poll until the helper has delivered; bounded so a bug fails fast.
+        for _ in 0..500 {
+            slot.poll();
+            if slot.is_loaded() {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        assert!(slot.is_loaded(), "no wait is needed once it has arrived");
+        assert_eq!(*slot.get_or_load(|| Ok(0)).unwrap(), 5);
+    }
+
+    #[test]
+    fn a_failed_preload_falls_back_to_a_lazy_load() {
+        let loads = Arc::new(std::sync::atomic::AtomicU32::new(0));
+        let mut slot = EngineSlot::<u32>::new();
+        let open = gated_preload(&mut slot, &loads, Err(LocalSttError::EngineUnavailable));
+        open.send(()).unwrap();
+        assert_eq!(*slot.get_or_load(|| Ok(11)).unwrap(), 11);
+        assert!(slot.is_loaded());
+    }
+
+    #[test]
+    fn without_a_preload_the_first_use_loads_exactly_once() {
+        let mut slot = EngineSlot::<u32>::new();
+        assert!(!slot.is_loading() && !slot.is_loaded());
+        assert_eq!(*slot.get_or_load(|| Ok(3)).unwrap(), 3);
+        assert_eq!(
+            *slot.get_or_load(|| Ok(4)).unwrap(),
+            3,
+            "resident after the first load"
+        );
+    }
+
+    #[test]
+    fn a_preload_never_starts_twice() {
+        use std::sync::atomic::{AtomicU32, Ordering};
+        let loads = Arc::new(AtomicU32::new(0));
+        let mut slot = EngineSlot::<u32>::new();
+        let open = gated_preload(&mut slot, &loads, Ok(1));
+        slot.start_preload(|| Ok(2));
+        open.send(()).unwrap();
+        assert_eq!(*slot.get_or_load(|| Ok(3)).unwrap(), 1);
+        assert_eq!(loads.load(Ordering::SeqCst), 1);
     }
 
     #[test]

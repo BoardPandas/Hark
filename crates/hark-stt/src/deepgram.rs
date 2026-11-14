@@ -4,24 +4,34 @@
 
 use crate::error::{error_for_status, error_for_transport, json_error_detail, SttError};
 use crate::openai_compatible::retry_after_secs;
-use crate::{ProviderConfig, SttProvider, Transcript, TOTAL_TIMEOUT_MS};
+use crate::{request_total_ms, ProviderConfig, SttProvider, Transcript};
 use reqwest::blocking::Client;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 pub struct Deepgram {
     client: Client,
     label: String,
     url: String,
     api_key: String,
+    /// `None`: scale each request to its clip (see [`crate::dictation_timeout_ms`]).
+    fixed_total_ms: Option<u64>,
 }
 
 impl Deepgram {
+    /// Hold every request to exactly `total_ms` instead of scaling to the
+    /// clip; `None` keeps the dictation default.
+    pub fn with_total_timeout(mut self, total_ms: Option<u64>) -> Self {
+        self.fixed_total_ms = total_ms;
+        self
+    }
+
     pub fn new(config: &ProviderConfig, client: Client) -> Result<Self, SttError> {
         Ok(Self {
             client,
             label: config.label.clone(),
             url: listen_url(&config.base_url, &config.model, &config.bias_terms)?,
             api_key: config.api_key.clone(),
+            fixed_total_ms: None,
         })
     }
 }
@@ -72,21 +82,23 @@ pub fn parse_response(provider: &str, body: &str) -> Result<String, SttError> {
 
 impl SttProvider for Deepgram {
     fn transcribe(&self, wav_bytes: &[u8]) -> Result<Transcript, SttError> {
+        let total_ms = request_total_ms(self.fixed_total_ms, wav_bytes);
         let started = Instant::now();
         let response = self
             .client
             .post(&self.url)
+            .timeout(Duration::from_millis(total_ms))
             .header("Authorization", format!("Token {}", self.api_key))
             .header("Content-Type", "audio/wav")
             .body(wav_bytes.to_vec())
             .send()
-            .map_err(|e| error_for_transport(&self.label, TOTAL_TIMEOUT_MS, &e))?;
+            .map_err(|e| error_for_transport(&self.label, total_ms, &e))?;
 
         let status = response.status();
         let retry_after_s = retry_after_secs(response.headers());
         let body = response
             .text()
-            .map_err(|e| error_for_transport(&self.label, TOTAL_TIMEOUT_MS, &e))?;
+            .map_err(|e| error_for_transport(&self.label, total_ms, &e))?;
         let request_ms = started.elapsed().as_millis();
 
         if !status.is_success() {

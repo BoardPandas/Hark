@@ -1,6 +1,6 @@
 # Plan — Invocations (canned phrase → canned text)
 
-> Status: planned 2026-07-22. Target version **0.19.0** (Minor: new feature).
+> Status: shipped in **0.20.0** (2026-07-22); planned 2026-07-22 against a **0.19.0** target. See `CHANGELOG-archive.md`.
 
 ## Context
 

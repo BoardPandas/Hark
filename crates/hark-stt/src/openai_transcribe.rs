@@ -20,9 +20,9 @@ use crate::error::{error_for_status, error_for_transport, SttError};
 use crate::openai_compatible::{
     build_multipart_body, multipart_boundary, parse_response, retry_after_secs, transcriptions_url,
 };
-use crate::{ProviderConfig, SttProvider, Transcript, TOTAL_TIMEOUT_MS};
+use crate::{request_total_ms, ProviderConfig, SttProvider, Transcript};
 use reqwest::blocking::Client;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 pub struct OpenAiTranscribe {
     client: Client,
@@ -31,9 +31,18 @@ pub struct OpenAiTranscribe {
     model: String,
     api_key: String,
     bias_terms: Vec<String>,
+    /// `None`: scale each request to its clip (see [`crate::dictation_timeout_ms`]).
+    fixed_total_ms: Option<u64>,
 }
 
 impl OpenAiTranscribe {
+    /// Hold every request to exactly `total_ms` instead of scaling to the
+    /// clip; `None` keeps the dictation default.
+    pub fn with_total_timeout(mut self, total_ms: Option<u64>) -> Self {
+        self.fixed_total_ms = total_ms;
+        self
+    }
+
     pub fn new(config: &ProviderConfig, client: Client) -> Self {
         if !config.bias_terms.is_empty() {
             // Counts only: terms are user content and never appear in logs.
@@ -46,6 +55,7 @@ impl OpenAiTranscribe {
             model: config.model.clone(),
             api_key: config.api_key.clone(),
             bias_terms: config.bias_terms.clone(),
+            fixed_total_ms: None,
         }
     }
 }
@@ -83,10 +93,12 @@ impl SttProvider for OpenAiTranscribe {
             wav_bytes,
         );
 
+        let total_ms = request_total_ms(self.fixed_total_ms, wav_bytes);
         let started = Instant::now();
         let response = self
             .client
             .post(&self.url)
+            .timeout(Duration::from_millis(total_ms))
             .bearer_auth(&self.api_key)
             .header(
                 reqwest::header::CONTENT_TYPE,
@@ -94,13 +106,13 @@ impl SttProvider for OpenAiTranscribe {
             )
             .body(body)
             .send()
-            .map_err(|e| error_for_transport(&self.label, TOTAL_TIMEOUT_MS, &e))?;
+            .map_err(|e| error_for_transport(&self.label, total_ms, &e))?;
 
         let status = response.status();
         let retry_after_s = retry_after_secs(response.headers());
         let text = response
             .text()
-            .map_err(|e| error_for_transport(&self.label, TOTAL_TIMEOUT_MS, &e))?;
+            .map_err(|e| error_for_transport(&self.label, total_ms, &e))?;
         let request_ms = started.elapsed().as_millis();
 
         if !status.is_success() {

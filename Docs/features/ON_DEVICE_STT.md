@@ -30,9 +30,18 @@ Auth failures fall back deliberately: a user whose key has expired would rather
 have their words than a diagnostic. The dictation record still names which engine
 produced the text, so history never misattributes the result.
 
+One case reverses the order. With a streaming provider (Gemini Live, or OpenAI
+with Live transcribe), a stream that fails has already spent the dictation's
+first cloud attempt. In `fallback` mode with the model ready, the on-device
+engine then goes first and the cloud replay becomes the rescue: a stalled live
+turn means the provider is struggling right now, and replaying to it made a
+rescued dictation take 8 to 11 seconds
+([hark-pipeline/src/local.rs:241-286](../../crates/hark-pipeline/src/local.rs#L241-L286)).
+
 `primary` is the only mode that lets the pipeline start without a resolvable API
-key — see `PipelineController::start`, which skips the keychain failure path when
-`mode.uses_cloud()` is false ([hark-app/src/pipeline.rs `PipelineController::start`](../../crates/hark-app/src/pipeline.rs),
+key — see `PipelineController::start_worker`, which skips the keychain failure
+path when `mode.uses_cloud()` is false
+([hark-app/src/pipeline.rs:183-198](../../crates/hark-app/src/pipeline.rs#L183-L198),
 [hark-config/src/local.rs:42](../../crates/hark-config/src/local.rs#L42)).
 
 ## The model
@@ -69,30 +78,79 @@ config change once `parakeet-tdt-0.6b-v2-int8` is added to the catalog in
 
 This is the detail that makes fallback worth having.
 
-`hark_stt::TOTAL_TIMEOUT_MS` is 15 s ([hark-stt/src/lib.rs](../../crates/hark-stt/src/lib.rs)).
-Waiting that out and *then* spending ~2 s decoding locally produces a 17-second
-dictation — worse than no fallback. So when `mode = "fallback"` **and the weights
-are actually on disk**, the pipeline builds its STT client with
-`local_stt.fallback_after_ms` (default 6000, floor 500) instead
+Without a fallback, a dictation's cloud request is allowed 6 s plus half the
+clip's length, capped at `hark_stt::TOTAL_TIMEOUT_MS`, which is 15 s
+([hark-stt/src/lib.rs:31-51](../../crates/hark-stt/src/lib.rs#L31-L51)). Waiting
+out a long clip's bound and *then* spending ~2 s decoding locally produces a
+dictation slower than no fallback at all. So when `mode = "fallback"` **and the
+weights are actually on disk**, the pipeline holds every cloud request to
+`local_stt.fallback_after_ms` (default 6000, floor 500) instead, however long
+the clip is
 ([hark-config/src/local.rs:69](../../crates/hark-config/src/local.rs#L69),
 [:106-108](../../crates/hark-config/src/local.rs#L106-L108),
-[hark-pipeline/src/lib.rs `run_inner`](../../crates/hark-pipeline/src/lib.rs)). With no
-model downloaded, nothing changes and the normal 15 s applies.
+[hark-pipeline/src/lib.rs:248-273](../../crates/hark-pipeline/src/lib.rs#L248-L273)).
+
+The leash is applied in two places that must agree. The HTTP client is built
+with `client_with_timeout(leash)`, and the adapter with
+`build_with_total_timeout(…, leash)`. The second is the one that decides: each
+batch adapter sets a timeout on the request itself, which replaces the
+client's, so a short client alone would be stretched back out to the
+clip-length bound
+([hark-stt/src/lib.rs:165-176](../../crates/hark-stt/src/lib.rs#L165-L176),
+[:251-262](../../crates/hark-stt/src/lib.rs#L251-L262)). With no model
+downloaded, nothing changes and the clip-length bound applies.
 
 ## Residency
 
-The engine loads on first use and stays resident. Reloading ~670 MB per dictation
+The engine stays resident once it is loaded. Reloading ~670 MB per dictation
 would dominate release-to-inject latency, which is the product.
 
-The consequence is that Hark idles at over a gigabyte of RAM once local STT has
-been used in a session. That is the trade, and it is why Settings offers a Delete
-button. The engine is dropped (and its RAM released) whenever the pipeline
-restarts — every settings Save does that.
+**It is loaded when the pipeline starts, not on first use.** In Backup
+(`fallback`) and Primary mode with the model on disk, the worker asks a
+short-lived helper thread, `hark-local-preload`, to read the model in as soon as
+it starts, and goes on to pre-warm the network connection without waiting for
+it. The first dictation in Primary, or the first rescue in Backup, then finds
+the engine already loaded and skips the cold load, which the code puts at about
+1.2 s. Off never loads anything, and a model that is not downloaded has nothing
+to load
+([local.rs:17-23](../../crates/hark-pipeline/src/local.rs#L17-L23),
+[local.rs:150-166](../../crates/hark-pipeline/src/local.rs#L150-L166),
+[worker.rs:126-132](../../crates/hark-pipeline/src/worker.rs#L126-L132)).
 
-First load takes seconds, so the pipeline emits `PipelineEvent::LoadingLocalModel`
-before blocking and the status bar names it ([events.rs:82](../../crates/hark-pipeline/src/events.rs#L82),
-[worker.rs:504](../../crates/hark-pipeline/src/worker.rs#L504)). Without that the app simply looks
-frozen on the first local dictation.
+The slot that holds the engine has three states: empty, loading, and loaded. A
+dictation that needs the engine while the preload is still running waits for it
+rather than starting a second load, which would hold two copies of the weights.
+A preload that fails, or whose thread could not be started, is only a warning:
+the slot goes back to empty and the engine loads on first use, exactly as it did
+before preloading existed. The helper thread is never joined. A pipeline retired
+before the thread gets going skips the load, and one retired mid-load lets the
+thread finish and drop the engine
+([local.rs:25-124](../../crates/hark-pipeline/src/local.rs#L25-L124),
+[local.rs:157-165](../../crates/hark-pipeline/src/local.rs#L157-L165)).
+`LocalEngine` is `Send`, which is what allows it to be built on the helper
+thread and handed to the worker; a test pins that
+([engine.rs:25-30](../../crates/hark-local-stt/src/engine.rs#L25-L30),
+[local.rs:589-593](../../crates/hark-pipeline/src/local.rs#L589-L593)).
+
+The consequence is that in Backup or Primary, Hark holds the model in memory
+from the moment the pipeline starts, whether or not a dictation ever needs it.
+The Backup line in Settings says so, quoting the measured resident figure from
+the table above ("keeps the model loaded in memory (about 1.2 GB)"); the weights
+themselves are about 670 MB on disk
+([ui/settings/stt_card.rs:175-194](../../crates/hark-app/src/ui/settings/stt_card.rs#L175-L194)).
+That is the trade, and it is why Settings offers a Delete button. The engine is
+dropped (and its RAM released) whenever the pipeline restarts — every settings
+Save does that — and the new pipeline preloads again.
+
+`PipelineEvent::LoadingLocalModel` is sent only when a dictation actually has to
+wait: nothing is loaded yet, and either the preload is still running or a lazy
+load is next (`LocalPlan::needs_load_wait`). A preload that has already finished
+costs the dictation nothing, so the status bar never says "loading model" for
+it. When the wait is real, the event goes out before the worker blocks, so the
+app does not look frozen
+([events.rs:90-94](../../crates/hark-pipeline/src/events.rs#L90-L94),
+[worker/engines.rs:75-82](../../crates/hark-pipeline/src/worker/engines.rs#L75-L82),
+[local.rs:177-184](../../crates/hark-pipeline/src/local.rs#L177-L184)).
 
 ## Build-time cost and the `local-engine` feature
 
@@ -112,8 +170,8 @@ Gemini and OpenAI's Live transcribe; add `--features live-stt` to keep them
 ([hark-app/Cargo.toml](../../crates/hark-app/Cargo.toml)).
 
 `hark-app/local-engine` → `hark-local-stt/engine` + `hark-pipeline/engine`
-([hark-app/Cargo.toml:69-70](../../crates/hark-app/Cargo.toml#L69-L70),
-[hark-local-stt/Cargo.toml:35-37](../../crates/hark-local-stt/Cargo.toml#L35-L37)).
+([hark-app/Cargo.toml:199-200](../../crates/hark-app/Cargo.toml#L199-L200),
+[hark-local-stt/Cargo.toml:34-36](../../crates/hark-local-stt/Cargo.toml#L34-L36)).
 
 Without the feature, the model-management half still compiles and tests
 normally, `LocalEngine::load` returns `EngineUnavailable`
@@ -129,7 +187,9 @@ hark-local-stt/
   download.rs  streaming resumable download, progress, cancel, verify
   engine.rs    LocalEngine (behind `engine`): sherpa-onnx offline transducer
 hark-pipeline/
-  local.rs     LocalPlan (lazy resident engine) + the cloud/local policy
+  local.rs           LocalPlan (resident engine, preloaded at start) + the cloud/local policy
+  worker/engines.rs  binds the worker's cloud adapter and engine to that policy
+  plan.rs            build_local: the plan from settings, or None when unusable
 hark-app/
   model_download.rs        download lifecycle for the UI (thread + mpsc + poll)
   ui/settings/local.rs     the on-device half of the Speech to text card
@@ -137,8 +197,11 @@ hark-app/
 ```
 
 The policy in `hark-pipeline/src/local.rs` is expressed over a `Transcriber`
-trait ([local.rs:92](../../crates/hark-pipeline/src/local.rs#L92)) so it is unit-tested
-without a network or a 670 MB model on disk.
+trait ([local.rs:222-230](../../crates/hark-pipeline/src/local.rs#L222-L230)) so it is unit-tested
+without a network or a 670 MB model on disk. The engine slot is generic over
+the engine type for the same reason: the wait-for-preload behaviour is tested
+with a stand-in instead of the real model
+([local.rs:25-36](../../crates/hark-pipeline/src/local.rs#L25-L36)).
 
 ## Gotchas worth keeping
 
@@ -162,7 +225,7 @@ without a network or a 670 MB model on disk.
 
 The engine cannot be meaningfully tested without the weights, so there is an
 opt-in integration test that reports load and decode wall times
-([tests/engine_real_model.rs:47](../../crates/hark-local-stt/tests/engine_real_model.rs#L47)):
+([tests/engine_real_model.rs:49](../../crates/hark-local-stt/tests/engine_real_model.rs#L49)):
 
 ```bash
 HARK_LOCAL_MODEL_DIR=<model dir> \

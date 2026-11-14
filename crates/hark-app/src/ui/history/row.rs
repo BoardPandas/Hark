@@ -2,9 +2,10 @@
 //! voice · model), always-visible copy/delete, and the expanded detail
 //! (raw transcript, timing breakdown, full timestamp).
 
+use super::selection::{offers_selection, selection_id, Source};
 use crate::theme;
 use crate::ui::format;
-use crate::ui::selectable::{selectable_text, Selection};
+use crate::ui::selectable::{selectable_text, Click, Selection};
 use egui::{Align, Id, Label, Layout, RichText, Sense, Ui};
 use hark_store::Entry;
 use jiff::tz::TimeZone;
@@ -17,13 +18,6 @@ pub enum Action {
     Delete(i64),
     /// Hand the selected transcript span to the Spellbook as a starting point.
     AddTerm(String),
-}
-
-/// Selection key for a row's raw transcript. Keyed on the entry id, not the
-/// widget's positional id: a new dictation shifts entries between rows, and a
-/// live selection must not follow the slot onto different text.
-pub fn selection_id(entry_id: i64) -> Id {
-    Id::unique(("history-raw", entry_id))
 }
 
 /// Animation key for a row's "Copied" fade.
@@ -80,11 +74,23 @@ pub fn show(
         let text_width = (ui.available_width() - ACTIONS_WIDTH).max(120.0);
         ui.vertical(|ui| {
             ui.set_width(text_width);
-            let preview =
-                Label::new(RichText::new(preview(&entry.final_text))).sense(Sense::click());
+            let shown = Source::Final.shown(entry);
+            let text_response = if offers_selection(entry) {
+                // A drag selects; a plain click still toggles the row.
+                selectable_text(
+                    ui,
+                    selection_id(entry.id, Source::Final),
+                    &shown,
+                    RichText::new(&shown),
+                    selection,
+                    Click::PassesThrough,
+                )
+
+            } else {
+                ui.add(Label::new(RichText::new(&shown)).sense(Sense::click()))
+            };
             let response =
-                ui.add(preview)
-                    .on_hover_text(if expanded { "Collapse" } else { "Show details" });
+                text_response.on_hover_text(if expanded { "Collapse" } else { "Show details" });
             if response.clicked() {
                 action = Some(Action::Toggle(entry.id));
             }
@@ -119,10 +125,16 @@ pub fn show(
                     selected.is_some(),
                     egui::Button::new(theme::icon_text(theme::icons::BOOK_OPEN)).frame(false),
                 )
-                .on_hover_text(match selected {
-                    Some(term) => format!("Add \u{201C}{term}\u{201D} to your Spellbook"),
-                    None => "Select text in the transcript to add a Spellbook term".to_string(),
-                });
+                .on_hover_text(format!(
+                    "Add \u{201C}{}\u{201D} to your Spellbook",
+                    selected.unwrap_or_default()
+                ))
+                // `on_hover_text` is silent on a disabled widget, and the
+                // disabled state is the one that has to explain itself.
+                .on_disabled_hover_text(
+                    "Drag across a misheard word or phrase in this entry to add it to your Spellbook",
+                );
+            theme::focus_ring(ui, &add);
             if let (true, Some(term)) = (add.clicked(), selected) {
                 action = Some(Action::AddTerm(term.to_string()));
             }
@@ -189,21 +201,27 @@ fn details(ui: &mut Ui, entry: &Entry, tz: &TimeZone, selection: &mut Option<Sel
         // Selectable, snapping to whole spellbook tokens. The row's Add
         // button turns the live selection into a Spellbook term; the
         // hint below is the only thing that advertises the gesture.
-        let raw = entry.raw_text.trim();
-        selectable_text(
-            ui,
-            selection_id(entry.id),
-            raw,
-            RichText::new(raw),
-            selection,
-        );
-        ui.label(
-            RichText::new(
-                "Select a misheard name above, then use Add to Spellbook in the row actions.",
-            )
-            .small()
-            .weak(),
-        );
+        let raw = Source::Raw.shown(entry);
+        if offers_selection(entry) {
+            selectable_text(
+                ui,
+                selection_id(entry.id, Source::Raw),
+                &raw,
+                RichText::new(&raw),
+                selection,
+                Click::SelectsWord,
+            );
+            ui.label(
+                RichText::new(
+                    "Drag across a misheard name above, then press the book button on this \
+                     entry to add it to your Spellbook.",
+                )
+                .small()
+                .weak(),
+            );
+        } else {
+            ui.label(RichText::new(&raw));
+        }
         ui.add_space(4.0);
         ui.label(RichText::new(timing_line(entry)).monospace().small());
         ui.label(
@@ -224,6 +242,10 @@ fn details(ui: &mut Ui, entry: &Entry, tz: &TimeZone, selection: &mut Option<Sel
 /// it. Each chip is its label in words; the hue only groups them.
 fn chips(entry: &Entry) -> Vec<(theme::Hue, Option<&'static str>, &'static str)> {
     let mut chips = Vec::new();
+    // Without this a row the paste never delivered reads like any other.
+    if !entry.delivered {
+        chips.push((theme::Hue::Gold, None, "Not pasted"));
+    }
     if entry.invocation.is_some() {
         chips.push((
             theme::Hue::Rose,
@@ -254,7 +276,7 @@ fn caption(entry: &Entry) -> String {
 }
 
 /// Whitespace-normalized, char-boundary-safe preview with an ellipsis.
-fn preview(text: &str) -> String {
+pub(super) fn preview(text: &str) -> String {
     let flat = text.split_whitespace().collect::<Vec<_>>().join(" ");
     match flat.char_indices().nth(PREVIEW_CHARS) {
         Some((byte, _)) => format!("{}…", flat[..byte].trim_end()),
@@ -303,7 +325,22 @@ mod tests {
             stt_ms: 400,
             cleanup_ms: cleanup.then_some(300),
             total_ms: 800,
+            delivered: true,
         }
+    }
+
+    #[test]
+    fn an_undelivered_row_is_badged_and_a_delivered_one_is_not() {
+        assert!(!chips(&entry(false))
+            .iter()
+            .any(|(_, _, text)| *text == "Not pasted"));
+        let mut stranded = entry(false);
+        stranded.delivered = false;
+        assert_eq!(
+            chips(&stranded)[0],
+            (theme::Hue::Gold, None, "Not pasted"),
+            "the badge leads the meta line"
+        );
     }
 
     #[test]

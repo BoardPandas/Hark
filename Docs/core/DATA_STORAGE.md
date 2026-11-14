@@ -4,23 +4,26 @@
 
 The following files were used as evidence for this page:
 
-- [crates/hark-store/src/lib.rs:1-400](../../crates/hark-store/src/lib.rs#L1-L400)
+- [crates/hark-store/src/lib.rs:1-444](../../crates/hark-store/src/lib.rs#L1-L444)
 - [crates/hark-store/migrations/001_init.sql:1-31](../../crates/hark-store/migrations/001_init.sql#L1-L31)
 - [crates/hark-store/migrations/002_stats_total_ms.sql:1-8](../../crates/hark-store/migrations/002_stats_total_ms.sql#L1-L8)
 - [crates/hark-store/migrations/003_entries_invocation.sql:1-6](../../crates/hark-store/migrations/003_entries_invocation.sql#L1-L6)
 - [crates/hark-store/migrations/004_meetings.sql](../../crates/hark-store/migrations/004_meetings.sql)
 - [crates/hark-store/migrations/007_meeting_speakers.sql](../../crates/hark-store/migrations/007_meeting_speakers.sql)
+- [crates/hark-store/migrations/008_entries_delivered.sql:1-9](../../crates/hark-store/migrations/008_entries_delivered.sql#L1-L9)
 - [crates/hark-store/tests/meeting_speakers.rs](../../crates/hark-store/tests/meeting_speakers.rs)
 - [Numeric Insights migration](../../crates/hark-store/migrations/005_insight_events.sql), [persistence](../../crates/hark-store/src/insights/persistence.rs), [queries](../../crates/hark-store/src/insights/query.rs), and [word analysis](../../crates/hark-store/src/insights/patterns.rs)
 - [Insights regression tests](../../crates/hark-store/tests/insights.rs)
 - [crates/hark-store/src/meetings.rs](../../crates/hark-store/src/meetings.rs)
-- [crates/hark-store/tests/store.rs:1-465](../../crates/hark-store/tests/store.rs#L1-L465)
-- [crates/hark-app/src/storage/mod.rs:1-249](../../crates/hark-app/src/storage/mod.rs#L1-L249)
+- [crates/hark-store/tests/store.rs:1-557](../../crates/hark-store/tests/store.rs#L1-L557)
+- [crates/hark-app/src/storage/mod.rs:1-297](../../crates/hark-app/src/storage/mod.rs#L1-L297)
 - [crates/hark-app/src/storage/meetings.rs](../../crates/hark-app/src/storage/meetings.rs)
+- [crates/hark-app/src/pipeline.rs:504-563](../../crates/hark-app/src/pipeline.rs#L504-L563)
 - [crates/hark-app/src/app.rs](../../crates/hark-app/src/app.rs)
 - [crates/hark-config/src/lib.rs](../../crates/hark-config/src/lib.rs)
-- [crates/hark-config/src/lib.rs](../../crates/hark-config/src/lib.rs)
-- [crates/hark-pipeline/src/events.rs:6-40](../../crates/hark-pipeline/src/events.rs#L6-L40)
+- [crates/hark-config/src/load_save.rs](../../crates/hark-config/src/load_save.rs)
+- [crates/hark-config/src/history.rs](../../crates/hark-config/src/history.rs)
+- [crates/hark-pipeline/src/events.rs:6-47](../../crates/hark-pipeline/src/events.rs#L6-L47)
 
 </details>
 
@@ -31,12 +34,13 @@ preserving explicit meeting preferences and the schema-5 Gemini model setting.
 Config schema 7 retires the Groq preset, rewriting saved Groq tables as
 `openai-compatible` ([Configuration](CONFIGURATION.md#groq-retirement-schema-7)).
 The TOML is at schema 7. The separate SQLite schema is versioned on its own
-(migrations 001-007, including 005 for bounded numeric Insights and a
-tracking-coverage timestamp, and 007 for meeting speaker names, per-line
-speaker overrides and the stale-notes stamp); schema 7 does not touch it.
+(migrations 001-008, including 005 for bounded numeric Insights and a
+tracking-coverage timestamp, 007 for meeting speaker names, per-line
+speaker overrides and the stale-notes stamp, and 008 for the `delivered`
+flag on history rows); schema 7 does not touch it.
 Migration attempts a versioned TOML backup before saving; failure keeps
 the in-memory settings usable, and a failed backup leaves the original file alone
-([config persistence](../../crates/hark-config/src/lib.rs),
+([config persistence](../../crates/hark-config/src/load_save.rs#L52-L124),
 [migration fixtures](../../crates/hark-config/src/meeting.rs)).
 
 > **Related Pages**: [Architecture](ARCHITECTURE.md), [Configuration and Secrets](CONFIGURATION.md), [Desktop UI](../features/DESKTOP_UI.md)
@@ -46,9 +50,9 @@ the in-memory settings usable, and a failed backup leaves the original file alon
 <!-- BEGIN:AUTOGEN hark_05_data_storage_overview -->
 ## Overview
 
-Hark stores dictation history, bounded numeric Insights, and lifetime counters in one local SQLite file, `<data-dir>/hark.db`. `Store::open` creates the parent directory, opens the database, applies embedded migrations, and seeds the singleton stats row. The transcript-bearing `NewDictation` and `Entry` types intentionally do not implement `Debug`, which keeps a reflexive debug log from exposing dictation text ([lib.rs:1-15](../../crates/hark-store/src/lib.rs#L1-L15), [lib.rs:50-86](../../crates/hark-store/src/lib.rs#L50-L86), [lib.rs:116-168](../../crates/hark-store/src/lib.rs#L116-L168)).
+Hark stores dictation history, bounded numeric Insights, and lifetime counters in one local SQLite file, `<data-dir>/hark.db`. `Store::open` creates the parent directory, opens the database, applies embedded migrations, and seeds the singleton stats row. The transcript-bearing `NewDictation` and `Entry` types intentionally do not implement `Debug`, which keeps a reflexive debug log from exposing dictation text ([lib.rs:1-17](../../crates/hark-store/src/lib.rs#L1-L17), [lib.rs:72-118](../../crates/hark-store/src/lib.rs#L72-L118), [lib.rs:148-194](../../crates/hark-store/src/lib.rs#L148-L194)).
 
-The implementation is local plaintext SQLite; it has no app-layer row encryption or multi-user isolation. History capture and numeric stats are separate controls: disabling capture prevents transcript rows from being stored, while numeric Insights and lifetime counters still advance ([lib.rs:171-210](../../crates/hark-store/src/lib.rs#L171-L210)).
+The implementation is local plaintext SQLite; it has no app-layer row encryption or multi-user isolation. History capture and numeric stats are separate controls: disabling capture prevents transcript rows from being stored, while numeric Insights and lifetime counters still advance. The one kind of row that never counts is an **undelivered** dictation, one whose words were transcribed but never pasted: it is kept in History so the text is not lost, and it adds nothing to the counters or to Insights ([lib.rs:212-265](../../crates/hark-store/src/lib.rs#L212-L265)).
 
 The same database also holds meeting transcripts and notes (migration 004; see [Schema](#schema)). Meeting audio itself is not a database column: it lives on disk under `<data_dir>/meetings/<id>/`, and `hark-app/src/storage/meetings.rs` is the one writer for both the meeting's rows and its audio folder, so a size check against the filesystem and the database's idea of which meetings exist never disagree ([storage/meetings.rs](../../crates/hark-app/src/storage/meetings.rs)).
 
@@ -58,9 +62,9 @@ The same database also holds meeting transcripts and notes (migration 004; see [
 | macOS | `~/Library/Application Support/hark` |
 | Linux | `$XDG_DATA_HOME/hark` when that variable is absolute; otherwise `~/.local/share/hark` |
 
-The platform resolution lives in `default_data_dir`; if no OS data directory can be resolved, startup disables history and stats for that session without disabling dictation ([lib.rs](../../crates/hark-config/src/lib.rs), [app.rs](../../crates/hark-app/src/app.rs)).
+The platform resolution lives in `default_data_dir`; if no OS data directory can be resolved, startup disables history and stats for that session without disabling dictation ([hark-config lib.rs:286-316](../../crates/hark-config/src/lib.rs#L286-L316), [app.rs](../../crates/hark-app/src/app.rs)).
 
-Sources: [crates/hark-store/src/lib.rs:1-15](../../crates/hark-store/src/lib.rs#L1-L15), [crates/hark-store/src/lib.rs:116-168](../../crates/hark-store/src/lib.rs#L116-L168), [crates/hark-config/src/lib.rs](../../crates/hark-config/src/lib.rs), [crates/hark-app/src/app.rs](../../crates/hark-app/src/app.rs)
+Sources: [crates/hark-store/src/lib.rs:1-17](../../crates/hark-store/src/lib.rs#L1-L17), [crates/hark-store/src/lib.rs:148-265](../../crates/hark-store/src/lib.rs#L148-L265), [crates/hark-config/src/lib.rs:286-316](../../crates/hark-config/src/lib.rs#L286-L316), [crates/hark-app/src/app.rs](../../crates/hark-app/src/app.rs)
 <!-- END:AUTOGEN hark_05_data_storage_overview -->
 
 ---
@@ -68,17 +72,18 @@ Sources: [crates/hark-store/src/lib.rs:1-15](../../crates/hark-store/src/lib.rs#
 <!-- BEGIN:AUTOGEN hark_05_data_storage_schema -->
 ## Schema
 
-The schema is an append-only sequence of seven embedded migrations. `PRAGMA user_version` records how many have been applied; opening an older database runs only the remaining migrations, each in its own transaction ([lib.rs:35-46](../../crates/hark-store/src/lib.rs#L35-L46), [lib.rs:188-202](../../crates/hark-store/src/lib.rs#L188-L202)).
+The schema is an append-only sequence of eight embedded migrations. `PRAGMA user_version` records how many have been applied; opening an older database runs only the remaining migrations, each in its own transaction ([lib.rs:35-46](../../crates/hark-store/src/lib.rs#L35-L46), [lib.rs:196-210](../../crates/hark-store/src/lib.rs#L196-L210)).
 
 | Migration | Change | Compatibility behavior |
 |---|---|---|
-| `001_init.sql` | Creates `entries`, its timestamp index, and singleton `stats` | The app seeds stats row `id = 1` without replacing existing counters ([001_init.sql:1-31](../../crates/hark-store/migrations/001_init.sql#L1-L31), [lib.rs:147-154](../../crates/hark-store/src/lib.rs#L147-L154)) |
-| `002_stats_total_ms.sql` | Adds `stats.total_ms NOT NULL DEFAULT 0` | Existing counters survive; pre-migration dictations contribute zero to the new sum ([002_stats_total_ms.sql:1-8](../../crates/hark-store/migrations/002_stats_total_ms.sql#L1-L8), [store.rs:427-465](../../crates/hark-store/tests/store.rs#L427-L465)) |
-| `003_entries_invocation.sql` | Adds nullable `entries.invocation` | Existing rows read as non-invocations; new rows round-trip the trigger ([003_entries_invocation.sql:1-6](../../crates/hark-store/migrations/003_entries_invocation.sql#L1-L6), [store.rs:378-424](../../crates/hark-store/tests/store.rs#L378-L424)) |
-| `004_meetings.sql` | Adds `meetings`, `meeting_segments`, `meeting_speakers`, and an external-content FTS5 index over segment text | A fresh table set; nothing pre-existing to migrate. `meeting_segments`/`meeting_speakers` cascade-delete with their meeting, which only takes effect because `Store::init` now turns `PRAGMA foreign_keys` on for every connection ([004_meetings.sql](../../crates/hark-store/migrations/004_meetings.sql), [lib.rs:152-154](../../crates/hark-store/src/lib.rs#L152-L154)) |
+| `001_init.sql` | Creates `entries`, its timestamp index, and singleton `stats` | The app seeds stats row `id = 1` without replacing existing counters ([001_init.sql:1-31](../../crates/hark-store/migrations/001_init.sql#L1-L31), [lib.rs:184-189](../../crates/hark-store/src/lib.rs#L184-L189)) |
+| `002_stats_total_ms.sql` | Adds `stats.total_ms NOT NULL DEFAULT 0` | Existing counters survive; pre-migration dictations contribute zero to the new sum ([002_stats_total_ms.sql:1-8](../../crates/hark-store/migrations/002_stats_total_ms.sql#L1-L8), [store.rs:518-557](../../crates/hark-store/tests/store.rs#L518-L557)) |
+| `003_entries_invocation.sql` | Adds nullable `entries.invocation` | Existing rows read as non-invocations; new rows round-trip the trigger ([003_entries_invocation.sql:1-6](../../crates/hark-store/migrations/003_entries_invocation.sql#L1-L6), [store.rs:429-516](../../crates/hark-store/tests/store.rs#L429-L516)) |
+| `004_meetings.sql` | Adds `meetings`, `meeting_segments`, `meeting_speakers`, and an external-content FTS5 index over segment text | A fresh table set; nothing pre-existing to migrate. `meeting_segments`/`meeting_speakers` cascade-delete with their meeting, which only takes effect because `Store::init` now turns `PRAGMA foreign_keys` on for every connection ([004_meetings.sql](../../crates/hark-store/migrations/004_meetings.sql), [lib.rs:178-180](../../crates/hark-store/src/lib.rs#L178-L180)) |
 | `005_insight_events.sql` | Adds indexed `insight_events` and singleton `insight_tracking` | Backfills retained, post-reset history within 366 days; keeps historical duration, corrections, and app identity NULL. Does not increment existing lifetime counters ([migration](../../crates/hark-store/migrations/005_insight_events.sql), [backfill](../../crates/hark-store/src/insights/persistence.rs)) |
-| `006_meeting_transcript_status.sql` | Adds nullable `meetings.transcript_status`: `pending` or `pending:<unix ms>` while a final-pass retry is scheduled, `failed:<reason>` once Hark stops trying, NULL when nothing is outstanding | No default and no backfill: every earlier meeting reads NULL. The stored text is a label, never transcript content; `hark-pipeline` owns the vocabulary and the store only reads and writes it ([migration](../../crates/hark-store/migrations/006_meeting_transcript_status.sql), [meetings.rs:220-230](../../crates/hark-store/src/meetings.rs#L220-L230)) |
+| `006_meeting_transcript_status.sql` | Adds nullable `meetings.transcript_status`: `pending` or `pending:<unix ms>` while a final-pass retry is scheduled, `failed:<reason>` once Hark stops trying, NULL when nothing is outstanding | No default and no backfill: every earlier meeting reads NULL. The stored text is a label, never transcript content; `hark-pipeline` owns the vocabulary and the store only reads and writes it ([migration](../../crates/hark-store/migrations/006_meeting_transcript_status.sql), [meetings.rs:299-309](../../crates/hark-store/src/meetings.rs#L299-L309)) |
 | `007_meeting_speakers.sql` | Adds `meeting_speaker_names` (`meeting_id`, `speaker_key`, `display_name`, `source` = `user` or `guess`, `evidence_ms`; keyed by meeting and speaker key, never by name), nullable `meeting_segments.speaker_override` (the key a line was moved to; NULL = as transcribed) and nullable `meetings.notes_stale_ms` | Copies every 004 rename in SQL inside the migration transaction, as `them:<n>` with source `user`, so dormant meetings migrate too. `meeting_speakers` is kept, frozen and unread, so a build rolled back to 006 still opens the database and shows the renames as they were; a later migration drops it. Speaker keys are opaque text here: `hark_meeting::speakers` owns the vocabulary ([007_meeting_speakers.sql](../../crates/hark-store/migrations/007_meeting_speakers.sql), [meeting_speakers.rs](../../crates/hark-store/tests/meeting_speakers.rs)) |
+| `008_entries_delivered.sql` | Adds `entries.delivered INTEGER NOT NULL DEFAULT 1`: 1 when the text was pasted, 0 when it was transcribed but never reached the cursor (the paste failed, or the clip was retried later from History) | Every existing row reads as delivered, which is true: before this migration a row was only ever written after a successful paste. The column is not a stats input ([008_entries_delivered.sql:1-9](../../crates/hark-store/migrations/008_entries_delivered.sql#L1-L9), [store.rs:129-167](../../crates/hark-store/tests/store.rs#L129-L167)) |
 
 Meeting search does not need a `LIKE` fallback: the FTS5 module is compiled into the SQLite Hark bundles, which `hark-store/tests/meetings.rs` asserts directly rather than assuming ([meetings.rs](../../crates/hark-store/src/meetings.rs)). `meeting_segments_fts` is kept in sync by the standard insert/delete/update trigger trio rather than by application code, so a segment written through any path is searchable ([004_meetings.sql](../../crates/hark-store/migrations/004_meetings.sql)).
 
@@ -97,6 +102,7 @@ erDiagram
         integer stt_ms
         integer cleanup_ms
         integer total_ms
+        integer delivered
     }
     STATS {
         integer id PK
@@ -110,9 +116,9 @@ erDiagram
     }
 ```
 
-`entries`, `stats`, and `insight_events` intentionally have independent lifecycles. Clearing history deletes only entries; resetting stats zeroes the fixed stats row, deletes numeric events, and restarts the tracking timestamp ([lib.rs:296-336](../../crates/hark-store/src/lib.rs#L296-L336)). `audio_ms` feeds lifetime stats and new numeric events, but is not stored on each transcript history entry ([lib.rs:50-68](../../crates/hark-store/src/lib.rs#L50-L68)).
+`entries`, `stats`, and `insight_events` intentionally have independent lifecycles. Clearing history deletes only entries; resetting stats zeroes the fixed stats row, deletes numeric events, and restarts the tracking timestamp ([lib.rs:362-365](../../crates/hark-store/src/lib.rs#L362-L365), [lib.rs:386-402](../../crates/hark-store/src/lib.rs#L386-L402)). `audio_ms` feeds lifetime stats and new numeric events, but is not stored on each transcript history entry ([lib.rs:72-118](../../crates/hark-store/src/lib.rs#L72-L118)).
 
-Sources: [crates/hark-store/src/lib.rs:22-28](../../crates/hark-store/src/lib.rs#L22-L28), [crates/hark-store/src/lib.rs:139-168](../../crates/hark-store/src/lib.rs#L139-L168), [crates/hark-store/migrations/001_init.sql:1-31](../../crates/hark-store/migrations/001_init.sql#L1-L31), [crates/hark-store/migrations/002_stats_total_ms.sql:1-8](../../crates/hark-store/migrations/002_stats_total_ms.sql#L1-L8), [crates/hark-store/migrations/003_entries_invocation.sql:1-6](../../crates/hark-store/migrations/003_entries_invocation.sql#L1-L6), [crates/hark-store/migrations/004_meetings.sql](../../crates/hark-store/migrations/004_meetings.sql), [crates/hark-store/migrations/006_meeting_transcript_status.sql](../../crates/hark-store/migrations/006_meeting_transcript_status.sql), [crates/hark-store/src/meetings.rs](../../crates/hark-store/src/meetings.rs)
+Sources: [crates/hark-store/src/lib.rs:24-46](../../crates/hark-store/src/lib.rs#L24-L46), [crates/hark-store/src/lib.rs:148-210](../../crates/hark-store/src/lib.rs#L148-L210), [crates/hark-store/migrations/008_entries_delivered.sql:1-9](../../crates/hark-store/migrations/008_entries_delivered.sql#L1-L9), [crates/hark-store/migrations/001_init.sql:1-31](../../crates/hark-store/migrations/001_init.sql#L1-L31), [crates/hark-store/migrations/002_stats_total_ms.sql:1-8](../../crates/hark-store/migrations/002_stats_total_ms.sql#L1-L8), [crates/hark-store/migrations/003_entries_invocation.sql:1-6](../../crates/hark-store/migrations/003_entries_invocation.sql#L1-L6), [crates/hark-store/migrations/004_meetings.sql](../../crates/hark-store/migrations/004_meetings.sql), [crates/hark-store/migrations/006_meeting_transcript_status.sql](../../crates/hark-store/migrations/006_meeting_transcript_status.sql), [crates/hark-store/src/meetings.rs](../../crates/hark-store/src/meetings.rs)
 
 Explicit meeting reprocessing uses `reprocess_meeting_segments`: segment replacement, deletion of every speaker name (and of the frozen `meeting_speakers` rows, so a rolled-back build does not show old names either), clearing the notes-stale stamp, and writing the notes with the old names baked in happen in one transaction, with FTS updated by the segment triggers. The title is untouched. A failed insert rolls the whole transaction back, notes included ([meetings.rs:200-260](../../crates/hark-store/src/meetings.rs#L200-L260)).
 
@@ -124,19 +130,21 @@ The speaker API keeps the user's choices safe: `set_speaker_name` writes a user 
 <!-- BEGIN:AUTOGEN hark_05_data_storage_history -->
 ## History API
 
-SQLite is compiled into the binary rather than taken from the system: `rusqlite` 0.41.1 with the `bundled` feature, which ships SQLite 3.54.1 (the CVE-2026-119375 fix, since 0.69.2) ([hark-store/Cargo.toml](../../crates/hark-store/Cargo.toml)). Every `Store` owns one synchronous `rusqlite::Connection`. File-backed connections request WAL mode, use `synchronous = NORMAL`, and wait up to five seconds when the database is busy, which supports the app's one-writer/one-reader arrangement ([lib.rs:30-30](../../crates/hark-store/src/lib.rs#L30-L30), [lib.rs:139-145](../../crates/hark-store/src/lib.rs#L139-L145)).
+SQLite is compiled into the binary rather than taken from the system: `rusqlite` 0.41.1 with the `bundled` feature, which ships SQLite 3.54.1 (the CVE-2026-119375 fix, since 0.69.2) ([hark-store/Cargo.toml](../../crates/hark-store/Cargo.toml)). Every `Store` owns one synchronous `rusqlite::Connection`. File-backed connections request WAL mode, use `synchronous = NORMAL`, and wait up to five seconds when the database is busy, which supports the app's one-writer/one-reader arrangement ([lib.rs:48](../../crates/hark-store/src/lib.rs#L48), [lib.rs:171-180](../../crates/hark-store/src/lib.rs#L171-L180)).
 
 | Method | Behavior |
 |---|---|
-| `record(d, capture)` | In one transaction, optionally inserts the content row, always records a numeric event, and updates lifetime stats ([lib.rs:171-210](../../crates/hark-store/src/lib.rs#L171-L210)) |
-| `entries(search, limit, offset)` | Returns newest first by `(ts_ms DESC, id DESC)`; searches both raw and final text ([lib.rs:229-277](../../crates/hark-store/src/lib.rs#L229-L277)) |
-| `entry_count(search)` | Counts rows using the same blank/search semantics as `entries` ([lib.rs:279-294](../../crates/hark-store/src/lib.rs#L279-L294)) |
-| `delete_entry(id)` | Deletes one row and returns `false` when it was already absent ([lib.rs:296-302](../../crates/hark-store/src/lib.rs#L296-L302)) |
-| `clear_entries()` | Deletes all history rows without changing numeric Insights or lifetime stats ([lib.rs:304-307](../../crates/hark-store/src/lib.rs#L304-L307)) |
+| `record(d, capture)` | In one transaction, inserts the content row when `capture` is on, then records a numeric event and updates lifetime stats. When `d.delivered` is false it stops after the row: no counter ticks and no numeric event is written ([lib.rs:212-265](../../crates/hark-store/src/lib.rs#L212-L265)) |
+| `entries(search, limit, offset)` | Returns newest first by `(ts_ms DESC, id DESC)`; searches both raw and final text; each `Entry` carries its `delivered` flag ([lib.rs:285-335](../../crates/hark-store/src/lib.rs#L285-L335)) |
+| `entry_count(search)` | Counts rows using the same blank/search semantics as `entries` ([lib.rs:337-352](../../crates/hark-store/src/lib.rs#L337-L352)) |
+| `delete_entry(id)` | Deletes one row and returns `false` when it was already absent ([lib.rs:354-360](../../crates/hark-store/src/lib.rs#L354-L360)) |
+| `clear_entries()` | Deletes all history rows without changing numeric Insights or lifetime stats ([lib.rs:362-365](../../crates/hark-store/src/lib.rs#L362-L365)) |
 
-Search is a case-insensitive SQLite `LIKE` substring match. `%`, `_`, and `\` in user input are escaped, so they remain literal characters rather than becoming pattern operators ([lib.rs:256-265](../../crates/hark-store/src/lib.rs#L256-L265), [lib.rs:361-371](../../crates/hark-store/src/lib.rs#L361-L371)). Tests cover stable newest-first pagination and wildcard escaping ([store.rs:91-161](../../crates/hark-store/tests/store.rs#L91-L161)).
+**Undelivered rows.** `NewDictation::delivered` is false when the words were transcribed but never reached the cursor: the paste failed, or the user retried a failed clip from History, where nothing is pasted (see [Architecture](ARCHITECTURE.md#failure-modes)). Such a row exists so the words are not lost, but it is not a completed dictation. "Words dictated" and "time saved" credit text that reached the user's app, and the row's `total_ms` is a release-to-inject time that never completed. So `record` commits after the insert and returns before the stats update and the numeric event. With capture off and `delivered` false, nothing is written at all. The user may still copy the text out of History; Hark cannot observe that, so it is not counted either ([lib.rs:94-98](../../crates/hark-store/src/lib.rs#L94-L98), [lib.rs:216-248](../../crates/hark-store/src/lib.rs#L216-L248), [store.rs:80-127](../../crates/hark-store/tests/store.rs#L80-L127)).
 
-Sources: [crates/hark-store/src/lib.rs:139-145](../../crates/hark-store/src/lib.rs#L139-L145), [crates/hark-store/src/lib.rs:171-307](../../crates/hark-store/src/lib.rs#L171-L307), [crates/hark-store/src/lib.rs:361-371](../../crates/hark-store/src/lib.rs#L361-L371), [crates/hark-store/tests/store.rs:91-176](../../crates/hark-store/tests/store.rs#L91-L176)
+Search is a case-insensitive SQLite `LIKE` substring match. `%`, `_`, and `\` in user input are escaped, so they remain literal characters rather than becoming pattern operators ([lib.rs:314-324](../../crates/hark-store/src/lib.rs#L314-L324), [lib.rs:426-437](../../crates/hark-store/src/lib.rs#L426-L437)). Tests cover stable newest-first pagination and wildcard escaping ([store.rs:183-253](../../crates/hark-store/tests/store.rs#L183-L253)).
+
+Sources: [crates/hark-store/src/lib.rs:171-180](../../crates/hark-store/src/lib.rs#L171-L180), [crates/hark-store/src/lib.rs:212-365](../../crates/hark-store/src/lib.rs#L212-L365), [crates/hark-store/src/lib.rs:426-437](../../crates/hark-store/src/lib.rs#L426-L437), [crates/hark-store/tests/store.rs:80-268](../../crates/hark-store/tests/store.rs#L80-L268)
 <!-- END:AUTOGEN hark_05_data_storage_history -->
 
 ---
@@ -144,7 +152,7 @@ Sources: [crates/hark-store/src/lib.rs:139-145](../../crates/hark-store/src/lib.
 <!-- BEGIN:AUTOGEN hark_05_data_storage_stats -->
 ## Lifetime Stats and Detailed Insights
 
-`Stats` holds lifetime counts and summed durations: dictations, words, captured audio, STT, cleanup, release-to-inject time, and the timestamp from which counters apply. Recording a completed dictation updates those counters, its numeric event, and the optional transcript row in one transaction. History capture controls only the transcript row.
+`Stats` holds lifetime counts and summed durations: dictations, words, captured audio, STT, cleanup, release-to-inject time, and the timestamp from which counters apply. Recording a completed dictation updates those counters, its numeric event, and the optional transcript row in one transaction. History capture controls only the transcript row. A dictation that was transcribed but never pasted (`delivered = 0`) is left out of all of it: it adds to no lifetime counter, writes no numeric event, and is skipped by the opted-in word analysis, which reads only `delivered = 1` rows. It still appears in History and still counts toward `entry_count` ([patterns.rs:22-33](../../crates/hark-store/src/insights/patterns.rs#L22-L33), `undelivered_rows_are_not_counted_or_analysed_as_completed_dictations` in [tests/insights.rs](../../crates/hark-store/tests/insights.rs)).
 
 Word counting uses whitespace tokenization. Ordinary dictations credit inserted `final_text`; invocation dictations credit `raw_text` so a short trigger does not inflate dictated-word totals. Numeric events also store the full inserted word count when an invocation fired. The UI calls this **Words in invocation output**: anywhere-scope invocations include surrounding speech, so it is not a count of only the configured expansion.
 
@@ -172,22 +180,22 @@ Sources: [store lifecycle](../../crates/hark-store/src/lib.rs), [Insights types]
 <!-- BEGIN:AUTOGEN hark_05_data_storage_retention -->
 ## Retention and Pruning
 
-`Retention` combines `max_entries` and `max_age_days`; configuration validation requires both to be at least one, while the store simply executes the supplied policy. Defaults are 1,000 entries and 90 days ([lib.rs:102-110](../../crates/hark-store/src/lib.rs#L102-L110), [lib.rs](../../crates/hark-config/src/lib.rs)).
+`Retention` combines `max_entries` and `max_age_days`; configuration validation requires both to be at least one, while the store simply executes the supplied policy. Defaults are 1,000 entries and 90 days ([lib.rs:134-142](../../crates/hark-store/src/lib.rs#L134-L142), [hark-config lib.rs:221-230](../../crates/hark-config/src/lib.rs#L221-L230), [hark-config history.rs:18-28](../../crates/hark-config/src/history.rs#L18-L28)).
 
 `Store::prune` applies both rules in one transaction:
 
 1. Delete rows with `ts_ms < now_ms - max_age_days * 86_400_000`. The boundary is strict, so an entry exactly at the cutoff remains.
 2. Order the survivors newest-first by timestamp and id, then delete everything after `max_entries`.
 
-The return value includes deleted history rows and expired numeric Insight events. Pruning never changes lifetime stats, even when both rules remove history in the same call ([lib.rs:213-227](../../crates/hark-store/src/lib.rs#L213-L227), [store.rs:226-309](../../crates/hark-store/tests/store.rs#L226-L309)).
+The return value includes deleted history rows and expired numeric Insight events. Pruning never changes lifetime stats, even when both rules remove history in the same call ([lib.rs:267-283](../../crates/hark-store/src/lib.rs#L267-L283), [store.rs:318-401](../../crates/hark-store/tests/store.rs#L318-L401)). Undelivered rows are ordinary history rows to retention: they count toward `max_entries` and age out like any other.
 
-The app prunes after every recorded dictation and also sends a standalone prune when a pipeline starts, so lowering retention takes effect after save/startup rather than waiting for another dictation ([storage/mod.rs:33-54](../../crates/hark-app/src/storage/mod.rs#L33-L54), [storage/mod.rs:204-225](../../crates/hark-app/src/storage/mod.rs#L204-L225)).
+The app prunes after every recorded dictation, delivered or not, and also sends a standalone prune when a pipeline starts, so lowering retention takes effect after save/startup rather than waiting for another dictation ([storage/mod.rs:35-56](../../crates/hark-app/src/storage/mod.rs#L35-L56), [storage/mod.rs:232-250](../../crates/hark-app/src/storage/mod.rs#L232-L250), [pipeline.rs:177-182](../../crates/hark-app/src/pipeline.rs#L177-L182)).
 
 Numeric Insights have a separate fixed 366-day retention. Events older than `now_ms - 366 × 86,400,000` are physically pruned when opening the database or applying retention after a recording/pipeline start. Insights queries exclude expired rows even before that pruning; lifetime counters are unaffected. Transcript retention and capture settings do not remove these numeric rows. Calendar grouping follows local dates even though expiry is a fixed elapsed-time cutoff ([persistence](../../crates/hark-store/src/insights/persistence.rs), [query](../../crates/hark-store/src/insights/query.rs)).
 
 Meeting audio has its own, separate cap: a circular limit in megabytes (`[meeting] audio_cap_mb`, default 5 GB), enforced against actual bytes on disk rather than a database column, and it only ever deletes audio, never a transcript, note, or segment row. See [Meetings](../features/MEETINGS.md#storage-and-the-audio-cap) for the eviction rules ([hark-meeting/src/storage.rs:1-9](../../crates/hark-meeting/src/storage.rs#L1-L9)).
 
-Sources: [crates/hark-store/src/lib.rs:102-110](../../crates/hark-store/src/lib.rs#L102-L110), [crates/hark-store/src/lib.rs:213-227](../../crates/hark-store/src/lib.rs#L213-L227), [crates/hark-store/tests/store.rs:226-309](../../crates/hark-store/tests/store.rs#L226-L309), [crates/hark-app/src/storage/mod.rs:204-225](../../crates/hark-app/src/storage/mod.rs#L204-L225), [crates/hark-meeting/src/storage.rs:1-9](../../crates/hark-meeting/src/storage.rs#L1-L9)
+Sources: [crates/hark-store/src/lib.rs:134-142](../../crates/hark-store/src/lib.rs#L134-L142), [crates/hark-store/src/lib.rs:267-283](../../crates/hark-store/src/lib.rs#L267-L283), [crates/hark-store/tests/store.rs:318-401](../../crates/hark-store/tests/store.rs#L318-L401), [crates/hark-app/src/storage/mod.rs:232-250](../../crates/hark-app/src/storage/mod.rs#L232-L250), [crates/hark-meeting/src/storage.rs:1-9](../../crates/hark-meeting/src/storage.rs#L1-L9)
 <!-- END:AUTOGEN hark_05_data_storage_retention -->
 
 ---
@@ -195,21 +203,23 @@ Sources: [crates/hark-store/src/lib.rs:102-110](../../crates/hark-store/src/lib.
 <!-- BEGIN:AUTOGEN hark_05_data_storage_integration -->
 ## App Integration
 
-`hark-app` retains a reader for existing history/meeting views, while the `hark-storage` worker owns the sole writer and all new Insights aggregation/text analysis. `StorageCmd::GetInsights` and `GetRecentEntries` return results through reply channels, and completion explicitly wakes the root viewport. All mutations travel through `StorageCmd`; successful changes increment an atomic generation counter so cached panels can refresh ([storage/mod.rs:1-10](../../crates/hark-app/src/storage/mod.rs#L1-L10), [storage/mod.rs:78-112](../../crates/hark-app/src/storage/mod.rs#L78-L112), [storage/mod.rs:140-200](../../crates/hark-app/src/storage/mod.rs#L140-L200)).
+`hark-app` retains a reader for existing history/meeting views, while the `hark-storage` worker owns the sole writer and all new Insights aggregation/text analysis. `StorageCmd::GetInsights` and `GetRecentEntries` return results through reply channels, and completion explicitly wakes the root viewport. All mutations travel through `StorageCmd`; successful changes increment an atomic generation counter so cached panels can refresh ([storage/mod.rs:1-10](../../crates/hark-app/src/storage/mod.rs#L1-L10), [storage/mod.rs:98-132](../../crates/hark-app/src/storage/mod.rs#L98-L132), [storage/mod.rs:160-228](../../crates/hark-app/src/storage/mod.rs#L160-L228)).
 
-`Record` carries the capture and retention policy from the pipeline run that produced it. The worker stamps the record at persistence time, writes it, then prunes. The numeric correction and optional app fields are carried directly with `DictationRecord`. Records originate only from the post-injection `PipelineEvent::Injected`, so a storage failure cannot undo or block text that has already reached the focused application ([storage/mod.rs:33-76](../../crates/hark-app/src/storage/mod.rs#L33-L76), [storage/mod.rs:204-244](../../crates/hark-app/src/storage/mod.rs#L204-L244), [events.rs:75-90](../../crates/hark-pipeline/src/events.rs#L75-L90)).
+`Record` carries the capture and retention policy from the pipeline run that produced it. The worker stamps the record at persistence time, writes it, then prunes. The numeric correction and optional app fields are carried directly with `DictationRecord`. A `Record` originates only from the post-injection `PipelineEvent::Injected`, so a storage failure cannot undo or block text that has already reached the focused application ([storage/mod.rs:35-96](../../crates/hark-app/src/storage/mod.rs#L35-L96), [storage/mod.rs:230-293](../../crates/hark-app/src/storage/mod.rs#L230-L293), [events.rs:95-96](../../crates/hark-pipeline/src/events.rs#L95-L96)).
+
+Two other events carry a record whose text never reached the cursor: `NotPasted` (the paste failed) and `Recovered` (a retry of a held clip, which is never pasted). The event pump's `storage_command` turns those into `StorageCmd::RecordUndelivered`, which the worker writes with `delivered = false` and then prunes. It is sent only when history capture is on, so it has no `capture` flag: with capture off nothing is stored, and the History banner's Copy button works from memory instead. An `Injected` record is sent whatever the capture setting, because its counters still tick ([pipeline.rs:504-526](../../crates/hark-app/src/pipeline.rs#L504-L526), [storage/mod.rs:45-53](../../crates/hark-app/src/storage/mod.rs#L45-L53), [storage/mod.rs:244-249](../../crates/hark-app/src/storage/mod.rs#L244-L249), [events.rs:99-118](../../crates/hark-pipeline/src/events.rs#L99-L118)). The worker's tests pin both halves: an undelivered record is a flagged row and no statistic, and an ordinary record is marked delivered ([storage/mod.rs:392-427](../../crates/hark-app/src/storage/mod.rs#L392-L427)).
 
 Home/Insights caches re-query when generation, selected range, local date, or text-analysis choice changes. An obsolete reply is discarded rather than overwriting a newer range. Foreground-app collection is a separate opt-in one-shot worker query at engagement; injection never waits for it. Late, unavailable, unsupported, or disabled app identity remains unknown. No extra permissions, window titles, or provider calls are introduced for Insights ([cache](../../crates/hark-app/src/ui/insights_cache.rs), [app probe](../../crates/hark-pipeline/src/foreground.rs)).
 
-Shutdown is bounded. Dropping `StorageHandle` removes its sender and normally joins the worker after every queued write drains. If an abandoned pipeline request keeps another sender alive, the handle waits only 500 ms, logs a warning, and leaves that worker rather than holding application exit open indefinitely ([storage/mod.rs:24-31](../../crates/hark-app/src/storage/mod.rs#L24-L31), [storage/mod.rs:114-138](../../crates/hark-app/src/storage/mod.rs#L114-L138)). Tests cover both the normal final-write flush and the bounded abandoned-sender case ([storage/mod.rs:289-317](../../crates/hark-app/src/storage/mod.rs#L289-L317)).
+Shutdown is bounded. Dropping `StorageHandle` removes its sender and normally joins the worker after every queued write drains. If an abandoned pipeline request keeps another sender alive, the handle waits only 500 ms, logs a warning, and leaves that worker rather than holding application exit open indefinitely ([storage/mod.rs:26-33](../../crates/hark-app/src/storage/mod.rs#L26-L33), [storage/mod.rs:134-158](../../crates/hark-app/src/storage/mod.rs#L134-L158)). Tests cover both the normal final-write flush and the bounded abandoned-sender case ([storage/mod.rs:340-368](../../crates/hark-app/src/storage/mod.rs#L340-L368)).
 
-`StorageCmd::Meeting` carries the same guarantee for meeting rows and audio: `storage::meetings::apply` is the one function that touches both the `meetings`/`meeting_segments` tables and the `<data_dir>/meetings/<id>/` folder, called from the same worker thread and after the same generation bump, so the Meetings page never has to reconcile two write paths ([storage/mod.rs:9-10](../../crates/hark-app/src/storage/mod.rs#L9-L10), [storage/mod.rs:52-53](../../crates/hark-app/src/storage/mod.rs#L52-L53), [storage/meetings.rs](../../crates/hark-app/src/storage/meetings.rs), [storage/meetings.rs](../../crates/hark-app/src/storage/meetings.rs)).
+`StorageCmd::Meeting` carries the same guarantee for meeting rows and audio: `storage::meetings::apply` is the one function that touches both the `meetings`/`meeting_segments` tables and the `<data_dir>/meetings/<id>/` folder, called from the same worker thread and after the same generation bump, so the Meetings page never has to reconcile two write paths ([storage/mod.rs:9-10](../../crates/hark-app/src/storage/mod.rs#L9-L10), [storage/mod.rs:72-73](../../crates/hark-app/src/storage/mod.rs#L72-L73), [storage/mod.rs:267](../../crates/hark-app/src/storage/mod.rs#L267), [storage/meetings.rs](../../crates/hark-app/src/storage/meetings.rs), [storage/meetings.rs](../../crates/hark-app/src/storage/meetings.rs)).
 
 `MeetingCmd::AssignSpeaker` (moving one transcript line) also replies: `Ok(true)` when the move left the notes stale, which is the page's cue to request a rewrite, or a sentence for the user; a lost reply counts as a failure. `SpeakerNames` applies the pipeline's guesses, `RefreshedNotes` carries the stored ticks onto rewritten notes before writing them, and `Reprocessed` builds the meeting's `Roster` to bake the old names into its notes. Every reader builds labels through `roster_of` ([storage/meetings.rs](../../crates/hark-app/src/storage/meetings.rs)).
 
 Meeting deletion has an explicit reply channel. The worker deletes the recording directory before the database row, treating only an already-absent recording directory as benign. Filesystem failure preserves the meeting row and its relation to any remaining audio, permitting a retry instead of leaving unknown orphaned audio. Filesystem removal and the database write are not one transaction: partial audio removal cannot be undone, and a later database failure is reported separately so a retry can finish the row deletion. The worker wakes the root viewport even when deletion fails without changing the generation; the detail view waits for acknowledgement before claiming success ([deletion implementation and fixtures](../../crates/hark-app/src/storage/meetings.rs), [worker wakeup](../../crates/hark-app/src/storage/mod.rs), [UI reply handling](../../crates/hark-app/src/ui/meetings/detail.rs)).
 
-Sources: [crates/hark-app/src/storage/mod.rs:1-249](../../crates/hark-app/src/storage/mod.rs#L1-L249), [crates/hark-app/src/storage/mod.rs:289-317](../../crates/hark-app/src/storage/mod.rs#L289-L317), [crates/hark-app/src/storage/meetings.rs](../../crates/hark-app/src/storage/meetings.rs), [crates/hark-pipeline/src/events.rs:75-90](../../crates/hark-pipeline/src/events.rs#L75-L90)
+Sources: [crates/hark-app/src/storage/mod.rs:1-297](../../crates/hark-app/src/storage/mod.rs#L1-L297), [crates/hark-app/src/storage/mod.rs:340-427](../../crates/hark-app/src/storage/mod.rs#L340-L427), [crates/hark-app/src/storage/meetings.rs](../../crates/hark-app/src/storage/meetings.rs), [crates/hark-app/src/pipeline.rs:504-563](../../crates/hark-app/src/pipeline.rs#L504-L563), [crates/hark-pipeline/src/events.rs:82-124](../../crates/hark-pipeline/src/events.rs#L82-L124)
 <!-- END:AUTOGEN hark_05_data_storage_integration -->
 
 ---

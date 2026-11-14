@@ -1,7 +1,10 @@
 # Plan — Spellbook learning: aliases, click-to-correct, and suggested terms
 
-**Status:** planned, not started. Written 2026-07-28 against 0.26.0, expanded
-the same day to fold in the alias data model and click-to-correct.
+**Status:** partly shipped. Highlight-and-add in History (§2) shipped across 0.27.0 to
+0.29.0, aliases (§1) in 0.29.0, and 0.70.0 finished §2 (selectable preview, return to
+History, safer undo). Suggestions (§4), the suggestions table (§5) and the retroactive
+check are not started. Written 2026-07-28 against 0.26.0, expanded the same day to fold
+in the alias data model and click-to-correct.
 **Goal:** the Spellbook stops being a list the user maintains by hand. Hark
 captures corrections where they happen, proposes terms it probably got wrong,
 and can express corrections the phonetic matcher cannot reach on its own.

@@ -8,7 +8,7 @@
 //! the cleanup spike drives the same functions against real endpoints.
 
 use crate::error::{error_for_status, error_for_transport, json_error_detail, CleanupError};
-use crate::{present_terms, system_prompt, Cleaned, CleanupProvider, Voice, CLEANUP_TIMEOUT_MS};
+use crate::{cleanup_timeout_ms, present_terms, system_prompt, Cleaned, CleanupProvider, Voice};
 use reqwest::blocking::Client;
 use std::time::{Duration, Instant};
 
@@ -299,22 +299,23 @@ impl CleanupProvider for OpenAiCompatibleChat {
             self.reasoning_effort.as_deref(),
         );
 
+        let timeout_ms = cleanup_timeout_ms(text.chars().count());
         let started = Instant::now();
         let response = self
             .client
             .post(&self.url)
             .bearer_auth(&self.api_key)
             .header(reqwest::header::CONTENT_TYPE, "application/json")
-            .timeout(Duration::from_millis(CLEANUP_TIMEOUT_MS))
+            .timeout(Duration::from_millis(timeout_ms))
             .body(body)
             .send()
-            .map_err(|e| error_for_transport(&self.label, CLEANUP_TIMEOUT_MS, &e))?;
+            .map_err(|e| error_for_transport(&self.label, timeout_ms, &e))?;
 
         let status = response.status();
         let retry_after_s = retry_after_secs(response.headers());
         let body_text = response
             .text()
-            .map_err(|e| error_for_transport(&self.label, CLEANUP_TIMEOUT_MS, &e))?;
+            .map_err(|e| error_for_transport(&self.label, timeout_ms, &e))?;
         let request_ms = started.elapsed().as_millis();
 
         if !status.is_success() {

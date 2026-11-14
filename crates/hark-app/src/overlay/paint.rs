@@ -72,9 +72,11 @@ pub(super) fn paint(
     let (icon, color) = match state {
         State::Inserted => (theme::icons::CHECK, theme::SUCCESS),
         State::Quiet => (theme::icons::MICROPHONE, theme::WARNING),
-        State::AudioError | State::ProviderError | State::InsertError => {
-            (theme::icons::WARNING, theme::DANGER)
-        }
+        State::AudioError
+        | State::ProviderError
+        | State::InsertError
+        | State::NotPasted
+        | State::TranscriptionHeld => (theme::icons::WARNING, theme::DANGER),
         _ => (theme::icons::CIRCLE_NOTCH, theme::OVERLAY_ACCENT),
     };
     if state == State::Listening {
@@ -194,6 +196,8 @@ mod tests {
             State::AudioError,
             State::ProviderError,
             State::InsertError,
+            State::NotPasted,
+            State::TranscriptionHeld,
             State::Quiet,
         ] {
             let ctx = egui::Context::default();

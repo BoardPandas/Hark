@@ -7,6 +7,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.70.0] - 2026-11-14
+
+**Known gaps:** nothing in this release has been run on real hardware yet. Still to check by hand: the recovery banner in History, drag selection on the collapsed preview, and a forced Gemini Live stall in Backup mode. The new CI coverage job has not run. OpenAI live keeps its 3 s stall limit, because the 1.5 s figure rests on Gemini data only. A meeting transcribed on-device loads its own copy of the model, so with Backup or Primary on that is two copies in memory for the length of the meeting.
+
+### Added
+- **A dictation that could not be pasted is no longer lost.** When the paste fails, Hark keeps the finished text. A banner at the top of History offers **Copy text**, and with history on the entry is stored and marked "Not pasted". These entries do not count toward your stats or Insights.
+- **A dictation that could not be transcribed can be tried again without speaking again.** Hark keeps that one recording in memory, never on disk, and History shows **Try again**. The result lands in History and is not pasted, because your cursor has moved on by then. Only the latest failed recording is kept; the next successful dictation, Dismiss, or closing Hark drops it. A retry makes one cloud attempt, then uses the on-device model if Backup is on.
+- **Backup and Primary load the on-device model when Hark starts.** The first dictation, or the first rescue of a failed cloud request, no longer waits about a second for the model to load. The cost is memory: Backup now holds the model from startup rather than from the first rescue, which puts Hark at about 1.2 GB. Settings says so.
+- **You can select misheard words in a History entry's preview, not only in its raw transcript,** then press the book button to add them to your Spellbook. Ctrl+C copies the highlighted words, and the Add button explains itself when it is disabled.
+- **CI checks every dependency's license** against an allowlist (`cargo deny`, `deny.toml`), so a new copyleft dependency cannot slip in unnoticed. LGPL is allowed only for the two LAME crates.
+- **CI measures test coverage** on Linux (`cargo llvm-cov`) and publishes the report. There is no pass/fail floor yet.
+
+### Changed
+- **A stalled Gemini Live dictation is rescued after 1.5 s instead of 3 s.** In 1,902 good Gemini Live dictations only 4 took longer than 1.5 s from release to paste, so a turn still silent at 1.5 s is almost always a stall.
+- **A hung speech-to-text request gives up sooner.** The limit is now 6 s plus half the clip's length, up to 15 s; it was a flat 15 s. With the one retry, a hung provider on a 5-second clip costs 17 s at worst instead of 30 s. Meeting transcription keeps its 15 s limit, and the shorter limit used when an on-device backup is ready is unchanged.
+- **A hung cleanup request gives up sooner.** The limit is now 4 s plus 5 ms per character, up to 10 s; it was a flat 10 s. Your uncleaned text is pasted, as before.
+- **Adding to the Spellbook from History returns you to the entry you were reading** after you save or cancel, with an Undo.
+- **Entries produced by an invocation no longer offer Add to Spellbook.** Their text was authored, not heard.
+- **Ten large source files are split into smaller modules, with no behavior change:** the two live transcription adapters (2,589 and 1,752 lines, now 352 and 274), the settings schema, the chord tracker, meeting detection, MP3 encoding, and the dictation worker, pipeline setup, meeting coordinator and the app's pipeline glue. The two adapters now share their identical socket and runtime setup.
+- Two plans in `tasks/` have descriptive names (`2026-07-22-plan-invocations.md`, `2026-07-17-plan-update-checker.md`), and shipped plans no longer say "not started".
+
+### Fixed
+- **Undoing an alias you added to an existing Spellbook term no longer deletes the whole term.**
+- **Ctrl+C on highlighted transcript text in History works again.**
+- **The README and docs no longer say macOS push-to-talk is missing or that meetings are Windows-only,** and they list the Parchment theme.
+- **`Cargo.lock` matches the workspace version again.** It still named 0.69.3 for Hark's own crates, so every build rewrote it.
+
 ## [0.69.6] - 2026-11-11
 
 ### Added
@@ -562,7 +589,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 Older releases are in [CHANGELOG-archive.md](CHANGELOG-archive.md).
 
-[Unreleased]: https://github.com/BoardPandas/Hark/compare/v0.69.3...HEAD
+[Unreleased]: https://github.com/BoardPandas/Hark/compare/v0.70.0...HEAD
+[0.70.0]: https://github.com/BoardPandas/Hark/compare/v0.69.3...v0.70.0
 [0.69.3]: https://github.com/BoardPandas/Hark/compare/v0.68.5...v0.69.3
 [0.68.5]: https://github.com/BoardPandas/Hark/compare/v0.68.4...v0.68.5
 [0.68.4]: https://github.com/BoardPandas/Hark/compare/v0.68.2...v0.68.4

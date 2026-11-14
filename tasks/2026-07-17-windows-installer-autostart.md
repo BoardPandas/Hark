@@ -2,7 +2,7 @@
 
 **Phase:** Ship
 **Date:** 2026-07-17
-**Status:** Planned (not started)
+**Status:** Shipped in **0.14.0** (2026-07-17); the 0.14.3 follow-up fixed the installer registry flag. See `CHANGELOG-archive.md`.
 
 ## Problem
 

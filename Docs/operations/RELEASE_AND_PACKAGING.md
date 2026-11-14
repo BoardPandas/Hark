@@ -13,6 +13,7 @@ The following files were used as evidence for this page:
 - [.github/workflows/release.yml:54-76](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/.github/workflows/release.yml#L54-L76)
 - [.github/workflows/release.yml:126-140](https://github.com/BoardPandas/Hark/blob/1c1738716fa4cd758b0c26ec94d0873d1bc35ac1/.github/workflows/release.yml#L126-L140)
 - [.github/workflows/ci.yml](../../.github/workflows/ci.yml)
+- [deny.toml](../../deny.toml)
 
 </details>
 
@@ -86,7 +87,7 @@ Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; \
     Flags: uninstalldeletevalue
 ```
 
-Sources: [hark.iss:73-90](../../installer/hark.iss#L73-L90)
+Sources: [hark.iss:91-108](../../installer/hark.iss#L91-L108)
 
 Meeting mode encodes recordings to MP3 with LAME 4.0 through `mp3lame-encoder` 0.3 / `mp3lame-sys` 0.2; LAME is LGPL-2.0+ and statically linked. `mp3lame-sys` 0.2 compiles its vendored LAME with `cc` on every platform, so no build job needs autotools. The installer ships `THIRD_PARTY_NOTICES.md` beside the exe. That notice describes the LAME relink right and also reproduces the selected `aec3 0.4.0` package's complete LICENSE and PATENT files: MIT terms for its new Rust contributions, BSD terms for WebRTC-derived portions, and the accompanying Google patent grant. The package's `MIT OR BSD-3-Clause` manifest shorthand does not replace these component notices ([installer](../../installer/hark.iss), [notices](../../THIRD_PARTY_NOTICES.md)).
 
@@ -107,7 +108,7 @@ distribution materials ([package assets](../../crates/hark-app/Cargo.toml),
 
 The `[Registry]` entry seeds launch-at-login so it works immediately after a fresh install, mirroring the exact format `hark-autostart` writes at runtime (quoted path plus `--hidden`), and `uninstalldeletevalue` removes it on uninstall so the value can never point at a deleted exe (`installer/hark.iss:83-90`). The desktop shortcut is opt-in via the `desktopicon` task, unchecked by default (`installer/hark.iss:70-71`). The `[Run]` step deliberately omits `--hidden` so a fresh install's first launch shows the onboarding window (no STT key configured yet), while `skipifsilent` keeps unattended installs headless (`installer/hark.iss:92-97`). User data at `%APPDATA%\hark` (`config.toml` + `history.db`) is intentionally left in place on uninstall (`installer/hark.iss:12-13`); meeting recordings under that same directory's `meetings/` folder are left in place too, since nothing about uninstall is meeting-aware.
 
-Sources: [hark.iss:1-98](../../installer/hark.iss#L1-L98), [THIRD_PARTY_NOTICES.md](../../THIRD_PARTY_NOTICES.md)
+Sources: [hark.iss:1-116](../../installer/hark.iss#L1-L116), [THIRD_PARTY_NOTICES.md](../../THIRD_PARTY_NOTICES.md)
 <!-- END:AUTOGEN hark_13_release_packaging_installer -->
 
 ---
@@ -115,7 +116,13 @@ Sources: [hark.iss:1-98](../../installer/hark.iss#L1-L98), [THIRD_PARTY_NOTICES.
 <!-- BEGIN:AUTOGEN hark_13_release_packaging_workflow -->
 ## Release Workflow
 
-Ordinary pushes and pull requests run the separate CI workflow before release: Claude wiring, documentation source-map drift, formatting, dependency audit, and the multi-platform Rust matrix. The documentation job fetches full history and runs `npm run check:docs`; this enforces source/page co-change, but does not claim the prose is semantically complete ([ci.yml:1-109](../../.github/workflows/ci.yml#L1-L109)). Since 0.61.7 the wiring job, on both Ubuntu and Windows, also runs `scripts/commit-hooks.test.mjs`: it builds a throwaway repository with a worktree and asserts the `git commit` hooks judge the repository the commit lands in (the payload's `cwd`, a `cd DIR &&`, or `git -C DIR`), not the main checkout the hook process starts in ([ci.yml:45-68](../../.github/workflows/ci.yml#L45-L68)). Since 0.69.0 the Ubuntu leg also runs `scripts/post-push-cleanup.test.mjs`, which pushes to a throwaway bare remote and asserts the post-push hook lists only merged branches and clean worktrees and stays silent when the default branch did not move ([ci.yml:70-76](../../.github/workflows/ci.yml#L70-L76)).
+Ordinary pushes and pull requests run the separate CI workflow before release: Claude wiring, documentation source-map drift, formatting, dependency audit, a dependency license check, and the multi-platform Rust matrix, plus a Linux test-coverage run that publishes an lcov artifact and a summary table without enforcing a floor yet. The documentation job fetches full history and runs `npm run check:docs`; this enforces source/page co-change, but does not claim the prose is semantically complete ([ci.yml:83-106](../../.github/workflows/ci.yml#L83-L106)).
+
+The `deny` job runs `cargo deny check licenses bans sources` against `deny.toml`, with cargo-deny pinned to 0.20.2 because `deny.toml`'s schema is cargo-deny's own and has changed between releases. The allowlist holds permissive licenses plus MPL-2.0 (file-level copyleft, used unmodified); GPL, LGPL and AGPL are not on it. LGPL-3.0 is allowed by exception for exactly two crates, `mp3lame-encoder` and `mp3lame-sys` (noticed in `THIRD_PARTY_NOTICES.md`), so any other LGPL dependency still fails the job. Duplicate crate versions only warn, and a crate from a git source or an unknown registry is denied. Advisories are deliberately not checked here: `cargo audit` and `.cargo/audit.toml` own them, so no advisory has to be triaged in two files ([ci.yml:163-208](../../.github/workflows/ci.yml#L163-L208), [deny.toml:31-90](../../deny.toml#L31-L90)).
+
+The `coverage` job runs the whole workspace test suite once on Linux under `cargo llvm-cov`, after `wiring` and `fmt` pass, and renders two outputs from that single run: `lcov.info`, uploaded as the `coverage-lcov` artifact and kept 14 days, and the summary table on the run page. It enforces no floor yet, because there is no baseline to set one from; the job's header says to add `--fail-under-lines` once a few green runs on main have produced one. It does not replace the `rust` job's tests ([ci.yml:210-295](../../.github/workflows/ci.yml#L210-L295)).
+
+Neither new job is repeated in release.yml, which does not re-run `cargo audit` either. Since 0.61.7 the wiring job, on both Ubuntu and Windows, also runs `scripts/commit-hooks.test.mjs`: it builds a throwaway repository with a worktree and asserts the `git commit` hooks judge the repository the commit lands in (the payload's `cwd`, a `cd DIR &&`, or `git -C DIR`), not the main checkout the hook process starts in ([ci.yml:46-70](../../.github/workflows/ci.yml#L46-L70)). Since 0.69.0 the Ubuntu leg also runs `scripts/post-push-cleanup.test.mjs`, which pushes to a throwaway bare remote and asserts the post-push hook lists only merged branches and clean worktrees and stays silent when the default branch did not move ([ci.yml:72-77](../../.github/workflows/ci.yml#L72-L77)).
 
 The workflow's default permission is `contents: read`. Only `release` and the four publish jobs get `contents: write`, and none of them runs cargo, so no job that compiles code holds a token that can publish ([release.yml:83-93](../../.github/workflows/release.yml#L83-L93)). The `version` gate runs first on `ubuntu-26.04`; every other job hangs off it, and the publish jobs only ever append ([release.yml:106-184](../../.github/workflows/release.yml#L106-L184)).
 
@@ -187,7 +194,7 @@ Sources: [release.yml:143-147](../../.github/workflows/release.yml#L143-L147)
 
 The exe is signed **before** `ISCC` packages it, and the installer is signed **by** `ISCC` while it compiles. Signing the finished setup.exe afterwards is not enough: setup.exe is a loader that extracts the real setup engine to `%TEMP%\is-XXXXX.tmp\<name>.tmp` and runs it, and a post-compile signature never reaches that engine. Through 0.60.5 the engine shipped unsigned, and Smart App Control blocked it on every install and in-app update, even though the setup.exe signature check passed ([release.yml:402-577](../../.github/workflows/release.yml#L402-L577)).
 
-Sources: [ci.yml:1-109](../../.github/workflows/ci.yml#L1-L109), [release.yml:68-1264](../../.github/workflows/release.yml#L68-L1264)
+Sources: [ci.yml:1-412](../../.github/workflows/ci.yml#L1-L412), [deny.toml](../../deny.toml), [release.yml:68-1264](../../.github/workflows/release.yml#L68-L1264)
 Linux CI installs `libpipewire-0.3-modules` alongside the development package.
 The PipeWire discovery regressions load its native-protocol module against
 private Unix socket peers and temporary configuration; they do not require a
@@ -242,7 +249,7 @@ license = "MIT"
 
 The number above is the current documented snapshot, not a value to copy forward. A release change must bump `package.json` and the Cargo workspace together.
 
-Sources: [Cargo.toml:22-30](../../Cargo.toml#L22-L30)
+Sources: [Cargo.toml:22-31](../../Cargo.toml#L22-L31)
 
 The release workflow enforces this at release time rather than trusting it was done at commit time: it reads `[workspace.package] version` out of `Cargo.toml` with a regex and throws if it disagrees with the tag (which must itself already match `package.json`) (`.github/workflows/release.yml:150-155`).
 
