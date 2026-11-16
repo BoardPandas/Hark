@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.70.1] - 2026-11-16
+
+### Fixed
+- **Hooks now run from any folder.** Every hook in `.claude/settings.json` runs its script from `"$CLAUDE_PROJECT_DIR"/.claude/scripts/` instead of a path relative to the current folder. Before, once a session changed into a subfolder, every hook failed with "No such file or directory" (exit 127). Claude Code treats that as non-blocking, so the commit, changelog, release and knowledge-base gates and the formatter were silently skipped and the call went ahead unchecked. `.agents/README.md` is regenerated.
+- **The wiring guard catches it.** `scripts/check-claude-wiring.mjs` now fails any hook that calls a `.claude/` or `scripts/` path without the `"$CLAUDE_PROJECT_DIR"` anchor, whether as the script, an argument or an env assignment (check 3d).
+- **Format-on-edit works on Windows.** `.claude/scripts/post-edit-format.sh` compared the repo root and the edited file in two different path spellings under Git Bash (`/c/...` or `/tmp/...` from `pwd -P` against `C:/...` from `readlink -f`), so no file ever counted as inside the repo and nothing was formatted. Both sides now go through `cygpath -m` first (a no-op off Windows); files outside the repo are still refused.
+
 ## [0.70.0] - 2026-11-14
 
 **Known gaps:** nothing in this release has been run on real hardware yet. Still to check by hand: the recovery banner in History, drag selection on the collapsed preview, and a forced Gemini Live stall in Backup mode. The new CI coverage job has not run. OpenAI live keeps its 3 s stall limit, because the 1.5 s figure rests on Gemini data only. A meeting transcribed on-device loads its own copy of the model, so with Backup or Primary on that is two copies in memory for the length of the meeting.
@@ -589,7 +596,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 Older releases are in [CHANGELOG-archive.md](CHANGELOG-archive.md).
 
-[Unreleased]: https://github.com/BoardPandas/Hark/compare/v0.70.0...HEAD
+[Unreleased]: https://github.com/BoardPandas/Hark/compare/v0.70.1...HEAD
+[0.70.1]: https://github.com/BoardPandas/Hark/compare/v0.70.0...v0.70.1
 [0.70.0]: https://github.com/BoardPandas/Hark/compare/v0.69.3...v0.70.0
 [0.69.3]: https://github.com/BoardPandas/Hark/compare/v0.68.5...v0.69.3
 [0.68.5]: https://github.com/BoardPandas/Hark/compare/v0.68.4...v0.68.5

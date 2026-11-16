@@ -42,14 +42,24 @@ FILE_PATH=$(json_field "$HOOK_INPUT" tool_input.file_path)
 # containing directory is in the repo -- an in-repo symlink pointing outside
 # passes that test, and the formatter then writes through it to the target. The
 # containment check has to run on the fully resolved path.
+# Both sides must also be spelled the same way. Under Git Bash `pwd -P` answers
+# /tmp/x or /c/x while readlink -f on the payload's C:\x\a.go answers C:/x/a.go,
+# so the check compared two spellings of one directory and no file was ever
+# formatted on Windows. cygpath exists only there and on Cygwin; anywhere else a
+# path already has its one spelling (LL-G bash/git-bash-spells-one-directory-
+# several-ways-so-path-compares-silently-never-match).
+canon_path() { cygpath -m -- "$1" 2>/dev/null || printf '%s' "$1"; }
+
 REPO_ROOT=$(git rev-parse --show-toplevel 2>/dev/null) || exit 0
 REPO_ROOT=$(cd "$REPO_ROOT" 2>/dev/null && pwd -P) || exit 0
+REPO_ROOT=$(canon_path "$REPO_ROOT")
 
 # readlink -f resolves every symlink component; the cd/pwd -P fallback covers
 # platforms whose readlink lacks -f (older BSD/macOS userlands).
 RESOLVED=$(readlink -f "$FILE_PATH" 2>/dev/null) \
   || RESOLVED="$(cd "$(dirname "$FILE_PATH")" 2>/dev/null && pwd -P)/$(basename "$FILE_PATH")"
 [ -n "$RESOLVED" ] || exit 0
+RESOLVED=$(canon_path "$RESOLVED")
 
 case "$RESOLVED" in
   "$REPO_ROOT"/*) ;;

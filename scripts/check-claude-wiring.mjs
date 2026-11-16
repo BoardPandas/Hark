@@ -11,6 +11,7 @@
  *   3. Tool(pattern) hook matchers       -> hook never fires (that is permissions syntax)
  *   4. always-on context weight          -> every rule competes with every other rule
  *   5. 2>/dev/null || true on a hook     -> failure is unfalsifiable
+ *   3d. cwd-relative hook script path   -> exits 127 from any subfolder; the call runs unchecked
  *
  * Portable: node built-ins only, no dependencies, no repo-specific paths. Drop into
  * any Claude Code repo and wire as `node scripts/check-claude-wiring.mjs` in CI.
@@ -135,6 +136,12 @@ for (const file of ruleFiles) {
 	}
 }
 
+// A .claude/ or scripts/ path in a hook command: group 1 is the "$CLAUDE_PROJECT_DIR"/
+// anchor (absent when cwd-relative), group 2 the path. Covers the script, its
+// arguments and env assignments such as LOG=.claude/x.log.
+const HOOK_PATH_REF =
+	/(?:^|\s|=)("?\$\{?CLAUDE_PROJECT_DIR\}?"?\/)?(?:\.\/)?((?:\.claude|scripts)\/[\w./-]+)/g;
+
 /* ── 3 + 5: hook matchers and silenced hooks ──────────────────────────────── */
 
 const TOOL_MATCHER = /^[A-Za-z][A-Za-z0-9_]*(\|[A-Za-z][A-Za-z0-9_]*)*$/;
@@ -163,6 +170,19 @@ for (const settingsPath of SETTINGS) {
 			}
 			for (const h of block.hooks ?? []) {
 				const cmd = h.command ?? "";
+				// 3d. Every .claude/ or scripts/ path must be anchored at "$CLAUDE_PROJECT_DIR".
+				// A hook runs in the session's CURRENT directory, which follows every earlier cd,
+				// so a cwd-relative path exits 127 from any subfolder: a non-blocking error, so
+				// the gated call runs unchecked (LL-G claude-code/hook-script-cwd-relative-path).
+				for (const [, anchor, path] of cmd.matchAll(HOOK_PATH_REF)) {
+					if (!anchor) {
+						errors.push(
+							`${settingsPath}: ${event} hook calls ${path} by a cwd-relative path. A hook runs in the ` +
+								`session's current directory, so from any subfolder it exits 127 and the call goes ` +
+								`through unchecked. Write it as "$CLAUDE_PROJECT_DIR"/${path}.`,
+						);
+					}
+				}
 				if (/2>\s*\/dev\/null/.test(cmd) && /\|\|\s*true/.test(cmd)) {
 					warnings.push(
 						`${settingsPath}: ${event} hook silences both stderr and exit code ` +

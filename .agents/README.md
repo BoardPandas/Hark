@@ -24,5 +24,5 @@ Current output: 18 skills, 8 agents, 5 rules, 9 hook handlers (existing AGENTS.m
 
 ## Not carried over to Antigravity
 
-- PreToolUse [EnterPlanMode|ExitPlanMode]: bash .claude/scripts/pre-plan-kb-check.sh -- Antigravity has no hookable EnterPlanMode/ExitPlanMode tool.
+- PreToolUse [EnterPlanMode|ExitPlanMode]: bash "$CLAUDE_PROJECT_DIR"/.claude/scripts/pre-plan-kb-check.sh -- Antigravity has no hookable EnterPlanMode/ExitPlanMode tool.
 - Stop/Notification terminal bell -- Antigravity hooks require JSON on stdout.
