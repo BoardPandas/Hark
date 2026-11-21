@@ -607,8 +607,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 Older releases are in [CHANGELOG-archive.md](CHANGELOG-archive.md).
 
-[Unreleased]: https://github.com/BoardPandas/Hark/compare/v0.70.1...HEAD
-[0.70.1]: https://github.com/BoardPandas/Hark/compare/v0.70.0...v0.70.1
+[Unreleased]: https://github.com/BoardPandas/Hark/compare/v0.70.2...HEAD
+[0.70.2]: https://github.com/BoardPandas/Hark/compare/v0.70.0...v0.70.2
 [0.70.0]: https://github.com/BoardPandas/Hark/compare/v0.69.3...v0.70.0
 [0.69.3]: https://github.com/BoardPandas/Hark/compare/v0.68.5...v0.69.3
 [0.68.5]: https://github.com/BoardPandas/Hark/compare/v0.68.4...v0.68.5
