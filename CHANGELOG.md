@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.70.3] - 2026-11-21
+
+### Added
+- Dependabot version updates: weekly pull requests for cargo, github-actions, npm dependencies, with minor and patch updates grouped into one pull request per ecosystem. Dependabot alerts and security updates are enabled in the repository settings.
+
 ## [0.70.2] - 2026-11-21
 
 **Known gaps:** macOS was not built for this change; CI is the first macOS build. gtk stays on 0.18 and windows-core on 0.62: tray-icon 0.26.1 still needs gtk 0.18, and the newest `windows` crate (0.62.2) still needs windows-core 0.62, so neither can move yet.
@@ -607,7 +612,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 Older releases are in [CHANGELOG-archive.md](CHANGELOG-archive.md).
 
-[Unreleased]: https://github.com/BoardPandas/Hark/compare/v0.70.2...HEAD
+[Unreleased]: https://github.com/BoardPandas/Hark/compare/v0.70.3...HEAD
+[0.70.3]: https://github.com/BoardPandas/Hark/compare/v0.70.2...v0.70.3
 [0.70.2]: https://github.com/BoardPandas/Hark/compare/v0.70.0...v0.70.2
 [0.70.0]: https://github.com/BoardPandas/Hark/compare/v0.69.3...v0.70.0
 [0.69.3]: https://github.com/BoardPandas/Hark/compare/v0.68.5...v0.69.3
