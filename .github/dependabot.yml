@@ -4,6 +4,15 @@ updates:
     directory: "/"
     schedule:
       interval: "weekly"
+    ignore:
+      # windows-core 0.100 starts a new windows-rs line that ships no `windows`
+      # crate. hark-audio's `#[implement]` needs the windows-core that its
+      # `windows` dependency (0.62.2, the newest) uses, which is 0.62; a lone
+      # 0.100 bump breaks the Windows build (Hark#2). Drop this entry when
+      # hark-audio moves off the `windows` crate or a `windows` release that
+      # uses windows-core 0.100 appears.
+      - dependency-name: "windows-core"
+        versions: [">=0.100"]
     groups:
       cargo-minor-and-patch:
         update-types:

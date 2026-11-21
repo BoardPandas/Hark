@@ -1,5 +1,11 @@
 # Generation Metadata
 
+## Coverage cache reset and version realignment — 2026-11-21 (0.70.4)
+
+- **Source reviewed:** the coverage job's "Reset sherpa-onnx native cache" step in `.github/workflows/ci.yml` over `51b5a4d`, and `target_dir_from_out_dir` in sherpa-onnx-sys 2.0.2's `build.rs`, which puts the download cache under the first ancestor of `OUT_DIR` named `target`. Global baseline `784272c` is unchanged.
+- **Scope:** Release and Packaging (the coverage paragraph now says which cache paths the reset removes and why; its `ci.yml` range is `210-300`, and the page's Sources range is `1-417`). AUTOGEN markers are preserved.
+- **Validation:** `npm run check:docs` and `npm run check:claude` pass. The coverage failure was reproduced locally with an emptied `target/sherpa-onnx-prebuilt/.../lib` (the old reset still fails to link `sherpa-onnx-c-api`; the new one downloads and builds).
+
 ## Dependency, toolchain and action bumps — 2026-11-21 (0.70.2)
 
 - **Source reviewed:** the uncommitted working tree over `cbdec40` (0.70.1): jiff 1.0 (`Zoned` → `ZonedDateTime`, `to_zoned` → `to_zoned_datetime`, a mechanical rename in `hark-store/src/insights/query.rs`, `hark-app/src/ui/{format,insights_cache}.rs`, `hark-app/src/ui/meetings/{mod,detail}.rs` and `hark-pipeline/src/meeting/coordinator.rs`, plus `cargo fmt` reflow), rusqlite 0.43.0 / libsqlite3-sys 0.40.0 (bundled SQLite still 3.54.1), workspace `rust-version` 1.97 → 1.100, the refreshed gtk comment in `crates/hark-app/Cargo.toml`, and the `action-gh-release` v3.0.4 and `rust-toolchain` SHA pins. Global baseline `784272c` is unchanged.
