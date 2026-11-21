@@ -72,7 +72,7 @@ windows = { version = "0.62.2", features = [
 # crate already pulls in. Do not follow crates.io to windows-core 0.100: that
 # is a new windows-rs line the windows crate (0.62.2) does not use, and a
 # second windows-core makes #[implement] target the wrong traits.
-windows-core = "0.62"
+windows-core = "0.100"
 
 # Meeting-mode system-audio loopback (loopback/linux.rs): the official Rust
 # bindings, linking libpipewire-0.3 through pkg-config. v0_3_44 is the
