@@ -251,14 +251,19 @@ jobs:
         with:
           key: coverage
 
-      # Same reset as the `rust` job, pointed at cargo-llvm-cov's own target
-      # directory (target/llvm-cov-target), which is where sherpa-onnx-sys looks
-      # for its prebuilt native libraries when it is built under coverage.
+      # Same reset as the `rust` job. The build-script output to clean is in
+      # cargo-llvm-cov's own target directory (target/llvm-cov-target), but the
+      # downloaded libraries are NOT: sherpa-onnx-sys keeps them under the first
+      # ancestor of OUT_DIR named `target`, which is plain target/ here too.
+      # Removing only target/llvm-cov-target/sherpa-onnx-prebuilt left the
+      # cached, pruned target/sherpa-onnx-prebuilt in place, and every full
+      # cache hit then failed to link: "could not find native static library
+      # `sherpa-onnx-c-api`". Both paths go, in case that layout ever changes.
       - name: Reset sherpa-onnx native cache
         shell: bash
         run: |
           cargo clean --package sherpa-onnx-sys --target-dir target/llvm-cov-target
-          rm -rf target/llvm-cov-target/sherpa-onnx-prebuilt
+          rm -rf target/sherpa-onnx-prebuilt target/llvm-cov-target/sherpa-onnx-prebuilt
 
       # Unpinned, like cargo-audit: cargo-llvm-cov must track the stable
       # toolchain's LLVM, so freezing it would break the job on a Rust release.

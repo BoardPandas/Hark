@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.70.4] - 2026-11-21
+
+### Fixed
+- **Hark reports its real version again.** 0.70.3 bumped `package.json` but not the Rust workspace, so `hark-app --version`, the sidebar and the update check still said 0.70.2, and the macOS packaging check in CI failed on every push. Both are now 0.70.4.
+- **The CI coverage job builds again.** Its cache reset removed the wrong copy of sherpa-onnx's downloaded libraries (`target/llvm-cov-target/sherpa-onnx-prebuilt`; sherpa-onnx-sys keeps them in `target/sherpa-onnx-prebuilt`), so every run that restored the full cache failed to link `sherpa-onnx-c-api`. It now removes both.
+
 ## [0.70.3] - 2026-11-21
 
 ### Added
