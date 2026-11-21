@@ -73,7 +73,7 @@ pub fn full_timestamp(ts_ms: i64, tz: &TimeZone) -> String {
     let Ok(ts) = Timestamp::from_millisecond(ts_ms) else {
         return "Unknown time".to_string();
     };
-    let zoned = ts.to_zoned(tz.clone());
+    let zoned = ts.to_zoned_datetime(tz.clone());
     let month = MONTHS[(zoned.month() as usize).saturating_sub(1).min(11)];
     format!(
         "{month} {}, {}, {}",
@@ -89,7 +89,7 @@ pub fn clock_time(ts_ms: i64, now_ms: i64, tz: &TimeZone) -> String {
     let (Ok(ts), Some(today)) = (Timestamp::from_millisecond(ts_ms), local_date(now_ms, tz)) else {
         return "an unknown time".to_string();
     };
-    let zoned = ts.to_zoned(tz.clone());
+    let zoned = ts.to_zoned_datetime(tz.clone());
     let date = zoned.date();
     if date == today {
         return twelve_hour(&zoned);
@@ -108,7 +108,7 @@ pub fn clock_time(ts_ms: i64, now_ms: i64, tz: &TimeZone) -> String {
 }
 
 /// "2:34 PM", "12:07 AM".
-fn twelve_hour(zoned: &jiff::Zoned) -> String {
+fn twelve_hour(zoned: &jiff::ZonedDateTime) -> String {
     let (hour, meridiem) = match zoned.hour() {
         0 => (12, "AM"),
         h @ 1..=11 => (h, "AM"),
@@ -166,7 +166,7 @@ pub fn time_saved_ms(words: i64, audio_ms: i64) -> i64 {
 
 fn local_date(ts_ms: i64, tz: &TimeZone) -> Option<jiff::civil::Date> {
     let ts = Timestamp::from_millisecond(ts_ms).ok()?;
-    Some(ts.to_zoned(tz.clone()).date())
+    Some(ts.to_zoned_datetime(tz.clone()).date())
 }
 
 #[cfg(test)]
@@ -181,7 +181,7 @@ mod tests {
     }
 
     fn ms_at(d: jiff::civil::DateTime) -> i64 {
-        d.to_zoned(tz())
+        d.to_zoned_datetime(tz())
             .expect("valid")
             .timestamp()
             .as_millisecond()

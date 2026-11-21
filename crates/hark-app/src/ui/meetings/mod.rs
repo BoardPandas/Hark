@@ -413,7 +413,11 @@ fn meta_line(m: &MeetingSummary, tz: &TimeZone, recording: bool, finishing: bool
 /// "14:30" in the user's zone (also the tray's "since" time).
 pub(crate) fn local_clock(ts_ms: i64, tz: &TimeZone) -> String {
     jiff::Timestamp::from_millisecond(ts_ms)
-        .map(|t| t.to_zoned(tz.clone()).strftime("%H:%M").to_string())
+        .map(|t| {
+            t.to_zoned_datetime(tz.clone())
+                .strftime("%H:%M")
+                .to_string()
+        })
         .unwrap_or_default()
 }
 
@@ -421,7 +425,11 @@ pub(crate) fn local_clock(ts_ms: i64, tz: &TimeZone) -> String {
 /// seconds are the point.
 pub(crate) fn local_clock_seconds(ts_ms: i64, tz: &TimeZone) -> String {
     jiff::Timestamp::from_millisecond(ts_ms)
-        .map(|t| t.to_zoned(tz.clone()).strftime("%H:%M:%S").to_string())
+        .map(|t| {
+            t.to_zoned_datetime(tz.clone())
+                .strftime("%H:%M:%S")
+                .to_string()
+        })
         .unwrap_or_default()
 }
 

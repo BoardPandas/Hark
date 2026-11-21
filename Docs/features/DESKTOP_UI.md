@@ -132,7 +132,7 @@ Invocation dictations count the spoken transcript toward dictated words. **Words
 
 App names and text analysis each default off in Settings → Privacy. App detection samples only app identity at dictation start, never window/document titles or continuous activity; it is best effort on Windows, macOS, and local X11 and unavailable on Wayland. Turning it off stops future collection; previous labels remain until expiry or Reset stats. Word/phrase analysis reads retained transcripts locally without storing another text copy or contacting a provider. Reset stats clears numeric details and lifetime counters while retaining transcripts, so opted-in word analysis can still use that history.
 
-Queries and text aggregation run on the storage worker. The UI caches results by data generation, range, local date, and text-analysis choice; an obsolete reply cannot overwrite a newly selected range. See [Data Storage](../core/DATA_STORAGE.md#lifetime-stats-and-detailed-insights) for retention and coverage semantics.
+Queries and text aggregation run on the storage worker. The UI caches results by data generation, range, local date, and text-analysis choice; an obsolete reply cannot overwrite a newly selected range. A visible idle window schedules a single repaint for the next local midnight, which respects DST, so the date range rolls forward without polling ([insights_cache.rs:42-50](../../crates/hark-app/src/ui/insights_cache.rs#L42-L50), [insights_cache.rs:94-99](../../crates/hark-app/src/ui/insights_cache.rs#L94-L99)). See [Data Storage](../core/DATA_STORAGE.md#lifetime-stats-and-detailed-insights) for retention and coverage semantics.
 
 ### Settings
 

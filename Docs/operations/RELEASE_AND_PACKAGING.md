@@ -165,7 +165,7 @@ The Windows steps, in order, across the three Windows jobs:
 | Job | Step | Action |
 |---|---|---|
 | `version` | Resolve and verify version | Parses the tag against `^v\d+\.\d+\.\d+$`, then fails the run if it disagrees with `package.json` or the Cargo workspace version ([release.yml:129-158](../../.github/workflows/release.yml#L129-L158)) |
-| `windows-check` | Install Rust | `dtolnay/rust-toolchain`, SHA-pinned with `toolchain: stable`; relies on the workspace `rust-version = "1.97"` floor to error on an older stable ([release.yml:261-270](../../.github/workflows/release.yml#L261-L270)) |
+| `windows-check` | Install Rust | `dtolnay/rust-toolchain`, SHA-pinned with `toolchain: stable`; relies on the workspace `rust-version = "1.100"` floor to error on an older stable ([release.yml:261-270](../../.github/workflows/release.yml#L261-L270)) |
 | `windows-check` | Restore main's CI cache | `Swatinem/rust-cache` with `shared-key: rust-checks` and `save-if: false`: warm from ci.yml's last main run, never written by a tag ([release.yml:272-289](../../.github/workflows/release.yml#L272-L289)) |
 | `windows-check` | Gate on fmt, clippy, tests | `cargo fmt --check`, `cargo clippy --all-targets -- -D warnings`, and `cargo test`; the signing job `needs` this job, so nothing is signed until they pass ([release.yml:299-309](../../.github/workflows/release.yml#L299-L309)) |
 | `windows-build` | Build release binary | `cargo build --release -p hark-app` from a clean, uncached tree, with default features, so every shipped binary has `local-engine` (on-device STT) and `live-stt` (the WebSocket client behind Gemini Live and OpenAI's Live transcribe; `gemini-live` remains as an alias for older build commands) ([release.yml:328-330](../../.github/workflows/release.yml#L328-L330), [hark-app Cargo.toml](../../crates/hark-app/Cargo.toml)) |
@@ -243,7 +243,7 @@ Sources: [RELEASING.md:36-68](https://github.com/BoardPandas/Hark/blob/1c1738716
 # compares it against GitHub release tags. release.yml fails if they drift.
 version = "0.60.4"
 edition = "2021"
-rust-version = "1.97"
+rust-version = "1.100"
 license = "MIT"
 ```
 

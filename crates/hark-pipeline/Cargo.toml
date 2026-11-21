@@ -24,7 +24,7 @@ hark-stt = { path = "../hark-stt" }
 hark-voice = { path = "../hark-voice" }
 # Meeting ids and start times are wall-clock (a folder named after the local
 # start time); already locked through hark-app.
-jiff = "0.2"
+jiff = "1"
 log = "0.4"
 # Only to NAME the shared client type hark-stt hands us (and fire the
 # pre-warm request). Same version/features as hark-stt; cargo unifies them.

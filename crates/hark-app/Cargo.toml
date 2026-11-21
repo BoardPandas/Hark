@@ -47,10 +47,10 @@ hark-voice = { path = "../hark-voice" }
 # share/word.rs writes itself. Write-only, Deflate only: no reader-side
 # codecs, no AES. 9.0.5 is the floor because every zip below it carries the
 # extraction and parser advisories (GHSA-m665-v7pm-7grj and others).
-zip = { version = "9.0.5", default-features = false, features = ["deflate-flate2-zlib-rs"] }
+zip = { version = "9.8.1", default-features = false, features = ["deflate-flate2-zlib-rs"] }
 # Local-timezone day grouping and timestamps for the history panel; bundles
 # its own tzdb on Windows (no registry parsing).
-jiff = "0.2"
+jiff = "1"
 log = "0.4"
 # Tray icon + menu (muda arrives re-exported as `tray_icon::menu`). Created
 # on the main thread after the event loop starts (spec §3.8).
@@ -90,9 +90,11 @@ raw-window-handle = "0.6"
 # the main thread's loop. hark-app therefore drives that second loop itself
 # (crates/hark-app/src/tray/surface_gtk.rs), which means calling gtk directly.
 # Same 0.18 line libappindicator pulls in, so the two unify to one gtk. Do not
-# follow crates.io to gtk 0.19 until libappindicator does (0.9.0 still requires
-# gtk/gtk-sys 0.18): gtk-sys declares `links = "gtk-3"`, so two lines cannot
-# coexist in one build and Cargo refuses to resolve.
+# follow crates.io to gtk 0.19 until tray-icon does: libappindicator 0.10.0
+# (2026-11-19) moved to gtk 0.19, but tray-icon 0.26.1 still requires
+# libappindicator ^0.9 and its muda dependency requires gtk ^0.18. gtk-sys
+# declares `links = "gtk-3"`, so two lines cannot coexist in one build and
+# Cargo refuses to resolve.
 [target.'cfg(target_os = "linux")'.dependencies]
 gtk = "0.18"
 

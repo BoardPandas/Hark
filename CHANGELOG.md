@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.70.2] - 2026-11-21
+
+**Known gaps:** macOS was not built for this change; CI is the first macOS build. gtk stays on 0.18 and windows-core on 0.62: tray-icon 0.26.1 still needs gtk 0.18, and the newest `windows` crate (0.62.2) still needs windows-core 0.62, so neither can move yet.
+
+### Changed
+- **Building Hark now needs Rust 1.100 or newer.** The workspace minimum moved from 1.97 to the current stable release. CI and every packaging job already build on stable, and Arch ships 1.100.
+- **The npm floor is 12.2.3** (`engines.npm` in `package.json`). Node stays on 26, the current LTS.
+- **Dependency refresh.** jiff 1.0 (a type rename only, no change to how dates and times display), rusqlite 0.43 (bundled SQLite is still 3.54.1), rubato 5.1, zip 9.8.1, sherpa-onnx 2.0.2, plus every compatible lockfile update, including wgpu 30.0.2, rustls-webpki 0.103.17 and nix 0.32.
+- **CI action pins refreshed.** `softprops/action-gh-release` is on v3.0.4, and `dtolnay/rust-toolchain` is pinned to its stable branch as of 2026-11-15. Both are still pinned by commit SHA.
+- **The docs match the new versions:** Data Storage, Desktop UI, Meetings, Architecture, Overview, Getting Started, and Release and Packaging.
+
 ## [0.70.1] - 2026-11-16
 
 ### Fixed

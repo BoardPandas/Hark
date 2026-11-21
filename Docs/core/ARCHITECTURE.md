@@ -26,6 +26,7 @@ The following files were used as evidence for this page:
 - [crates/hark-pipeline/src/meeting/mod.rs](../../crates/hark-pipeline/src/meeting/mod.rs)
 - [crates/hark-pipeline/src/meeting/coordinator.rs](../../crates/hark-pipeline/src/meeting/coordinator.rs)
 - [crates/hark-app/src/meeting.rs](../../crates/hark-app/src/meeting.rs)
+- [crates/hark-pipeline/Cargo.toml](../../crates/hark-pipeline/Cargo.toml)
 
 </details>
 

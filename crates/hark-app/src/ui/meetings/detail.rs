@@ -490,7 +490,7 @@ mod tests {
         let tz = TimeZone::fixed(jiff::tz::offset(-5));
         let now = jiff::civil::date(2026, 10, 14)
             .at(16, 30, 0, 0)
-            .to_zoned(tz.clone())
+            .to_zoned_datetime(tz.clone())
             .unwrap()
             .timestamp()
             .as_millisecond();

@@ -211,7 +211,7 @@ jobs:
       contents: write
     steps:
       - name: Create the GitHub release
-        uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
+        uses: softprops/action-gh-release@8a0cd651e5b2365bd640854a3fa5dfc70e4875f3 # v3.0.4
         with:
           tag_name: ${{ needs.version.outputs.tag }}
           name: Hark ${{ needs.version.outputs.version }}
@@ -264,7 +264,7 @@ jobs:
       # stable is ever older, which is the libsqlite3-sys MSRV trap this guards
       # against.
       - name: Install Rust
-        uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable branch @ 2026-10
+        uses: dtolnay/rust-toolchain@39008827e6b4319a349e9a42dfc90579dd25f1ca # stable branch @ 2026-11-15
         with:
           toolchain: stable
           components: rustfmt, clippy
@@ -321,7 +321,7 @@ jobs:
           ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
 
       - name: Install Rust
-        uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable branch @ 2026-10
+        uses: dtolnay/rust-toolchain@39008827e6b4319a349e9a42dfc90579dd25f1ca # stable branch @ 2026-11-15
         with:
           toolchain: stable
 
@@ -595,7 +595,7 @@ jobs:
       # set both when it created the release, and passing them again here would
       # overwrite the body every time an asset lands.
       - name: Attach the Windows installer to the release
-        uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
+        uses: softprops/action-gh-release@8a0cd651e5b2365bd640854a3fa5dfc70e4875f3 # v3.0.4
         with:
           tag_name: ${{ needs.version.outputs.tag }}
           files: ${{ steps.asset.outputs.installer }}
@@ -640,7 +640,7 @@ jobs:
             libxkbcommon-dev libx11-dev pkg-config cmake clang
 
       - name: Install Rust
-        uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable branch @ 2026-10
+        uses: dtolnay/rust-toolchain@39008827e6b4319a349e9a42dfc90579dd25f1ca # stable branch @ 2026-11-15
         with:
           toolchain: stable
           components: rustfmt, clippy
@@ -711,7 +711,7 @@ jobs:
             libxkbcommon-dev libx11-dev pkg-config cmake clang
 
       - name: Install Rust
-        uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable branch @ 2026-10
+        uses: dtolnay/rust-toolchain@39008827e6b4319a349e9a42dfc90579dd25f1ca # stable branch @ 2026-11-15
         with:
           toolchain: stable
 
@@ -1132,7 +1132,7 @@ jobs:
           ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
 
       - name: Install Rust
-        uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable branch @ 2026-10
+        uses: dtolnay/rust-toolchain@39008827e6b4319a349e9a42dfc90579dd25f1ca # stable branch @ 2026-11-15
         with:
           toolchain: stable
           components: rustfmt, clippy
@@ -1169,7 +1169,7 @@ jobs:
           ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
 
       - name: Install Rust
-        uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable branch @ 2026-10
+        uses: dtolnay/rust-toolchain@39008827e6b4319a349e9a42dfc90579dd25f1ca # stable branch @ 2026-11-15
         with:
           toolchain: stable
 

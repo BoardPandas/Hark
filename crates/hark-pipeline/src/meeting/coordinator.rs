@@ -783,7 +783,9 @@ fn detect_config(settings: &Settings, self_exe: &str) -> DetectConfig {
 fn new_meeting_id(dir: &std::path::Path) -> String {
     unique_in(
         dir,
-        &jiff::Zoned::now().strftime("%Y%m%d-%H%M%S").to_string(),
+        &jiff::ZonedDateTime::now()
+            .strftime("%Y%m%d-%H%M%S")
+            .to_string(),
     )
 }
 

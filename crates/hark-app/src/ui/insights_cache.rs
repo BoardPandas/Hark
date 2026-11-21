@@ -46,7 +46,7 @@ impl InsightsCache {
         let key = Key {
             generation: storage.generation(),
             days,
-            date: now.to_zoned(self.tz.clone()).date(),
+            date: now.to_zoned_datetime(self.tz.clone()).date(),
             analyze_text,
         };
         if self.key.as_ref() != Some(&key) {
@@ -92,10 +92,10 @@ impl InsightsCache {
 }
 
 fn until_next_day(now: Timestamp, tz: &TimeZone) -> std::time::Duration {
-    now.to_zoned(tz.clone())
+    now.to_zoned_datetime(tz.clone())
         .date()
         .tomorrow()
-        .and_then(|date| date.at(0, 0, 0, 0).to_zoned(tz.clone()))
+        .and_then(|date| date.at(0, 0, 0, 0).to_zoned_datetime(tz.clone()))
         .map(|next| {
             std::time::Duration::from_secs_f64(
                 next.timestamp()

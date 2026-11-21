@@ -130,7 +130,7 @@ The speaker API keeps the user's choices safe: `set_speaker_name` writes a user 
 <!-- BEGIN:AUTOGEN hark_05_data_storage_history -->
 ## History API
 
-SQLite is compiled into the binary rather than taken from the system: `rusqlite` 0.41.1 with the `bundled` feature, which ships SQLite 3.54.1 (the CVE-2026-119375 fix, since 0.69.2) ([hark-store/Cargo.toml](../../crates/hark-store/Cargo.toml)). Every `Store` owns one synchronous `rusqlite::Connection`. File-backed connections request WAL mode, use `synchronous = NORMAL`, and wait up to five seconds when the database is busy, which supports the app's one-writer/one-reader arrangement ([lib.rs:48](../../crates/hark-store/src/lib.rs#L48), [lib.rs:171-180](../../crates/hark-store/src/lib.rs#L171-L180)).
+SQLite is compiled into the binary rather than taken from the system: `rusqlite` 0.43.0 with the `bundled` feature (through `libsqlite3-sys` 0.40.0), which ships SQLite 3.54.1 (the CVE-2026-119375 fix, since 0.69.2) ([hark-store/Cargo.toml](../../crates/hark-store/Cargo.toml)). Every `Store` owns one synchronous `rusqlite::Connection`. File-backed connections request WAL mode, use `synchronous = NORMAL`, and wait up to five seconds when the database is busy, which supports the app's one-writer/one-reader arrangement ([lib.rs:48](../../crates/hark-store/src/lib.rs#L48), [lib.rs:171-180](../../crates/hark-store/src/lib.rs#L171-L180)).
 
 | Method | Behavior |
 |---|---|
@@ -162,7 +162,7 @@ Migration 005 backfills only surviving history within retention and at or after 
 
 ### Aggregation and interpretation
 
-`Store::insights` builds day buckets in the requested local timezone, including empty dates. Selected periods are inclusive calendar days ending today; UI choices are 7, 30, and 90 days. Activity covers 366 local dates. Current streak ends today, or yesterday if today is empty; longest streak is the longest observed run within retained numeric history. It is not an all-time streak claim.
+`Store::insights` builds day buckets in the requested local timezone, including empty dates. Range starts are found by subtracting calendar days from today's local date and resolving each date's midnight through jiff's `ZonedDateTime`, so a range that crosses a DST change still starts at local midnight ([query.rs:74-92](../../crates/hark-store/src/insights/query.rs#L74-L92)). Selected periods are inclusive calendar days ending today; UI choices are 7, 30, and 90 days. Activity covers 366 local dates. Current streak ends today, or yesterday if today is empty; longest streak is the longest observed run within retained numeric history. It is not an all-time streak claim.
 
 Pace divides words from measured rows by those rows' clip durations. Estimated time saved subtracts measured clip duration from a 40 WPM typing baseline and floors at zero; missing durations are excluded from both numerator and denominator. Clip time includes capture padding. Median/p95 use recorded completion latencies; these are not failure-rate statistics. Provider, voice, optional app, and busiest-hour aggregates use the same selected period; absent app labels are counted separately.
 

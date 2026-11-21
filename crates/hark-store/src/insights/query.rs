@@ -72,22 +72,22 @@ impl Store {
             ));
         }
         let today = Timestamp::from_millisecond(request.now_ms)?
-            .to_zoned(request.time_zone.clone())
+            .to_zoned_datetime(request.time_zone.clone())
             .date();
         let first = today.checked_sub(Span::new().days(i64::from(request.days) - 1))?;
         let previous_first = first.checked_sub(Span::new().days(i64::from(request.days)))?;
         let activity_first = today.checked_sub(Span::new().days(INSIGHTS_RETENTION_DAYS - 1))?;
         let start_ms = first
-            .to_zoned(request.time_zone.clone())?
+            .to_zoned_datetime(request.time_zone.clone())?
             .timestamp()
             .as_millisecond();
         let previous_ms = previous_first
-            .to_zoned(request.time_zone.clone())?
+            .to_zoned_datetime(request.time_zone.clone())?
             .timestamp()
             .as_millisecond();
         let query_ms = activity_first
             .min(previous_first)
-            .to_zoned(request.time_zone.clone())?
+            .to_zoned_datetime(request.time_zone.clone())?
             .timestamp()
             .as_millisecond();
         let retained_ms = request
@@ -127,8 +127,8 @@ impl Store {
         for row in rows {
             let event = row?;
             oldest_event_ms.get_or_insert(event.ts_ms);
-            let local =
-                Timestamp::from_millisecond(event.ts_ms)?.to_zoned(request.time_zone.clone());
+            let local = Timestamp::from_millisecond(event.ts_ms)?
+                .to_zoned_datetime(request.time_zone.clone());
             let date = local.date();
             let day = days.entry(date).or_default();
             day.0 += 1;
