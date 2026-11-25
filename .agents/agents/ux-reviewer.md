@@ -3,12 +3,13 @@ name: ux-reviewer
 description: "UX-focused review agent. Evaluates UI code against Laws of UX and Gestalt principles. Produces severity-ranked findings with specific improvement recommendations."
 subagent: true
 mainAgent: true
-model: pro
-commandExecutionPolicy: "off"
+model: inherit
+commandExecutionPolicy: sandbox
 tools:
   - view_file
   - find_by_name
   - list_dir
+  - run_command
   - grep_search
   - write_to_file
   - send_message
@@ -65,5 +66,6 @@ Format each finding as:
 
 Antigravity notes (generated):
 - You are the Antigravity port of `.claude/agents/ux-reviewer.md`; `AGENTS.md` and `.agents/rules/` apply.
-- Tool names above are Claude Code's. Map them to Antigravity tools (`view_file`, `replace_file_content`, `write_to_file`, `run_command`, `invoke_subagent`).
+- Tool names above are Claude Code's. Map them to Antigravity tools (`read_file`/`view_file`, `edit_file`/`replace_file_content`, `write_file`/`write_to_file`, `run_command`, `invoke_subagent`).
 - Claude Code limits you to: Read, Glob, Grep, Write. Stay within that scope (including any command-prefix limits).
+- `run_command` is granted solely for read-only search/fetch (`rg`, `find`, `ls`, `git status/log/diff`, `curl -fsSL`) because Antigravity CLI/ACP omits standalone Glob/Grep/WebFetch tools; never edit files or run state-changing commands.

@@ -3,16 +3,16 @@ name: builder
 description: "Use PROACTIVELY to implement features, fix bugs, and write code from a plan or spec. The implementation-capable agent for parallel team work. Spawn one builder per independent file set to avoid edit conflicts."
 subagent: true
 mainAgent: true
-model: pro
+model: inherit
 commandExecutionPolicy: sandbox
 tools:
   - view_file
   - find_by_name
   - list_dir
+  - run_command
   - grep_search
   - replace_file_content
   - write_to_file
-  - run_command
   - manage_task
   - send_message
 ---
@@ -66,7 +66,7 @@ When you finish, report:
 
 Antigravity notes (generated):
 - You are the Antigravity port of `.claude/agents/builder.md`; `AGENTS.md` and `.agents/rules/` apply.
-- Tool names above are Claude Code's. Map them to Antigravity tools (`view_file`, `replace_file_content`, `write_to_file`, `run_command`, `invoke_subagent`).
+- Tool names above are Claude Code's. Map them to Antigravity tools (`read_file`/`view_file`, `edit_file`/`replace_file_content`, `write_file`/`write_to_file`, `run_command`, `invoke_subagent`).
 - Claude Code limits you to: Read, Glob, Grep, Edit, Write, Bash. Stay within that scope (including any command-prefix limits).
 - Read `.claude/agent-memory/builder/MEMORY.md` (if it exists) and the shared files in `.claude/agent-memory/` before starting.
 - Claude Code gives you an isolated git worktree. When spawned via `invoke_subagent`, use `Workspace: "branch"` when isolated checkout is needed; otherwise edit only the files you were assigned.

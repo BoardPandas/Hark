@@ -64,4 +64,9 @@ git add CHANGELOG.md package.json
 4. `git add CHANGELOG.md package.json`
 5. Proceed with the commit
 
+End every agent-authored commit message with a dynamic trailer identifying the active
+agent and model: `Co-Authored-By: {Agent} {Model}` (e.g., `Co-Authored-By: Gemini 4 Neon`,
+`Co-Authored-By: Claude Opus 5.5`, `Co-Authored-By: Codex GPT-6 Sol`). Never hardcode
+another runtime's name.
+
 The gate (`.claude/scripts/check-changelog-staged.sh`) checks state, not the command text: CHANGELOG.md differs from HEAD, package.json's version differs from HEAD's, and CHANGELOG.md has a `## [<that version>]` section. It runs before the command, so the edits must be an earlier step. Exempt: merges, `--amend`, the initial commit, and a `SKIP_CHANGELOG=1 git commit ...` prefix on the commit command itself (an `export` in an earlier command is invisible to the hook).

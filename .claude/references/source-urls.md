@@ -24,6 +24,13 @@ Removals are also governed by the two-strikes dead-URL rule in `update-practices
 - https://github.com/anthropics/claude-cookbooks
 - https://raw.githubusercontent.com/anthropics/claude-cookbooks/main/README.md
 
+## Official Antigravity Sources
+
+- https://antigravity.google/docs/changelog.md
+- https://antigravity.google/docs/hooks.md
+- https://antigravity.google/docs/subagents.md
+- https://antigravity.google/docs/rules.md
+
 ## Community Knowledge Bases
 
 - https://github.com/shanraisshan/claude-code-best-practice

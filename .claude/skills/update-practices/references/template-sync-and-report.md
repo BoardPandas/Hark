@@ -62,6 +62,7 @@ These live outside `.claude/` and are load-bearing for CI guards and generated m
 | `scripts/check-claude-wiring.test.mjs` | Replace with template version. |
 | `scripts/sync-codex.mjs` | Replace with template version (if project uses generated Codex/Antigravity mirrors). |
 | `scripts/sync-antigravity.mjs` | Replace with template version alongside `scripts/sync-codex.mjs`. |
+| `scripts/antigravity-format.mjs` | Replace with template version alongside `scripts/sync-antigravity.mjs` (imported by it). |
 | `scripts/sync-codex.test.mjs` | Replace with template version alongside `scripts/sync-codex.mjs`. |
 | `scripts/antigravity-hooks.test.mjs` | Replace with template version alongside `.claude/scripts/_antigravity-hook.sh`. |
 

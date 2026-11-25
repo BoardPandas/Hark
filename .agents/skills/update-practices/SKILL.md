@@ -63,7 +63,7 @@ Run `git remote get-url origin` and compare it against the template repo URL fro
 
 ### Categorize and apply template changes
 
-Read `.agents/skills/update-practices/references/template-sync-and-report.md` in full before proceeding. It contains the exact git blob-SHA categorization commands, the `.claude/` sync whitelist, the load-bearing files outside `.claude/` that MUST still sync (`REVIEW.md`, `scripts/check-claude-wiring*.mjs`, `scripts/sync-codex*.mjs`, `scripts/sync-antigravity.mjs`, `scripts/antigravity-hooks.test.mjs`), the NEVER-sync list, and the `template-sync-state.json` schema.
+Read `.agents/skills/update-practices/references/template-sync-and-report.md` in full before proceeding. It contains the exact git blob-SHA categorization commands, the `.claude/` sync whitelist, the load-bearing files outside `.claude/` that MUST still sync (`REVIEW.md`, `scripts/check-claude-wiring*.mjs`, `scripts/sync-codex*.mjs`, `scripts/sync-antigravity.mjs`, `scripts/antigravity-format.mjs`, `scripts/antigravity-hooks.test.mjs`), the NEVER-sync list, and the `template-sync-state.json` schema.
 
 1. Fetch the tree API URL via `curl -s "<tree-api-url>"` (never WebFetch, which can truncate or reformat files) and classify each whitelisted path by git blob SHA (`git hash-object <local-path>`) into **TEMPLATE-IGNORED** (in `template-sync-ignore.md`), **TEMPLATE-NEW**, **TEMPLATE-CURRENT**, **TEMPLATE-UPDATED** (incremental diff), or **TEMPLATE-REWRITTEN** (body substantially replaced).
 2. Apply changes per category:
@@ -209,7 +209,7 @@ Walk every category in `.agents/skills/update-practices/references/template-sync
 
 ## Step 8: Report
 
-Determine the installed Claude Code version by running `claude --version` locally; use web sources only as a fallback if the CLI is unavailable.
+Determine the installed Claude Code version by running `claude --version` locally (and `agy --version` if Antigravity CLI is installed); use web sources only as a fallback if a CLI is unavailable.
 
 Print the diff-style summary using the exact section structure in `.agents/skills/update-practices/references/template-sync-and-report.md` ("Step 8: Verbatim Report Format"), covering `BOOTSTRAP TEMPLATE SYNC`, `CHANGES APPLIED`, `FEATURES IN USE`, `FEATURES AVAILABLE BUT NOT CONFIGURED`, `HEALTH AUDIT`, `WEB SEARCH`, `CLAUDE CODE VERSION`, `CURRENT DATE`, and `SOURCES CHECKED`.
 

@@ -4,14 +4,14 @@
     "SessionStart": [
       {
         "type": "command",
-        "command": "bash \"$(git rev-parse --show-toplevel)\"/.claude/scripts/_antigravity-hook.sh SessionStart .claude/scripts/session-start-kb-check.sh",
+        "command": "bash ../.claude/scripts/_antigravity-hook.sh SessionStart .claude/scripts/session-start-kb-check.sh",
         "timeout": 30
       }
     ],
     "PreInvocation": [
       {
         "type": "command",
-        "command": "bash \"$(git rev-parse --show-toplevel)\"/.claude/scripts/_antigravity-hook.sh PreInvocation",
+        "command": "bash ../.claude/scripts/_antigravity-hook.sh PreInvocation",
         "timeout": 10
       }
     ],
@@ -21,33 +21,53 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash \"$(git rev-parse --show-toplevel)\"/.claude/scripts/_antigravity-hook.sh PreToolUse .claude/scripts/check-commit-herestring.sh",
+            "command": "bash ../.claude/scripts/_antigravity-hook.sh PreToolUse --enforce-deny",
+            "timeout": 10
+          },
+          {
+            "type": "command",
+            "command": "bash ../.claude/scripts/_antigravity-hook.sh PreToolUse .claude/scripts/check-commit-herestring.sh",
             "timeout": 30
           },
           {
             "type": "command",
-            "command": "bash \"$(git rev-parse --show-toplevel)\"/.claude/scripts/_antigravity-hook.sh PreToolUse .claude/scripts/pre-commit-changelog-reminder.sh",
+            "command": "bash ../.claude/scripts/_antigravity-hook.sh PreToolUse .claude/scripts/pre-commit-changelog-reminder.sh",
             "timeout": 30
           },
           {
             "type": "command",
-            "command": "bash \"$(git rev-parse --show-toplevel)\"/.claude/scripts/_antigravity-hook.sh PreToolUse .claude/scripts/check-changelog-staged.sh",
+            "command": "bash ../.claude/scripts/_antigravity-hook.sh PreToolUse .claude/scripts/check-changelog-staged.sh",
             "timeout": 30
           },
           {
             "type": "command",
-            "command": "bash \"$(git rev-parse --show-toplevel)\"/.claude/scripts/_antigravity-hook.sh PreToolUse .claude/scripts/require-release-authorization.sh",
+            "command": "bash ../.claude/scripts/_antigravity-hook.sh PreToolUse .claude/scripts/require-release-authorization.sh",
             "timeout": 30
           }
         ]
       },
       {
-        "matcher": "write_to_file|replace_file_content|multi_replace_file_content",
+        "matcher": "write_file|write_to_file|edit_file|replace_file_content|multi_replace_file_content",
         "hooks": [
           {
             "type": "command",
-            "command": "bash \"$(git rev-parse --show-toplevel)\"/.claude/scripts/_antigravity-hook.sh PreToolUse .claude/scripts/pre-write-kb-check.sh",
+            "command": "bash ../.claude/scripts/_antigravity-hook.sh PreToolUse --enforce-deny",
+            "timeout": 10
+          },
+          {
+            "type": "command",
+            "command": "bash ../.claude/scripts/_antigravity-hook.sh PreToolUse .claude/scripts/pre-write-kb-check.sh",
             "timeout": 30
+          }
+        ]
+      },
+      {
+        "matcher": "read_file|view_file",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash ../.claude/scripts/_antigravity-hook.sh PreToolUse --enforce-deny",
+            "timeout": 10
           }
         ]
       }
@@ -58,22 +78,22 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash \"$(git rev-parse --show-toplevel)\"/.claude/scripts/_antigravity-hook.sh PostToolUse .claude/scripts/post-commit-kb-contribute.sh",
+            "command": "bash ../.claude/scripts/_antigravity-hook.sh PostToolUse .claude/scripts/post-commit-kb-contribute.sh",
             "timeout": 30
           },
           {
             "type": "command",
-            "command": "bash \"$(git rev-parse --show-toplevel)\"/.claude/scripts/_antigravity-hook.sh PostToolUse .claude/scripts/post-push-cleanup.sh",
+            "command": "bash ../.claude/scripts/_antigravity-hook.sh PostToolUse .claude/scripts/post-push-cleanup.sh",
             "timeout": 30
           }
         ]
       },
       {
-        "matcher": "write_to_file|replace_file_content|multi_replace_file_content",
+        "matcher": "write_file|write_to_file|edit_file|replace_file_content|multi_replace_file_content",
         "hooks": [
           {
             "type": "command",
-            "command": "bash \"$(git rev-parse --show-toplevel)\"/.claude/scripts/_antigravity-hook.sh PostToolUse .claude/scripts/post-edit-format.sh",
+            "command": "bash ../.claude/scripts/_antigravity-hook.sh PostToolUse .claude/scripts/post-edit-format.sh",
             "timeout": 30
           }
         ]

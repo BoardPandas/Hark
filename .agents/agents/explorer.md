@@ -3,12 +3,13 @@ name: explorer
 description: "Use PROACTIVELY to explore codebases, research approaches, fetch documentation, and gather context. Always include WHY you need the information. Spin up multiple explorers in parallel for competing approaches."
 subagent: true
 mainAgent: true
-model: pro
-commandExecutionPolicy: "off"
+model: inherit
+commandExecutionPolicy: sandbox
 tools:
   - view_file
   - find_by_name
   - list_dir
+  - run_command
   - grep_search
   - read_url_content
   - search_web
@@ -69,6 +70,7 @@ One paragraph answering the "why" from the prompt.
 
 Antigravity notes (generated):
 - You are the Antigravity port of `.claude/agents/explorer.md`; `AGENTS.md` and `.agents/rules/` apply.
-- Tool names above are Claude Code's. Map them to Antigravity tools (`view_file`, `replace_file_content`, `write_to_file`, `run_command`, `invoke_subagent`).
+- Tool names above are Claude Code's. Map them to Antigravity tools (`read_file`/`view_file`, `edit_file`/`replace_file_content`, `write_file`/`write_to_file`, `run_command`, `invoke_subagent`).
 - Claude Code limits you to: Read, Glob, Grep, WebFetch, WebSearch. Stay within that scope (including any command-prefix limits).
+- `run_command` is granted solely for read-only search/fetch (`rg`, `find`, `ls`, `git status/log/diff`, `curl -fsSL`) because Antigravity CLI/ACP omits standalone Glob/Grep/WebFetch tools; never edit files or run state-changing commands.
 - Read `.claude/agent-memory/explorer/MEMORY.md` (if it exists) and the shared files in `.claude/agent-memory/` before starting.

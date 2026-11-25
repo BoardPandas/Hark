@@ -23,7 +23,7 @@ members = [
 # Kept in lockstep with package.json (the release source of truth): the built
 # binary reports this via env!("CARGO_PKG_VERSION"), and the update checker
 # compares it against GitHub release tags. release.yml fails if they drift.
-version = "0.70.4"
+version = "0.70.5"
 edition = "2021"
 # Tracks current stable (1.100.0, 2026-11-09), raised deliberately rather than
 # derived from a dependency: CI and every packaging leg build on stable, and

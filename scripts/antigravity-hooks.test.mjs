@@ -4,14 +4,15 @@
 // hook protocol into our canonical .claude/scripts/*.sh contract without failing open.
 //
 // Antigravity (`agy` / T3 Code Antigravity harness) differs from Claude Code in four ways:
-//   1. Runs hooks with `.agents/` as cwd instead of the repo root.
-//   2. Sends camelCase payloads (`conversationId`, `toolCall.name`, `toolCall.args.CommandLine`
-//      / `TargetFile` / `Cwd`).
+//   1. Runs hooks with `.agents/` as cwd instead of the repo root (via `sh -c` on Unix
+//      and `cmd /c` on Windows).
+//   2. Sends camelCase payloads (`conversationId`, top-level `cwd`, `toolCall.name`,
+//      `toolCall.args.CommandLine` / `Path` / `TargetFile` / `AbsolutePath` / `Cwd`).
 //   3. Treats ANY non-zero exit code (including `exit 2`) as a hook error and fails open;
 //      blocking MUST exit 0 and emit `{"decision":"deny","reason":"..."}`.
-//   4. Only reads `injectSteps` on `SessionStart` (`systemMessage`) and `PreInvocation`
-//      (`ephemeralMessage`), so advisory context from `PreToolUse` / `PostToolUse` must be
-//      queued per `conversationId` and drained once on the next `PreInvocation`.
+//   4. Only reads `injectSteps` on `SessionStart` and `PreInvocation` (`systemMessage`),
+//      so advisory context from `PreToolUse` / `PostToolUse` must be queued per
+//      `conversationId` and drained once on the next `PreInvocation`.
 //
 // Run with: npm test
 
@@ -46,6 +47,26 @@ function makeTestRepo() {
   const dir = mkdtempSync(join(tmpBase, "repo-"));
   const scriptsDir = join(dir, ".claude", "scripts");
   cpSync(REPO_SCRIPTS, scriptsDir, { recursive: true });
+  writeFileSync(
+    join(dir, ".claude", "settings.json"),
+    JSON.stringify(
+      {
+        permissions: {
+          deny: [
+            "Bash(git clone ext::*)",
+            "Bash(git clone --upload-pack*)",
+            "Read(**/.env)",
+            "Read(**/.env.*)",
+            "Read(~/.ssh/**)",
+            "Edit(**/package-lock.json)",
+            "Edit(**/.git/**)",
+          ],
+        },
+      },
+      null,
+      2,
+    ),
+  );
   const ensureStub = (name, body) => {
     const p = join(scriptsDir, name);
     if (!existsSync(p)) {
@@ -92,10 +113,10 @@ function makeTestRepo() {
 }
 
 function runAdapter(repoDir, event, scriptRel, payload, extraEnv = {}) {
-  const args = [join(repoDir, ".claude", "scripts", "_antigravity-hook.sh"), event];
+  // Invoke via relative path from `.agents/`, matching `.agents/hooks.json`.
+  const args = ["../.claude/scripts/_antigravity-hook.sh", event];
   if (scriptRel) args.push(scriptRel);
   const r = spawnSync("bash", args, {
-    // Simulate Antigravity's actual execution directory: `<repo>/.agents`.
     cwd: join(repoDir, ".agents"),
     input: typeof payload === "string" ? payload : JSON.stringify(payload),
     encoding: "utf8",
@@ -126,21 +147,19 @@ describe("_antigravity-hook.sh", () => {
   test("PreToolUse converts blocking exit 2 (PowerShell herestring & missing changelog) into decision:deny with exit 0", () => {
     const repo = makeTestRepo();
 
-    // 1. PowerShell @'...'@ herestring commit blocked by check-commit-herestring.sh
     const herestring = runAdapter(repo, "PreToolUse", ".claude/scripts/check-commit-herestring.sh", {
       conversationId: "conv-block-1",
+      cwd: repo,
       toolCall: {
         name: "run_command",
         args: {
           CommandLine: `${GIT} ${COMMIT} -m @'\nmsg\n'@`,
-          Cwd: repo,
         },
       },
     });
     assert.equal(herestring.json.decision, "deny");
     assert.match(herestring.json.reason, /PowerShell here-string/i);
 
-    // 2. Unbumped commit blocked by check-changelog-staged.sh (even when adapter cwd is .agents/)
     writeFileSync(join(repo, "app.js"), "export const x = 2;\n");
     spawnSync("git", ["add", "app.js"], { cwd: repo });
     const unbumped = runAdapter(repo, "PreToolUse", ".claude/scripts/check-changelog-staged.sh", {
@@ -157,26 +176,46 @@ describe("_antigravity-hook.sh", () => {
     assert.match(unbumped.json.reason, /CHANGELOG\.md/);
   });
 
-  test("PreToolUse & PostToolUse queue advisory context per conversationId and PreInvocation drains it once", () => {
+  test("PreToolUse honors top-level cwd when toolCall.args.Cwd is absent (CLI/ACP 1.5+)", () => {
+    const sessionRepo = makeTestRepo();
+    const otherRepo = makeTestRepo();
+    writeFileSync(join(otherRepo, "app.js"), "export const x = 99;\n");
+    spawnSync("git", ["add", "app.js"], { cwd: otherRepo });
+
+    // Session repo is clean, but top-level `cwd` points at `otherRepo` with unbumped changes.
+    const res = runAdapter(sessionRepo, "PreToolUse", ".claude/scripts/check-changelog-staged.sh", {
+      conversationId: "conv-cwd-top",
+      cwd: otherRepo,
+      toolCall: {
+        name: "run_command",
+        args: { CommandLine: `${GIT} ${COMMIT} -m "fix: in other repo"` },
+      },
+    });
+    assert.equal(res.json.decision, "deny");
+    assert.match(res.json.reason, /CHANGELOG\.md/);
+  });
+
+  test("PreToolUse & PostToolUse queue advisory context for write_file (Path) and write_to_file (TargetFile), flushed once as systemMessage", () => {
     const repo = makeTestRepo();
     const convId = "conv-advisory-42";
 
-    // PreToolUse on write_to_file -> pre-write-kb-check.sh emits LL-G GOTCHA CHECK
+    // Modern Antigravity CLI/ACP write_file with args.Path
     const pre = runAdapter(repo, "PreToolUse", ".claude/scripts/pre-write-kb-check.sh", {
       conversationId: convId,
       toolCall: {
-        name: "write_to_file",
-        args: { TargetFile: join(repo, "src", "feature.ts") },
+        name: "write_file",
+        args: { Path: join(repo, "src", "feature.ts") },
       },
     });
     assert.deepEqual(pre.json, { decision: "allow" });
 
-    // PostToolUse on run_command git commit -> post-commit-kb-contribute.sh emits KB CONTRIBUTION CHECK
+    // PostToolUse on run_command git commit
     const post = runAdapter(repo, "PostToolUse", ".claude/scripts/post-commit-kb-contribute.sh", {
       conversationId: convId,
+      cwd: repo,
       toolCall: {
         name: "run_command",
-        args: { CommandLine: `${GIT} ${COMMIT} -m "fix: edge case"`, Cwd: repo },
+        args: { CommandLine: `${GIT} ${COMMIT} -m "fix: edge case"` },
       },
     });
     assert.deepEqual(post.json, {});
@@ -185,9 +224,10 @@ describe("_antigravity-hook.sh", () => {
     const otherTurn = runAdapter(repo, "PreInvocation", "", { conversationId: "conv-other" });
     assert.deepEqual(otherTurn.json, {});
 
-    // Next PreInvocation for convId receives BOTH queued advisories in ephemeralMessage
+    // Next PreInvocation for convId receives BOTH queued advisories via systemMessage (not deprecated ephemeralMessage)
     const flushed = runAdapter(repo, "PreInvocation", "", { conversationId: convId });
-    const msg = flushed.json?.injectSteps?.[0]?.ephemeralMessage;
+    assert.equal(flushed.json?.injectSteps?.[0]?.ephemeralMessage, undefined);
+    const msg = flushed.json?.injectSteps?.[0]?.systemMessage?.systemMessage;
     assert.equal(typeof msg, "string");
     assert.match(msg, /LL-G GOTCHA CHECK/);
     assert.match(msg, /KNOWLEDGE BASE CONTRIBUTION CHECK/);
@@ -197,7 +237,7 @@ describe("_antigravity-hook.sh", () => {
     assert.deepEqual(afterFlush.json, {});
   });
 
-  test("PostToolUse maps replace_file_content TargetFile so post-edit-format.sh formats the target in-place", () => {
+  test("PostToolUse formats target in-place for BOTH modern edit_file (Path) and legacy replace_file_content (TargetFile)", () => {
     const repo = makeTestRepo();
     writeFileSync(join(repo, ".editorconfig"), "root = true\n");
     const fakeBin = join(repo, "fake-bin");
@@ -206,24 +246,63 @@ describe("_antigravity-hook.sh", () => {
     writeFileSync(fakeShfmt, '#!/usr/bin/env bash\n# Usage: shfmt -w <file>\nprintf "#!/usr/bin/env bash\\necho formatted\\n" > "$2"\n');
     chmodSync(fakeShfmt, 0o755);
 
-    const target = join(repo, "script.sh");
-    writeFileSync(target, "#!/usr/bin/env bash\necho   unformatted\n");
+    for (const [toolName, argsFor] of [
+      ["edit_file", (p) => ({ Path: p })],
+      ["replace_file_content", (p) => ({ TargetFile: p })],
+    ]) {
+      const target = join(repo, `script-${toolName}.sh`);
+      writeFileSync(target, "#!/usr/bin/env bash\necho   unformatted\n");
 
-    const post = runAdapter(
-      repo,
-      "PostToolUse",
-      ".claude/scripts/post-edit-format.sh",
-      {
-        conversationId: "conv-fmt-1",
-        toolCall: {
-          name: "replace_file_content",
-          args: { TargetFile: target },
+      const post = runAdapter(
+        repo,
+        "PostToolUse",
+        ".claude/scripts/post-edit-format.sh",
+        {
+          conversationId: `conv-fmt-${toolName}`,
+          toolCall: { name: toolName, args: argsFor(target) },
         },
-      },
-      { PATH: `${fakeBin}:${process.env.PATH ?? ""}` },
-    );
-    assert.deepEqual(post.json, {});
-    assert.equal(readFileSync(target, "utf8"), "#!/usr/bin/env bash\necho formatted\n");
+        { PATH: `${fakeBin}:${process.env.PATH ?? ""}` },
+      );
+      assert.deepEqual(post.json, {});
+      assert.equal(readFileSync(target, "utf8"), "#!/usr/bin/env bash\necho formatted\n", `${toolName} should format`);
+    }
+  });
+
+  test("PreToolUse --enforce-deny blocks denied reads, edits, and commands from .claude/settings.json and allows safe ones", () => {
+    const repo = makeTestRepo();
+
+    const deniedCases = [
+      ["read_file", { Path: join(repo, ".env") }, /Read\(\*\*\/\.env\)/],
+      ["view_file", { AbsolutePath: join(repo, "sub", ".env.local") }, /Read\(\*\*\/\.env\.\*\)/],
+      ["read_file", { Path: "~/.ssh/id_rsa" }, /Read\(~\/\.ssh\/\*\*\)/],
+      ["write_file", { Path: join(repo, ".git", "config") }, /Edit\(\*\*\/\.git\/\*\*\)/],
+      ["edit_file", { Path: join(repo, "package-lock.json") }, /Edit\(\*\*\/package-lock\.json\)/],
+      ["write_file", { Path: join(repo, ".env") }, /Read\(\*\*\/\.env\)/],
+      ["run_command", { CommandLine: "git clone ext::sh -c id" }, /Bash\(git clone ext::\*\)/],
+      ["run_command", { CommandLine: "cd /tmp && git clone --upload-pack=evil https://x" }, /Bash\(git clone --upload-pack\*\)/],
+    ];
+    for (const [name, args, expectRule] of deniedCases) {
+      const res = runAdapter(repo, "PreToolUse", "--enforce-deny", {
+        conversationId: "conv-deny",
+        toolCall: { name, args },
+      });
+      assert.equal(res.json.decision, "deny", `${name} ${JSON.stringify(args)} should be denied`);
+      assert.match(res.json.reason, expectRule);
+    }
+
+    const allowedCases = [
+      ["read_file", { Path: join(repo, "app.js") }],
+      ["write_file", { Path: join(repo, "app.js") }],
+      ["edit_file", { Path: join(repo, "app.js") }],
+      ["run_command", { CommandLine: "git status" }],
+    ];
+    for (const [name, args] of allowedCases) {
+      const res = runAdapter(repo, "PreToolUse", "--enforce-deny", {
+        conversationId: "conv-allow",
+        toolCall: { name, args },
+      });
+      assert.deepEqual(res.json, { decision: "allow" }, `${name} ${JSON.stringify(args)} should be allowed`);
+    }
   });
 
   test("conversationId is sanitized so path traversal never escapes agy-hook-queue", () => {
@@ -232,8 +311,8 @@ describe("_antigravity-hook.sh", () => {
     runAdapter(repo, "PreToolUse", ".claude/scripts/pre-write-kb-check.sh", {
       conversationId: evilId,
       toolCall: {
-        name: "write_to_file",
-        args: { TargetFile: join(repo, "index.js") },
+        name: "write_file",
+        args: { Path: join(repo, "index.js") },
       },
     });
 

@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.70.5] - 2026-11-25
+
+### Changed
+- Synced Antigravity CLI/ACP 1.5+ compatibility and cross-platform hook updates from `claude-code-bootstrap` 0.30.0: dual modern (`write_file`/`edit_file`/`read_file` with `Path` + top-level `cwd`) and legacy IDE hook matchers, Windows-safe `bash ../.claude/scripts/_antigravity-hook.sh` invocations, mechanical `permissions.deny` enforcement (`--enforce-deny`), `systemMessage` PreInvocation flushes, read-only `run_command` and `model: inherit` for Antigravity subagents, Check 13 in `scripts/check-claude-wiring.mjs`, updated hook tests, Antigravity source URLs, and dynamic `Co-Authored-By: {Agent} {Model}` commit attribution rules.
+
 ## [0.70.4] - 2026-11-21
 
 ### Changed

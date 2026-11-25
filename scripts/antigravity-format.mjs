@@ -5,14 +5,19 @@
 // mirrors from CLAUDE.md, OR invoked directly (`node scripts/sync-antigravity.mjs [--check]
 // [--with-skills]`) in repos that maintain a hand-authored AGENTS.md or custom .codex/ sync.
 
-
 export const AGY_DOC_CEILING = 24_000;
 export const AGY_SKILL_CEILING = 24_000;
-export const AGY_MODEL_MAP = { opus: "pro", sonnet: "pro", haiku: "flash" };
+// Inherit the active session model (e.g. Gemini 4 Neon) for opus/sonnet so subagents are not
+// silently downgraded to a fixed tier; keep haiku on flash for fast mechanical tasks.
+export const AGY_MODEL_MAP = { opus: "inherit", sonnet: "inherit", haiku: "flash" };
 
 const AGY_EVENTS = new Set(["SessionStart", "PreToolUse", "PostToolUse", "Stop"]);
 const AGY_TOOL_EVENTS = new Set(["PreToolUse", "PostToolUse"]);
 
+// Antigravity CLI/ACP 1.5+ maps view_file -> read_file, replace_file_content -> edit_file,
+// write_to_file -> write_file, and drops find_by_name/list_dir/grep_search/read_url_content.
+// Including run_command on Glob/Grep/WebFetch keeps read-only agents able to run rg/find/ls/curl
+// in sandboxed mode while retaining the legacy IDE tool names.
 export const AGY_TOOL_MAP = {
   Bash: ["run_command", "manage_task"],
   Edit: ["replace_file_content"],
@@ -21,9 +26,9 @@ export const AGY_TOOL_MAP = {
   Agent: ["invoke_subagent"],
   Task: ["invoke_subagent"],
   Read: ["view_file"],
-  Glob: ["find_by_name", "list_dir"],
-  Grep: ["grep_search"],
-  WebFetch: ["read_url_content"],
+  Glob: ["find_by_name", "list_dir", "run_command"],
+  Grep: ["grep_search", "run_command"],
+  WebFetch: ["read_url_content", "run_command"],
   WebSearch: ["search_web"],
   AskUserQuestion: ["ask_question"],
   ToolSearch: ["call_mcp_tool", "list_resources", "read_resource"],
@@ -33,18 +38,34 @@ export const AGY_TOOL_MAP = {
   TodoWrite: null,
 };
 
+// Match BOTH modern Antigravity CLI/App/ACP tool names (write_file, edit_file, read_file)
+// and legacy IDE names (write_to_file, replace_file_content, multi_replace_file_content, view_file).
 const AGY_HOOK_MATCHER_MAP = {
-  ...AGY_TOOL_MAP,
   Bash: ["run_command"],
-  Edit: ["replace_file_content", "multi_replace_file_content"],
+  Read: ["read_file", "view_file"],
+  Write: ["write_file", "write_to_file"],
+  Edit: ["edit_file", "replace_file_content", "multi_replace_file_content"],
+  MultiEdit: ["edit_file", "multi_replace_file_content"],
+  Glob: ["find_by_name", "list_dir"],
+  Grep: ["grep_search"],
+  WebFetch: ["read_url_content"],
+  WebSearch: ["search_web"],
+  Agent: ["invoke_subagent"],
+  Task: ["invoke_subagent"],
+  AskUserQuestion: ["ask_question"],
+  EnterPlanMode: null,
+  ExitPlanMode: null,
+  NotebookEdit: null,
+  TodoWrite: null,
 };
-delete AGY_HOOK_MATCHER_MAP.ToolSearch;
 
 const SHELL_TOOL_RE = /^Bash(\(|$)|^\*$/;
 const SIMPLE_HOOK_RE =
   /^\s*(?:bash|node)\s+(?:"?\$?\{?CLAUDE_PROJECT_DIR\}?"?\/)?(\.claude\/[\w./-]+\.(?:sh|mjs|js|cjs))\s*$/;
 const code = (s) => `\`${s}\``;
 const shSingle = (s) => `'${s.replace(/'/g, `'\\''`)}'`;
+const asList = (v) =>
+  Array.isArray(v) ? v : typeof v === "string" && v ? v.split(",").map((s) => s.trim()).filter(Boolean) : [];
 
 export function mapAntigravityAgentTools(claudeTools, file, generator, failures) {
   if (claudeTools === null || claudeTools.includes("*")) return null;
@@ -71,8 +92,10 @@ export function mapAntigravityAgentTools(claudeTools, file, generator, failures)
 export function generateAntigravityAgents({ agentSources, emit, failures, generator, syncCmd }) {
   for (const { file, fileName, data, body, tools } of agentSources) {
     const agyTools = mapAntigravityAgentTools(tools, file, generator, failures);
-    const canRunShell =
+    const hasExplicitBash =
       data.permissionMode !== "plan" && (tools === null || tools.some((t) => SHELL_TOOL_RE.test(t)));
+    const canRunShell = agyTools === null || agyTools.includes("run_command");
+    const readOnlyShell = canRunShell && !hasExplicitBash;
 
     const fm = [
       "---",
@@ -87,15 +110,25 @@ export function generateAntigravityAgents({ agentSources, emit, failures, genera
       fm.push("tools:");
       for (const t of agyTools) fm.push(`  - ${t}`);
     }
+    const agentSkills = asList(data.skills);
+    if (agentSkills.length) {
+      fm.push("skills:");
+      for (const s of agentSkills) fm.push(`  - ${s.includes("/") ? s : `skills/${s}`}`);
+    }
     fm.push("---");
 
     const notes = [
       "Antigravity notes (generated):",
       `- You are the Antigravity port of ${code(file)}; ${code("AGENTS.md")} and ${code(".agents/rules/")} apply.`,
-      `- Tool names above are Claude Code's. Map them to Antigravity tools (${code("view_file")}, ${code("replace_file_content")}, ${code("write_to_file")}, ${code("run_command")}, ${code("invoke_subagent")}).`,
+      `- Tool names above are Claude Code's. Map them to Antigravity tools (${code("read_file")}/${code("view_file")}, ${code("edit_file")}/${code("replace_file_content")}, ${code("write_file")}/${code("write_to_file")}, ${code("run_command")}, ${code("invoke_subagent")}).`,
     ];
     if (tools?.length) {
       notes.push(`- Claude Code limits you to: ${tools.join(", ")}. Stay within that scope (including any command-prefix limits).`);
+    }
+    if (readOnlyShell) {
+      notes.push(
+        `- ${code("run_command")} is granted solely for read-only search/fetch (${code("rg")}, ${code("find")}, ${code("ls")}, ${code("git status/log/diff")}, ${code("curl -fsSL")}) because Antigravity CLI/ACP omits standalone Glob/Grep/WebFetch tools; never edit files or run state-changing commands.`,
+      );
     }
     if (data.memory === "project") {
       notes.push(
@@ -141,20 +174,34 @@ export function generateAntigravityRules({ rules, emit, generator, syncCmd, incl
   return count;
 }
 
-export function generateAntigravityHooks({ settings, bellRe, gitRoot, scriptOf, emit, failures }) {
+export function generateAntigravityHooks({ settings, bellRe, scriptOf, emit, failures }) {
   const group = { enabled: true };
   const agyNotCarried = [];
   let mirrored = 0;
   let needsPreInvocationQueue = false;
   let sawBell = false;
 
-  const adapterBase = `bash "${gitRoot}"/.claude/scripts/_antigravity-hook.sh`;
+  // Antigravity runs hooks with `.agents/` as cwd via `sh -c` (Unix) and `cmd /c` (Windows).
+  // A relative `../.claude/scripts/_antigravity-hook.sh` avoids POSIX `$(...)` expansion,
+  // which cmd.exe passes literally and silently fails open on Windows.
+  const adapterBase = "bash ../.claude/scripts/_antigravity-hook.sh";
   const buildAdapterCmd = (event, rawCmd) => {
     if (!rawCmd) return `${adapterBase} ${event}`;
     const simple = rawCmd.match(SIMPLE_HOOK_RE)?.[1] ?? scriptOf?.(rawCmd);
     if (simple && SIMPLE_HOOK_RE.test(rawCmd)) return `${adapterBase} ${event} ${simple}`;
     if (/\.claude\//.test(rawCmd)) return `${adapterBase} ${event} --eval ${shSingle(rawCmd)}`;
     return null;
+  };
+
+  const addToolHook = (event, matcher, entry, prepend = false) => {
+    if (!group[event]) group[event] = [];
+    let target = group[event].find((g) => g.matcher === matcher);
+    if (!target) {
+      target = { matcher, hooks: [] };
+      group[event].push(target);
+    }
+    if (prepend) target.hooks.unshift(entry);
+    else target.hooks.push(entry);
   };
 
   for (const [event, blocks] of Object.entries(settings.hooks ?? {})) {
@@ -182,7 +229,7 @@ export function generateAntigravityHooks({ settings, bellRe, gitRoot, scriptOf, 
             if (/^mcp__[\w.*-]+$/.test(t)) mapped.push(t);
             else if (!Object.hasOwn(AGY_HOOK_MATCHER_MAP, t)) {
               failures.push(
-                `.claude/settings.json: ${event} matcher token "${t}" has no Antigravity mapping. Add it to AGY_HOOK_MATCHER_MAP in scripts/sync-antigravity.mjs.`,
+                `.claude/settings.json: ${event} matcher token "${t}" has no Antigravity mapping. Add it to AGY_HOOK_MATCHER_MAP in scripts/antigravity-format.mjs.`,
               );
             } else if (AGY_HOOK_MATCHER_MAP[t]) {
               mapped.push(...AGY_HOOK_MATCHER_MAP[t]);
@@ -204,21 +251,38 @@ export function generateAntigravityHooks({ settings, bellRe, gitRoot, scriptOf, 
         const timeout = typeof handler.timeout === "number" ? handler.timeout : 30;
         const entry = { type: "command", command, timeout };
 
-        if (!group[event]) group[event] = [];
         if (AGY_TOOL_EVENTS.has(event)) {
           needsPreInvocationQueue = true;
-          const key = matcher ?? "*";
-          let target = group[event].find((g) => g.matcher === key);
-          if (!target) {
-            target = { matcher: key, hooks: [] };
-            group[event].push(target);
-          }
-          target.hooks.push(entry);
+          addToolHook(event, matcher ?? "*", entry);
         } else {
+          if (!group[event]) group[event] = [];
           group[event].push(entry);
         }
         mirrored++;
       }
+    }
+  }
+
+  // Mechanically enforce .claude/settings.json permissions.deny rules on PreToolUse.
+  const denyRules = Array.isArray(settings.permissions?.deny) ? settings.permissions.deny : [];
+  if (denyRules.length > 0) {
+    const denyEntry = () => ({ type: "command", command: `${adapterBase} PreToolUse --enforce-deny`, timeout: 10 });
+    if (denyRules.some((r) => /^Bash\(/.test(r))) {
+      addToolHook("PreToolUse", "run_command", denyEntry(), true);
+      mirrored++;
+    }
+    if (denyRules.some((r) => /^(?:Edit|Write|Read)\(/.test(r))) {
+      addToolHook(
+        "PreToolUse",
+        "write_file|write_to_file|edit_file|replace_file_content|multi_replace_file_content",
+        denyEntry(),
+        true,
+      );
+      mirrored++;
+    }
+    if (denyRules.some((r) => /^Read\(/.test(r))) {
+      addToolHook("PreToolUse", "read_file|view_file", denyEntry(), true);
+      mirrored++;
     }
   }
 
@@ -255,15 +319,15 @@ export function generateAntigravityReadme({ summary, agyNotCarried, emit, genera
     `| ${code(".claude/skills/<name>/**")} | ${code(".agents/skills/<name>/**")} (${code("SKILL.md")} <= ${AGY_SKILL_CEILING} B) |`,
     `| ${code(".claude/agents/<name>.md")} | ${code(".agents/agents/<name>.md")} |`,
     `| ${code(".claude/rules/*.md")} | ${code(".agents/rules/*.md")} (${code("glob")} / ${code("always_on")}) |`,
-    `| ${code(".claude/settings.json")} hooks | ${code(".agents/hooks.json")} via ${code(".claude/scripts/_antigravity-hook.sh")} |`,
+    `| ${code(".claude/settings.json")} hooks + deny rules | ${code(".agents/hooks.json")} via ${code(".claude/scripts/_antigravity-hook.sh")} |`,
     "",
     `Current output: ${summary.skills} skills, ${summary.agents} agents, ${summary.rules} rules, ${summary.agyHooks} hook handlers (${docNote}).`,
     "",
     "## How the Antigravity bridge works",
     "",
     `- **Models.** Claude tiers map to Antigravity tiers: ${Object.entries(AGY_MODEL_MAP).map(([k, v]) => `${code(k)} -> ${code(v)}`).join(", ")}.`,
-    `- **Command sandbox.** Agents without ${code("Bash")} get ${code('commandExecutionPolicy: "off"')}; agents with ${code("Bash")} get ${code("commandExecutionPolicy: sandbox")}.`,
-    `- **Hooks adapter (${code("_antigravity-hook.sh")}).** Antigravity runs hooks with ${code(".agents/")} as cwd, sends camelCase JSON (${code("toolCall.args.CommandLine")}, ${code("TargetFile")}, ${code("Cwd")}), and treats non-zero exits as fail-open errors. The adapter anchors at the git root, converts ${code("exit 2")} + stderr into ${code('{"decision":"deny","reason":"..."}')} (exit 0), emits ${code("SessionStart")} text as ${code("systemMessage")}, and queues ${code("PreToolUse")}/${code("PostToolUse")} ${code("additionalContext")} per ${code("conversationId")} so ${code("PreInvocation")} injects it as ${code("ephemeralMessage")} on the next step.`,
+    `- **Command sandbox.** Agents needing shell or CLI search/fetch (${code("Bash")}, ${code("Glob")}, ${code("Grep")}, ${code("WebFetch")}) get ${code("commandExecutionPolicy: sandbox")}; agents needing none get ${code('commandExecutionPolicy: "off"')}.`,
+    `- **Hooks adapter (${code("_antigravity-hook.sh")}).** Antigravity runs hooks with ${code(".agents/")} as cwd via ${code("sh -c")} (Unix) or ${code("cmd /c")} (Windows), so commands invoke ${code("bash ../.claude/scripts/_antigravity-hook.sh")} without POSIX ${code("$(...)")}. The adapter handles both modern CLI/ACP tool names (${code("write_file")}, ${code("edit_file")}, ${code("read_file")} with ${code("Path")}) and legacy IDE names (${code("write_to_file")}, ${code("replace_file_content")}, ${code("view_file")} with ${code("TargetFile")}/${code("AbsolutePath")}), reads top-level ${code("cwd")}, enforces ${code(".claude/settings.json")} ${code("permissions.deny")} via ${code("--enforce-deny")}, converts ${code("exit 2")} + stderr into ${code('{"decision":"deny","reason":"..."}')} (exit 0), and flushes queued ${code("PreToolUse")}/${code("PostToolUse")} advice once on the next ${code("PreInvocation")} as ${code("systemMessage")}.`,
   ];
   if (agyNotCarried.length) {
     lines.push("", "## Not carried over to Antigravity", "");

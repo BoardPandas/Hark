@@ -105,9 +105,9 @@ Autonomous code changes are only appropriate for the first row. Dispatching a bu
 
 ## Step 4: Dispatch one builder subagent per unit
 
-Call the **Agent** tool with `subagent_type: "builder"` — once per unit, **all in a single message** so they run concurrently. The builder agent is already `isolation: worktree`, so parallel agents cannot clobber each other.
+Call the **Agent** tool with `subagent_type: "builder"` — once per unit, **all in a single message** so they run concurrently. The builder agent is already `isolation: worktree`, so parallel agents cannot clobber each other. (In Antigravity, call `invoke_subagent` with `TypeName: "builder"` and `Workspace: "branch"`, and record each returned `conversationId` for `send_message`.)
 
-Give each agent a `name` derived from the issue numbers (e.g. `issue-283-290`) so you can address it later with SendMessage.
+Give each agent a `name` derived from the issue numbers (e.g. `issue-283-290`) so you can address it later with SendMessage (or use its returned `conversationId` in Antigravity).
 
 Each `prompt` must be **fully self-contained** — the subagent has no memory of this conversation. Include:
 
@@ -204,7 +204,7 @@ Then for each unit that reported `STATUS: RESOLVED`:
    git commit -F .git/CLAUDE_COMMIT_MSG.txt
    # then delete .git/CLAUDE_COMMIT_MSG.txt
    ```
-   Reference the issues in the message body (`Closes #283, #290`) and end with the `Co-Authored-By: Claude` trailer.
+   Reference the issues in the message body (`Closes #283, #290`) and end with the dynamic `Co-Authored-By: {Agent} {Model}` trailer (e.g., `Co-Authored-By: Gemini 4 Neon`, `Co-Authored-By: Claude Opus 5.5`, `Co-Authored-By: Codex GPT-6 Sol`).
 5. **Push the explicit ref:**
    ```bash
    git push origin HEAD:<main>

@@ -425,6 +425,71 @@ notes.push(`rules: ${ruleFiles.length} total, ${alwaysOnRules.length} load in ev
   }
 }
 
+// --------------- 13: Antigravity .agents/hooks.json cross-platform & tool matchers
+// Antigravity runs hook commands via `cmd /c` on Windows with `.agents/` as cwd, so
+// POSIX `$(...)` or backtick command substitution passes literally and silently fails open.
+// Antigravity CLI/ACP 1.5+ also uses `write_file`/`edit_file` (not legacy `write_to_file` /
+// `replace_file_content`), so legacy-only matchers silently never fire there.
+{
+  const agyHooksPath = ".agents/hooks.json";
+  if (exists(agyHooksPath)) {
+    let agyHooks;
+    try {
+      agyHooks = JSON.parse(read(agyHooksPath) ?? "");
+    } catch (e) {
+      errors.push(`.agents/hooks.json is not valid JSON: ${e.message}`);
+      agyHooks = null;
+    }
+    if (agyHooks && typeof agyHooks === "object") {
+      const checkAgyCmd = (ctx, cmd) => {
+        if (typeof cmd === "string" && (/\$\(/.test(cmd) || /`/.test(cmd))) {
+          errors.push(
+            `.agents/hooks.json: ${ctx} uses POSIX command substitution ($(...) or backticks), which ` +
+              `Windows cmd /c passes literally so the hook silently fails open. Use a relative path ` +
+              `from .agents/ (e.g. bash ../.claude/scripts/_antigravity-hook.sh).`,
+          );
+        }
+      };
+      for (const [groupName, cfg] of Object.entries(agyHooks)) {
+        if (!cfg || typeof cfg !== "object") continue;
+        for (const ev of ["SessionStart", "PreInvocation", "PostInvocation", "Stop"]) {
+          for (const h of Array.isArray(cfg[ev]) ? cfg[ev] : []) {
+            checkAgyCmd(`${groupName}.${ev}`, h?.command);
+          }
+        }
+        for (const ev of ["PreToolUse", "PostToolUse"]) {
+          for (const block of Array.isArray(cfg[ev]) ? cfg[ev] : []) {
+            const m = block?.matcher ?? "";
+            if (typeof m === "string" && m) {
+              const tokens = m.split("|");
+              if (tokens.includes("write_to_file") && !tokens.includes("write_file")) {
+                errors.push(
+                  `.agents/hooks.json: ${groupName}.${ev} matcher ${JSON.stringify(m)} matches legacy ` +
+                    `write_to_file without write_file; Antigravity CLI/ACP 1.5+ uses write_file so this ` +
+                    `hook silently never fires there.`,
+                );
+              }
+              if (
+                (tokens.includes("replace_file_content") || tokens.includes("multi_replace_file_content")) &&
+                !tokens.includes("edit_file")
+              ) {
+                errors.push(
+                  `.agents/hooks.json: ${groupName}.${ev} matcher ${JSON.stringify(m)} matches legacy ` +
+                    `replace_file_content without edit_file; Antigravity CLI/ACP 1.5+ uses edit_file so ` +
+                    `this hook silently never fires there.`,
+                );
+              }
+            }
+            for (const h of Array.isArray(block?.hooks) ? block.hooks : []) {
+              checkAgyCmd(`${groupName}.${ev}[${m || "*"}]`, h?.command);
+            }
+          }
+        }
+      }
+    }
+  }
+}
+
 for (const n of notes) console.log(`claude-wiring: ${n}`);
 for (const w of warnings) console.warn(`claude-wiring WARN: ${w}`);
 
